@@ -28,6 +28,12 @@ docker compose up -d --build
 
 Страница: http://localhost:8080
 
+Если 8080 занят соседним стендом, порт задаётся переменной:
+
+```bash
+LANDING_PORT=8099 docker compose up -d
+```
+
 Без compose:
 
 ```bash

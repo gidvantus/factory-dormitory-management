@@ -4,5 +4,6 @@ services:
     image: domovoy-landing:local
     container_name: domovoy-landing
     ports:
-      - "8080:80"
+      # Порт на хосте задаётся переменной LANDING_PORT, по умолчанию 8080.
+      - "${LANDING_PORT:-8080}:80"
     restart: unless-stopped
