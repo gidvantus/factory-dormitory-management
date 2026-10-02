@@ -1,0 +1,51 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  line-height: 1.5;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem;
+}
+
+main {
+  max-width: 32rem;
+}
+
+[data-testid='generated-password'] {
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+form p {
+  margin: 0.75rem 0;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+}
+
+input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.5rem;
+  font: inherit;
+}
+
+button {
+  padding: 0.5rem 1rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+[role='alert'] {
+  color: #b3261e;
+}
