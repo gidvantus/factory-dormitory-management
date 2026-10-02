@@ -1,0 +1,8 @@
+services:
+  landing:
+    build: .
+    image: domovoy-landing:local
+    container_name: domovoy-landing
+    ports:
+      - "8080:80"
+    restart: unless-stopped

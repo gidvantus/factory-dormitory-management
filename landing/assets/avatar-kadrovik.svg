@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Кадровик">
+  <g fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <!-- шея -->
+    <path d="M88 104 H112 V166 H88 Z" fill="#FBE3CE"/>
+    <!-- уши -->
+    <circle cx="66" cy="78" r="6.5" fill="#FBE3CE"/>
+    <circle cx="134" cy="78" r="6.5" fill="#FBE3CE"/>
+    <!-- голова -->
+    <ellipse cx="100" cy="78" rx="34" ry="38" fill="#FBE3CE"/>
+    <!-- короткая стрижка -->
+    <path d="M67 68 C66 44 82 34 100 34 C118 34 134 44 133 68 C131 58 127 52 121 48 C111 56 89 58 79 52 C73 56 68 60 67 68 Z" fill="#27313D"/>
+    <!-- брови -->
+    <path d="M80 67 Q86 63 92 67"/>
+    <path d="M108 67 Q114 63 120 67"/>
+    <!-- глаза -->
+    <circle cx="86" cy="76" r="3.5" fill="#27313D"/>
+    <circle cx="114" cy="76" r="3.5" fill="#27313D"/>
+    <!-- нос -->
+    <path d="M96 84 Q100 89 104 84"/>
+    <!-- усы -->
+    <path d="M87 94 C90 89 96 90 100 93 C104 90 110 89 113 94 C106 98 94 98 87 94 Z" fill="#27313D"/>
+    <!-- улыбка -->
+    <path d="M92 102 Q100 108 108 102"/>
+    <!-- рубашка -->
+    <path d="M48 200 C48 162 68 138 88 138 L100 158 L112 138 C132 138 152 162 152 200 Z" fill="#DCE9F7"/>
+    <!-- воротник -->
+    <path d="M87 140 L100 158 L80 156 Z" fill="#B7D3EC"/>
+    <path d="M113 140 L100 158 L120 156 Z" fill="#B7D3EC"/>
+    <!-- нагрудный карман -->
+    <rect x="62" y="168" width="20" height="20" rx="3" fill="#B7D3EC"/>
+    <path d="M62 174 H82"/>
+  </g>
+</svg>

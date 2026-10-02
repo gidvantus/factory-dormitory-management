@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Проживающий">
+  <g fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <!-- шея -->
+    <path d="M88 104 H112 V160 H88 Z" fill="#FBE3CE"/>
+    <!-- уши -->
+    <circle cx="66" cy="78" r="6.5" fill="#FBE3CE"/>
+    <circle cx="134" cy="78" r="6.5" fill="#FBE3CE"/>
+    <!-- голова -->
+    <ellipse cx="100" cy="78" rx="34" ry="38" fill="#FBE3CE"/>
+    <!-- волосы из-под кепки -->
+    <path d="M66 60 C63 65 63 69 65 72 L72 70 C69 66 69 63 71 59 Z" fill="#27313D"/>
+    <path d="M134 60 C137 65 137 69 135 72 L128 70 C131 66 131 63 129 59 Z" fill="#27313D"/>
+    <!-- кепка -->
+    <path d="M65 60 C62 36 78 24 100 24 C122 24 138 36 135 60 C120 68 80 68 65 60 Z" fill="#F2D793"/>
+    <ellipse cx="100" cy="63" rx="41" ry="7.5" fill="#FCEFC7"/>
+    <!-- блики на кепке -->
+    <path d="M84 41 Q90 35 99 34" stroke-width="2.5"/>
+    <path d="M113 36 Q120 40 124 47" stroke-width="2.5"/>
+    <!-- брови -->
+    <path d="M80 67 Q86 63 92 67"/>
+    <path d="M108 67 Q114 63 120 67"/>
+    <!-- глаза -->
+    <circle cx="86" cy="76" r="3.5" fill="#27313D"/>
+    <circle cx="114" cy="76" r="3.5" fill="#27313D"/>
+    <!-- нос -->
+    <path d="M96 84 Q100 89 104 84"/>
+    <!-- улыбка -->
+    <path d="M91 96 Q100 105 109 96"/>
+    <!-- лёгкая щетина -->
+    <path d="M71 93 L68.5 97" stroke-width="2"/>
+    <path d="M76 101 L73.5 105" stroke-width="2"/>
+    <path d="M83 108 L81 112" stroke-width="2"/>
+    <path d="M129 93 L131.5 97" stroke-width="2"/>
+    <path d="M124 101 L126.5 105" stroke-width="2"/>
+    <path d="M117 108 L119 112" stroke-width="2"/>
+    <!-- рабочая куртка -->
+    <path d="M46 200 C46 160 66 138 88 138 C90 156 110 156 112 138 C134 138 154 160 154 200 Z" fill="#FBE0D2"/>
+    <!-- воротник-стойка -->
+    <path d="M80 142 C86 152 114 152 120 142 C126 146 129 154 127 161 C118 176 82 176 73 161 C71 154 74 146 80 142 Z" fill="#F5C0A4"/>
+    <!-- молния -->
+    <path d="M100 176 V 200"/>
+  </g>
+</svg>

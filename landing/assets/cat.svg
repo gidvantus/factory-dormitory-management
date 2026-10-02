@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Котёнок">
+  <!-- хвост -->
+  <path d="M134 164 C168 152 176 118 164 86" fill="none" stroke="#27313D" stroke-width="24" stroke-linecap="round"/>
+  <path d="M134 164 C168 152 176 118 164 86" fill="none" stroke="#F2D793" stroke-width="17" stroke-linecap="round"/>
+  <path d="M156 148 q9 -3 15 1" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+  <path d="M166 124 q8 -4 13 0" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- уши -->
+  <path d="M62 64 L54 12 L106 42 Z" fill="#F2D793" stroke="#27313D" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M138 64 L146 12 L94 42 Z" fill="#F2D793" stroke="#27313D" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M69 55 L63 24 L95 42 Z" fill="#FBE0D2" stroke="#27313D" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M131 55 L137 24 L105 42 Z" fill="#FBE0D2" stroke="#27313D" stroke-width="3" stroke-linejoin="round"/>
+
+  <!-- тело -->
+  <path d="M58 176 C52 130 64 102 100 102 C136 102 148 130 142 176 Z" fill="#F2D793" stroke="#27313D" stroke-width="3" stroke-linejoin="round"/>
+
+  <!-- полоски на боках -->
+  <path d="M58 128 c10 -4 20 -3 26 1" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+  <path d="M56 148 c9 -3 17 -1 23 3" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+  <path d="M142 128 c-10 -4 -20 -3 -26 1" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+  <path d="M144 148 c-9 -3 -17 -1 -23 3" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- лапки -->
+  <ellipse cx="82" cy="170" rx="16" ry="12" fill="#F2D793" stroke="#27313D" stroke-width="3"/>
+  <ellipse cx="118" cy="170" rx="16" ry="12" fill="#F2D793" stroke="#27313D" stroke-width="3"/>
+
+  <!-- голова -->
+  <ellipse cx="100" cy="74" rx="44" ry="40" fill="#F2D793" stroke="#27313D" stroke-width="3"/>
+  <path d="M88 42 c2 6 2 9 1 12" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+  <path d="M100 38 v13" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+  <path d="M112 42 c-2 6 -2 9 -1 12" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- мордочка -->
+  <circle cx="83" cy="70" r="4.5" fill="#27313D"/>
+  <circle cx="117" cy="70" r="4.5" fill="#27313D"/>
+  <path d="M92 81 q8 -3 16 0 q-2 10 -8 10 q-6 0 -8 -10 z" fill="#F5C0A4" stroke="#27313D" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M100 91 q0 7 -8 8" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+  <path d="M100 91 q0 7 8 8" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+  <path d="M64 74 L40 68" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+  <path d="M64 86 L40 90" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+  <path d="M136 74 L160 68" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+  <path d="M136 86 L160 90" fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round"/>
+</svg>
