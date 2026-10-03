@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+coverage/
+.vite/
+
+# Локальные настройки стенда: .env.example — шаблон, .env — личные значения
+.env
+
+# Логи и служебные файлы редакторов
+*.log
+debug.log
+.DS_Store
