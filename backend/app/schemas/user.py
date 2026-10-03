@@ -49,3 +49,13 @@ class UserResponse(BaseModel):
     email: EmailStr
     full_name: str
     created_at: datetime
+
+
+class ErrorResponse(BaseModel):
+    """Тело ошибки, которую роут поднимает сам.
+
+    Нужна не для логики, а для контракта: без неё `HTTPException` в роуте
+    возвращает статус, которого нет в опубликованной схеме `/openapi.json`.
+    """
+
+    detail: str

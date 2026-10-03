@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models.user import User
 from app.schemas.user import (
+    ErrorResponse,
     LoginRequest,
     RegisterRequest,
     RegisterResponse,
@@ -39,6 +40,12 @@ DbSession = Annotated[Session, Depends(get_db)]
     status_code=status.HTTP_201_CREATED,
     response_model=RegisterResponse,
     summary="Зарегистрировать пользователя и один раз показать пароль",
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "model": ErrorResponse,
+            "description": "Email уже занят",
+        },
+    },
 )
 def register(payload: RegisterRequest, db: DbSession) -> RegisterResponse:
     email = normalize_email(payload.email)
@@ -75,6 +82,12 @@ def register(payload: RegisterRequest, db: DbSession) -> RegisterResponse:
     "/login",
     response_model=UserResponse,
     summary="Войти по email и паролю",
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {
+            "model": ErrorResponse,
+            "description": "Неверный email или пароль",
+        },
+    },
 )
 def login(payload: LoginRequest, response: Response, db: DbSession) -> UserResponse:
     email = normalize_email(payload.email)
