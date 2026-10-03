@@ -1,0 +1,128 @@
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { mockFetch } from '../test/mockFetch';
+import { renderApp } from '../test/renderApp';
+
+/** Главная доступна анонимному пользователю: сессии нет, окна закрыты. */
+function anonymous(): void {
+  mockFetch(() => ({ status: 401, body: { detail: 'Требуется авторизация' } }));
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('главная страница', () => {
+  it('показывает лендинг без модального окна', async () => {
+    anonymous();
+    renderApp('/');
+
+    expect(await screen.findByTestId('landing')).toBeInTheDocument();
+    expect(screen.queryByTestId('auth-modal')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('login-submit')).not.toBeInTheDocument();
+  });
+
+  it('открывает форму входа в модальном окне по кнопке в шапке', async () => {
+    anonymous();
+    const user = userEvent.setup();
+    renderApp('/');
+
+    await user.click(await screen.findByTestId('nav-login'));
+
+    const dialog = await screen.findByTestId('auth-modal');
+    expect(dialog).toHaveAttribute('role', 'dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByTestId('auth-modal-title')).toHaveTextContent('Вход в личный кабинет');
+    expect(screen.getByTestId('login-email')).toBeInTheDocument();
+    expect(screen.getByTestId('login-password')).toBeInTheDocument();
+  });
+
+  it('открывает форму регистрации в модальном окне с призыва героя', async () => {
+    anonymous();
+    const user = userEvent.setup();
+    renderApp('/');
+
+    await user.click(await screen.findByTestId('hero-register'));
+
+    expect(await screen.findByTestId('auth-modal-title')).toHaveTextContent('Регистрация');
+    expect(screen.getByTestId('register-email')).toBeInTheDocument();
+    expect(screen.getByTestId('register-full-name')).toBeInTheDocument();
+  });
+
+  it('переводит фокус в первое поле окна', async () => {
+    anonymous();
+    const user = userEvent.setup();
+    renderApp('/');
+
+    await user.click(await screen.findByTestId('nav-login'));
+
+    expect(await screen.findByTestId('login-email')).toHaveFocus();
+  });
+});
+
+describe('адреса /login и /register', () => {
+  it('/login сразу открывает окно входа', async () => {
+    anonymous();
+    renderApp('/login');
+
+    expect(await screen.findByTestId('auth-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('login-submit')).toBeInTheDocument();
+  });
+
+  it('/register сразу открывает окно регистрации', async () => {
+    anonymous();
+    renderApp('/register');
+
+    expect(await screen.findByTestId('auth-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('register-submit')).toBeInTheDocument();
+  });
+
+  it('из окна входа можно перейти к регистрации', async () => {
+    anonymous();
+    const user = userEvent.setup();
+    renderApp('/login');
+
+    await user.click(await screen.findByTestId('link-to-register'));
+
+    expect(await screen.findByTestId('register-full-name')).toBeInTheDocument();
+    expect(screen.queryByTestId('login-email')).not.toBeInTheDocument();
+  });
+});
+
+describe('закрытие модального окна', () => {
+  it('закрывается по Esc и возвращает на главную', async () => {
+    anonymous();
+    const user = userEvent.setup();
+    renderApp('/login');
+    expect(await screen.findByTestId('auth-modal')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByTestId('auth-modal')).not.toBeInTheDocument());
+    expect(screen.getByTestId('landing')).toBeInTheDocument();
+  });
+
+  it('закрывается кнопкой закрытия', async () => {
+    anonymous();
+    const user = userEvent.setup();
+    renderApp('/register');
+    expect(await screen.findByTestId('auth-modal')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('auth-modal-close'));
+
+    await waitFor(() => expect(screen.queryByTestId('auth-modal')).not.toBeInTheDocument());
+  });
+
+  it('закрывается кликом по подложке', async () => {
+    anonymous();
+    const user = userEvent.setup();
+    renderApp('/register');
+    expect(await screen.findByTestId('auth-modal')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('auth-modal-backdrop'));
+
+    await waitFor(() => expect(screen.queryByTestId('auth-modal')).not.toBeInTheDocument());
+  });
+});

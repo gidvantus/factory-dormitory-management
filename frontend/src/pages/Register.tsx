@@ -12,6 +12,7 @@ interface FieldErrors {
   fullName?: string;
 }
 
+/** Форма регистрации. Живёт внутри модального окна на главной странице. */
 export function Register(): JSX.Element {
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
@@ -71,90 +72,132 @@ export function Register(): JSX.Element {
 
   if (result) {
     return (
-      <section>
-        <h1>Регистрация завершена</h1>
-        <p data-testid="register-success">
+      <div className="form" data-testid="register-success-screen">
+        <p className="alert alert--ok" data-testid="register-success">
           Пользователь <strong data-testid="register-result-email">{result.email}</strong> создан.
         </p>
-        <p data-testid="password-warning" role="alert">
+
+        <div className="password-box">
+          <p className="field__label">Ваш пароль для входа</p>
+          <p
+            className="password-value"
+            data-testid="generated-password"
+            aria-label="Сгенерированный пароль"
+          >
+            {result.password}
+          </p>
+          <button
+            className="btn btn--outline btn--sm"
+            type="button"
+            data-testid="copy-password"
+            onClick={() => void copyPassword()}
+          >
+            Скопировать пароль
+          </button>
+          {copied ? (
+            <p className="form__note" data-testid="password-copied" role="status">
+              Пароль скопирован
+            </p>
+          ) : null}
+        </div>
+
+        <p className="alert alert--warning" data-testid="password-warning" role="alert">
           <strong>Сохраните пароль сейчас.</strong> Он показывается один раз и больше не будет
           доступен ни на этом сайте, ни по почте.
         </p>
-        <p data-testid="generated-password" aria-label="Сгенерированный пароль">
-          {result.password}
-        </p>
-        <button type="button" data-testid="copy-password" onClick={() => void copyPassword()}>
-          Скопировать пароль
-        </button>
-        {copied ? <p data-testid="password-copied">Пароль скопирован</p> : null}
-        <p>
-          <Link to="/login" data-testid="link-to-login">
-            Войти с этим паролем
-          </Link>
-        </p>
-      </section>
+
+        <Link className="btn btn--primary btn--block" to="/login" data-testid="link-to-login">
+          Войти с этим паролем
+        </Link>
+      </div>
     );
   }
 
   return (
-    <section>
-      <h1>Регистрация</h1>
-      <p>Пароль придумает сервер и покажет его один раз после регистрации.</p>
-      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
-        <p>
-          <label htmlFor="register-email">Email</label>
-          <input
-            id="register-email"
-            name="email"
-            type="email"
-            data-testid="register-email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            aria-invalid={errors.email ? true : undefined}
-            aria-describedby={errors.email ? 'register-email-error' : undefined}
-          />
-        </p>
+    <form className="form" onSubmit={(event) => void handleSubmit(event)} noValidate>
+      <p className="form__lead">
+        Укажите почту и ФИО — пароль придумает сервер и покажет его один раз после регистрации.
+      </p>
+
+      <div className="field">
+        <label className="field__label" htmlFor="register-email">
+          Email
+        </label>
+        <input
+          className="field__input"
+          id="register-email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          placeholder="ivanov@company.ru"
+          data-testid="register-email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          aria-invalid={errors.email ? true : undefined}
+          aria-describedby={errors.email ? 'register-email-error' : undefined}
+        />
         {errors.email ? (
-          <p id="register-email-error" role="alert" data-testid="register-email-error">
+          <p
+            className="field__error"
+            id="register-email-error"
+            role="alert"
+            data-testid="register-email-error"
+          >
             {errors.email}
           </p>
         ) : null}
+      </div>
 
-        <p>
-          <label htmlFor="register-full-name">ФИО</label>
-          <input
-            id="register-full-name"
-            name="full_name"
-            type="text"
-            data-testid="register-full-name"
-            value={fullName}
-            onChange={(event) => setFullName(event.target.value)}
-            aria-invalid={errors.fullName ? true : undefined}
-            aria-describedby={errors.fullName ? 'register-full-name-error' : undefined}
-          />
-        </p>
+      <div className="field">
+        <label className="field__label" htmlFor="register-full-name">
+          ФИО
+        </label>
+        <input
+          className="field__input"
+          id="register-full-name"
+          name="full_name"
+          type="text"
+          autoComplete="name"
+          placeholder="Иванов Иван Иванович"
+          data-testid="register-full-name"
+          value={fullName}
+          onChange={(event) => setFullName(event.target.value)}
+          aria-invalid={errors.fullName ? true : undefined}
+          aria-describedby={errors.fullName ? 'register-full-name-error' : undefined}
+        />
         {errors.fullName ? (
-          <p id="register-full-name-error" role="alert" data-testid="register-full-name-error">
+          <p
+            className="field__error"
+            id="register-full-name-error"
+            role="alert"
+            data-testid="register-full-name-error"
+          >
             {errors.fullName}
           </p>
         ) : null}
+      </div>
 
-        {requestError ? (
-          <p role="alert" data-testid="register-error">
-            {requestError}
-          </p>
-        ) : null}
+      {requestError ? (
+        <p className="alert alert--error" role="alert" data-testid="register-error">
+          {requestError}
+        </p>
+      ) : null}
 
-        <button type="submit" data-testid="register-submit" disabled={submitting}>
-          Зарегистрироваться
-        </button>
-      </form>
-      <p>
+      <button
+        className="btn btn--primary btn--block"
+        type="submit"
+        data-testid="register-submit"
+        disabled={submitting}
+      >
+        Зарегистрироваться
+      </button>
+
+      <p className="form__switch">
         Уже есть пароль?{' '}
         <Link to="/login" data-testid="link-to-login">
           Войти
         </Link>
       </p>
-    </section>
+    </form>
   );
 }

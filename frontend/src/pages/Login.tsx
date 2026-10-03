@@ -9,6 +9,7 @@ interface LoginLocationState {
   from?: string;
 }
 
+/** Форма входа. Живёт внутри модального окна на главной странице. */
 export function Login(): JSX.Element {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -53,63 +54,87 @@ export function Login(): JSX.Element {
   }
 
   return (
-    <section>
-      <h1>Вход</h1>
-      <form onSubmit={(event) => void handleSubmit(event)} noValidate>
-        <p>
-          <label htmlFor="login-email">Email</label>
-          <input
-            id="login-email"
-            name="email"
-            type="email"
-            data-testid="login-email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            aria-invalid={errors.email ? true : undefined}
-            aria-describedby={errors.email ? 'login-email-error' : undefined}
-          />
-        </p>
+    <form className="form" onSubmit={(event) => void handleSubmit(event)} noValidate>
+      <p className="form__lead">Войдите с email и паролем, который сервер выдал при регистрации.</p>
+
+      <div className="field">
+        <label className="field__label" htmlFor="login-email">
+          Email
+        </label>
+        <input
+          className="field__input"
+          id="login-email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          placeholder="ivanov@company.ru"
+          data-testid="login-email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          aria-invalid={errors.email ? true : undefined}
+          aria-describedby={errors.email ? 'login-email-error' : undefined}
+        />
         {errors.email ? (
-          <p id="login-email-error" role="alert" data-testid="login-email-error">
+          <p
+            className="field__error"
+            id="login-email-error"
+            role="alert"
+            data-testid="login-email-error"
+          >
             {errors.email}
           </p>
         ) : null}
+      </div>
 
-        <p>
-          <label htmlFor="login-password">Пароль</label>
-          <input
-            id="login-password"
-            name="password"
-            type="password"
-            data-testid="login-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            aria-invalid={errors.password ? true : undefined}
-            aria-describedby={errors.password ? 'login-password-error' : undefined}
-          />
-        </p>
+      <div className="field">
+        <label className="field__label" htmlFor="login-password">
+          Пароль
+        </label>
+        <input
+          className="field__input"
+          id="login-password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          data-testid="login-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          aria-invalid={errors.password ? true : undefined}
+          aria-describedby={errors.password ? 'login-password-error' : undefined}
+        />
         {errors.password ? (
-          <p id="login-password-error" role="alert" data-testid="login-password-error">
+          <p
+            className="field__error"
+            id="login-password-error"
+            role="alert"
+            data-testid="login-password-error"
+          >
             {errors.password}
           </p>
         ) : null}
+      </div>
 
-        {requestError ? (
-          <p role="alert" data-testid="login-error">
-            {requestError}
-          </p>
-        ) : null}
+      {requestError ? (
+        <p className="alert alert--error" role="alert" data-testid="login-error">
+          {requestError}
+        </p>
+      ) : null}
 
-        <button type="submit" data-testid="login-submit" disabled={submitting}>
-          Войти
-        </button>
-      </form>
-      <p>
+      <button
+        className="btn btn--primary btn--block"
+        type="submit"
+        data-testid="login-submit"
+        disabled={submitting}
+      >
+        Войти
+      </button>
+
+      <p className="form__switch">
         Нет пароля?{' '}
         <Link to="/register" data-testid="link-to-register">
           Зарегистрироваться
         </Link>
       </p>
-    </section>
+    </form>
   );
 }
