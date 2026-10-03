@@ -41,6 +41,10 @@ DbSession = Annotated[Session, Depends(get_db)]
     response_model=RegisterResponse,
     summary="Зарегистрировать пользователя и один раз показать пароль",
     responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": ErrorResponse,
+            "description": "Тело запроса не разбирается как JSON",
+        },
         status.HTTP_409_CONFLICT: {
             "model": ErrorResponse,
             "description": "Email уже занят",
@@ -83,6 +87,10 @@ def register(payload: RegisterRequest, db: DbSession) -> RegisterResponse:
     response_model=UserResponse,
     summary="Войти по email и паролю",
     responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "model": ErrorResponse,
+            "description": "Тело запроса не разбирается как JSON",
+        },
         status.HTTP_401_UNAUTHORIZED: {
             "model": ErrorResponse,
             "description": "Неверный email или пароль",
