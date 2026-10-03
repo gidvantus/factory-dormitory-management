@@ -41,14 +41,22 @@
 
   --color-text: var(--ink-900);
   --color-text-body: var(--ink-500);
-  --color-text-muted: var(--ink-300);
+  /* Приглушённый текст — настоящий текст, а не декор: нужен контраст не ниже
+     4.5:1 (WCAG 2.1 AA, 1.4.3). Примитив --ink-300 (#7b8794) даёт всего
+     3,4–3,7:1 на #fffdf9 / #fbf6ec / #fff, поэтому у него осталась одна роль —
+     плейсхолдеры. Значение ниже проверено на всех трёх фонах: 5,1:1 и выше. */
+  --color-text-muted: #5c6a78;
+  --color-text-placeholder: var(--ink-300);
 
   --color-accent: var(--mint-600);
   --color-accent-hover: var(--mint-700);
   --color-on-accent: #ffffff;
   --color-on-ink: var(--cream-50);
   --color-focus: var(--blue-600);
-  --color-danger: var(--clay-600);
+  /* Ошибки читают люди: --clay-600 (#c4623c) на белом даёт 4,07:1 и AA не
+     проходит, поэтому для текста ошибок берём тёмный терракотовый (5,4:1 на
+     #fbe0d2). Примитив --clay-600 остался для заливок и иконок. */
+  --color-danger: #9c3d24;
 
   /* --- Типографика ------------------------------------------------------ */
   --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -544,7 +552,7 @@ a {
 }
 
 .field__input::placeholder {
-  color: var(--color-text-muted);
+  color: var(--color-text-placeholder);
 }
 
 .field__input[aria-invalid='true'] {
@@ -566,7 +574,7 @@ a {
 
 .alert--error {
   background: var(--peach-100);
-  color: var(--clay-600);
+  color: var(--color-danger);
 }
 
 .alert--warning {
