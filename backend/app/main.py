@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI
 
-from app.api import auth, health, users
+from app.api import auth, dormitories, health, users
 
 API_PREFIX = "/api"
 
@@ -17,6 +17,7 @@ def create_app() -> FastAPI:
     application.include_router(health.router, prefix=API_PREFIX)
     application.include_router(auth.router, prefix=API_PREFIX)
     application.include_router(users.router, prefix=API_PREFIX)
+    application.include_router(dormitories.router, prefix=API_PREFIX)
     return application
 
 

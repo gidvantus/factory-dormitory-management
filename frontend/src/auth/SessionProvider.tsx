@@ -42,12 +42,9 @@ export function SessionProvider({ children }: { children: ReactNode }): JSX.Elem
   }, []);
 
   const logout = useCallback(async () => {
-    try {
-      await api.logout();
-    } finally {
-      setUser(null);
-      setStatus('anonymous');
-    }
+    await api.logout();
+    setUser(null);
+    setStatus('anonymous');
   }, []);
 
   useEffect(() => {
