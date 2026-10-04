@@ -1,5 +1,7 @@
 # Стенд CRM Dormitory: db + api + web.
 #
+# Исходники лежат в app/: app/backend — FastAPI, app/frontend — React + nginx.
+#
 # Запускать только со своим именем проекта, иначе compose возьмёт имя из каталога
 # и можно задеть контейнеры и том базы соседнего стенда:
 #
@@ -30,7 +32,7 @@ services:
       start_period: 5s
 
   api:
-    build: ./backend
+    build: ./app/backend
     restart: unless-stopped
     env_file: *env-files
     depends_on:
@@ -40,7 +42,7 @@ services:
       - "${API_PORT:-8001}:8000"
 
   web:
-    build: ./frontend
+    build: ./app/frontend
     restart: unless-stopped
     depends_on:
       - api

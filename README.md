@@ -22,6 +22,18 @@ CRM-система ведёт учёт рабочих, проживающих в
 - **Frontend** — React + TypeScript.
 - **База данных** — PostgreSQL, запуск через Docker Compose.
 
+## Структура
+
+```
+.
+├── app/
+│   ├── backend/          — FastAPI: app/, alembic/, tests/, Dockerfile
+│   └── frontend/         — React + TypeScript: src/, Dockerfile, nginx.conf
+├── docker-compose.yml    — стенд: db + api + web
+├── .env.example          — значения стенда по умолчанию (.env переопределяет)
+└── README.md
+```
+
 ## Запуск стенда
 
 ```bash
@@ -42,7 +54,7 @@ docker compose -p <имя-стенда> up -d --build
 
 ## Проверки кода
 
-Backend:
+Backend — из `app/backend`:
 
 ```bash
 ruff check .
@@ -51,7 +63,7 @@ mypy .
 pytest -q
 ```
 
-Frontend:
+Frontend — из `app/frontend`:
 
 ```bash
 tsc --noEmit
