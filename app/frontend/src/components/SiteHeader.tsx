@@ -1,15 +1,32 @@
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+
+interface NavLink {
+  href: string;
+  label: string;
+}
 
 interface SiteHeaderProps {
   /** Кнопки шапки: на главной это вход и регистрация, в кабинете — выход. */
   actions?: ReactNode;
+  /** Якоря разделов страницы; на экранах без разделов список пустой. */
+  nav?: NavLink[];
 }
 
-/** Шапка в стиле лендинга: логотип ведёт на главную. */
-export function SiteHeader({ actions }: SiteHeaderProps): JSX.Element {
+/** Шапка в стиле лендинга: логотип ведёт на главную, меню — по разделам страницы. */
+export function SiteHeader({ actions, nav }: SiteHeaderProps): JSX.Element {
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = (): void => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   return (
-    <header className="site-header" data-testid="site-header">
+    <header className="site-header" data-testid="site-header" data-scrolled={scrolled}>
       <div className="container nav">
         <Link className="logo" to="/" data-testid="logo-link">
           <svg className="logo__mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
@@ -41,6 +58,17 @@ export function SiteHeader({ actions }: SiteHeaderProps): JSX.Element {
           </svg>
           <span>Домовой</span>
         </Link>
+
+        {nav && nav.length > 0 ? (
+          <nav className="nav__links" aria-label="Основная навигация">
+            {nav.map((link) => (
+              <a href={link.href} key={link.href}>
+                {link.label}
+              </a>
+            ))}
+          </nav>
+        ) : null}
+
         {actions ? <div className="nav__actions">{actions}</div> : null}
       </div>
     </header>

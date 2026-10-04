@@ -62,6 +62,72 @@ describe('главная страница', () => {
   });
 });
 
+describe('контент лендинга на главной', () => {
+  it('показывает все разделы прототипа', async () => {
+    anonymous();
+    const { container } = renderApp('/');
+    await screen.findByTestId('landing');
+
+    expect(
+      screen.getByRole('heading', { name: 'Одна система — три разных рабочих дня' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Всё, что нужно для учёта общежития' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Как это работает' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Понятный экран вместо семи вкладок' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Отчёты, которые не нужно собирать вручную' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Что говорят те, кто ведёт учёт каждый день' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Частые вопросы' })).toBeInTheDocument();
+
+    expect(container.querySelectorAll('.card--role')).toHaveLength(3);
+    expect(container.querySelectorAll('.card--feature')).toHaveLength(6);
+    expect(container.querySelectorAll('.step')).toHaveLength(4);
+    expect(container.querySelectorAll('.chart__row')).toHaveLength(5);
+    expect(container.querySelectorAll('.quote')).toHaveLength(2);
+    expect(container.querySelectorAll('.faq details')).toHaveLength(5);
+  });
+
+  it('показывает макет интерфейса и иллюстрации лендинга', async () => {
+    anonymous();
+    const { container } = renderApp('/');
+    await screen.findByTestId('landing');
+
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('Иванов П. С.')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Заполняемость общежитий/ })).toBeInTheDocument();
+
+    // Большие иллюстрации Vite отдаёт файлами, маленькие (аватары, кот, пёс)
+    // инлайнит в data-URI — проверяем, что подключены обе группы.
+    const sources = Array.from(container.querySelectorAll('img')).map((img) =>
+      img.getAttribute('src'),
+    );
+    expect(sources.some((src) => src?.includes('hero-scene'))).toBe(true);
+    expect(sources.some((src) => src?.includes('dorm-house'))).toBe(true);
+    expect(
+      sources.filter((src) => src?.startsWith('data:image/svg+xml')).length,
+    ).toBeGreaterThanOrEqual(4);
+  });
+
+  it('открывает регистрацию из финального блока', async () => {
+    anonymous();
+    const user = userEvent.setup();
+    renderApp('/');
+    await screen.findByTestId('landing');
+
+    await user.click(screen.getByTestId('cta-register'));
+
+    expect(await screen.findByTestId('register-submit')).toBeInTheDocument();
+    expect(screen.getByTestId('auth-modal-title')).toHaveTextContent('Регистрация');
+  });
+});
+
 describe('адреса /login и /register', () => {
   it('/login сразу открывает окно входа', async () => {
     anonymous();

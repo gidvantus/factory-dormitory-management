@@ -1,0 +1,224 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 600" width="880" height="600" role="img" aria-label="Общежитие: жильцы в окнах, комендант с чемоданом, деревья, кот и птицы">
+  <defs>
+    <path id="cloudShape" d="M10 75 A35 32 0 0 1 70 75 A45 40 0 0 1 150 75 A32 30 0 0 1 200 75 Z"/>
+    <path id="crownShape" d="M30 150 A42 42 0 0 1 22 78 A46 46 0 0 1 96 44 A52 52 0 0 1 156 40 A44 44 0 0 1 178 118 A40 40 0 0 1 130 152 Q 80 164 30 150 Z"/>
+  </defs>
+
+  <g stroke="#27313D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none">
+
+    <!-- ================= Небо ================= -->
+    <circle cx="800" cy="86" r="40" fill="#FCEFC7"/>
+    <path d="M748 86 H734"/>
+    <path d="M774 41 L767 29"/>
+    <path d="M826 41 L833 29"/>
+    <path d="M852 86 H866"/>
+    <path d="M774 131 L767 143"/>
+    <path d="M826 131 L833 143"/>
+
+    <use href="#cloudShape" transform="translate(56,24)" fill="#FFFFFF"/>
+    <use href="#cloudShape" transform="translate(350,42) scale(0.62)" stroke-width="6.4" fill="#FFFFFF"/>
+
+    <g stroke-width="3.4">
+      <path d="M620 162 q 10 -10 20 0"/>
+      <path d="M640 162 q 10 -10 20 0"/>
+      <path d="M676 130 q 8 -8 16 0"/>
+      <path d="M692 130 q 8 -8 16 0"/>
+    </g>
+
+    <!-- ================= Деревья ================= -->
+    <rect x="101" y="410" width="16" height="124" rx="8" fill="#F4EBDC"/>
+    <path d="M109 466 L84 442"/>
+    <path d="M109 446 L136 424"/>
+    <use href="#crownShape" transform="translate(18,285) scale(0.9)" stroke-width="4.4" fill="#A9D6C1"/>
+    <g stroke-width="3">
+      <path d="M72 344 q 13 -9 26 -1"/>
+      <path d="M118 380 q 13 -8 26 0"/>
+      <path d="M62 400 q 11 -7 22 0"/>
+    </g>
+
+    <!-- Птичка на кроне -->
+    <g stroke-width="3.4">
+      <ellipse cx="146" cy="318" rx="13" ry="10" fill="#B7D3EC"/>
+      <circle cx="158" cy="308" r="8" fill="#B7D3EC"/>
+      <path d="M166 306 l 9 3 l -9 4 z" fill="#F2D793"/>
+      <path d="M134 316 l -11 -5 l 13 -1" fill="#DCE9F7"/>
+      <circle cx="160" cy="306" r="1.6" fill="#27313D" stroke="none"/>
+      <path d="M148 328 v 6"/>
+      <path d="M154 328 v 6"/>
+    </g>
+
+    <rect x="779" y="420" width="16" height="114" rx="8" fill="#F4EBDC"/>
+    <path d="M787 476 L762 452"/>
+    <path d="M787 456 L814 434"/>
+    <use href="#crownShape" transform="translate(706,288) scale(0.86)" stroke-width="4.6" fill="#A9D6C1"/>
+    <g stroke-width="3">
+      <path d="M756 352 q 13 -9 26 -1"/>
+      <path d="M802 388 q 13 -8 26 0"/>
+      <path d="M746 408 q 11 -7 22 0"/>
+    </g>
+
+    <!-- ================= Здание ================= -->
+    <rect x="530" y="150" width="44" height="80" rx="6" fill="#F4EBDC"/>
+    <circle cx="556" cy="132" r="11" fill="#FFFFFF"/>
+    <circle cx="572" cy="110" r="13" fill="#FFFFFF"/>
+    <circle cx="590" cy="90" r="9" fill="#FFFFFF"/>
+
+    <rect x="270" y="230" width="340" height="304" rx="10" fill="#FFFFFF"/>
+    <path d="M240 240 L440 140 L640 240 Z" fill="#F5C0A4"/>
+
+    <!-- 1-й ряд окон -->
+    <g stroke-width="3.2">
+      <rect x="302" y="246" width="58" height="48" rx="8" fill="#DCE9F7"/>
+      <path d="M302 262 H360"/>
+      <circle cx="331" cy="267" r="12" fill="#FBE3CE"/>
+      <path d="M319 267 a12 12 0 0 1 24 0 z" fill="#27313D"/>
+      <circle cx="327" cy="270" r="1.6" fill="#27313D" stroke="none"/>
+      <circle cx="335" cy="270" r="1.6" fill="#27313D" stroke="none"/>
+      <rect x="315" y="272" width="32" height="17" rx="9" fill="#A9D6C1"/>
+
+      <rect x="411" y="246" width="58" height="48" rx="8" fill="#DCE9F7"/>
+      <path d="M440 246 V294"/>
+      <path d="M411 270 H469"/>
+
+      <rect x="520" y="246" width="58" height="48" rx="8" fill="#DCE9F7"/>
+      <path d="M520 262 H578"/>
+      <circle cx="549" cy="267" r="12" fill="#FBE3CE"/>
+      <path d="M537 267 a12 12 0 0 1 24 0 z" fill="#C4623C"/>
+      <circle cx="545" cy="270" r="1.6" fill="#27313D" stroke="none"/>
+      <circle cx="553" cy="270" r="1.6" fill="#27313D" stroke="none"/>
+      <rect x="533" y="272" width="32" height="17" rx="9" fill="#F5C0A4"/>
+    </g>
+
+    <!-- 2-й ряд окон -->
+    <g stroke-width="3.2">
+      <rect x="302" y="306" width="58" height="48" rx="8" fill="#DCE9F7"/>
+      <path d="M302 322 H360"/>
+
+      <rect x="411" y="306" width="58" height="48" rx="8" fill="#DCE9F7"/>
+      <path d="M411 322 H469"/>
+      <circle cx="440" cy="327" r="12" fill="#FBE3CE"/>
+      <path d="M428 327 a12 12 0 0 1 24 0 z" fill="#B7D3EC"/>
+      <circle cx="436" cy="330" r="1.6" fill="#27313D" stroke="none"/>
+      <circle cx="444" cy="330" r="1.6" fill="#27313D" stroke="none"/>
+      <path d="M434 337 q 6 5 12 0" stroke-width="2.4"/>
+      <rect x="424" y="332" width="32" height="17" rx="9" fill="#C6BCE8"/>
+
+      <rect x="520" y="306" width="58" height="48" rx="8" fill="#DCE9F7"/>
+      <path d="M549 306 V354"/>
+      <path d="M520 330 H578"/>
+    </g>
+
+    <!-- 3-й ряд окон -->
+    <g stroke-width="3.2">
+      <rect x="302" y="366" width="58" height="48" rx="8" fill="#DCE9F7"/>
+      <path d="M331 366 V414"/>
+      <path d="M302 390 H360"/>
+
+      <rect x="411" y="366" width="58" height="48" rx="8" fill="#DCE9F7"/>
+      <path d="M440 366 V414"/>
+      <path d="M411 390 H469"/>
+
+      <rect x="520" y="366" width="58" height="48" rx="8" fill="#DCE9F7"/>
+      <path d="M520 382 H578"/>
+    </g>
+
+    <!-- 4-й ряд окон -->
+    <g stroke-width="3.2">
+      <rect x="302" y="426" width="58" height="48" rx="8" fill="#DCE9F7"/>
+      <path d="M331 426 V474"/>
+      <path d="M302 450 H360"/>
+
+      <rect x="520" y="426" width="58" height="48" rx="8" fill="#DCE9F7"/>
+      <path d="M520 442 H578"/>
+      <circle cx="549" cy="447" r="12" fill="#FBE3CE"/>
+      <path d="M537 447 a12 12 0 0 1 24 0 z" fill="#27313D"/>
+      <circle cx="545" cy="450" r="1.6" fill="#27313D" stroke="none"/>
+      <circle cx="553" cy="450" r="1.6" fill="#27313D" stroke="none"/>
+      <path d="M543 457 q 6 5 12 0" stroke-width="2.4"/>
+      <rect x="533" y="452" width="32" height="17" rx="9" fill="#DCEEE4"/>
+    </g>
+
+    <!-- Вход -->
+    <path d="M382 460 L498 460 L440 424 Z" fill="#C4623C"/>
+    <rect x="398" y="460" width="84" height="74" rx="8" fill="#F5C0A4"/>
+    <path d="M440 470 V534" stroke-width="3"/>
+    <circle cx="470" cy="498" r="5" fill="#27313D" stroke="none"/>
+    <rect x="382" y="526" width="116" height="12" rx="6" fill="#F4EBDC"/>
+
+    <!-- ================= Земля ================= -->
+    <path d="M40 534 H840"/>
+    <g stroke-width="3">
+      <path d="M246 534 q 6 -12 12 0"/>
+      <path d="M268 534 q 6 -10 12 0"/>
+      <path d="M624 534 q 6 -12 12 0"/>
+      <path d="M644 534 q 6 -10 12 0"/>
+    </g>
+
+    <!-- ================= Передний план ================= -->
+    <circle cx="176" cy="508" r="26" fill="#DCEEE4"/>
+    <circle cx="148" cy="514" r="20" fill="#DCEEE4"/>
+    <circle cx="204" cy="512" r="20" fill="#DCEEE4"/>
+
+    <!-- Комендант с чемоданом -->
+    <g>
+      <ellipse cx="288" cy="530" rx="11" ry="6" fill="#27313D" stroke="none"/>
+      <ellipse cx="314" cy="530" rx="11" ry="6" fill="#27313D" stroke="none"/>
+      <path d="M292 494 V 526" stroke-width="5"/>
+      <path d="M308 494 V 526" stroke-width="5"/>
+      <rect x="293" y="412" width="14" height="18" rx="5" fill="#FBE3CE"/>
+      <rect x="274" y="428" width="52" height="72" rx="18" fill="#DCEEE4"/>
+      <path d="M280 442 Q 262 450 254 466" stroke-width="4"/>
+      <path d="M243 480 v -10 h 20 v 10" stroke-width="4"/>
+      <rect x="230" y="480" width="46" height="48" rx="9" fill="#C4623C"/>
+      <path d="M230 500 H276" stroke-width="3"/>
+      <circle cx="253" cy="474" r="7" fill="#FBE3CE"/>
+      <path d="M322 448 L 338 470" stroke-width="4"/>
+      <circle cx="341" cy="474" r="7" fill="#FBE3CE"/>
+      <circle cx="300" cy="406" r="21" fill="#FBE3CE"/>
+      <path d="M279 404 a21 21 0 0 1 42 0 z" fill="#27313D"/>
+      <circle cx="293" cy="410" r="2.4" fill="#27313D" stroke="none"/>
+      <circle cx="307" cy="410" r="2.4" fill="#27313D" stroke="none"/>
+      <path d="M294 419 q 6 5 12 0" stroke-width="2.8"/>
+    </g>
+
+    <!-- Жилец машет рукой -->
+    <g>
+      <ellipse cx="638" cy="530" rx="11" ry="6" fill="#27313D" stroke="none"/>
+      <ellipse cx="664" cy="530" rx="11" ry="6" fill="#27313D" stroke="none"/>
+      <path d="M642 494 V 526" stroke-width="5"/>
+      <path d="M658 494 V 526" stroke-width="5"/>
+      <rect x="643" y="412" width="14" height="18" rx="5" fill="#FBE3CE"/>
+      <rect x="624" y="428" width="52" height="72" rx="18" fill="#E6E1F5"/>
+      <path d="M628 446 Q 612 428 610 408" stroke-width="4"/>
+      <circle cx="609" cy="402" r="8" fill="#FBE3CE"/>
+      <path d="M672 448 L 686 470" stroke-width="4"/>
+      <circle cx="689" cy="474" r="7" fill="#FBE3CE"/>
+      <circle cx="650" cy="406" r="21" fill="#FBE3CE"/>
+      <path d="M629 404 a21 21 0 0 1 42 0 z" fill="#C4623C"/>
+      <path d="M629 404 q 8 8 15 1" stroke-width="3"/>
+      <circle cx="643" cy="410" r="2.4" fill="#27313D" stroke="none"/>
+      <circle cx="657" cy="410" r="2.4" fill="#27313D" stroke="none"/>
+      <path d="M644 419 q 6 5 12 0" stroke-width="2.8"/>
+    </g>
+
+    <!-- Кот -->
+    <g stroke-width="3.6">
+      <path d="M756 516 q 26 -4 18 -30" stroke-width="4"/>
+      <ellipse cx="726" cy="516" rx="30" ry="18" fill="#F2D793"/>
+      <path d="M718 502 q 5 7 0 15" stroke-width="3"/>
+      <path d="M732 502 q 5 7 0 15" stroke-width="3"/>
+      <circle cx="696" cy="506" r="16" fill="#F2D793"/>
+      <path d="M683 496 l -3 -15 l 14 7 z" fill="#F2D793"/>
+      <path d="M709 495 l 8 -13 l 5 14 z" fill="#F2D793"/>
+      <circle cx="690" cy="504" r="2" fill="#27313D" stroke="none"/>
+      <circle cx="702" cy="504" r="2" fill="#27313D" stroke="none"/>
+      <path d="M693 511 l 6 0 l -3 4 z" fill="#27313D" stroke="none"/>
+      <g stroke-width="2.4">
+        <path d="M680 510 L 666 507"/>
+        <path d="M680 515 L 666 518"/>
+        <path d="M712 510 L 726 507"/>
+        <path d="M712 515 L 726 518"/>
+      </g>
+    </g>
+  </g>
+</svg>
