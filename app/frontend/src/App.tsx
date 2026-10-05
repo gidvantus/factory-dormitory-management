@@ -30,7 +30,7 @@ export function App(): JSX.Element {
       >
         <Route index element={<WorkspaceOverview />} />
         <Route path="dormitories" element={<Dormitories />} />
-        <Route path="dormitories/:dormitoryId" element={<DormitoryDetails />} />
+        <Route path="dormitories/:dormitoryId/*" element={<DormitoryDetails />} />
         <Route path="profile" element={<PersonalData />} />
       </Route>
       <Route path="*" element={<NotFound />} />

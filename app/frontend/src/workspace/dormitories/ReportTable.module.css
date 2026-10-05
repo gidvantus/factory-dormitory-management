@@ -1,0 +1,428 @@
+.report {
+  min-width: 0;
+  margin-top: 22px;
+}
+.reportHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.reportHeading h2 {
+  font-size: 21px;
+}
+.reportHeading p {
+  margin-top: 5px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+.headingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.addButton,
+.saveButton {
+  border: 1px solid var(--mint-600);
+  border-radius: 10px;
+  background: var(--mint-600);
+  color: white;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.templateButton {
+  border: 1px solid var(--mint-200);
+  border-radius: 10px;
+  background: var(--mint-100);
+  color: var(--mint-700);
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 800;
+}
+.templateButton:hover:not(:disabled) {
+  background: var(--cream-100);
+}
+.templateButton:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.templateNotice {
+  margin-bottom: 12px;
+  padding: 10px 13px;
+  border: 1px solid var(--mint-200);
+  border-radius: 10px;
+  background: var(--mint-100);
+  color: var(--mint-700);
+  font-size: 12px;
+  font-weight: 700;
+}
+.addButton:hover,
+.saveButton:hover:not(:disabled) {
+  background: var(--mint-700);
+}
+.status,
+.empty,
+.loadError {
+  padding: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--cream-50);
+  color: var(--color-text-muted);
+}
+.empty {
+  min-height: 190px;
+  display: grid;
+  place-content: center;
+  gap: 5px;
+  text-align: center;
+}
+.empty strong {
+  color: var(--color-text);
+  font-size: 17px;
+}
+.empty p {
+  font-size: 13px;
+}
+.loadError button {
+  margin-top: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mint-700);
+  text-decoration: underline;
+}
+.saveError {
+  margin-bottom: 12px;
+  padding: 10px 13px;
+  border-radius: 10px;
+  background: var(--peach-100);
+  color: var(--color-danger);
+  font-size: 12px;
+  font-weight: 700;
+}
+.tableFrame {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: white;
+}
+.tableScroll {
+  max-width: 100%;
+  max-height: min(72vh, 760px);
+  overflow: auto;
+}
+.table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: center;
+  font-size: 12px;
+}
+.table th,
+.table td {
+  width: 52px;
+  min-width: 52px;
+  max-width: 52px;
+  height: 46px;
+  padding: 7px 3px;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--cream-100);
+  color: var(--color-text-body);
+  font-size: 11px;
+  font-weight: 800;
+}
+.table tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 212px;
+  min-width: 212px;
+  max-width: 260px;
+  padding-inline: 9px;
+  background: white;
+  text-align: left;
+}
+.table thead th:first-child {
+  left: 0;
+  z-index: 3;
+  width: 212px;
+  min-width: 212px;
+  max-width: 260px;
+  padding-inline: 9px;
+  text-align: left;
+}
+.table tbody tr:nth-child(even) th,
+.table tbody tr:nth-child(even) td {
+  background: var(--cream-50);
+}
+.table tr:last-child th,
+.table tr:last-child td {
+  border-bottom: 0;
+}
+.table tr th:last-child,
+.table tr td:last-child {
+  border-right: 0;
+}
+.rowName {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rowName button {
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  font-weight: 800;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.rowName > button {
+  font-size: 15.6px;
+}
+.rowName button:hover {
+  color: var(--mint-700);
+  text-decoration: underline;
+}
+.formulaBadge {
+  flex: none;
+  border-radius: 6px;
+  padding: 2px 6px;
+  background: var(--mint-100);
+  color: var(--mint-700);
+  font-family: serif;
+  font-size: 16px;
+  font-weight: 700;
+}
+.cellEditor {
+  position: relative;
+  width: 100%;
+}
+.cellEditor input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 3px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text);
+  font: 600 12px var(--font-body);
+  text-align: center;
+}
+.cellEditor input:hover,
+.cellEditor input:focus {
+  border-color: var(--mint-200);
+  background: white;
+}
+.cellEditor[data-save-state='error'] input {
+  border-color: var(--color-danger);
+}
+.cellState {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-danger);
+  font-size: 11px;
+  font-weight: 800;
+  pointer-events: none;
+}
+.cellEditor[data-save-state='error'] .cellState,
+.formulaError {
+  color: var(--color-danger);
+}
+.formulaValue,
+.formulaError {
+  display: block;
+  max-width: 145px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 800;
+  text-align: center;
+}
+.rowMove {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.rowMove button {
+  flex: none;
+  width: 22px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: white;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 1;
+  text-align: center;
+}
+.rowMove button:hover:not(:disabled) {
+  border-color: var(--mint-200);
+  color: var(--mint-700);
+}
+.rowMove button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.formulaValue {
+  color: var(--mint-700);
+}
+.tableFooter {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.rowForm {
+  display: grid;
+  gap: 16px;
+}
+.field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.field input {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: white;
+  color: var(--color-text);
+  font: inherit;
+}
+.modeGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 17px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.modeGroup legend {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.modeGroup label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.modeGroup input {
+  accent-color: var(--mint-600);
+}
+.formulaHelp,
+.references span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.references {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.references button {
+  padding: 5px 8px;
+  border: 1px solid var(--mint-200);
+  border-radius: 7px;
+  background: var(--mint-100);
+  color: var(--mint-700);
+  font-size: 11px;
+  font-weight: 700;
+}
+.warning {
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--butter-100);
+  color: var(--color-text-body);
+  font-size: 12px;
+}
+.formError {
+  color: var(--color-danger);
+  font-size: 12px;
+  font-weight: 700;
+}
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+}
+.dialogActions button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.dialogActions button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.cancelButton {
+  border: 1px solid var(--color-border-strong);
+  background: white;
+  color: var(--color-text);
+}
+.deleteButton {
+  margin-right: auto;
+  border: 1px solid var(--peach-100);
+  background: var(--peach-100);
+  color: var(--color-danger);
+}
+.deleteConfirm {
+  margin-right: auto;
+  border: 1px solid var(--color-danger);
+  background: var(--color-danger);
+  color: white;
+}
+@media (max-width: 760px) {
+  .reportHeading {
+    align-items: stretch;
+  }
+  .addButton {
+    width: 100%;
+  }
+  .headingActions {
+    width: 100%;
+  }
+  .templateButton {
+    flex: 1;
+  }
+  .table tbody th,
+  .table thead th:first-child {
+    width: 160px;
+    min-width: 160px;
+    max-width: 190px;
+  }
+}

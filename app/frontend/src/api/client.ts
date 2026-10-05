@@ -19,6 +19,29 @@ export interface Dormitory {
 export interface CreateDormitoryInput {
   name: string;
   client_name: string;
+  template_id?: number;
+}
+
+export interface ReportTemplate {
+  id: number;
+  name: string;
+  row_count: number;
+  created_at: string;
+}
+
+export interface ReportRow {
+  id: number;
+  name: string;
+  position: number;
+  formula: string | null;
+  values: Record<string, string>;
+  errors: Record<string, string>;
+}
+
+export interface DormitoryReport {
+  from_date: string;
+  to_date: string;
+  rows: ReportRow[];
 }
 
 export class ApiError extends Error {
@@ -97,7 +120,68 @@ export const api = {
     return request<Dormitory>('/dormitories', { method: 'POST', body: JSON.stringify(input) });
   },
 
+  reportTemplates(signal?: AbortSignal): Promise<ReportTemplate[]> {
+    return request<ReportTemplate[]>('/report-templates', { signal });
+  },
+
+  saveReportTemplate(dormitoryId: string, name: string): Promise<ReportTemplate> {
+    return request<ReportTemplate>('/report-templates', {
+      method: 'POST',
+      body: JSON.stringify({ name, dormitory_id: Number(dormitoryId) }),
+    });
+  },
+
+  deleteReportTemplate(templateId: number): Promise<void> {
+    return request<void>(`/report-templates/${templateId}`, { method: 'DELETE' });
+  },
+
   dormitory(id: string, signal?: AbortSignal): Promise<Dormitory> {
     return request<Dormitory>(`/dormitories/${encodeURIComponent(id)}`, { signal });
+  },
+
+  report(id: string, from: string, to: string, signal?: AbortSignal): Promise<DormitoryReport> {
+    const query = new URLSearchParams({ from, to });
+    return request<DormitoryReport>(`/dormitories/${encodeURIComponent(id)}/report?${query}`, {
+      signal,
+    });
+  },
+
+  createReportRow(id: string, name: string, formula: string | null): Promise<ReportRow> {
+    return request<ReportRow>(`/dormitories/${encodeURIComponent(id)}/report/rows`, {
+      method: 'POST',
+      body: JSON.stringify({ name, formula }),
+    });
+  },
+
+  updateReportRow(
+    id: string,
+    rowId: number,
+    name: string,
+    formula: string | null,
+  ): Promise<ReportRow> {
+    return request<ReportRow>(`/dormitories/${encodeURIComponent(id)}/report/rows/${rowId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name, formula }),
+    });
+  },
+
+  moveReportRow(id: string, rowId: number, direction: 'up' | 'down'): Promise<ReportRow> {
+    return request<ReportRow>(`/dormitories/${encodeURIComponent(id)}/report/rows/${rowId}/move`, {
+      method: 'PATCH',
+      body: JSON.stringify({ direction }),
+    });
+  },
+
+  deleteReportRow(id: string, rowId: number): Promise<void> {
+    return request<void>(`/dormitories/${encodeURIComponent(id)}/report/rows/${rowId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  saveReportCell(id: string, rowId: number, date: string, value: string): Promise<void> {
+    return request<void>(
+      `/dormitories/${encodeURIComponent(id)}/report/rows/${rowId}/cells/${date}`,
+      { method: 'PUT', body: JSON.stringify({ value }) },
+    );
   },
 };

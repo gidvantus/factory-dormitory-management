@@ -142,6 +142,167 @@
   height: 16px;
   transform: rotate(180deg);
 }
+.detailsHeading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 22px;
+  margin: 26px 0 24px;
+}
+.detailsHeadingCopy {
+  min-width: 0;
+}
+.detailsClient {
+  margin-bottom: 5px;
+  color: var(--mint-700);
+  font-size: 13px;
+  font-weight: 800;
+}
+.detailsHeading h1 {
+  font-size: clamp(23px, 2.2vw, 30px);
+  line-height: 1.25;
+}
+.periodForm {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  min-width: 0;
+}
+.periodFields {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.periodField {
+  display: grid;
+  gap: 4px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.periodField input {
+  width: 140px;
+  min-width: 0;
+  min-height: 37px;
+  padding: 7px 9px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 9px;
+  background: white;
+  color: var(--color-text);
+  font: 600 12px var(--font-body);
+}
+.periodField input[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+.periodApply,
+.periodReset {
+  min-height: 37px;
+  padding: 8px 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 9px;
+  background: white;
+  color: var(--color-text-body);
+  font-size: 12px;
+  font-weight: 700;
+}
+.periodApply {
+  border-color: var(--mint-600);
+  background: var(--mint-600);
+  color: white;
+}
+.periodApply:hover {
+  background: var(--mint-700);
+}
+.periodReset:hover {
+  border-color: var(--mint-200);
+  color: var(--mint-700);
+}
+.periodError {
+  color: var(--color-danger);
+  font-size: 12px;
+  font-weight: 700;
+}
+.tabScroller {
+  max-width: 100%;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border-strong);
+}
+.tabs {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  gap: 4px;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: 48px;
+  padding: 11px 15px;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-body);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.tab:hover {
+  background: var(--cream-100);
+  color: var(--mint-700);
+}
+.tab[aria-current='page'] {
+  border-bottom-color: var(--mint-600);
+  color: var(--mint-700);
+  font-weight: 800;
+}
+.subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: fit-content;
+  margin-top: 20px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  background: var(--cream-100);
+}
+.subtab {
+  padding: 8px 14px;
+  border-radius: 8px;
+  color: var(--color-text-body);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.subtab:hover {
+  color: var(--mint-700);
+}
+.subtab[aria-current='page'] {
+  background: white;
+  color: var(--mint-700);
+  box-shadow: var(--shadow-sm);
+}
+.emptySection {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  min-height: 230px;
+  margin-top: 20px;
+  padding: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--cream-50);
+}
+.emptySection h2 {
+  font-size: 18px;
+}
+.emptySection p {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
 .dialogActions {
   display: flex;
   justify-content: flex-end;
@@ -149,7 +310,99 @@
   gap: 12px;
   margin-top: 8px;
 }
+.optional {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.templateHint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.templateHint button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mint-700);
+  text-decoration: underline;
+}
+.templateSection {
+  margin-top: 32px;
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--cream-50);
+}
+.templateSection h2 {
+  margin-bottom: 6px;
+  font-size: 18px;
+}
+.templateSection p {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.templateList {
+  display: grid;
+  gap: 8px;
+  margin: 15px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.templateList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: white;
+}
+.templateList strong {
+  font-size: 13px;
+}
+.templateList span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.templateList button {
+  padding: 7px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: white;
+  color: var(--color-danger);
+  font-size: 12px;
+  font-weight: 700;
+}
+.templateList button:disabled {
+  opacity: 0.5;
+}
+.templateActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 @media (max-width: 760px) {
+  .detailsHeading {
+    align-items: stretch;
+  }
+  .periodForm {
+    justify-items: stretch;
+    width: 100%;
+  }
+  .periodFields {
+    justify-content: flex-start;
+  }
+  .periodField {
+    flex: 1 1 130px;
+  }
+  .periodField input {
+    width: 100%;
+  }
+  .periodApply,
+  .periodReset {
+    flex: 1 1 120px;
+  }
   .page .createButton {
     width: 100%;
   }

@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models.dormitory import Dormitory
+from app.models.report import ReportRow
+from app.models.report_template import ReportTemplate, ReportTemplateRow
 from app.schemas.dormitory import CreateDormitoryRequest, DormitoryResponse
 from app.schemas.user import ErrorResponse
 from app.security import CurrentUser
@@ -38,8 +40,29 @@ def list_dormitories(_user: CurrentUser, db: DbSession) -> list[DormitoryRespons
 def create_dormitory(
     payload: CreateDormitoryRequest, user: CurrentUser, db: DbSession
 ) -> DormitoryResponse:
+    template_rows: list[ReportTemplateRow] = []
+    if payload.template_id is not None:
+        if db.get(ReportTemplate, payload.template_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Шаблон не найден")
+        template_rows = list(
+            db.scalars(
+                select(ReportTemplateRow)
+                .where(ReportTemplateRow.template_id == payload.template_id)
+                .order_by(ReportTemplateRow.position, ReportTemplateRow.id)
+            )
+        )
     dormitory = Dormitory(created_by_id=user.id, name=payload.name, client_name=payload.client_name)
     db.add(dormitory)
+    db.flush()
+    db.add_all(
+        ReportRow(
+            dormitory_id=dormitory.id,
+            name=row.name,
+            formula=row.formula,
+            position=index,
+        )
+        for index, row in enumerate(template_rows, start=1)
+    )
     db.commit()
     db.refresh(dormitory)
     return DormitoryResponse.model_validate(dormitory)

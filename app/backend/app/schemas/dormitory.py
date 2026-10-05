@@ -10,6 +10,7 @@ class CreateDormitoryRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=255)
     client_name: str = Field(min_length=1, max_length=255)
+    template_id: int | None = Field(default=None, ge=1)
 
     @field_validator("name", "client_name")
     @classmethod
