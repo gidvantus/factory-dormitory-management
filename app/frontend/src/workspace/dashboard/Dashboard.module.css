@@ -1,0 +1,645 @@
+.dashboard {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.dashboard .heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+.dashboard .eyebrow {
+  margin-bottom: 7px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.dashboard .lead {
+  margin-top: 8px;
+  color: var(--color-text-body);
+  font-size: 14px;
+}
+.dashboard .scopeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 14px;
+  border-radius: 99px;
+  background: var(--cream-100);
+  border: 1px solid var(--color-border);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.dashboard .scopeBadge svg {
+  width: 17px;
+  height: 17px;
+  color: var(--mint-700);
+}
+.dashboard .periodForm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px 24px;
+  padding: 18px 22px;
+  background: var(--cream-50);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+}
+.dashboard .periodIntro {
+  display: grid;
+  gap: 3px;
+}
+.dashboard .periodIntro strong {
+  font: 800 14px var(--font-display);
+}
+.dashboard .periodIntro span {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.dashboard .dateControls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.dashboard .dateField {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.dashboard .dateField input {
+  box-sizing: border-box;
+  width: 148px;
+  max-width: 100%;
+  min-height: 39px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 9px;
+  background: white;
+  color: var(--ink-900);
+  font: 600 13px var(--font-body);
+  color-scheme: light;
+}
+.dashboard .dateField input[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+.dashboard .applyButton,
+.dashboard .resetButton {
+  min-height: 39px;
+  padding: 8px 15px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.dashboard .applyButton {
+  border: 1px solid var(--mint-600);
+  background: var(--mint-600);
+  color: white;
+}
+.dashboard .applyButton:hover {
+  background: var(--mint-700);
+}
+.dashboard .resetButton {
+  border: 1px solid var(--color-border-strong);
+  background: white;
+  color: var(--color-text-body);
+}
+.dashboard .resetButton:hover {
+  background: var(--cream-100);
+}
+.dashboard .formError {
+  width: 100%;
+  color: var(--color-danger);
+  font-size: 12px;
+}
+.dashboard .snapshotNote {
+  margin-top: -12px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.dashboard .loading {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+.dashboard .loadError {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
+  background: var(--peach-100);
+  border-radius: 12px;
+  color: var(--color-danger);
+}
+.dashboard .loadError button {
+  border: 0;
+  background: transparent;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.dashboard .summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.dashboard .summaryCard {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--cream-100);
+}
+.dashboard .summaryLabel {
+  font-size: 13px;
+  font-weight: 700;
+}
+.dashboard .summaryValue {
+  margin-top: 13px;
+  font: 900 38px/1.1 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.7px;
+}
+.dashboard .summaryValue span {
+  margin-left: 10px;
+  font: 400 12px var(--font-body);
+  letter-spacing: 0;
+  color: var(--color-text-muted);
+}
+.dashboard .summaryHint {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.dashboard .summaryIcon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: 13px;
+}
+.dashboard .summaryResidents .summaryIcon {
+  background: var(--mint-100);
+  color: var(--mint-700);
+}
+.dashboard .summaryAttendance .summaryIcon {
+  background: var(--sky-100);
+  color: var(--blue-600);
+}
+.dashboard .card {
+  min-width: 0;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  overflow: hidden;
+}
+.dashboard .cardHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 22px 24px 18px;
+}
+.dashboard .cardTitle {
+  font: 800 16px/1.4 var(--font-display);
+  letter-spacing: -0.1px;
+  text-wrap: auto;
+}
+.dashboard .cardSubtitle {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.dashboard .periodLabel {
+  align-self: center;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.dashboard .seriesControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  padding: 0 24px 12px;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+}
+.dashboard .seriesOption {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+}
+.dashboard .seriesOption[data-selected='true'] {
+  background: var(--cream-100);
+}
+.dashboard .seriesOption input {
+  accent-color: var(--mint-600);
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  cursor: pointer;
+}
+.dashboard .seriesDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.dashboard .selectionHint {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.dashboard .chartArea {
+  position: relative;
+  margin: 8px 18px 0 8px;
+}
+.dashboard .chartScroll {
+  overflow-x: auto;
+}
+.dashboard .chart {
+  width: 100%;
+  min-width: 0;
+  height: 270px;
+}
+.dashboard .gridLine {
+  stroke: var(--color-border);
+  stroke-dasharray: 4 5;
+  stroke-width: 1;
+}
+.dashboard .axisText {
+  fill: var(--color-text-muted);
+  font: 11px var(--font-body);
+}
+.dashboard .chartEmpty {
+  position: absolute;
+  inset: 0 20px 36px 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 7px;
+  text-align: center;
+  pointer-events: none;
+}
+.dashboard .chartEmpty strong {
+  font: 800 15px var(--font-display);
+  padding: 2px 8px;
+  background: rgb(255 255 255 / 94%);
+}
+.dashboard .chartEmpty p {
+  max-width: 300px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  padding: 2px 8px;
+  background: rgb(255 255 255 / 94%);
+}
+.dashboard .emptyIcon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--color-border);
+  border-radius: 13px;
+  background: var(--cream-50);
+  color: var(--color-text-muted);
+  margin-bottom: 3px;
+}
+.dashboard .chartFooter {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 24px 18px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+.dashboard .dailyDetails {
+  border-top: 1px solid var(--color-border);
+  font-size: 12px;
+}
+.dashboard .dailyDetails summary {
+  padding: 14px 24px;
+  cursor: pointer;
+  color: var(--mint-700);
+  font-weight: 700;
+}
+.dashboard .tableScroll {
+  overflow-x: auto;
+}
+.dashboard .sectionHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: -8px;
+}
+.dashboard .sectionHeading h2 {
+  font: 800 19px var(--font-display);
+}
+.dashboard .sectionHeading span {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-align: right;
+}
+.dashboard .breakdownGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.dashboard .blockIcon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 10px;
+}
+.dashboard .blockIcon[data-tone='mint'] {
+  background: var(--mint-100);
+  color: var(--mint-700);
+}
+.dashboard .blockIcon[data-tone='peach'] {
+  background: var(--peach-100);
+  color: #97431f;
+}
+.dashboard .blockIcon[data-tone='sky'] {
+  background: var(--sky-100);
+  color: var(--blue-600);
+}
+.dashboard .blockIcon[data-tone='lilac'] {
+  background: var(--lilac-100);
+  color: var(--violet-600);
+}
+.dashboard .blockIcon svg {
+  width: 18px;
+  height: 18px;
+}
+.dashboard .blockEmpty {
+  min-height: 148px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  padding: 22px;
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+  background: var(--cream-50);
+}
+.dashboard .blockEmpty svg {
+  color: var(--color-text-muted);
+  margin-bottom: 3px;
+}
+.dashboard .blockEmpty p {
+  font-size: 13px;
+  font-weight: 700;
+}
+.dashboard .blockEmpty span {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.dashboard .metricList {
+  list-style: none;
+  margin: 0;
+  padding: 0 24px 8px;
+}
+.dashboard .metricList li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 15px 0;
+  border-top: 1px solid var(--color-border);
+  font-size: 13px;
+}
+.dashboard .metricList li > span:first-child {
+  overflow-wrap: anywhere;
+}
+.dashboard .metricList strong {
+  font: 800 17px var(--font-display);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dashboard .reportsCard {
+  margin-top: 2px;
+}
+.dashboard .pendingBadge {
+  padding: 5px 10px;
+  background: var(--butter-100);
+  color: #7a5c0d;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.dashboard .reportLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 0 24px 20px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.dashboard .reportLegend span,
+.dashboard .pendingStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.dashboard .pendingStatus {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.dashboard .statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: #909ba4;
+}
+.dashboard .statusDot[data-status='saved'] {
+  background: #2f7d62;
+}
+.dashboard .statusDot[data-status='missing'] {
+  background: #c34d4d;
+}
+.dashboard .reportsEmpty {
+  padding: 20px 24px;
+  border-top: 1px solid var(--color-border);
+  background: var(--cream-50);
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.dashboard .reportNote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.dashboard .reportNote svg {
+  width: 15px;
+  height: 15px;
+}
+.dashboard .srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 1100px) {
+  .dashboard .periodForm {
+    align-items: flex-start;
+  }
+  .dashboard .periodIntro {
+    width: 100%;
+  }
+  .dashboard .dateControls {
+    width: 100%;
+  }
+  .dashboard .selectionHint {
+    width: 100%;
+    margin: 2px 0 0;
+  }
+  .dashboard .cardHead {
+    padding: 20px;
+  }
+}
+@media (max-width: 760px) {
+  .dashboard {
+    gap: 20px;
+  }
+  .dashboard .heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .dashboard .scopeBadge {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  .dashboard .lead {
+    font-size: 13px;
+  }
+  .dashboard .periodForm {
+    padding: 16px;
+    gap: 12px;
+  }
+  .dashboard .dateControls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 10px;
+  }
+  .dashboard .dateField {
+    min-width: 0;
+  }
+  .dashboard .dateField input {
+    width: 100%;
+    padding-inline: 6px;
+  }
+  .dashboard .applyButton,
+  .dashboard .resetButton {
+    padding-inline: 8px;
+    font-size: 11px;
+  }
+  .dashboard .snapshotNote {
+    margin-top: -8px;
+    line-height: 1.6;
+  }
+  .dashboard .summary {
+    gap: 12px;
+  }
+  .dashboard .summaryCard {
+    position: relative;
+    padding: 18px 16px;
+  }
+  .dashboard .summaryIcon {
+    display: none;
+  }
+  .dashboard .summaryLabel {
+    font-size: 12px;
+    min-height: 38px;
+  }
+  .dashboard .summaryValue {
+    font-size: 32px;
+  }
+  .dashboard .summaryHint {
+    font-size: 10px;
+  }
+  .dashboard .cardHead {
+    padding: 18px;
+  }
+  .dashboard .cardTitle {
+    font-size: 15px;
+  }
+  .dashboard .cardSubtitle {
+    font-size: 11px;
+  }
+  .dashboard .seriesControls {
+    padding-inline: 18px;
+    gap: 7px;
+  }
+  .dashboard .seriesOption {
+    padding: 7px 9px;
+    font-size: 11px;
+    gap: 6px;
+  }
+  .dashboard .chartEmpty {
+    inset: 0 10px 36px 20px;
+  }
+  .dashboard .chartEmpty strong {
+    font-size: 13px;
+  }
+  .dashboard .chartEmpty p {
+    font-size: 11px;
+  }
+  .dashboard .chartFooter {
+    padding-inline: 18px;
+  }
+  .dashboard .sectionHeading h2 {
+    font-size: 18px;
+  }
+  .dashboard .breakdownGrid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .dashboard .blockEmpty {
+    min-height: 135px;
+  }
+  .dashboard .reportLegend {
+    padding-inline: 18px;
+  }
+  .dashboard .reportsEmpty,
+  .dashboard .reportNote {
+    padding-inline: 18px;
+  }
+  .dashboard .metricList {
+    padding-inline: 18px;
+  }
+  .dashboard .reportsCard .metricList li {
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+}
