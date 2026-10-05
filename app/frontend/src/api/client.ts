@@ -9,6 +9,18 @@ export interface RegisterResult extends UserProfile {
   password: string;
 }
 
+export interface Dormitory {
+  id: number;
+  name: string;
+  client_name: string;
+  created_at: string;
+}
+
+export interface CreateDormitoryInput {
+  name: string;
+  client_name: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -75,5 +87,17 @@ export const api = {
 
   me(): Promise<UserProfile> {
     return request<UserProfile>('/me');
+  },
+
+  dormitories(signal?: AbortSignal): Promise<Dormitory[]> {
+    return request<Dormitory[]>('/dormitories', { signal });
+  },
+
+  createDormitory(input: CreateDormitoryInput): Promise<Dormitory> {
+    return request<Dormitory>('/dormitories', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  dormitory(id: string, signal?: AbortSignal): Promise<Dormitory> {
+    return request<Dormitory>(`/dormitories/${encodeURIComponent(id)}`, { signal });
   },
 };

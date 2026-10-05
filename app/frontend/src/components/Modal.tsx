@@ -10,6 +10,8 @@ interface ModalProps {
   /** Префикс для data-testid: `auth-modal`, `auth-modal-close` и так далее. */
   testId: string;
   onClose: () => void;
+  /** Во время сохранения нельзя закрыть окно и потерять результат запроса. */
+  closeDisabled?: boolean;
   children: ReactNode;
 }
 
@@ -18,7 +20,13 @@ interface ModalProps {
  * закрытие по Esc, возврат фокуса на первый элемент и удержание Tab внутри
  * окна. Стили — в `index.css`, разметка — только семантика.
  */
-export function Modal({ title, testId, onClose, children }: ModalProps): JSX.Element {
+export function Modal({
+  title,
+  testId,
+  onClose,
+  closeDisabled = false,
+  children,
+}: ModalProps): JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = `${testId}-title`;
 
@@ -37,7 +45,7 @@ export function Modal({ title, testId, onClose, children }: ModalProps): JSX.Ele
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        if (!closeDisabled) onClose();
         return;
       }
       if (event.key !== 'Tab') {
@@ -49,6 +57,8 @@ export function Modal({ title, testId, onClose, children }: ModalProps): JSX.Ele
       }
       const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
       if (focusable.length === 0) {
+        event.preventDefault();
+        panel.focus();
         return;
       }
       const first = focusable[0];
@@ -61,7 +71,7 @@ export function Modal({ title, testId, onClose, children }: ModalProps): JSX.Ele
         first.focus();
       }
     },
-    [onClose],
+    [onClose, closeDisabled],
   );
 
   useEffect(() => {
@@ -75,7 +85,7 @@ export function Modal({ title, testId, onClose, children }: ModalProps): JSX.Ele
         className="modal__backdrop"
         aria-hidden="true"
         data-testid={`${testId}-backdrop`}
-        onClick={onClose}
+        onClick={closeDisabled ? undefined : onClose}
       />
       <div
         className="modal__panel"
@@ -95,6 +105,7 @@ export function Modal({ title, testId, onClose, children }: ModalProps): JSX.Ele
             className="modal__close"
             data-testid={`${testId}-close`}
             aria-label="Закрыть окно"
+            disabled={closeDisabled}
             onClick={onClose}
           >
             ✕
