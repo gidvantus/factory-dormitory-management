@@ -11,7 +11,12 @@ from app.db import get_db
 from app.models.dormitory import Dormitory
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
-from app.schemas.report_template import CreateReportTemplateRequest, ReportTemplateResponse
+from app.schemas.report_template import (
+    CreateReportTemplateRequest,
+    ReportTemplateDetailResponse,
+    ReportTemplateResponse,
+    ReportTemplateRowResponse,
+)
 from app.schemas.user import ErrorResponse
 from app.security import CurrentUser
 
@@ -40,6 +45,36 @@ def list_templates(_user: CurrentUser, db: DbSession) -> list[ReportTemplateResp
         )
         for template, count in result
     ]
+
+
+@router.get(
+    "/{template_id}", response_model=ReportTemplateDetailResponse, summary="Просмотр шаблона отчёта"
+)
+def read_template(
+    template_id: Annotated[int, Path(ge=1, le=2147483647)],
+    _user: CurrentUser,
+    db: DbSession,
+) -> ReportTemplateDetailResponse:
+    template = db.get(ReportTemplate, template_id)
+    if template is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Шаблон не найден")
+    rows = list(
+        db.scalars(
+            select(ReportTemplateRow)
+            .where(ReportTemplateRow.template_id == template_id)
+            .order_by(ReportTemplateRow.position, ReportTemplateRow.id)
+        )
+    )
+    return ReportTemplateDetailResponse(
+        id=template.id,
+        name=template.name,
+        row_count=len(rows),
+        created_at=template.created_at,
+        rows=[
+            ReportTemplateRowResponse(name=row.name, position=row.position, formula=row.formula)
+            for row in rows
+        ],
+    )
 
 
 @router.post(

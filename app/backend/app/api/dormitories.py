@@ -10,6 +10,7 @@ from app.db import get_db
 from app.models.dormitory import Dormitory
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
+from app.report_defaults import DEFAULT_REPORT_FORMULA, REQUIRED_REPORT_ROW_NAMES, required_row_name
 from app.schemas.dormitory import CreateDormitoryRequest, DormitoryResponse
 from app.schemas.user import ErrorResponse
 from app.security import CurrentUser
@@ -54,14 +55,40 @@ def create_dormitory(
     dormitory = Dormitory(created_by_id=user.id, name=payload.name, client_name=payload.client_name)
     db.add(dormitory)
     db.flush()
+    aliases = {
+        row.name: canonical
+        for row in template_rows
+        if (canonical := required_row_name(row.name)) is not None and row.name != canonical
+    }
+    copied_names: set[str] = set()
+    next_position = 0
+    for row in template_rows:
+        next_position += 1
+        canonical = required_row_name(row.name)
+        name = canonical or row.name
+        copied_names.add(name)
+        formula = row.formula
+        if formula:
+            for old_name, new_name in aliases.items():
+                formula = formula.replace(f"[{old_name}]", f"[{new_name}]")
+        db.add(
+            ReportRow(
+                dormitory_id=dormitory.id,
+                name=name,
+                formula=formula or DEFAULT_REPORT_FORMULA if canonical else formula,
+                position=next_position,
+            )
+        )
     db.add_all(
         ReportRow(
             dormitory_id=dormitory.id,
-            name=row.name,
-            formula=row.formula,
-            position=index,
+            name=name,
+            formula=DEFAULT_REPORT_FORMULA,
+            position=next_position + index,
         )
-        for index, row in enumerate(template_rows, start=1)
+        for index, name in enumerate(
+            (name for name in REQUIRED_REPORT_ROW_NAMES if name not in copied_names), start=1
+        )
     )
     db.commit()
     db.refresh(dormitory)

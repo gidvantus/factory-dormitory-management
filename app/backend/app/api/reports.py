@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models.dormitory import Dormitory
 from app.models.report import ReportCell, ReportRow
+from app.report_defaults import required_row_name
 from app.report_formula import FormulaError, calculate_formula, compile_formula, format_number
 from app.schemas.report import (
     CreateReportRowRequest,
@@ -206,6 +207,15 @@ def update_row(
     rows = get_rows(db, dormitory_id)
     old_name = row.name
     new_name = payload.name if payload.name is not None else old_name
+    if required_row_name(old_name):
+        if new_name != old_name:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "Название обязательной строки нельзя изменить"
+            )
+        if "formula" in payload.model_fields_set and payload.formula is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "Обязательная строка должна оставаться формулой"
+            )
     if any(item.id != row.id and item.name.casefold() == new_name.casefold() for item in rows):
         raise HTTPException(status.HTTP_409_CONFLICT, "Строка с таким названием уже есть")
     replacements = {
@@ -259,6 +269,8 @@ def move_row(
 def delete_row(dormitory_id: DormitoryId, row_id: RowId, _user: CurrentUser, db: DbSession) -> None:
     require_dormitory(db, dormitory_id)
     row = get_row(db, dormitory_id, row_id)
+    if required_row_name(row.name):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Обязательную строку нельзя удалить")
     for item in get_rows(db, dormitory_id):
         if item.id != row_id and item.formula and row.name in compile_formula(item.formula)[1]:
             raise HTTPException(status.HTTP_409_CONFLICT, "На строку ссылаются другие формулы")

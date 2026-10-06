@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.dormitory import Dormitory
 from app.models.user import User
+from app.report_defaults import REQUIRED_REPORT_ROW_NAMES
 from tests.conftest import register_user
 
 PAYLOAD = {"name": "Северное", "client_name": "Стройкомплект"}
@@ -43,6 +44,11 @@ def test_create_persists_and_returns_list_and_details(
     db_session.expire_all()
     assert client.get("/api/dormitories").json() == [created]
     assert client.get(f"/api/dormitories/{created['id']}").json() == created
+    report = client.get(
+        f"/api/dormitories/{created['id']}/report?from=2026-10-01&to=2026-10-01"
+    ).json()
+    assert [row["name"] for row in report["rows"]] == list(REQUIRED_REPORT_ROW_NAMES)
+    assert [row["formula"] for row in report["rows"]] == ["=0", "=0", "=0"]
 
 
 def test_all_authenticated_users_share_dormitories(client: TestClient) -> None:

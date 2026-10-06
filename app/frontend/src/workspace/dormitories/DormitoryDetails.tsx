@@ -8,7 +8,12 @@ import { WorkspaceIcon } from '../WorkspaceIcon';
 import { currentMonth, formatDate, rangeError } from '../dashboard/dates';
 import type { DateRange } from '../dashboard/dates';
 import styles from './Dormitories.module.css';
+import { HostelPlaces } from './HostelPlaces';
+import { InflowTable } from './InflowTable';
+import { OutflowTable } from './OutflowTable';
+import { PaymentsTable } from './PaymentsTable';
 import { ReportTable } from './ReportTable';
+import { ResidentsTable } from './ResidentsTable';
 
 const sections = [
   { path: 'report', label: 'Большой отчёт' },
@@ -45,6 +50,7 @@ export function DormitoryDetails(): JSX.Element {
   const [attempt, setAttempt] = useState(0);
   const [range, setRange] = useState<DateRange>(() => currentMonth());
   const [draft, setDraft] = useState<DateRange>(range);
+  const [placesMonth, setPlacesMonth] = useState(() => currentMonth().from.slice(0, 7));
   const [periodError, setPeriodError] = useState('');
 
   function applyPeriod(event: FormEvent<HTMLFormElement>): void {
@@ -101,56 +107,59 @@ export function DormitoryDetails(): JSX.Element {
               <p className={styles.detailsClient}>Клиент: {dormitory.client_name}</p>
               <h1 tabIndex={-1}>Общежитие «{dormitory.name}»</h1>
             </div>
-            <form
-              className={styles.periodForm}
-              aria-label="Период общежития"
-              onSubmit={applyPeriod}
-              noValidate
-            >
-              <div className={styles.periodFields}>
-                <label className={styles.periodField} htmlFor="dormitory-period-from">
-                  От
-                  <input
-                    id="dormitory-period-from"
-                    data-testid="dormitory-period-from"
-                    type="date"
-                    value={draft.from}
-                    onChange={(event) => {
-                      setDraft({ ...draft, from: event.target.value });
-                      setPeriodError('');
-                    }}
-                    aria-invalid={!!periodError}
-                    aria-describedby={periodError ? 'dormitory-period-error' : undefined}
-                  />
-                </label>
-                <label className={styles.periodField} htmlFor="dormitory-period-to">
-                  До
-                  <input
-                    id="dormitory-period-to"
-                    data-testid="dormitory-period-to"
-                    type="date"
-                    value={draft.to}
-                    onChange={(event) => {
-                      setDraft({ ...draft, to: event.target.value });
-                      setPeriodError('');
-                    }}
-                    aria-invalid={!!periodError}
-                    aria-describedby={periodError ? 'dormitory-period-error' : undefined}
-                  />
-                </label>
-                <button className={styles.periodApply} type="submit">
-                  Применить
-                </button>
-                <button className={styles.periodReset} type="button" onClick={resetPeriod}>
-                  Текущий месяц
-                </button>
-              </div>
-              {periodError && (
-                <p className={styles.periodError} id="dormitory-period-error" role="alert">
-                  {periodError}
-                </p>
+            {section?.path !== 'places' &&
+              !(section?.path === 'payments' && selectedSecondary === 'advance') && (
+                <form
+                  className={styles.periodForm}
+                  aria-label="Период общежития"
+                  onSubmit={applyPeriod}
+                  noValidate
+                >
+                  <div className={styles.periodFields}>
+                    <label className={styles.periodField} htmlFor="dormitory-period-from">
+                      От
+                      <input
+                        id="dormitory-period-from"
+                        data-testid="dormitory-period-from"
+                        type="date"
+                        value={draft.from}
+                        onChange={(event) => {
+                          setDraft({ ...draft, from: event.target.value });
+                          setPeriodError('');
+                        }}
+                        aria-invalid={!!periodError}
+                        aria-describedby={periodError ? 'dormitory-period-error' : undefined}
+                      />
+                    </label>
+                    <label className={styles.periodField} htmlFor="dormitory-period-to">
+                      До
+                      <input
+                        id="dormitory-period-to"
+                        data-testid="dormitory-period-to"
+                        type="date"
+                        value={draft.to}
+                        onChange={(event) => {
+                          setDraft({ ...draft, to: event.target.value });
+                          setPeriodError('');
+                        }}
+                        aria-invalid={!!periodError}
+                        aria-describedby={periodError ? 'dormitory-period-error' : undefined}
+                      />
+                    </label>
+                    <button className={styles.periodApply} type="submit">
+                      Применить
+                    </button>
+                    <button className={styles.periodReset} type="button" onClick={resetPeriod}>
+                      Текущий месяц
+                    </button>
+                  </div>
+                  {periodError && (
+                    <p className={styles.periodError} id="dormitory-period-error" role="alert">
+                      {periodError}
+                    </p>
+                  )}
+                </form>
               )}
-            </form>
           </div>
           <nav className={styles.tabScroller} aria-label="Разделы общежития">
             <div className={styles.tabs}>
@@ -184,6 +193,22 @@ export function DormitoryDetails(): JSX.Element {
           )}
           {sectionFound && section.path === 'report' ? (
             <ReportTable dormitoryId={dormitoryId} range={range} />
+          ) : sectionFound && section.path === 'places' ? (
+            <HostelPlaces
+              dormitoryId={dormitoryId}
+              month={placesMonth}
+              onMonthChange={setPlacesMonth}
+            />
+          ) : sectionFound && section.path === 'residents' ? (
+            <ResidentsTable dormitoryId={dormitoryId} />
+          ) : sectionFound && section.path === 'movement' && selectedSecondary === 'inflow' ? (
+            <InflowTable dormitoryId={dormitoryId} range={range} />
+          ) : sectionFound && section.path === 'movement' && selectedSecondary === 'outflow' ? (
+            <OutflowTable dormitoryId={dormitoryId} range={range} />
+          ) : sectionFound &&
+            section.path === 'payments' &&
+            (selectedSecondary === 'advance' || selectedSecondary === 'settlement') ? (
+            <PaymentsTable dormitoryId={dormitoryId} kind={selectedSecondary} range={range} />
           ) : sectionFound ? (
             <div className={styles.emptySection} data-testid="dormitory-section">
               <h2>

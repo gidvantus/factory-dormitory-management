@@ -25,3 +25,13 @@ class ReportTemplateResponse(BaseModel):
     name: str
     row_count: int
     created_at: datetime
+
+
+class ReportTemplateRowResponse(BaseModel):
+    name: str
+    position: int
+    formula: str | None
+
+
+class ReportTemplateDetailResponse(ReportTemplateResponse):
+    rows: list[ReportTemplateRowResponse]

@@ -13,6 +13,8 @@ interface Props {
   range: DateRange;
 }
 
+const requiredRowNames = new Set(['Выход Итого', 'Проживает Итого', 'Текучка Итого']);
+
 function daysInRange(range: DateRange): string[] {
   const start = dateNumber(range.from);
   const end = dateNumber(range.to);
@@ -150,9 +152,12 @@ function RowDialog({
   onClose: () => void;
   onChanged: () => void;
 }): JSX.Element {
+  const required = row !== null && requiredRowNames.has(row.name);
   const [name, setName] = useState(row?.name ?? '');
-  const [mode, setMode] = useState<'manual' | 'formula'>(row?.formula ? 'formula' : 'manual');
-  const [formula, setFormula] = useState(row?.formula ?? '=');
+  const [mode, setMode] = useState<'manual' | 'formula'>(
+    required || row?.formula ? 'formula' : 'manual',
+  );
+  const [formula, setFormula] = useState(row?.formula ?? (required ? '=0' : '='));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -211,10 +216,16 @@ function RowDialog({
             onChange={(event) => setName(event.target.value)}
             maxLength={120}
             required
-            disabled={saving || deleting}
+            disabled={saving || deleting || required}
             placeholder="Например, Проживающие"
           />
         </label>
+        {required && (
+          <p className={styles.formulaHelp}>
+            Это обязательная итоговая строка. Её название и тип нельзя изменить, но формулу можно
+            настроить.
+          </p>
+        )}
         <fieldset className={styles.modeGroup} disabled={saving || deleting}>
           <legend>Как заполняется строка</legend>
           <label>
@@ -222,6 +233,7 @@ function RowDialog({
               type="radio"
               name="report-row-mode"
               checked={mode === 'manual'}
+              disabled={required}
               onChange={() => setMode('manual')}
             />{' '}
             Вручную по дням
@@ -272,7 +284,7 @@ function RowDialog({
                   ))}
               </div>
             )}
-            {row && !row.formula && (
+            {row && !required && !row.formula && (
               <p className={styles.warning}>
                 При переходе на формулу введённые значения этой строки будут удалены.
               </p>
@@ -286,6 +298,7 @@ function RowDialog({
         )}
         <div className={styles.dialogActions}>
           {row &&
+            !required &&
             (confirmDelete ? (
               <button
                 type="button"

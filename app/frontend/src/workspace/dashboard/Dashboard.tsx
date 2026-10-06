@@ -29,14 +29,14 @@ const breakdowns: {
     title: 'Текучка по общежитиям',
     icon: 'door',
     tone: 'peach',
-    description: 'Отдельный показатель из отчётов · за период',
+    description: 'На дату среза · человек',
   },
   {
     key: 'attendance',
     title: 'Выход на работу',
     icon: 'chart',
     tone: 'sky',
-    description: 'По каждому общежитию · человек',
+    description: 'По каждому клиенту · человек',
   },
   {
     key: 'vacancies',
@@ -52,6 +52,7 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
   const [draft, setDraft] = useState<DateRange>(range);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Metric[]>(METRICS.map((metric) => metric.key));
+  const [chartDormitoryId, setChartDormitoryId] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{
     range: DateRange;
@@ -61,8 +62,12 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
 
   useEffect(() => {
     const controller = new AbortController();
-    setResult({ range, data: EMPTY_DASHBOARD, status: 'loading' });
-    void loader(range, controller.signal)
+    setResult((current) => ({
+      range,
+      data: current.range === range ? current.data : EMPTY_DASHBOARD,
+      status: 'loading',
+    }));
+    void loader(range, controller.signal, chartDormitoryId || null)
       .then((data) => {
         if (!controller.signal.aborted) setResult({ range, data, status: 'ready' });
       })
@@ -71,9 +76,9 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
           setResult({ range, data: EMPTY_DASHBOARD, status: 'error' });
       });
     return () => controller.abort();
-  }, [range, loader, attempt]);
+  }, [range, chartDormitoryId, loader, attempt]);
 
-  const data = result.range === range && result.status === 'ready' ? result.data : EMPTY_DASHBOARD;
+  const data = result.range === range ? result.data : EMPTY_DASHBOARD;
   const loading = result.range !== range || result.status === 'loading';
   const snapshot =
     data.snapshotDate ??
@@ -176,7 +181,7 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
       </form>
 
       <p className={styles.snapshotNote}>
-        {snapshotLabel}: проживающие, выход и свободные места. Текучка — за выбранный период.
+        {snapshotLabel}: проживающие, выход и текучка. Свободные места подключим позже.
       </p>
       {loading && (
         <p className={styles.loading} role="status">
@@ -221,7 +226,15 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
         </article>
       </section>
 
-      <DashboardChart rows={data.daily} range={range} selected={selected} onToggle={toggleMetric} />
+      <DashboardChart
+        rows={loading ? [] : data.daily}
+        range={range}
+        selected={selected}
+        onToggle={toggleMetric}
+        dormitories={result.data.dormitories}
+        dormitoryId={chartDormitoryId}
+        onDormitoryChange={setChartDormitoryId}
+      />
 
       <div className={styles.sectionHeading}>
         <h2>По общежитиям</h2>
@@ -249,14 +262,21 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
                 <WorkspaceIcon name={block.icon} />
               </span>
             </div>
-            {data.dormitories.length ? (
+            {(block.key === 'attendance' ? data.clients.length : data.dormitories.length) ? (
               <ul className={styles.metricList}>
-                {data.dormitories.map((dormitory) => (
-                  <li key={dormitory.id}>
-                    <span>{dormitory.name}</span>
-                    <strong>{formatCount(dormitory[block.key])}</strong>
-                  </li>
-                ))}
+                {block.key === 'attendance'
+                  ? data.clients.map((client) => (
+                      <li key={client.name}>
+                        <span>{client.name}</span>
+                        <strong>{formatCount(client.attendance)}</strong>
+                      </li>
+                    ))
+                  : data.dormitories.map((dormitory) => (
+                      <li key={dormitory.id}>
+                        <span>{dormitory.name}</span>
+                        <strong>{formatCount(dormitory[block.key])}</strong>
+                      </li>
+                    ))}
               </ul>
             ) : (
               <div className={styles.blockEmpty}>

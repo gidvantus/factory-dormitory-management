@@ -1,3 +1,4 @@
+import { api } from '../../api/client';
 import type { DateRange } from './dates';
 
 export type Metric = 'attendance' | 'residents' | 'turnover';
@@ -7,7 +8,7 @@ export interface DailyMetrics {
   date: string;
   attendance: number | null;
   residents: number | null;
-  /** Значение отдельной строки «Текучка» в отчёте за день. */
+  /** Значение строки «Текучка Итого» за день. */
   turnover: number | null;
 }
 
@@ -16,7 +17,7 @@ export interface DormitoryMetrics {
   name: string;
   residents: number | null;
   attendance: number | null;
-  /** Сумма отдельного показателя «Текучка» за выбранный период. */
+  /** Значение строки «Текучка Итого» на дату среза. */
   turnover: number | null;
   vacancies: number | null;
 }
@@ -26,24 +27,34 @@ export interface DashboardData {
   snapshotDate: string | null;
   totals: { attendance: number | null; residents: number | null };
   dormitories: DormitoryMetrics[];
+  clients: { name: string; attendance: number | null }[];
   daily: DailyMetrics[];
 }
 
-export type DashboardLoader = (range: DateRange, signal: AbortSignal) => Promise<DashboardData>;
+export type DashboardLoader = (
+  range: DateRange,
+  signal: AbortSignal,
+  dormitoryId?: string | null,
+) => Promise<DashboardData>;
 
 export const EMPTY_DASHBOARD: DashboardData = {
   snapshotDate: null,
   totals: { attendance: null, residents: null },
   dormitories: [],
+  clients: [],
   daily: [],
 };
 
-/**
- * Точка подключения будущего API отчётов. До его появления не отправляем запросы
- * на несуществующий endpoint и не выдаём демонстрационные числа за реальные.
- * Адаптер должен вернуть показатели за переданный включительный период.
- */
-export const loadDashboard: DashboardLoader = () => Promise.resolve(EMPTY_DASHBOARD);
+export const loadDashboard: DashboardLoader = async (range, signal, dormitoryId) => {
+  const response = await api.dashboard(range.from, range.to, signal, dormitoryId);
+  return {
+    snapshotDate: response.snapshot_date,
+    totals: response.totals,
+    dormitories: response.dormitories,
+    clients: response.clients,
+    daily: response.daily,
+  };
+};
 
 export const METRICS: { key: Metric; label: string; color: string }[] = [
   { key: 'attendance', label: 'Выход', color: '#2f7d62' },

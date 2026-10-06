@@ -2,6 +2,7 @@
 
 from fastapi.testclient import TestClient
 
+from app.report_defaults import REQUIRED_REPORT_ROW_NAMES
 from tests.conftest import register_user
 
 
@@ -44,40 +45,62 @@ def test_template_copies_only_structure_and_remains_independent(client: TestClie
     )
     assert created.status_code == 201, created.text
     template_id = created.json()["id"]
-    assert created.json()["row_count"] == 3
+    assert created.json()["row_count"] == 6
     assert [item["name"] for item in client.get("/api/report-templates").json()] == ["Стандарт"]
+    preview = client.get(f"/api/report-templates/{template_id}")
+    assert preview.status_code == 200
+    assert preview.json()["row_count"] == 6
+    assert [(row["name"], row["formula"]) for row in preview.json()["rows"]] == [
+        ("Выход Итого", "=0"),
+        ("Проживает Итого", "=0"),
+        ("Текучка Итого", "=0"),
+        ("Прибывшие", None),
+        ("Проживающие", None),
+        ("Всего", "=[Проживающие]+[Прибывшие]"),
+    ]
+    assert all("values" not in row for row in preview.json()["rows"])
 
     # Изменение источника после сохранения не переписывает снимок.
     assert (
         client.patch(f"{source}/rows/{residents}", json={"name": "Теперь другое"}).status_code
         == 200
     )
+    assert (
+        client.get(f"/api/report-templates/{template_id}").json()["rows"][-2]["name"]
+        == "Проживающие"
+    )
     target_id = create_dormitory(client, "Новое", template_id)
     target = f"/api/dormitories/{target_id}/report"
     rows = client.get(f"{target}?from=2026-10-01&to=2026-10-01").json()["rows"]
-    assert [row["name"] for row in rows] == ["Прибывшие", "Проживающие", "Всего"]
-    assert rows[2]["formula"] == "=[Проживающие]+[Прибывшие]"
-    assert rows[0]["values"] == rows[1]["values"] == {}
-    assert rows[2]["values"] == {"2026-10-01": "0"}
+    assert [row["name"] for row in rows] == [
+        *REQUIRED_REPORT_ROW_NAMES,
+        "Прибывшие",
+        "Проживающие",
+        "Всего",
+    ]
+    assert rows[-1]["formula"] == "=[Проживающие]+[Прибывшие]"
+    assert rows[-3]["values"] == rows[-2]["values"] == {}
+    assert rows[-1]["values"] == {"2026-10-01": "0"}
 
     assert client.delete(f"/api/report-templates/{template_id}").status_code == 204
+    assert client.get(f"/api/report-templates/{template_id}").status_code == 404
     assert client.get("/api/report-templates").json() == []
     assert (
-        client.get(f"{target}?from=2026-10-01&to=2026-10-01").json()["rows"][2]["formula"]
+        client.get(f"{target}?from=2026-10-01&to=2026-10-01").json()["rows"][-1]["formula"]
         == "=[Проживающие]+[Прибывшие]"
     )
 
 
 def test_template_validation_and_missing_reference(client: TestClient) -> None:
     assert client.get("/api/report-templates").status_code == 401
+    assert client.get("/api/report-templates/1").status_code == 401
     sign_in(client)
     source_id = create_dormitory(client, "Пустое")
-    assert (
-        client.post(
-            "/api/report-templates", json={"name": "Пустой", "dormitory_id": source_id}
-        ).status_code
-        == 422
+    empty_source = client.post(
+        "/api/report-templates", json={"name": "Базовый", "dormitory_id": source_id}
     )
+    assert empty_source.status_code == 201
+    assert empty_source.json()["row_count"] == 3
     assert (
         client.post("/api/report-templates", json={"name": "Нет", "dormitory_id": 999}).status_code
         == 404
@@ -102,3 +125,25 @@ def test_template_validation_and_missing_reference(client: TestClient) -> None:
         == 404
     )
     assert [item["name"] for item in client.get("/api/dormitories").json()] == ["Пустое"]
+
+
+def test_template_preserves_required_formula_without_duplicate(client: TestClient) -> None:
+    sign_in(client)
+    source_id = create_dormitory(client, "Исходное")
+    source = f"/api/dormitories/{source_id}/report"
+    source_rows = client.get(f"{source}?from=2026-10-01&to=2026-10-01").json()["rows"]
+    total_id = source_rows[0]["id"]
+    client.post(f"{source}/rows", json={"name": "Выход"})
+    assert (
+        client.patch(f"{source}/rows/{total_id}", json={"formula": "=[Выход]"}).status_code == 200
+    )
+    template = client.post(
+        "/api/report-templates", json={"name": "С выходом", "dormitory_id": source_id}
+    ).json()
+    target_id = create_dormitory(client, "Новое", template["id"])
+    rows = client.get(f"/api/dormitories/{target_id}/report?from=2026-10-01&to=2026-10-01").json()[
+        "rows"
+    ]
+    assert [row["name"] for row in rows].count("Выход Итого") == 1
+    assert rows[0]["formula"] == "=[Выход]"
+    assert len(rows) == 4

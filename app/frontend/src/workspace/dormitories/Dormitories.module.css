@@ -377,10 +377,64 @@
 .templateList button:disabled {
   opacity: 0.5;
 }
+.templateList .templateOpen {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+.templateList .templateOpen:hover strong {
+  color: var(--mint-700);
+}
 .templateActions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+.previewHint {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.previewRows {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.previewRows li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--cream-50);
+}
+.previewRows li > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.previewRows strong {
+  font-size: 13px;
+}
+.previewRows code,
+.previewRows li > div > span {
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.previewNumber {
+  flex: none;
+  color: var(--mint-700);
+  font-size: 12px;
+  font-weight: 700;
 }
 @media (max-width: 760px) {
   .detailsHeading {

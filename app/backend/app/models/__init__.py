@@ -2,16 +2,27 @@
 
 from app.models.base import Base
 from app.models.dormitory import Dormitory
+from app.models.hostel import Hostel, HostelCell
+from app.models.inflow import PersonnelInflow
+from app.models.outflow import PersonnelOutflow
+from app.models.payment import PaymentEntry
 from app.models.report import ReportCell, ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
+from app.models.resident import Resident
 from app.models.user import User
 
 __all__ = [
     "Base",
     "Dormitory",
+    "Hostel",
+    "HostelCell",
+    "PaymentEntry",
+    "PersonnelInflow",
+    "PersonnelOutflow",
     "ReportCell",
     "ReportRow",
     "ReportTemplate",
     "ReportTemplateRow",
+    "Resident",
     "User",
 ]
