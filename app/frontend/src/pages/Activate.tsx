@@ -57,7 +57,7 @@ function ActivatePending(): JSX.Element {
   }
 
   return (
-    <section data-testid="activate-pending">
+    <section className="activate__panel" data-testid="activate-pending">
       <h1 className="activate__title" tabIndex={-1}>
         Активация кабинета
       </h1>
@@ -191,7 +191,7 @@ function ActivateToken({ token }: { token: string }): JSX.Element {
 
   if (checkError) {
     return (
-      <section data-testid="activate-page">
+      <section className="activate__panel" data-testid="activate-page">
         <h1 className="activate__title">Активация кабинета</h1>
         <p className="alert alert--error" role="alert" data-testid="activate-error">
           {checkError}
@@ -222,7 +222,7 @@ function ActivateToken({ token }: { token: string }): JSX.Element {
   }
 
   return (
-    <section data-testid="activate-page">
+    <section className="activate__panel" data-testid="activate-page">
       <h1 className="activate__title">Новый пароль</h1>
       <p className="form__lead">
         Здравствуйте, <strong data-testid="activate-full-name">{info.full_name}</strong>! Задайте

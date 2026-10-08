@@ -1,4 +1,7 @@
-﻿import { screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,6 +33,17 @@ const EMPTY_DASHBOARD: MockResponse = {
 };
 
 const ANONYMOUS: MockResponse = { status: 401, body: { detail: 'Требуется авторизация' } };
+
+const CSS = readFileSync(resolve(process.cwd(), 'src', 'index.css'), 'utf8');
+
+/** Тело CSS-правила: отступы экрана активации проверяются по факту, а не на глаз. */
+function ruleBody(selector: string): string {
+  const start = CSS.indexOf(`${selector} {`);
+  if (start < 0) {
+    throw new Error(`В index.css нет правила ${selector}`);
+  }
+  return CSS.slice(start, CSS.indexOf('}', start));
+}
 
 function respond(url: string): MockResponse {
   if (url.includes('/api/auth/activate/resend')) {
@@ -90,6 +104,19 @@ describe('экран активации без токена', () => {
       'Если такой адрес зарегистрирован',
     );
     expect(callsTo(fetchMock, '/api/auth/activate/resend')).toHaveLength(1);
+  });
+});
+
+describe('вёрстка экрана активации', () => {
+  it('раскладывает содержимое сеткой с ненулевым отступом между блоками', async () => {
+    mockFetch((url) => respond(url));
+    renderApp('/activate');
+
+    expect(await screen.findByTestId('activate-pending')).toHaveClass('activate__panel');
+    // У абзацев сброшен margin, поэтому расстояние между кнопкой и сообщением о
+    // повторной отправке задаёт только gap контейнера.
+    expect(ruleBody('.activate__panel')).toMatch(/display:\s*grid/);
+    expect(ruleBody('.activate__panel')).toMatch(/gap:\s*var\(--space-[2-7]\)/);
   });
 });
 
