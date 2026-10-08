@@ -134,6 +134,10 @@ export function Login(): JSX.Element {
         <Link to="/register" data-testid="link-to-register">
           Зарегистрироваться
         </Link>
+        {' · '}
+        <Link to="/forgot-password" data-testid="link-to-forgot-password">
+          Забыли пароль?
+        </Link>
       </p>
     </form>
   );
