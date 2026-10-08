@@ -23,7 +23,6 @@ from app.db import get_db
 from app.mail import (
     RECOVERY_MAX_REQUESTS_PER_HOUR,
     RECOVERY_WINDOW_MINUTES,
-    send_activation_email_task,
     send_password_recovery_email_task,
 )
 from app.models.activation import ActivationToken
@@ -84,32 +83,30 @@ def try_consume_request(db: Session, email: str) -> bool:
     return True
 
 
-def deliver_recovery_email(
-    db: Session,
-    user: User,
-    *,
-    kind: str,
-    background_tasks: BackgroundTasks,
-) -> None:
-    """Выпустить новую ссылку и поставить письмо в фон.
+def deliver_recovery_email(db: Session, user: User, *, background_tasks: BackgroundTasks) -> None:
+    """Выпустить новую ссылку и поставить письмо восстановления в фон.
 
     Прежние живые токены пользователя гасим, чтобы рабочей всегда была ровно
-    одна ссылка. Текст письма выбирается по `kind`: неактивному кабинету уходит
-    письмо активации, активному — письмо восстановления.
+    одна ссылка. Письмо всегда одно и то же — письмо восстановления пароля с
+    шаблоном `password_recovery`: запрос пришёл с экрана `/forgot-password`, и
+    состояние кабинета на выбор письма не влияет. Кабинет, который ещё не
+    активирован, ссылка из этого письма активирует так же, как письмо активации.
     """
     db.execute(
         update(ActivationToken)
         .where(ActivationToken.user_id == user.id, ActivationToken.used_at.is_(None))
         .values(used_at=datetime.now(UTC))
     )
-    token = issue_activation_token(db, user.id, kind=kind)
+    token = issue_activation_token(db, user.id, kind="recovery")
     db.commit()
 
-    send_task = (
-        send_activation_email_task if kind == "activation" else send_password_recovery_email_task
-    )
     background_tasks.add_task(
-        partial(send_task, to=user.email, full_name=user.full_name, token=token)
+        partial(
+            send_password_recovery_email_task,
+            to=user.email,
+            full_name=user.full_name,
+            token=token,
+        )
     )
 
 
@@ -129,7 +126,11 @@ def request_password_recovery(
     background_tasks: BackgroundTasks,
     db: DbSession,
 ) -> ResendActivationResponse:
-    """Ответ всегда 200: по коду нельзя узнать, зарегистрирована ли почта."""
+    """Ответ всегда 200: по коду нельзя узнать, зарегистрирована ли почта.
+
+    Письмо уходит одно и то же — письмо восстановления пароля, — независимо от
+    того, активирован кабинет или нет: запрос пришёл с экрана «Забыли пароль?».
+    """
     user = db.scalar(select(User).where(User.email == normalize_email(payload.email)))
 
     # Чужой адрес не засоряет счётчик: лимит считаем только для своих пользователей.
@@ -140,10 +141,5 @@ def request_password_recovery(
         logger.info("%s: %s", RECOVERY_LIMIT_LOG, identifier_hash(payload.email))
         return ResendActivationResponse(detail=RECOVERY_DETAIL)
 
-    deliver_recovery_email(
-        db,
-        user,
-        kind="recovery" if user.is_active else "activation",
-        background_tasks=background_tasks,
-    )
+    deliver_recovery_email(db, user, background_tasks=background_tasks)
     return ResendActivationResponse(detail=RECOVERY_DETAIL)

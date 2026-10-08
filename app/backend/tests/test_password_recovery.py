@@ -52,10 +52,13 @@ class MailLog:
 
 @pytest.fixture
 def mail(monkeypatch: pytest.MonkeyPatch) -> MailLog:
-    """Письма не отправляются: задачи складываются в журнал теста."""
+    """Письма не отправляются: задачи складываются в журнал теста.
+
+    Обе задачи — и активации, и восстановления — пишут в один журнал: так тест
+    видит, какое именно письмо ушло с ручки восстановления.
+    """
     log = MailLog()
     monkeypatch.setattr(activation_api, "send_activation_email_task", log.activation)
-    monkeypatch.setattr(recovery_api, "send_activation_email_task", log.activation)
     monkeypatch.setattr(recovery_api, "send_password_recovery_email_task", log.recovery)
     return log
 
@@ -96,17 +99,41 @@ def test_recovery_for_active_user_sends_recovery_email_and_issues_token(
     assert client.get(f"/api/auth/activate/{mail.last_token}").status_code == 200
 
 
-def test_recovery_for_inactive_user_sends_activation_email(
-    client: TestClient, db_session: Session, mail: MailLog
+@pytest.mark.parametrize("is_active", [True, False])
+def test_recovery_sends_the_recovery_letter_for_both_cabinet_states(
+    client: TestClient, db_session: Session, mail: MailLog, is_active: bool
 ) -> None:
-    user = create_user(db_session, email="inactive@example.com", is_active=False)
+    """С экрана «Забыли пароль?» всегда уходит письмо восстановления.
+
+    Письмо активации с этого адреса не уходит даже неактивированному кабинету:
+    его шлёт только `POST /auth/activate/resend`.
+    """
+    user = create_user(db_session, email="worker@example.com", is_active=is_active)
 
     response = client.post(RECOVERY_PATH, json={"email": user.email})
 
     assert response.status_code == 200
-    assert mail.kinds == ["activation"]
+    assert response.json() == {"detail": RECOVERY_DETAIL}
+    assert mail.kinds == ["recovery"]
+    assert "activation" not in mail.kinds
     (issued,) = live_tokens(db_session, user)
-    assert issued.kind == "activation"
+    assert issued.kind == "recovery"
+
+
+def test_recovery_link_activates_an_inactive_cabinet(
+    client: TestClient, db_session: Session, mail: MailLog
+) -> None:
+    """Ссылка из письма восстановления активирует ещё не открытый кабинет."""
+    user = create_user(db_session, email="inactive@example.com", is_active=False)
+
+    client.post(RECOVERY_PATH, json={"email": user.email})
+    token = mail.last_token
+
+    assert client.get(f"/api/auth/activate/{token}").status_code == 200
+    activated = client.post("/api/auth/activate", json={"token": token, "password": NEW_PASSWORD})
+    assert activated.status_code == 200
+    assert activated.json()["is_active"] is True
+    assert client.get(f"/api/auth/activate/{token}").status_code == 410
 
 
 def test_recovery_for_unknown_email_writes_nothing(
