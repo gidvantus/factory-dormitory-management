@@ -3,15 +3,16 @@
 # Исходники лежат в app/: app/backend — FastAPI, app/frontend — React + nginx.
 #
 # Стенд этой рабочей копии (клон человека) — имя проекта `crm-dormitory`,
-# рабочая ветка `develop-m`.
+# рабочая ветка `develop-m`. У отдела разработки свой стенд по этому же
+# compose-файлу: имя проекта `crm-dormitory-agent`, рабочая копия
+# D:\Agents\CRMDormitory, свой том базы.
 #
-# У отдела разработки свой стенд по этому же compose-файлу, но под другим именем
-# проекта — `crm-dormitory-agent` — и со своим томом базы. Поэтому `-p` обязателен:
-# без него compose возьмёт имя из имени каталога и можно задеть контейнеры и том
-# базы соседнего стенда.
+# Имя проекта и порты у каждого стенда свои, они лежат в его `.env`
+# (`COMPOSE_PROJECT_NAME`, `FRONTEND_PORT`, `API_PORT`): у человека 8088 и 8008,
+# у отдела — 8093 и 8094. Поэтому `docker compose` запускается без `-p`:
+# имя берётся из `.env` рабочей копии, а не из имени каталога.
 #
-#   docker compose -p crm-dormitory up -d --build      # стенд человека  (8088/8008)
-#   docker compose -p crm-dormitory-agent up -d --build # стенд отдела  (D:\Agents\CRMDormitory)
+#   docker compose up -d --build
 #
 # Значения по умолчанию лежат в .env.example (он подключён как env_file ниже),
 # свои значения кладутся в .env — он подключается вторым и переопределяет пример.
