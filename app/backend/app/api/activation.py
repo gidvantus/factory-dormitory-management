@@ -5,6 +5,7 @@
 токен `used_at`, повторный переход отвечает 410.
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -12,6 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Re
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.api.recovery import RECOVERY_LIMIT_LOG, identifier_hash, try_consume_request
 from app.db import get_db
 from app.mail import send_activation_email_task
 from app.models.activation import ActivationToken
@@ -30,6 +32,8 @@ from app.security import (
     issue_activation_token,
     session_cookie,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["activation"])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -136,13 +140,18 @@ def resend_activation(
     user = db.scalar(select(User).where(User.email == normalize_email(payload.email)))
 
     if user is not None and not user.is_active:
+        # Общий с лимитом восстановления счётчик: чередованием двух ручек его не обойти.
+        if not try_consume_request(db, payload.email):
+            logger.info("%s: %s", RECOVERY_LIMIT_LOG, identifier_hash(payload.email))
+            return ResendActivationResponse(detail=RESEND_DETAIL)
+
         # Прежние ссылки гасим, чтобы у письма всегда была ровно одна живая.
         db.execute(
             update(ActivationToken)
             .where(ActivationToken.user_id == user.id, ActivationToken.used_at.is_(None))
             .values(used_at=datetime.now(UTC))
         )
-        token = issue_activation_token(db, user.id)
+        token = issue_activation_token(db, user.id, kind="activation")
         db.commit()
         background_tasks.add_task(
             send_activation_email_task,

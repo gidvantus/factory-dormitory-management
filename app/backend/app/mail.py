@@ -1,8 +1,9 @@
 """Почта: единственное место, где приложение разговаривает с SMTP.
 
-Письмо собирается из строки `mail_templates` с кодом `activation`, поэтому
-формулировка правится в базе без релиза. Открытый токен активации живёт только
-в ссылке письма: в логи он не попадает ни при успехе, ни при ошибке отправки.
+Письмо собирается из строки `mail_templates` с нужным кодом — `activation` или
+`password_recovery`, — поэтому формулировка правится в базе без релиза. Открытый
+токен живёт только в ссылке письма: в логи он не попадает ни при успехе, ни при
+ошибке отправки.
 """
 
 import html
@@ -22,6 +23,13 @@ logger = logging.getLogger(__name__)
 # Код шаблона письма активации в таблице `mail_templates`.
 ACTIVATION_TEMPLATE_CODE = "activation"
 
+# Код шаблона письма восстановления пароля: отдельная формулировка для того же экрана.
+PASSWORD_RECOVERY_TEMPLATE_CODE = "password_recovery"
+
+# Лимит писем восстановления: не больше трёх запросов на адрес за окно.
+RECOVERY_MAX_REQUESTS_PER_HOUR = 3
+RECOVERY_WINDOW_MINUTES = 60
+
 # Столько ждём SMTP-сервер, прежде чем считать попытку неудачной.
 SMTP_TIMEOUT_SECONDS = 10
 
@@ -36,24 +44,35 @@ def build_activation_url(token: str) -> str:
     return f"{settings.frontend_base_url.rstrip('/')}/activate/{token}"
 
 
-def _active_template(db: Session) -> MailTemplate | None:
+def build_recovery_url(token: str) -> str:
+    """Абсолютная ссылка восстановления пароля.
+
+    Адрес тот же, что у активации: экран смены пароля один, и ссылка из письма
+    восстановления ведёт на него же.
+    """
+    return build_activation_url(token)
+
+
+def _active_template(db: Session, code: str) -> MailTemplate | None:
     return db.scalar(
         select(MailTemplate).where(
-            MailTemplate.code == ACTIVATION_TEMPLATE_CODE,
+            MailTemplate.code == code,
             MailTemplate.is_active.is_(True),
         )
     )
 
 
-def render_activation_email(db: Session, *, full_name: str, activation_url: str) -> tuple[str, str]:
-    """Тема и текст письма активации с подставленными значениями.
+def _render_email(
+    db: Session, *, code: str, full_name: str, activation_url: str
+) -> tuple[str, str]:
+    """Тема и текст письма по коду шаблона с подставленными значениями.
 
-    Шаблон берётся из таблицы `mail_templates` по коду `activation`. Отсутствие
+    Подстановки у писем активации и восстановления одинаковые. Отсутствие
     шаблона — это `MailTemplateNotFound`, а не пустое письмо.
     """
-    template = _active_template(db)
+    template = _active_template(db, code)
     if template is None:
-        raise MailTemplateNotFound(f"Шаблон письма {ACTIVATION_TEMPLATE_CODE!r} не найден")
+        raise MailTemplateNotFound(f"Шаблон письма {code!r} не найден")
 
     context = {
         "full_name": full_name,
@@ -61,6 +80,28 @@ def render_activation_email(db: Session, *, full_name: str, activation_url: str)
         "expires_hours": str(get_settings().activation_token_ttl_hours),
     }
     return template.subject.format(**context), template.body.format(**context)
+
+
+def render_activation_email(db: Session, *, full_name: str, activation_url: str) -> tuple[str, str]:
+    """Тема и текст письма активации.
+
+    Шаблон берётся из таблицы `mail_templates` по коду `activation`.
+    """
+    return _render_email(
+        db, code=ACTIVATION_TEMPLATE_CODE, full_name=full_name, activation_url=activation_url
+    )
+
+
+def render_password_recovery_email(
+    db: Session, *, full_name: str, activation_url: str
+) -> tuple[str, str]:
+    """Тема и текст письма восстановления пароля по коду `password_recovery`."""
+    return _render_email(
+        db,
+        code=PASSWORD_RECOVERY_TEMPLATE_CODE,
+        full_name=full_name,
+        activation_url=activation_url,
+    )
 
 
 def activation_email_ready(db: Session) -> bool:
@@ -74,7 +115,7 @@ def activation_email_ready(db: Session) -> bool:
         return False
     if settings.smtp_user and not settings.smtp_password:
         return False
-    return _active_template(db) is not None
+    return _active_template(db, ACTIVATION_TEMPLATE_CODE) is not None
 
 
 def _html_from_text(body: str) -> str:
@@ -91,27 +132,9 @@ def _open_smtp(host: str, port: int, use_tls: bool) -> smtplib.SMTP:
     return smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT_SECONDS)
 
 
-def send_activation_email(db: Session, *, to: str, full_name: str, token: str) -> bool:
-    """Собрать и отправить письмо активации.
-
-    Возвращает `True` только при успешной отправке. Ошибки связи и
-    аутентификации логируются без ссылки и токена и не поднимаются наружу:
-    регистрация из-за недоступного SMTP падать не должна.
-    """
+def _deliver_email(*, to: str, subject: str, body: str, log_label: str) -> bool:
+    """Отправить готовое письмо. Ошибки связи и аутентификации наружу не поднимаются."""
     settings = get_settings()
-    if not settings.smtp_host or not settings.smtp_from:
-        logger.warning("SMTP не настроен: письмо активации не отправлено")
-        return False
-
-    activation_url = build_activation_url(token)
-    try:
-        subject, body = render_activation_email(
-            db, full_name=full_name, activation_url=activation_url
-        )
-    except MailTemplateNotFound as error:
-        logger.error("Письмо активации не отправлено: %s", error)
-        return False
-
     message = EmailMessage()
     message["From"] = settings.smtp_from
     message["To"] = to
@@ -125,12 +148,66 @@ def send_activation_email(db: Session, *, to: str, full_name: str, token: str) -
                 smtp.login(settings.smtp_user, settings.smtp_password)
             smtp.send_message(message)
     except (OSError, smtplib.SMTPException) as error:
-        logger.error("Письмо активации не отправлено: %s: %s", type(error).__name__, error)
+        logger.error("%s не отправлено: %s: %s", log_label, type(error).__name__, error)
         return False
     return True
+
+
+def send_activation_email(db: Session, *, to: str, full_name: str, token: str) -> bool:
+    """Собрать и отправить письмо активации.
+
+    Возвращает `True` только при успешной отправке. Ошибки связи и
+    аутентификации логируются без ссылки и токена и не поднимаются наружу:
+    регистрация из-за недоступного SMTP падать не должна.
+    """
+    settings = get_settings()
+    if not settings.smtp_host or not settings.smtp_from:
+        logger.warning("SMTP не настроен: письмо активации не отправлено")
+        return False
+
+    try:
+        subject, body = render_activation_email(
+            db, full_name=full_name, activation_url=build_activation_url(token)
+        )
+    except MailTemplateNotFound as error:
+        logger.error("Письмо активации не отправлено: %s", error)
+        return False
+
+    return _deliver_email(to=to, subject=subject, body=body, log_label="Письмо активации")
+
+
+def send_password_recovery_email(db: Session, *, to: str, full_name: str, token: str) -> bool:
+    """Собрать и отправить письмо восстановления пароля.
+
+    Поведение то же, что у письма активации: `False` вместо исключения, если
+    SMTP не настроен или шаблона `password_recovery` нет в базе. Токен и ссылка
+    в логи не попадают.
+    """
+    settings = get_settings()
+    if not settings.smtp_host or not settings.smtp_from:
+        logger.warning("SMTP не настроен: письмо восстановления пароля не отправлено")
+        return False
+
+    try:
+        subject, body = render_password_recovery_email(
+            db, full_name=full_name, activation_url=build_recovery_url(token)
+        )
+    except MailTemplateNotFound as error:
+        logger.error("Письмо восстановления пароля не отправлено: %s", error)
+        return False
+
+    return _deliver_email(
+        to=to, subject=subject, body=body, log_label="Письмо восстановления пароля"
+    )
 
 
 def send_activation_email_task(*, to: str, full_name: str, token: str) -> None:
     """Фоновая отправка: у задачи своя сессия базы, запрос к этому моменту закрыт."""
     with SessionLocal() as db:
         send_activation_email(db, to=to, full_name=full_name, token=token)
+
+
+def send_password_recovery_email_task(*, to: str, full_name: str, token: str) -> None:
+    """Фоновая отправка письма восстановления — со своей сессией базы."""
+    with SessionLocal() as db:
+        send_password_recovery_email(db, to=to, full_name=full_name, token=token)
