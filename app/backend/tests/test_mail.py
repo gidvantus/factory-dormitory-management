@@ -16,11 +16,15 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.mail import (
     ACTIVATION_TEMPLATE_CODE,
+    PASSWORD_RECOVERY_TEMPLATE_CODE,
     MailTemplateNotFound,
     activation_email_ready,
     build_activation_url,
+    build_recovery_url,
     render_activation_email,
+    render_password_recovery_email,
     send_activation_email,
+    send_password_recovery_email,
 )
 from app.models.mail_template import MailTemplate
 
@@ -28,6 +32,12 @@ SUBJECT = "Активация личного кабинета Домовой"
 BODY = (
     "Здравствуйте, {full_name}!\n"
     "Активируйте кабинет: {activation_url}\n"
+    "Ссылка живёт {expires_hours} ч.\n"
+)
+RECOVERY_SUBJECT = "Восстановление пароля в системе «Домовой»"
+RECOVERY_BODY = (
+    "Здравствуйте, {full_name}!\n"
+    "Задайте новый пароль: {activation_url}\n"
     "Ссылка живёт {expires_hours} ч.\n"
 )
 FULL_NAME = "Иванов Иван Иванович"
@@ -109,8 +119,26 @@ def seed_template(db_session: Session, is_active: bool = True) -> MailTemplate:
     return template
 
 
+def seed_recovery_template(db_session: Session, is_active: bool = True) -> MailTemplate:
+    template = MailTemplate(
+        code=PASSWORD_RECOVERY_TEMPLATE_CODE,
+        subject=RECOVERY_SUBJECT,
+        body=RECOVERY_BODY,
+        is_active=is_active,
+    )
+    db_session.add(template)
+    db_session.commit()
+    db_session.refresh(template)
+    return template
+
+
 def test_build_activation_url_is_absolute(smtp_settings: None) -> None:
     assert build_activation_url(TOKEN) == f"https://domovoy.example/activate/{TOKEN}"
+
+
+def test_build_recovery_url_leads_to_the_same_password_screen(smtp_settings: None) -> None:
+    """Экран смены пароля один, поэтому адрес восстановления совпадает с активацией."""
+    assert build_recovery_url(TOKEN) == f"https://domovoy.example/activate/{TOKEN}"
 
 
 def test_render_substitutes_every_placeholder(db_session: Session, smtp_settings: None) -> None:
@@ -233,3 +261,56 @@ def test_send_is_skipped_without_smtp_host(
 
     assert sent is False
     assert FakeSMTP.opened == []
+
+
+def test_recovery_render_substitutes_every_placeholder(
+    db_session: Session, smtp_settings: None
+) -> None:
+    seed_recovery_template(db_session)
+
+    subject, body = render_password_recovery_email(
+        db_session,
+        full_name=FULL_NAME,
+        activation_url="https://domovoy.example/activate/token-value",
+    )
+
+    assert subject == RECOVERY_SUBJECT
+    assert FULL_NAME in body
+    assert "https://domovoy.example/activate/token-value" in body
+    assert str(get_settings().activation_token_ttl_hours) in body
+    assert "{full_name}" not in body
+    assert "{activation_url}" not in body
+    assert "{expires_hours}" not in body
+
+
+def test_send_recovery_builds_message_from_its_own_template(
+    db_session: Session, smtp_settings: None
+) -> None:
+    seed_recovery_template(db_session)
+
+    assert send_password_recovery_email(
+        db_session, to="worker@example.com", full_name=FULL_NAME, token=TOKEN
+    )
+
+    (message,) = FakeSMTP.sent
+    assert message["Subject"] == RECOVERY_SUBJECT
+    plain = message.get_body(preferencelist=("plain",))
+    assert plain is not None
+    assert f"https://domovoy.example/activate/{TOKEN}" in plain.get_content()
+
+
+def test_send_recovery_without_template_logs_and_returns_false(
+    db_session: Session, caplog: pytest.LogCaptureFixture, smtp_settings: None
+) -> None:
+    """Есть только шаблон активации: письмо восстановления не уходит и не падает."""
+    seed_template(db_session)
+
+    with caplog.at_level(logging.ERROR):
+        sent = send_password_recovery_email(
+            db_session, to="worker@example.com", full_name=FULL_NAME, token=TOKEN
+        )
+
+    assert sent is False
+    assert FakeSMTP.sent == []
+    assert PASSWORD_RECOVERY_TEMPLATE_CODE in caplog.text
+    assert TOKEN not in caplog.text

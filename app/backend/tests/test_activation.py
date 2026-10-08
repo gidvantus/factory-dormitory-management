@@ -194,6 +194,17 @@ def test_resend_marks_old_tokens_and_issues_a_new_one(
     assert len([token for token in tokens if token.used_at is None]) == 1
 
 
+def test_resend_issues_an_activation_kind_token(client: TestClient, db_session: Session) -> None:
+    """Повторная отправка помечает ссылку как письмо активации, а не восстановления."""
+    user = create_user(db_session, email="inactive@example.com", is_active=False)
+
+    assert client.post("/api/auth/activate/resend", json={"email": user.email}).status_code == 200
+
+    record = db_session.scalar(select(ActivationToken).where(ActivationToken.user_id == user.id))
+    assert record is not None
+    assert record.kind == "activation"
+
+
 def test_resend_answers_the_same_for_known_and_unknown_email(
     client: TestClient, db_session: Session
 ) -> None:

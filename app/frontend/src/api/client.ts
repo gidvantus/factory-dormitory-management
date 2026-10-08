@@ -234,6 +234,14 @@ export const api = {
     });
   },
 
+  /** Запрос письма для восстановления пароля. Ответ тоже всегда 200. */
+  requestPasswordRecovery(email: string): Promise<{ detail: string }> {
+    return request<{ detail: string }>('/auth/password-recovery', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
   login(email: string, password: string): Promise<UserProfile> {
     return request<UserProfile>('/auth/login', {
       method: 'POST',

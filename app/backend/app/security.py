@@ -113,8 +113,11 @@ def activation_expires_at(now: datetime | None = None) -> datetime:
     return (now or datetime.now(UTC)) + timedelta(hours=get_settings().activation_token_ttl_hours)
 
 
-def issue_activation_token(db: Session, user_id: int) -> str:
+def issue_activation_token(db: Session, user_id: int, *, kind: str = "activation") -> str:
     """Выпустить одноразовую ссылку: открытый токен возвращается, в базу идёт хеш.
+
+    `kind` различает письмо активации и письмо восстановления пароля: по нему
+    потом видно, откуда пришла ссылка, хотя экран смены пароля у них общий.
 
     Коммитит вызывающий: регистрация сохраняет пользователя и токен вместе,
     а повторная отправка — пометку старых токенов и новый одним коммитом.
@@ -123,6 +126,7 @@ def issue_activation_token(db: Session, user_id: int) -> str:
     db.add(
         ActivationToken(
             user_id=user_id,
+            kind=kind,
             token_hash=hash_activation_token(token),
             expires_at=activation_expires_at(),
         )

@@ -29,6 +29,12 @@ class ResendActivationRequest(BaseModel):
     email: EmailStr
 
 
+class RecoveryRequestModel(BaseModel):
+    """Запрос письма для восстановления пароля: тело — только почта."""
+
+    email: EmailStr
+
+
 class ResendActivationResponse(BaseModel):
     """Ответ повторной отправки. Всегда одинаковый из-за защиты от перебора адресов."""
 

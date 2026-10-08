@@ -8,6 +8,7 @@ from app.models.inflow import PersonnelInflow
 from app.models.mail_template import MailTemplate
 from app.models.outflow import PersonnelOutflow
 from app.models.payment import PaymentEntry
+from app.models.recovery_request import RecoveryRequest
 from app.models.report import ReportCell, ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
 from app.models.resident import Resident
@@ -23,6 +24,7 @@ __all__ = [
     "PaymentEntry",
     "PersonnelInflow",
     "PersonnelOutflow",
+    "RecoveryRequest",
     "ReportCell",
     "ReportRow",
     "ReportTemplate",
