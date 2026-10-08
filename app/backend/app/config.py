@@ -22,6 +22,20 @@ class Settings(BaseSettings):
     session_cookie_name: str = "crm_session"
     session_cookie_secure: bool = False
 
+    # Срок жизни ссылки активации в часах.
+    activation_token_ttl_hours: int = 24
+    # Абсолютный адрес фронта: из него собирается ссылка в письме.
+    frontend_base_url: str = "http://localhost:8080"
+
+    # --- Почта ---
+    # Пароль SMTP приходит только из окружения: в коде дефолта нет.
+    smtp_host: str = ""
+    smtp_port: int = 465
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_use_tls: bool = True
+
 
 @lru_cache
 def get_settings() -> Settings:

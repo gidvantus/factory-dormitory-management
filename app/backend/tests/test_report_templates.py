@@ -1,19 +1,12 @@
 """Снимки структуры отчёта не копируют значения и не связаны с источником."""
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.report_defaults import REQUIRED_REPORT_ROW_NAMES
-from tests.conftest import register_user
+from tests.conftest import sign_in
 
-
-def sign_in(client: TestClient) -> None:
-    password = register_user(client, email="templates@example.com")["password"]
-    assert (
-        client.post(
-            "/api/auth/login", json={"email": "templates@example.com", "password": password}
-        ).status_code
-        == 200
-    )
+TEMPLATES_EMAIL = "templates@example.com"
 
 
 def create_dormitory(client: TestClient, name: str, template_id: int | None = None) -> int:
@@ -25,8 +18,10 @@ def create_dormitory(client: TestClient, name: str, template_id: int | None = No
     return response.json()["id"]
 
 
-def test_template_copies_only_structure_and_remains_independent(client: TestClient) -> None:
-    sign_in(client)
+def test_template_copies_only_structure_and_remains_independent(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session, email=TEMPLATES_EMAIL)
     source_id = create_dormitory(client, "Исходное")
     source = f"/api/dormitories/{source_id}/report"
     residents = client.post(f"{source}/rows", json={"name": "Проживающие"}).json()["id"]
@@ -91,10 +86,10 @@ def test_template_copies_only_structure_and_remains_independent(client: TestClie
     )
 
 
-def test_template_validation_and_missing_reference(client: TestClient) -> None:
+def test_template_validation_and_missing_reference(client: TestClient, db_session: Session) -> None:
     assert client.get("/api/report-templates").status_code == 401
     assert client.get("/api/report-templates/1").status_code == 401
-    sign_in(client)
+    sign_in(client, db_session, email=TEMPLATES_EMAIL)
     source_id = create_dormitory(client, "Пустое")
     empty_source = client.post(
         "/api/report-templates", json={"name": "Базовый", "dormitory_id": source_id}
@@ -127,8 +122,10 @@ def test_template_validation_and_missing_reference(client: TestClient) -> None:
     assert [item["name"] for item in client.get("/api/dormitories").json()] == ["Пустое"]
 
 
-def test_template_preserves_required_formula_without_duplicate(client: TestClient) -> None:
-    sign_in(client)
+def test_template_preserves_required_formula_without_duplicate(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session, email=TEMPLATES_EMAIL)
     source_id = create_dormitory(client, "Исходное")
     source = f"/api/dormitories/{source_id}/report"
     source_rows = client.get(f"{source}?from=2026-10-01&to=2026-10-01").json()["rows"]

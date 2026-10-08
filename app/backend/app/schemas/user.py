@@ -26,12 +26,16 @@ class RegisterRequest(BaseModel):
 
 
 class RegisterResponse(BaseModel):
-    """Единственный ответ, в котором есть открытый пароль."""
+    """Ответ регистрации: пароль сервер не показывает никогда.
+
+    `activation_email_sent` говорит лишь о том, настроен ли SMTP и есть ли
+    шаблон письма: сама отправка идёт фоном после ответа.
+    """
 
     email: EmailStr
     full_name: str
-    password: str
     created_at: datetime
+    activation_email_sent: bool
 
 
 class LoginRequest(BaseModel):
@@ -42,13 +46,14 @@ class LoginRequest(BaseModel):
 
 
 class UserResponse(BaseModel):
-    """То, что пользователь вводил сам: почта и ФИО."""
+    """То, что пользователь вводил сам, плюс признак активации кабинета."""
 
     model_config = ConfigDict(from_attributes=True)
 
     email: EmailStr
     full_name: str
     created_at: datetime
+    is_active: bool
 
 
 class ErrorResponse(BaseModel):

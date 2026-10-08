@@ -11,9 +11,13 @@ from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.payment import PaymentEntry
 from app.schemas.payment import PaymentKind, PaymentResponse, UpdatePaymentRequest
-from app.security import CurrentUser
+from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
-router = APIRouter(prefix="/dormitories/{dormitory_id}/payments", tags=["payments"])
+router = APIRouter(
+    prefix="/dormitories/{dormitory_id}/payments",
+    tags=["payments"],
+    responses={**ACTIVE_USER_RESPONSES},
+)
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
 PaymentId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -30,7 +34,7 @@ def get_payment(db: Session, dormitory_id: int, kind: PaymentKind, row_id: int) 
 def list_payments(
     dormitory_id: DormitoryId,
     kind: PaymentKind,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
     from_date: Annotated[date | None, Query(alias="from")] = None,
     to_date: Annotated[date | None, Query(alias="to")] = None,
@@ -65,7 +69,7 @@ def list_payments(
     summary="Добавить строку выплаты",
 )
 def create_payment(
-    dormitory_id: DormitoryId, kind: PaymentKind, _user: CurrentUser, db: DbSession
+    dormitory_id: DormitoryId, kind: PaymentKind, _user: ActiveUser, db: DbSession
 ) -> PaymentEntry:
     require_dormitory(db, dormitory_id)
     row = PaymentEntry(dormitory_id=dormitory_id, kind=kind)
@@ -83,7 +87,7 @@ def update_payment(
     kind: PaymentKind,
     row_id: PaymentId,
     payload: UpdatePaymentRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> PaymentEntry:
     require_dormitory(db, dormitory_id)
@@ -111,7 +115,7 @@ def delete_payment(
     dormitory_id: DormitoryId,
     kind: PaymentKind,
     row_id: PaymentId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> None:
     require_dormitory(db, dormitory_id)

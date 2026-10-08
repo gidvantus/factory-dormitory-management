@@ -4,9 +4,10 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from tests.conftest import register_user
+from tests.conftest import TEST_PASSWORD, create_user, login
 
 
 def test_me_without_cookie_returns_401(client: TestClient) -> None:
@@ -14,26 +15,45 @@ def test_me_without_cookie_returns_401(client: TestClient) -> None:
     assert response.status_code == 401
 
 
-def test_me_with_cookie_returns_email_and_full_name(client: TestClient) -> None:
-    body = register_user(client, full_name="Петров Пётр Петрович")
-    client.post("/api/auth/login", json={"email": body["email"], "password": body["password"]})
+def test_me_with_cookie_returns_email_and_full_name(
+    client: TestClient, db_session: Session
+) -> None:
+    user = create_user(db_session, full_name="Петров Пётр Петрович")
+    assert login(client, user.email).status_code == 200
 
     response = client.get("/api/me")
 
     assert response.status_code == 200
-    assert response.json()["email"] == body["email"]
-    assert response.json()["full_name"] == "Петров Пётр Петрович"
-    assert response.json()["created_at"]
+    body = response.json()
+    assert body["email"] == user.email
+    assert body["full_name"] == "Петров Пётр Петрович"
+    assert body["created_at"]
+    assert body["is_active"] is True
 
 
-def test_me_does_not_return_the_password(client: TestClient) -> None:
-    body = register_user(client)
-    client.post("/api/auth/login", json={"email": body["email"], "password": body["password"]})
+def test_me_does_not_return_the_password(client: TestClient, db_session: Session) -> None:
+    user = create_user(db_session)
+    assert login(client, user.email).status_code == 200
 
     response = client.get("/api/me")
 
     assert "password" not in response.json()
-    assert body["password"] not in response.text
+    assert "password_hash" not in response.json()
+    assert TEST_PASSWORD not in response.text
+    assert user.password_hash not in response.text
+
+
+def test_me_of_inactive_user_answers_200_with_false(
+    client: TestClient, db_session: Session
+) -> None:
+    """Неактивный вход разрешён: фронт по этому признаку уводит на активацию."""
+    user = create_user(db_session, is_active=False)
+
+    assert login(client, user.email).status_code == 200
+    response = client.get("/api/me")
+
+    assert response.status_code == 200
+    assert response.json()["is_active"] is False
 
 
 def test_me_rejects_token_signed_with_another_secret(client: TestClient) -> None:

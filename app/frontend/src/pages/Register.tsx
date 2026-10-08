@@ -20,7 +20,6 @@ export function Register(): JSX.Element {
   const [requestError, setRequestError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<RegisterResult | null>(null);
-  const [copied, setCopied] = useState(false);
 
   function validate(): FieldErrors {
     const found: FieldErrors = {};
@@ -58,18 +57,6 @@ export function Register(): JSX.Element {
     }
   }
 
-  async function copyPassword(): Promise<void> {
-    if (!result) {
-      return;
-    }
-    try {
-      await navigator.clipboard?.writeText(result.password);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   if (result) {
     return (
       <div className="form" data-testid="register-success-screen">
@@ -77,38 +64,27 @@ export function Register(): JSX.Element {
           Пользователь <strong data-testid="register-result-email">{result.email}</strong> создан.
         </p>
 
-        <div className="password-box">
-          <p className="field__label">Ваш пароль для входа</p>
-          <p
-            className="password-value"
-            data-testid="generated-password"
-            aria-label="Сгенерированный пароль"
-          >
-            {result.password}
-          </p>
-          <button
-            className="btn btn--outline btn--sm"
-            type="button"
-            data-testid="copy-password"
-            onClick={() => void copyPassword()}
-          >
-            Скопировать пароль
-          </button>
-          {copied ? (
-            <p className="form__note" data-testid="password-copied" role="status">
-              Пароль скопирован
-            </p>
-          ) : null}
-        </div>
-
-        <p className="alert alert--warning" data-testid="password-warning" role="alert">
-          <strong>Сохраните пароль сейчас.</strong> Он показывается один раз и больше не будет
-          доступен ни на этом сайте, ни по почте.
+        <p className="form__lead" data-testid="register-mail-notice">
+          Мы отправили письмо для активации кабинета. Откройте ссылку из письма и задайте пароль —
+          пароль придумываете вы, сервер его не показывает.
         </p>
 
-        <Link className="btn btn--primary btn--block" to="/login" data-testid="link-to-login">
-          Войти с этим паролем
+        {result.activation_email_sent ? null : (
+          <p className="alert alert--warning" data-testid="register-mail-warning" role="alert">
+            Письмо отправить не удалось: почтовый сервер ещё не настроен. Запросите письмо ещё раз
+            на экране активации.
+          </p>
+        )}
+
+        <Link className="btn btn--primary btn--block" to="/activate" data-testid="link-to-activate">
+          Перейти к активации кабинета
         </Link>
+
+        <p className="form__switch">
+          <Link to="/login" data-testid="link-to-login">
+            Вернуться ко входу
+          </Link>
+        </p>
       </div>
     );
   }
@@ -116,7 +92,8 @@ export function Register(): JSX.Element {
   return (
     <form className="form" onSubmit={(event) => void handleSubmit(event)} noValidate>
       <p className="form__lead">
-        Укажите почту и ФИО — пароль придумает сервер и покажет его один раз после регистрации.
+        Укажите почту и ФИО — мы отправим письмо со ссылкой активации. Пароль вы зададите сами по
+        этой ссылке.
       </p>
 
       <div className="field">

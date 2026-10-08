@@ -17,9 +17,13 @@ from app.schemas.resident import (
     ResidentsResponse,
     UpdateResidentRequest,
 )
-from app.security import CurrentUser
+from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
-router = APIRouter(prefix="/dormitories/{dormitory_id}/residents", tags=["residents"])
+router = APIRouter(
+    prefix="/dormitories/{dormitory_id}/residents",
+    tags=["residents"],
+    responses={**ACTIVE_USER_RESPONSES},
+)
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
 ResidentId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -42,7 +46,7 @@ def resident_response(db: Session, resident: Resident) -> ResidentResponse:
 @router.get("", response_model=ResidentsResponse, summary="Проживающие и действующие хостелы")
 def list_residents(
     dormitory_id: DormitoryId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
     month: Annotated[date, Query()],
 ) -> ResidentsResponse:
@@ -74,7 +78,7 @@ def list_residents(
     summary="Добавить строку",
 )
 def create_resident(
-    dormitory_id: DormitoryId, _user: CurrentUser, db: DbSession
+    dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession
 ) -> ResidentResponse:
     require_dormitory(db, dormitory_id)
     resident = Resident(dormitory_id=dormitory_id)
@@ -91,7 +95,7 @@ def update_resident(
     dormitory_id: DormitoryId,
     resident_id: ResidentId,
     payload: UpdateResidentRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
     month: Annotated[date, Query()],
 ) -> ResidentResponse:
@@ -126,7 +130,7 @@ def update_resident(
 def delete_resident(
     dormitory_id: DormitoryId,
     resident_id: ResidentId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> None:
     require_dormitory(db, dormitory_id)

@@ -472,7 +472,9 @@ describe('общежития', () => {
     );
     await user.click(within(details).getByTestId('dormitory-tab-payments'));
     expect(within(details).getByRole('heading', { name: 'На аванс' })).toBeInTheDocument();
-    expect(within(details).queryByRole('form', { name: 'Период общежития' })).not.toBeInTheDocument();
+    expect(
+      within(details).queryByRole('form', { name: 'Период общежития' }),
+    ).not.toBeInTheDocument();
     await user.click(within(details).getByTestId('dormitory-subtab-settlement'));
     expect(within(details).getByRole('heading', { name: 'На расчёт' })).toBeInTheDocument();
     expect(within(details).getByRole('form', { name: 'Период общежития' })).toBeInTheDocument();
