@@ -1,12 +1,25 @@
+import { ACTIVATION_REQUIRED_DETAIL, notifyActivationRequired } from '../auth/activation';
+
 export interface UserProfile {
   email: string;
   full_name: string;
   created_at: string;
+  /** false — кабинет ещё не активирован по ссылке из письма. */
+  is_active: boolean;
 }
 
-export interface RegisterResult extends UserProfile {
-  /** Открытый пароль. Сервер возвращает его единственный раз — в ответе регистрации. */
-  password: string;
+export interface RegisterResult {
+  email: string;
+  full_name: string;
+  created_at: string;
+  /** Ушло ли письмо активации: без настроенного SMTP сервер отвечает false. */
+  activation_email_sent: boolean;
+}
+
+export interface ActivationInfo {
+  email: string;
+  full_name: string;
+  expires_at: string;
 }
 
 export interface Dormitory {
@@ -163,7 +176,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new ApiError(response.status, await readErrorMessage(response));
+    const message = await readErrorMessage(response);
+    // 403 на рабочей ручке означает «кабинет не активирован»: экран активации
+    // важнее, чем «не удалось загрузить» на конкретной странице.
+    if (response.status === 403 && message === ACTIVATION_REQUIRED_DETAIL) {
+      notifyActivationRequired();
+    }
+    throw new ApiError(response.status, message);
   }
   if (response.status === 204) {
     return undefined as T;
@@ -191,6 +210,27 @@ export const api = {
     return request<RegisterResult>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, full_name: fullName }),
+    });
+  },
+
+  /** Проверка ссылки из письма: 410 приходит как ApiError с текстом причины. */
+  activateInfo(token: string): Promise<ActivationInfo> {
+    return request<ActivationInfo>(`/auth/activate/${encodeURIComponent(token)}`);
+  },
+
+  /** Новый пароль по ссылке: сервер активирует кабинет и ставит cookie сессии. */
+  activate(token: string, password: string): Promise<UserProfile> {
+    return request<UserProfile>('/auth/activate', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    });
+  },
+
+  /** Повторная отправка письма. Ответ всегда 200 — адреса не перечисляются. */
+  resendActivation(email: string): Promise<{ detail: string }> {
+    return request<{ detail: string }>('/auth/activate/resend', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
     });
   },
 

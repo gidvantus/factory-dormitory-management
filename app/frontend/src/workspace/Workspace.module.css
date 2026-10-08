@@ -770,3 +770,15 @@
   background: var(--peach-100);
   color: #9c3d24;
 }
+.shell .activation-banner {
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--butter-100);
+  color: var(--ink-900);
+}
+.shell .activation-banner a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+}
