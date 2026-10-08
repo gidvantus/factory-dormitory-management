@@ -9,6 +9,83 @@ import { HostelPlaces } from './HostelPlaces';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Места', () => {
+  it('показывает свободные места только для чтения и обновляет расчёт после изменения исходной ячейки', async () => {
+    let saves = 0;
+    const fetchMock = mockFetch((url, init) => {
+      if (url.includes('/api/dormitories/7/hostels?') && !init?.method) {
+        const snapshots = [
+          { paid: 10, free: 4, total: 9 },
+          { paid: 12, free: 6, total: 11 },
+          { paid: undefined, free: -6, total: -1 },
+        ];
+        const current = snapshots[saves];
+        return {
+          status: 200,
+          body: {
+            months: [
+              {
+                month: '2025-10-01',
+                days: ['2025-10-01'],
+                hostels: [
+                  {
+                    id: 9,
+                    name: 'Хостел',
+                    values: {
+                      residents_m: { '2025-10-01': 6 },
+                      residents_f: { '2025-10-01': 3 },
+                      paid_m: current.paid === undefined ? {} : { '2025-10-01': current.paid },
+                      paid_f: { '2025-10-01': 8 },
+                      free_m: { '2025-10-01': current.free },
+                      free_f: { '2025-10-01': 5 },
+                      free_total: { '2025-10-01': current.total },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      }
+      if (url.endsWith('/hostels/9/cells/2025-10-01/paid_m') && init?.method === 'PUT') {
+        expect(JSON.parse(String(init.body))).toEqual({ value: saves === 0 ? 12 : null });
+        saves += 1;
+        return { status: 204 };
+      }
+      return { status: 404, body: {} };
+    });
+    const user = userEvent.setup();
+    render(<HostelPlaces dormitoryId="7" month="2025-10" onMonthChange={vi.fn()} />);
+    const hostel = await screen.findByTestId('hostel-9-2025-10-01');
+    const men = within(hostel).getByRole('row', { name: /Свободных мест М/ });
+    const women = within(hostel).getByRole('row', { name: /Свободных мест Ж/ });
+    const total = within(hostel).getAllByRole('row', { name: /Итого М\+Ж/ })[1];
+    expect(within(men).queryByRole('textbox')).not.toBeInTheDocument();
+    expect(within(women).queryByRole('textbox')).not.toBeInTheDocument();
+    expect(within(men).getByRole('status')).toHaveTextContent('4');
+    expect(within(women).getByRole('status')).toHaveTextContent('5');
+    expect(within(total).getByRole('status')).toHaveTextContent('9');
+    expect(within(men).getByRole('status')).toHaveAttribute(
+      'title',
+      'Оплачено мест М − Проживает М',
+    );
+
+    const paid = within(hostel).getByRole('textbox', {
+      name: 'Хостел, Оплачено мест М, 01.10.2025',
+    });
+    await user.clear(paid);
+    await user.type(paid, '12');
+    await user.tab();
+    await waitFor(() => expect(within(men).getByRole('status')).toHaveTextContent('6'));
+    expect(within(total).getByRole('status')).toHaveTextContent('11');
+    expect(within(women).getByRole('status')).toHaveTextContent('5');
+
+    await user.clear(paid);
+    await user.tab();
+    await waitFor(() => expect(within(men).getByRole('status')).toHaveTextContent('-6'));
+    expect(within(total).getByRole('status')).toHaveTextContent('-1');
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(2);
+  });
+
   it('показывает весь месяц, включая високосный февраль и переход на новый год', async () => {
     const fetchMock = mockFetch((url) => {
       const query = new URL(url, 'http://localhost').searchParams;

@@ -1,0 +1,61 @@
+.form,
+.summary {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.form p {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.warning {
+  padding: 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--cream-100);
+}
+.warning ul {
+  max-height: 180px;
+  overflow-y: auto;
+  padding-left: 20px;
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.confirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.confirmation input {
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.error {
+  color: var(--color-danger);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.form button {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+}
+.form button[type='submit'] {
+  background: var(--mint-600);
+  border-color: var(--mint-600);
+  color: white;
+}
+.form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

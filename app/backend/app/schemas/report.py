@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.table_column import ReportLink
+
 
 def normalize_name(value: str) -> str:
     name = " ".join(value.split())
@@ -17,6 +19,8 @@ def normalize_name(value: str) -> str:
 
 class CreateReportRowRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    link: ReportLink | None = None
 
     name: str = Field(min_length=1, max_length=120)
     formula: str | None = Field(default=None, max_length=1000)
@@ -34,6 +38,8 @@ class CreateReportRowRequest(BaseModel):
 
 class UpdateReportRowRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    link: ReportLink | None = None
 
     name: str | None = Field(default=None, max_length=120)
     formula: str | None = Field(default=None, max_length=1000)
@@ -70,6 +76,7 @@ class SaveReportCellRequest(BaseModel):
 
 
 class ReportRowResponse(BaseModel):
+    link: ReportLink | None = None
     id: int
     name: str
     position: int

@@ -5,6 +5,13 @@ import type { PaymentField, PaymentKind, PaymentRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
 import styles from './PaymentsTable.module.css';
+import {
+  ColumnsControls,
+  ConfiguredCells,
+  ConfiguredHeaders,
+  ConfiguredTable,
+  TableColumnsProvider,
+} from './ConfigurableColumns';
 
 function PaymentEntry({
   row,
@@ -59,57 +66,70 @@ function PaymentEntry({
 
   return (
     <tr data-testid={`${kind}-row-${row.id}`}>
-      <td>{textField('personnel_number', 'Т/н')}</td>
-      <td>{textField('full_name', 'ФИО')}</td>
-      <td>
-        {kind === 'advance' ? (
-          <input
-            type="text"
-            inputMode="decimal"
-            aria-label={`Сумма аванса, строка ${row.id}`}
-            value={amountText}
-            onChange={(event) => {
-              if (/^\d{0,10}(?:[.,]\d{0,2})?$/.test(event.target.value)) {
-                setAmountText(event.target.value);
-                setError('');
-              }
-            }}
-            onBlur={() => {
-              if (amountText !== '' && !/^\d{1,10}(?:[.,]\d{1,2})?$/.test(amountText)) {
-                setError('Укажите сумму в рублях и копейках.');
-                return;
-              }
-              void save('advance_amount', amountText === '' ? null : amountText.replace(',', '.'));
-            }}
-          />
-        ) : (
-          <input
-            type="date"
-            aria-label={`Дата расчёта, строка ${row.id}`}
-            value={draft.settlement_date ?? ''}
-            onChange={(event) => {
-              const value = event.target.value || null;
-              change('settlement_date', value);
-              void save('settlement_date', value);
-            }}
-          />
-        )}
-      </td>
-      <td className={styles.actionCell}>
-        <button type="button" disabled={saving} onClick={() => onDelete(draft)}>
-          Удалить
-        </button>
-        {(saving || error) && (
-          <span role={error ? 'alert' : 'status'} className={error ? styles.error : undefined}>
-            {error || 'Сохраняем…'}
-          </span>
-        )}
-      </td>
+      <ConfiguredCells
+        row={row}
+        fields={[
+          'personnel_number',
+          'full_name',
+          kind === 'advance' ? 'advance_amount' : 'settlement_date',
+          'action_delete',
+        ]}
+      >
+        <td>{textField('personnel_number', 'Т/н')}</td>
+        <td>{textField('full_name', 'ФИО')}</td>
+        <td>
+          {kind === 'advance' ? (
+            <input
+              type="text"
+              inputMode="decimal"
+              aria-label={`Сумма аванса, строка ${row.id}`}
+              value={amountText}
+              onChange={(event) => {
+                if (/^\d{0,10}(?:[.,]\d{0,2})?$/.test(event.target.value)) {
+                  setAmountText(event.target.value);
+                  setError('');
+                }
+              }}
+              onBlur={() => {
+                if (amountText !== '' && !/^\d{1,10}(?:[.,]\d{1,2})?$/.test(amountText)) {
+                  setError('Укажите сумму в рублях и копейках.');
+                  return;
+                }
+                void save(
+                  'advance_amount',
+                  amountText === '' ? null : amountText.replace(',', '.'),
+                );
+              }}
+            />
+          ) : (
+            <input
+              type="date"
+              aria-label={`Дата расчёта, строка ${row.id}`}
+              value={draft.settlement_date ?? ''}
+              onChange={(event) => {
+                const value = event.target.value || null;
+                change('settlement_date', value);
+                void save('settlement_date', value);
+              }}
+            />
+          )}
+        </td>
+        <td className={styles.actionCell}>
+          <button type="button" disabled={saving} onClick={() => onDelete(draft)}>
+            Удалить
+          </button>
+          {(saving || error) && (
+            <span role={error ? 'alert' : 'status'} className={error ? styles.error : undefined}>
+              {error || 'Сохраняем…'}
+            </span>
+          )}
+        </td>
+      </ConfiguredCells>
     </tr>
   );
 }
 
-export function PaymentsTable({
+function PaymentsContent({
   dormitoryId,
   kind,
   range,
@@ -124,6 +144,8 @@ export function PaymentsTable({
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<PaymentRow | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const from = kind === 'settlement' ? range.from : '';
   const to = kind === 'settlement' ? range.to : '';
@@ -178,17 +200,43 @@ export function PaymentsTable({
     }
   }
 
+  async function clear(): Promise<void> {
+    setClearing(true);
+    setError('');
+    try {
+      await api.clearPaymentRows(dormitoryId, kind);
+      setRows([]);
+      setConfirmClear(false);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Не удалось очистить список.');
+    } finally {
+      setClearing(false);
+    }
+  }
+
   return (
     <section className={styles.page} data-testid={`dormitory-payments-${kind}`}>
       <div className={styles.heading}>
         <h2>{title}</h2>
+        <ColumnsControls />
         <button
           type="button"
           className={styles.addButton}
-          disabled={adding || status !== 'ready'}
+          disabled={adding || clearing || status !== 'ready'}
           onClick={() => void add()}
         >
           {adding ? 'Добавляем…' : '+ Добавить строку'}
+        </button>
+        <button
+          type="button"
+          className={styles.clearButton}
+          disabled={adding || removing || clearing || status !== 'ready'}
+          onClick={() => {
+            setError('');
+            setConfirmClear(true);
+          }}
+        >
+          {clearing ? 'Очищаем…' : 'Очистить список'}
         </button>
       </div>
       {status === 'loading' && <p role="status">Загружаем список…</p>}
@@ -213,19 +261,10 @@ export function PaymentsTable({
       )}
       {status === 'ready' && (
         <div className={styles.tableScroll}>
-          <table className={styles.table}>
+          <ConfiguredTable className={styles.table}>
             <thead>
               <tr>
-                {[
-                  'Т/н',
-                  'ФИО',
-                  kind === 'advance' ? 'Сумма аванса' : 'Дата расчёта',
-                  'Удалить',
-                ].map((label) => (
-                  <th key={label} scope="col">
-                    {label}
-                  </th>
-                ))}
+                <ConfiguredHeaders />
               </tr>
             </thead>
             <tbody>
@@ -239,9 +278,40 @@ export function PaymentsTable({
                 />
               ))}
             </tbody>
-          </table>
+          </ConfiguredTable>
           {rows.length === 0 && <p className={styles.empty}>В списке пока нет записей.</p>}
         </div>
+      )}
+      {confirmClear && (
+        <Modal
+          title={`Очистить список «${title}»?`}
+          testId="clear-payments-modal"
+          onClose={() => setConfirmClear(false)}
+          closeDisabled={clearing}
+        >
+          <p>
+            Все строки списка «{title}» в текущем общежитии будут удалены, включая записи вне
+            выбранного периода. Восстановить удалённые строки будет невозможно.
+          </p>
+          {error && (
+            <p role="alert" className={styles.error}>
+              {error}
+            </p>
+          )}
+          <div className={styles.modalActions}>
+            <button type="button" disabled={clearing} onClick={() => setConfirmClear(false)}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className={styles.deleteButton}
+              disabled={clearing}
+              onClick={() => void clear()}
+            >
+              {clearing ? 'Очищаем…' : 'Удалить все строки'}
+            </button>
+          </div>
+        </Modal>
       )}
       {deleting && (
         <Modal
@@ -275,5 +345,21 @@ export function PaymentsTable({
         </Modal>
       )}
     </section>
+  );
+}
+
+export function PaymentsTable(props: {
+  dormitoryId: string;
+  kind: PaymentKind;
+  range: DateRange;
+}): JSX.Element {
+  return (
+    <TableColumnsProvider
+      key={`${props.dormitoryId}:${props.kind}`}
+      dormitoryId={props.dormitoryId}
+      table={props.kind}
+    >
+      <PaymentsContent {...props} />
+    </TableColumnsProvider>
   );
 }

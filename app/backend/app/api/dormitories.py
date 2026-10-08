@@ -11,9 +11,10 @@ from app.models.dormitory import Dormitory
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
 from app.report_defaults import DEFAULT_REPORT_FORMULA, REQUIRED_REPORT_ROW_NAMES, required_row_name
-from app.schemas.dormitory import CreateDormitoryRequest, DormitoryResponse
+from app.schemas.dormitory import CreateDormitoryRequest, DormitoryResponse, UpdateDormitoryRequest
 from app.schemas.user import ErrorResponse
 from app.security import CurrentUser
+from app.table_data import restore_link
 
 router = APIRouter(
     prefix="/dormitories",
@@ -62,6 +63,7 @@ def create_dormitory(
     }
     copied_names: set[str] = set()
     next_position = 0
+    mapped_columns: dict[int, int] = {}
     for row in template_rows:
         next_position += 1
         canonical = required_row_name(row.name)
@@ -77,6 +79,9 @@ def create_dormitory(
                 name=name,
                 formula=formula or DEFAULT_REPORT_FORMULA if canonical else formula,
                 position=next_position,
+                link=restore_link(db, dormitory.id, row.link_snapshot, mapped_columns)
+                if not canonical
+                else None,
             )
         )
     db.add_all(
@@ -90,6 +95,28 @@ def create_dormitory(
             (name for name in REQUIRED_REPORT_ROW_NAMES if name not in copied_names), start=1
         )
     )
+    db.commit()
+    db.refresh(dormitory)
+    return DormitoryResponse.model_validate(dormitory)
+
+
+@router.patch(
+    "/{dormitory_id}",
+    response_model=DormitoryResponse,
+    summary="Изменить названия или статус архива общежития",
+    responses={404: {"model": ErrorResponse, "description": "Общежитие не найдено"}},
+)
+def update_dormitory(
+    dormitory_id: Annotated[int, Path(ge=1, le=2147483647)],
+    payload: UpdateDormitoryRequest,
+    _user: CurrentUser,
+    db: DbSession,
+) -> DormitoryResponse:
+    dormitory = db.scalar(select(Dormitory).where(Dormitory.id == dormitory_id).with_for_update())
+    if dormitory is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Общежитие не найдено")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(dormitory, field, value)
     db.commit()
     db.refresh(dormitory)
     return DormitoryResponse.model_validate(dormitory)

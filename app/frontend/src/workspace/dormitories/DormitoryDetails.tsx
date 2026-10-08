@@ -14,6 +14,7 @@ import { OutflowTable } from './OutflowTable';
 import { PaymentsTable } from './PaymentsTable';
 import { ReportTable } from './ReportTable';
 import { ResidentsTable } from './ResidentsTable';
+import { ArchiveTable } from './ArchiveTable';
 
 const sections = [
   { path: 'report', label: 'Большой отчёт' },
@@ -106,60 +107,60 @@ export function DormitoryDetails(): JSX.Element {
             <div className={styles.detailsHeadingCopy}>
               <p className={styles.detailsClient}>Клиент: {dormitory.client_name}</p>
               <h1 tabIndex={-1}>Общежитие «{dormitory.name}»</h1>
+              {dormitory.is_archived && <span className={styles.archiveBadge}>Архив</span>}
             </div>
-            {section?.path !== 'places' &&
-              !(section?.path === 'payments' && selectedSecondary === 'advance') && (
-                <form
-                  className={styles.periodForm}
-                  aria-label="Период общежития"
-                  onSubmit={applyPeriod}
-                  noValidate
-                >
-                  <div className={styles.periodFields}>
-                    <label className={styles.periodField} htmlFor="dormitory-period-from">
-                      От
-                      <input
-                        id="dormitory-period-from"
-                        data-testid="dormitory-period-from"
-                        type="date"
-                        value={draft.from}
-                        onChange={(event) => {
-                          setDraft({ ...draft, from: event.target.value });
-                          setPeriodError('');
-                        }}
-                        aria-invalid={!!periodError}
-                        aria-describedby={periodError ? 'dormitory-period-error' : undefined}
-                      />
-                    </label>
-                    <label className={styles.periodField} htmlFor="dormitory-period-to">
-                      До
-                      <input
-                        id="dormitory-period-to"
-                        data-testid="dormitory-period-to"
-                        type="date"
-                        value={draft.to}
-                        onChange={(event) => {
-                          setDraft({ ...draft, to: event.target.value });
-                          setPeriodError('');
-                        }}
-                        aria-invalid={!!periodError}
-                        aria-describedby={periodError ? 'dormitory-period-error' : undefined}
-                      />
-                    </label>
-                    <button className={styles.periodApply} type="submit">
-                      Применить
-                    </button>
-                    <button className={styles.periodReset} type="button" onClick={resetPeriod}>
-                      Текущий месяц
-                    </button>
-                  </div>
-                  {periodError && (
-                    <p className={styles.periodError} id="dormitory-period-error" role="alert">
-                      {periodError}
-                    </p>
-                  )}
-                </form>
-              )}
+            {section?.path !== 'places' && (
+              <form
+                className={styles.periodForm}
+                aria-label="Период общежития"
+                onSubmit={applyPeriod}
+                noValidate
+              >
+                <div className={styles.periodFields}>
+                  <label className={styles.periodField} htmlFor="dormitory-period-from">
+                    От
+                    <input
+                      id="dormitory-period-from"
+                      data-testid="dormitory-period-from"
+                      type="date"
+                      value={draft.from}
+                      onChange={(event) => {
+                        setDraft({ ...draft, from: event.target.value });
+                        setPeriodError('');
+                      }}
+                      aria-invalid={!!periodError}
+                      aria-describedby={periodError ? 'dormitory-period-error' : undefined}
+                    />
+                  </label>
+                  <label className={styles.periodField} htmlFor="dormitory-period-to">
+                    До
+                    <input
+                      id="dormitory-period-to"
+                      data-testid="dormitory-period-to"
+                      type="date"
+                      value={draft.to}
+                      onChange={(event) => {
+                        setDraft({ ...draft, to: event.target.value });
+                        setPeriodError('');
+                      }}
+                      aria-invalid={!!periodError}
+                      aria-describedby={periodError ? 'dormitory-period-error' : undefined}
+                    />
+                  </label>
+                  <button className={styles.periodApply} type="submit">
+                    Применить
+                  </button>
+                  <button className={styles.periodReset} type="button" onClick={resetPeriod}>
+                    Текущий месяц
+                  </button>
+                </div>
+                {periodError && (
+                  <p className={styles.periodError} id="dormitory-period-error" role="alert">
+                    {periodError}
+                  </p>
+                )}
+              </form>
+            )}
           </div>
           <nav className={styles.tabScroller} aria-label="Разделы общежития">
             <div className={styles.tabs}>
@@ -209,6 +210,8 @@ export function DormitoryDetails(): JSX.Element {
             section.path === 'payments' &&
             (selectedSecondary === 'advance' || selectedSecondary === 'settlement') ? (
             <PaymentsTable dormitoryId={dormitoryId} kind={selectedSecondary} range={range} />
+          ) : sectionFound && section.path === 'archive' ? (
+            <ArchiveTable dormitoryId={dormitoryId} range={range} />
           ) : sectionFound ? (
             <div className={styles.emptySection} data-testid="dormitory-section">
               <h2>

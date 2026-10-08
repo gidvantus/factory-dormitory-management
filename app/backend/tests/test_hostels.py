@@ -1,7 +1,11 @@
 """Помесячная история хостелов и автосохранение таблиц мест."""
 
-from fastapi.testclient import TestClient
+from datetime import date
 
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.models.hostel import HostelCell
 from tests.conftest import register_user
 
 
@@ -36,7 +40,7 @@ def test_hostels_carry_forward_and_keep_past_months(client: TestClient) -> None:
     cell_base = f"{base}/{second_id}/cells/2025-10-15"
     assert client.put(f"{cell_base}/residents_m", json={"value": 4}).status_code == 204
     assert client.put(f"{cell_base}/residents_f", json={"value": 3}).status_code == 204
-    assert client.put(f"{cell_base}/free_m", json={"value": 2}).status_code == 204
+    assert client.put(f"{cell_base}/paid_m", json={"value": 6}).status_code == 204
     assert client.put(f"{cell_base}/paid_f", json={"value": 5}).status_code == 204
 
     assert client.delete(f"{base}/{second_id}?month=2025-11-01").status_code == 204
@@ -62,8 +66,8 @@ def test_hostels_carry_forward_and_keep_past_months(client: TestClient) -> None:
     old_hostel = months["2025-10-01"]["hostels"][1]
     assert old_hostel["id"] == second_id
     assert old_hostel["values"]["residents_total"]["2025-10-15"] == 7
-    assert old_hostel["values"]["free_total"]["2025-10-15"] == 2
-    assert old_hostel["values"]["paid_total"]["2025-10-15"] == 5
+    assert old_hostel["values"]["free_total"]["2025-10-15"] == 4
+    assert old_hostel["values"]["paid_total"]["2025-10-15"] == 11
     assert months["2025-12-01"]["hostels"][1]["values"]["residents_total"] == {}
     assert months["2026-01-01"]["hostels"][0]["id"] == first_id
 
@@ -76,15 +80,15 @@ def test_hostel_dates_values_and_isolation(client: TestClient) -> None:
     hostel_id = client.post(base, json={"name": "А", "month": "2025-10-01"}).json()["id"]
     assert client.post(base, json={"name": "А", "month": "2025-09-01"}).status_code == 409
     assert (
-        client.put(f"{base}/{hostel_id}/cells/2025-09-30/free_m", json={"value": 1}).status_code
+        client.put(f"{base}/{hostel_id}/cells/2025-09-30/paid_m", json={"value": 1}).status_code
         == 409
     )
     assert (
-        client.put(f"{base}/{hostel_id}/cells/2025-10-15/free_m", json={"value": -1}).status_code
+        client.put(f"{base}/{hostel_id}/cells/2025-10-15/paid_m", json={"value": -1}).status_code
         == 422
     )
     assert (
-        client.put(f"{base}/{hostel_id}/cells/2025-10-15/free_m", json={"value": 0}).status_code
+        client.put(f"{base}/{hostel_id}/cells/2025-10-15/paid_m", json={"value": 0}).status_code
         == 204
     )
     assert client.get(f"{base}?from=2025-10-15&to=2025-10-16").json()["months"][0]["days"] == [
@@ -92,7 +96,7 @@ def test_hostel_dates_values_and_isolation(client: TestClient) -> None:
         "2025-10-16",
     ]
     assert (
-        client.put(f"{base}/{hostel_id}/cells/2025-10-15/free_m", json={"value": None}).status_code
+        client.put(f"{base}/{hostel_id}/cells/2025-10-15/paid_m", json={"value": None}).status_code
         == 204
     )
     assert (
@@ -112,3 +116,68 @@ def test_hostel_dates_values_and_isolation(client: TestClient) -> None:
         client.delete(f"/api/dormitories/{other}/hostels/{hostel_id}?month=2025-11-01").status_code
         == 404
     )
+
+
+def test_free_places_follow_sources_and_ignore_old_manual_values(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client)
+    base = f"/api/dormitories/{create_dormitory(client)}/hostels"
+    hostel_id = client.post(base, json={"name": "А", "month": "2025-10-01"}).json()["id"]
+    cells = f"{base}/{hostel_id}/cells"
+    inputs = {
+        "2025-10-15": {"paid_m": 10, "paid_f": 8, "residents_m": 6, "residents_f": 3},
+        "2025-10-16": {"paid_m": 2, "residents_m": 5},
+        "2025-10-17": {"paid_m": 0, "residents_m": 0, "paid_f": 0},
+        "2025-10-18": {"residents_f": 3},
+        "2025-11-01": {"paid_m": 100},
+    }
+    for day, fields in inputs.items():
+        for field, value in fields.items():
+            assert client.put(f"{cells}/{day}/{field}", json={"value": value}).status_code == 204
+
+    old_cell = HostelCell(
+        hostel_id=hostel_id, report_date=date(2025, 10, 15), field="free_m", value=99
+    )
+    db_session.add_all(
+        [
+            old_cell,
+            HostelCell(
+                hostel_id=hostel_id, report_date=date(2025, 10, 19), field="free_f", value=99
+            ),
+        ]
+    )
+    db_session.commit()
+
+    def values() -> dict[str, dict[str, int]]:
+        response = client.get(f"{base}?from=2025-10-15&to=2025-10-19")
+        assert response.status_code == 200
+        result: dict[str, dict[str, int]] = response.json()["months"][0]["hostels"][0]["values"]
+        return result
+
+    result = values()
+    assert result["free_m"] == {"2025-10-15": 4, "2025-10-16": -3, "2025-10-17": 0}
+    assert result["free_f"] == {"2025-10-15": 5, "2025-10-17": 0, "2025-10-18": -3}
+    assert result["free_total"] == {
+        "2025-10-15": 9,
+        "2025-10-16": -3,
+        "2025-10-17": 0,
+        "2025-10-18": -3,
+    }
+    for field in ("free_m", "free_f", "free_total"):
+        for manual_value in (1, None):
+            assert (
+                client.put(f"{cells}/2025-10-15/{field}", json={"value": manual_value}).status_code
+                == 422
+            )
+
+    assert client.put(f"{cells}/2025-10-15/paid_m", json={"value": 12}).status_code == 204
+    assert values()["free_total"]["2025-10-15"] == 11
+    assert client.put(f"{cells}/2025-10-15/residents_m", json={"value": None}).status_code == 204
+    assert values()["free_m"]["2025-10-15"] == 12
+    assert client.put(f"{cells}/2025-10-15/paid_m", json={"value": None}).status_code == 204
+    result = values()
+    assert "2025-10-15" not in result["free_m"]
+    assert result["free_total"]["2025-10-15"] == 5
+    db_session.refresh(old_cell)
+    assert old_cell.value == 99

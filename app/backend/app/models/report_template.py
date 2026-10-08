@@ -1,8 +1,9 @@
 """Переиспользуемые снимки структуры большого отчёта."""
 
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -31,5 +32,6 @@ class ReportTemplateRow(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     formula: Mapped[str | None] = mapped_column(Text, nullable=True)
+    link_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     __table_args__ = (UniqueConstraint("template_id", "name", name="uq_report_template_rows_name"),)

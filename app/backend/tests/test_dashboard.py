@@ -107,6 +107,42 @@ def test_dashboard_aggregates_dormitories_clients_and_daily_formulas(client: Tes
     }
 
 
+def test_archived_dormitories_stay_in_all_dashboard_calculations(client: TestClient) -> None:
+    sign_in(client)
+    first = dormitory(
+        client,
+        "Северное",
+        "Клиент А",
+        {"Выход Итого": "4", "Проживает Итого": "10", "Текучка Итого": "1"},
+    )
+    dormitory(client, "Южное", "Клиент А", {"Выход Итого": "6", "Проживает Итого": "20"})
+    url = "/api/dashboard?from=2025-09-01&to=2025-09-02"
+    before = client.get(url).json()
+    assert client.patch(f"/api/dormitories/{first}", json={"is_archived": True}).status_code == 200
+    archived = client.get(url).json()
+    for key in ("totals", "clients", "daily"):
+        assert archived[key] == before[key]
+    archived_row = next(row for row in archived["dormitories"] if row["id"] == str(first))
+    assert archived_row["is_archived"] is True
+    assert archived_row["residents"] == 10
+    assert client.get(f"{url}&dormitory_id={first}").json()["daily"][1]["attendance"] == 4
+    assert (
+        client.patch(
+            f"/api/dormitories/{first}", json={"name": "Новое", "client_name": "Клиент Б"}
+        ).status_code
+        == 200
+    )
+    renamed = client.get(url).json()
+    assert renamed["totals"] == before["totals"]
+    assert {row["name"]: row["attendance"] for row in renamed["clients"]} == {
+        "Клиент А": 6,
+        "Клиент Б": 4,
+    }
+    assert next(row for row in renamed["dormitories"] if row["id"] == str(first))["name"] == "Новое"
+    assert client.patch(f"/api/dormitories/{first}", json={"is_archived": False}).status_code == 200
+    assert client.get(url).json()["totals"] == before["totals"]
+
+
 def test_dashboard_rejects_invalid_period_and_future_dates_have_no_data(client: TestClient) -> None:
     sign_in(client)
     dormitory(client, "Будущее", "Клиент", {})

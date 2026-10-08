@@ -13,6 +13,7 @@ class DashboardTotals(BaseModel):
 class DashboardDormitory(BaseModel):
     id: str
     name: str
+    is_archived: bool = False
     residents: float | None
     attendance: float | None
     turnover: float | None

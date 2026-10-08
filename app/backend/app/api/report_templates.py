@@ -8,7 +8,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models.dormitory import Dormitory
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
 from app.schemas.report_template import (
@@ -19,6 +18,7 @@ from app.schemas.report_template import (
 )
 from app.schemas.user import ErrorResponse
 from app.security import CurrentUser
+from app.table_data import lock_dormitory, snapshot_link
 
 router = APIRouter(
     prefix="/report-templates",
@@ -71,7 +71,12 @@ def read_template(
         row_count=len(rows),
         created_at=template.created_at,
         rows=[
-            ReportTemplateRowResponse(name=row.name, position=row.position, formula=row.formula)
+            ReportTemplateRowResponse(
+                name=row.name,
+                position=row.position,
+                formula=row.formula,
+                linked=row.link_snapshot is not None,
+            )
             for row in rows
         ],
     )
@@ -86,8 +91,7 @@ def read_template(
 def create_template(
     payload: CreateReportTemplateRequest, user: CurrentUser, db: DbSession
 ) -> ReportTemplateResponse:
-    if db.get(Dormitory, payload.dormitory_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Общежитие не найдено")
+    lock_dormitory(db, payload.dormitory_id)
     rows = list(
         db.scalars(
             select(ReportRow)
@@ -108,7 +112,11 @@ def create_template(
         db.flush()
         db.add_all(
             ReportTemplateRow(
-                template_id=template.id, name=row.name, position=index, formula=row.formula
+                template_id=template.id,
+                name=row.name,
+                position=index,
+                formula=row.formula,
+                link_snapshot=snapshot_link(db, row),
             )
             for index, row in enumerate(rows, start=1)
         )

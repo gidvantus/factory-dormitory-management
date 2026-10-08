@@ -107,6 +107,7 @@ def read_dashboard(
             DashboardDormitory(
                 id=str(dormitory.id),
                 name=dormitory.name,
+                is_archived=dormitory.is_archived,
                 residents=as_float(snapshot[RESIDENTS]),
                 attendance=as_float(snapshot[ATTENDANCE]),
                 turnover=as_float(snapshot[TURNOVER]),

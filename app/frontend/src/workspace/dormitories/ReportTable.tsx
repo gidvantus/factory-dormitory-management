@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
 import { api, ApiError } from '../../api/client';
-import type { ReportRow } from '../../api/client';
+import type { ReportLink, ReportRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { dateNumber, formatDate } from '../dashboard/dates';
 import type { DateRange } from '../dashboard/dates';
 import styles from './ReportTable.module.css';
+import { ReportLinkEditor } from './ReportLinkEditor';
 
 interface Props {
   dormitoryId: string;
@@ -154,9 +155,10 @@ function RowDialog({
 }): JSX.Element {
   const required = row !== null && requiredRowNames.has(row.name);
   const [name, setName] = useState(row?.name ?? '');
-  const [mode, setMode] = useState<'manual' | 'formula'>(
-    required || row?.formula ? 'formula' : 'manual',
+  const [mode, setMode] = useState<'manual' | 'formula' | 'link'>(
+    required || row?.formula ? 'formula' : row?.link ? 'link' : 'manual',
   );
+  const [link, setLink] = useState<ReportLink | null>(row?.link ?? null);
   const [formula, setFormula] = useState(row?.formula ?? (required ? '=0' : '='));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -166,13 +168,28 @@ function RowDialog({
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (saving || deleting) return;
+    if (mode === 'link' && !link) {
+      setError('Выберите таблицу, столбец и настройте условие подсчёта.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
       if (row) {
-        await api.updateReportRow(dormitoryId, row.id, name, mode === 'formula' ? formula : null);
+        await api.updateReportRow(
+          dormitoryId,
+          row.id,
+          name,
+          mode === 'formula' ? formula : null,
+          mode === 'link' ? link : row.link ? null : undefined,
+        );
       } else {
-        await api.createReportRow(dormitoryId, name, mode === 'formula' ? formula : null);
+        await api.createReportRow(
+          dormitoryId,
+          name,
+          mode === 'formula' ? formula : null,
+          mode === 'link' ? link : undefined,
+        );
       }
       onChanged();
       onClose();
@@ -247,7 +264,31 @@ function RowDialog({
             />{' '}
             Формулой для всех дней
           </label>
+          <label>
+            <input
+              type="radio"
+              name="report-row-mode"
+              checked={mode === 'link'}
+              disabled={required}
+              onChange={() => setMode('link')}
+            />{' '}
+            Связь с таблицей
+          </label>
         </fieldset>
+        {mode === 'link' && (
+          <ReportLinkEditor
+            dormitoryId={dormitoryId}
+            initial={link}
+            onChange={setLink}
+            disabled={saving || deleting}
+          />
+        )}
+        {mode === 'link' && row && !row.formula && !row.link && (
+          <p className={styles.warning}>
+            При переходе на связь введённые значения этой строки будут удалены и заменены
+            автоматическим подсчётом.
+          </p>
+        )}
         {mode === 'formula' && (
           <>
             <label className={styles.field} htmlFor="report-row-formula">
@@ -380,8 +421,8 @@ function SaveTemplateDialog({
     >
       <form className={styles.rowForm} noValidate onSubmit={(event) => void submit(event)}>
         <p className={styles.formulaHelp}>
-          Сохранятся {rowCount} строк: названия, порядок и формулы. Значения ячеек в шаблон не
-          попадут.
+          Сохранятся {rowCount} строк: названия, порядок, формулы и связи со столбцами. Значения
+          ячеек в шаблон не попадут.
         </p>
         <label className={styles.field} htmlFor="report-template-name">
           Название шаблона
@@ -545,7 +586,9 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
       {status === 'ready' && rows.length === 0 && (
         <div className={styles.empty}>
           <strong>Пока нет строк отчёта</strong>
-          <p>Добавьте строку, дайте ей название и выберите ручной ввод или формулу.</p>
+          <p>
+            Добавьте строку, дайте ей название и выберите ручной ввод, формулу или связь с таблицей.
+          </p>
         </div>
       )}
       {status === 'ready' && rows.length > 0 && (
@@ -580,6 +623,14 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                             ƒ
                           </span>
                         )}
+                        {row.link && (
+                          <span
+                            className={styles.formulaBadge}
+                            title="Количество записей из другой таблицы"
+                          >
+                            ↗
+                          </span>
+                        )}
                         <span className={styles.rowMove}>
                           <button
                             type="button"
@@ -604,12 +655,18 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                     </th>
                     {days.map((day) => (
                       <td key={day}>
-                        {row.formula ? (
+                        {row.formula || row.link ? (
                           <output
                             className={row.errors[day] ? styles.formulaError : styles.formulaValue}
-                            title={row.errors[day] || row.formula}
+                            title={
+                              row.errors[day] || row.formula || 'Количество подходящих записей'
+                            }
                           >
-                            {row.errors[day] ? 'Ошибка' : (row.values[day] ?? '—')}
+                            {row.errors[day]
+                              ? row.link
+                                ? 'Проверьте связь'
+                                : 'Ошибка'
+                              : (row.values[day] ?? '—')}
                           </output>
                         ) : (
                           <ReportCellInput

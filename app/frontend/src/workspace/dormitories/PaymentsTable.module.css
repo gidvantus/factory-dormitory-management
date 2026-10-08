@@ -28,6 +28,23 @@
   opacity: 0.6;
   cursor: wait;
 }
+.clearButton {
+  padding: 9px 13px;
+  border: 1px solid var(--color-danger);
+  border-radius: 9px;
+  background: white;
+  color: var(--color-danger);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.clearButton:hover:not(:disabled) {
+  background: var(--peach-100);
+}
+.clearButton:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 .tableScroll {
   max-width: 100%;
   overflow-x: auto;

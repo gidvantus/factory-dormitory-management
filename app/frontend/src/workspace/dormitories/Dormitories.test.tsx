@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { api } from '../../api/client';
 import type { Dormitory } from '../../api/client';
-import { mockFetch } from '../../test/mockFetch';
+import { mockTableFetch as mockFetch } from '../../test/tableColumns';
 import { renderApp } from '../../test/renderApp';
 import { currentMonth } from '../dashboard/dates';
 
@@ -12,6 +12,7 @@ const DORMITORY: Dormitory = {
   id: 7,
   name: 'Северное',
   client_name: 'Стройкомплект',
+  is_archived: false,
   created_at: '2026-10-04T10:00:00Z',
 };
 const USER = {
@@ -82,10 +83,12 @@ describe('общежития', () => {
     await fillDialog(user);
     await user.click(screen.getByTestId('create-dormitory-submit'));
     const card = await screen.findByTestId('dormitory-card-7');
-    expect(card.textContent).toBe(`${DORMITORY.client_name}${DORMITORY.name}`);
+    expect(within(card).getByRole('link').textContent).toBe(
+      `${DORMITORY.client_name}${DORMITORY.name}`,
+    );
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(document.body.style.overflow).not.toBe('hidden');
-    await user.click(card);
+    await user.click(within(card).getByRole('link'));
     const details = await screen.findByTestId('dormitory-details-page');
     await waitFor(() => expect(within(details).queryByRole('status')).not.toBeInTheDocument());
     expect(within(details).getByText('Клиент: Стройкомплект')).toBeInTheDocument();
@@ -456,6 +459,7 @@ describe('общежития', () => {
     const fetchMock = mockFetch((url) => {
       if (url.endsWith('/api/me')) return { status: 200, body: USER };
       if (url.endsWith('/api/dormitories/7')) return { status: 200, body: DORMITORY };
+      if (url.includes('/api/dormitories/7/payments/')) return { status: 200, body: [] };
       return { status: 404, body: {} };
     });
     const user = userEvent.setup();
@@ -472,9 +476,32 @@ describe('общежития', () => {
     );
     await user.click(within(details).getByTestId('dormitory-tab-payments'));
     expect(within(details).getByRole('heading', { name: 'На аванс' })).toBeInTheDocument();
-    expect(within(details).queryByRole('form', { name: 'Период общежития' })).not.toBeInTheDocument();
+    expect(within(details).getByRole('form', { name: 'Период общежития' })).toBeInTheDocument();
+    fireEvent.change(within(details).getByTestId('dormitory-period-from'), {
+      target: { value: '2026-09-01' },
+    });
+    fireEvent.change(within(details).getByTestId('dormitory-period-to'), {
+      target: { value: '2026-09-30' },
+    });
+    await user.click(within(details).getByRole('button', { name: 'Применить' }));
     await user.click(within(details).getByTestId('dormitory-subtab-settlement'));
     expect(within(details).getByRole('heading', { name: 'На расчёт' })).toBeInTheDocument();
+    expect(within(details).getByRole('form', { name: 'Период общежития' })).toBeInTheDocument();
+    expect(within(details).getByTestId('dormitory-period-from')).toHaveValue('2026-09-01');
+    expect(within(details).getByTestId('dormitory-period-to')).toHaveValue('2026-09-30');
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          url.includes('/payments/settlement?from=2026-09-01&to=2026-09-30'),
+        ),
+      ).toBe(true),
+    );
+    await user.click(within(details).getByTestId('dormitory-tab-payments'));
+    expect(within(details).getByRole('heading', { name: 'На аванс' })).toBeInTheDocument();
+    expect(within(details).getByRole('form', { name: 'Период общежития' })).toBeInTheDocument();
+    expect(within(details).getByTestId('dormitory-period-from')).toHaveValue('2026-09-01');
+    expect(within(details).getByTestId('dormitory-period-to')).toHaveValue('2026-09-30');
+    await user.click(within(details).getByTestId('dormitory-subtab-advance'));
     expect(within(details).getByRole('form', { name: 'Период общежития' })).toBeInTheDocument();
     await user.click(within(details).getByTestId('dormitory-tab-archive'));
     expect(within(details).getByRole('heading', { name: 'Архив' })).toBeInTheDocument();

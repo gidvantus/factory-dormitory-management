@@ -1,0 +1,131 @@
+.controls,
+.actions,
+.option {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.controls button,
+.actions button,
+.option button,
+.columnList button,
+.options > button {
+  padding: 8px 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: white;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.controls button:disabled,
+.form button:disabled,
+.columnList button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.form {
+  display: grid;
+  gap: 16px;
+}
+.form label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+.form input,
+.form select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 7px;
+  background: white;
+  color: var(--color-text);
+  font: inherit;
+}
+.options {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  min-width: 0;
+}
+.option input {
+  flex: 1;
+  min-width: 120px;
+  width: auto;
+}
+.actions {
+  justify-content: flex-end;
+}
+.actions button:last-child {
+  background: var(--mint-600);
+  color: white;
+}
+.help {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.error {
+  color: var(--color-danger);
+  font-size: 12px;
+}
+.columnList {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.columnList li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.columnList li > span {
+  flex: 1;
+  min-width: 130px;
+}
+.columnList small {
+  display: block;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+.customCell {
+  min-width: 170px;
+}
+.cell {
+  display: grid;
+  gap: 4px;
+}
+.cell input:not([type='checkbox']),
+.cell select {
+  width: 100%;
+  min-width: 140px;
+  min-height: 34px;
+  padding: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: white;
+  color: var(--color-text);
+  font: inherit;
+}
+.cell input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: auto;
+  accent-color: var(--mint-600);
+}
+.cell small {
+  color: var(--color-text-muted);
+}

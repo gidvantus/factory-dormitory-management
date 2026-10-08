@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { InflowRow } from '../../api/client';
-import { mockFetch } from '../../test/mockFetch';
+import { mockTableFetch as mockFetch } from '../../test/tableColumns';
 import { InflowTable } from './InflowTable';
 
 afterEach(() => vi.unstubAllGlobals());

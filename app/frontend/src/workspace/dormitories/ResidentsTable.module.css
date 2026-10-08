@@ -171,6 +171,16 @@
   color: var(--color-danger);
   font-size: 13px;
 }
+.paymentNotice {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.paymentNotice[role='alert'] {
+  color: var(--color-danger);
+}
 .modalActions {
   display: flex;
   justify-content: flex-end;

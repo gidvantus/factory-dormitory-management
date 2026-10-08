@@ -104,6 +104,13 @@ def read_places(
                 field: {day: value for day, value in day_values.items() if day in day_keys}
                 for field, day_values in values[hostel.id].items()
             }
+            for gender in ("m", "f"):
+                paid = row_values.get(f"paid_{gender}", {})
+                residents = row_values.get(f"residents_{gender}", {})
+                row_values[f"free_{gender}"] = {
+                    day: paid.get(day, 0) - residents.get(day, 0)
+                    for day in paid.keys() | residents.keys()
+                }
             for left, right, total in GROUPS:
                 calculated = {
                     day.isoformat(): row_values.get(left, {}).get(day.isoformat(), 0)

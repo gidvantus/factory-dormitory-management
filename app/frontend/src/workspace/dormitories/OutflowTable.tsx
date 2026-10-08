@@ -5,6 +5,13 @@ import type { OutflowField, OutflowRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
 import styles from './OutflowTable.module.css';
+import {
+  ColumnsControls,
+  ConfiguredCells,
+  ConfiguredHeaders,
+  ConfiguredTable,
+  TableColumnsProvider,
+} from './ConfigurableColumns';
 
 function OutflowEntry({
   row,
@@ -87,38 +94,53 @@ function OutflowEntry({
 
   return (
     <tr data-testid={`outflow-row-${row.id}`}>
-      <td>{dateField('departure_date', 'Дата выезда')}</td>
-      <td>{textField('personnel_number', 'Т/н')}</td>
-      <td>{textField('full_name', 'ФИО')}</td>
-      <td>{dateField('shift_start', 'Начало вахты')}</td>
-      <td>{textField('reason', 'Причина')}</td>
-      <td>{textField('notes', 'Примечание')}</td>
-      <td>{textField('additional_info', 'Доп. информация')}</td>
-      <td className={styles.actionCell}>
-        <button type="button" disabled title="Функция появится позже">
-          Выселение
-        </button>
-      </td>
-      <td className={styles.actionCell}>
-        <button
-          type="button"
-          className={styles.deleteButton}
-          disabled={saving}
-          onClick={() => onDelete(draft)}
-        >
-          Удалить
-        </button>
-        {(saving || error) && (
-          <span role={error ? 'alert' : 'status'} className={error ? styles.error : undefined}>
-            {error || 'Сохраняем…'}
-          </span>
-        )}
-      </td>
+      <ConfiguredCells
+        row={row}
+        fields={[
+          'departure_date',
+          'personnel_number',
+          'full_name',
+          'shift_start',
+          'reason',
+          'notes',
+          'additional_info',
+          'action_evict',
+          'action_delete',
+        ]}
+      >
+        <td>{dateField('departure_date', 'Дата выезда')}</td>
+        <td>{textField('personnel_number', 'Т/н')}</td>
+        <td>{textField('full_name', 'ФИО')}</td>
+        <td>{dateField('shift_start', 'Начало вахты')}</td>
+        <td>{textField('reason', 'Причина')}</td>
+        <td>{textField('notes', 'Примечание')}</td>
+        <td>{textField('additional_info', 'Доп. информация')}</td>
+        <td className={styles.actionCell}>
+          <button type="button" disabled title="Функция появится позже">
+            Выселение
+          </button>
+        </td>
+        <td className={styles.actionCell}>
+          <button
+            type="button"
+            className={styles.deleteButton}
+            disabled={saving}
+            onClick={() => onDelete(draft)}
+          >
+            Удалить
+          </button>
+          {(saving || error) && (
+            <span role={error ? 'alert' : 'status'} className={error ? styles.error : undefined}>
+              {error || 'Сохраняем…'}
+            </span>
+          )}
+        </td>
+      </ConfiguredCells>
     </tr>
   );
 }
 
-export function OutflowTable({
+function OutflowContent({
   dormitoryId,
   range,
 }: {
@@ -186,6 +208,7 @@ export function OutflowTable({
     <section className={styles.page} data-testid="dormitory-outflow">
       <div className={styles.heading}>
         <h2>Отток</h2>
+        <ColumnsControls />
         <button
           type="button"
           className={styles.addButton}
@@ -217,24 +240,10 @@ export function OutflowTable({
       )}
       {status === 'ready' && (
         <div className={styles.tableScroll}>
-          <table className={styles.table}>
+          <ConfiguredTable className={styles.table}>
             <thead>
               <tr>
-                {[
-                  'Дата выезда',
-                  'Т/н',
-                  'ФИО',
-                  'Начало вахты',
-                  'Причина',
-                  'Примечание',
-                  'Доп. информация',
-                  'Выселение',
-                  'Удалить',
-                ].map((label) => (
-                  <th key={label} scope="col">
-                    {label}
-                  </th>
-                ))}
+                <ConfiguredHeaders />
               </tr>
             </thead>
             <tbody>
@@ -247,7 +256,7 @@ export function OutflowTable({
                 />
               ))}
             </tbody>
-          </table>
+          </ConfiguredTable>
           {rows.length === 0 && (
             <p className={styles.empty}>За выбранный период записей пока нет.</p>
           )}
@@ -285,5 +294,13 @@ export function OutflowTable({
         </Modal>
       )}
     </section>
+  );
+}
+
+export function OutflowTable(props: { dormitoryId: string; range: DateRange }): JSX.Element {
+  return (
+    <TableColumnsProvider key={props.dormitoryId} dormitoryId={props.dormitoryId} table="outflow">
+      <OutflowContent {...props} />
+    </TableColumnsProvider>
   );
 }

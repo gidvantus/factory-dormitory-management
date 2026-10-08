@@ -15,6 +15,7 @@ export interface DailyMetrics {
 export interface DormitoryMetrics {
   id: string;
   name: string;
+  is_archived?: boolean;
   residents: number | null;
   attendance: number | null;
   /** Значение строки «Текучка Итого» на дату среза. */

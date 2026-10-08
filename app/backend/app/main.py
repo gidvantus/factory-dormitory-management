@@ -14,6 +14,7 @@ from app.api import (
     report_templates,
     reports,
     residents,
+    table_columns,
     users,
 )
 
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     application.include_router(dormitories.router, prefix=API_PREFIX)
     application.include_router(reports.router, prefix=API_PREFIX)
     application.include_router(report_templates.router, prefix=API_PREFIX)
+    application.include_router(table_columns.router, prefix=API_PREFIX)
     return application
 
 

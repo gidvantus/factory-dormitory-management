@@ -13,6 +13,7 @@ export interface Dormitory {
   id: number;
   name: string;
   client_name: string;
+  is_archived: boolean;
   created_at: string;
 }
 
@@ -30,10 +31,11 @@ export interface ReportTemplate {
 }
 
 export interface ReportTemplateDetail extends ReportTemplate {
-  rows: { name: string; position: number; formula: string | null }[];
+  rows: { name: string; position: number; formula: string | null; linked?: boolean }[];
 }
 
 export interface ReportRow {
+  link?: ReportLink | null;
   id: number;
   name: string;
   position: number;
@@ -48,7 +50,7 @@ export interface DormitoryReport {
   rows: ReportRow[];
 }
 
-export type PlaceField = 'residents_m' | 'residents_f' | 'free_m' | 'free_f' | 'paid_m' | 'paid_f';
+export type PlaceField = 'residents_m' | 'residents_f' | 'paid_m' | 'paid_f';
 
 export interface HostelPlaces {
   months: {
@@ -63,6 +65,7 @@ export interface HostelPlaces {
 }
 
 export interface Resident {
+  custom_values?: Record<string, CellValue>;
   id: number;
   gender: 'М' | 'Ж' | null;
   personnel_number: string | null;
@@ -82,9 +85,27 @@ export interface ResidentsResponse {
   hostels: { id: number; name: string }[];
 }
 
-export type ResidentField = keyof Omit<Resident, 'id' | 'hostel_name'>;
+export type ResidentField = keyof Omit<Resident, 'id' | 'hostel_name' | 'custom_values'>;
+
+export interface ResidentTransferPreview {
+  target_dormitory_id: number;
+  matched_columns: string[];
+  warnings: { column: string; reason: string }[];
+  empty_columns: string[];
+  preview_token: string;
+}
+
+export interface ResidentOutflowPreview {
+  matched_columns: string[];
+  warnings: { column: string; reason: string }[];
+  empty_columns: string[];
+  departure_date: string | null;
+  payments_to_delete: Record<PaymentKind, number>;
+  preview_token: string;
+}
 
 export interface InflowRow {
+  custom_values?: Record<string, CellValue>;
   id: number;
   settlement_date: string | null;
   personnel_number: string | null;
@@ -94,9 +115,10 @@ export interface InflowRow {
   shift_count: number | null;
 }
 
-export type InflowField = keyof Omit<InflowRow, 'id'>;
+export type InflowField = keyof Omit<InflowRow, 'id' | 'custom_values'>;
 
 export interface OutflowRow {
+  custom_values?: Record<string, CellValue>;
   id: number;
   departure_date: string | null;
   personnel_number: string | null;
@@ -107,11 +129,12 @@ export interface OutflowRow {
   additional_info: string | null;
 }
 
-export type OutflowField = keyof Omit<OutflowRow, 'id'>;
+export type OutflowField = keyof Omit<OutflowRow, 'id' | 'custom_values'>;
 
 export type PaymentKind = 'advance' | 'settlement';
 
 export interface PaymentRow {
+  custom_values?: Record<string, CellValue>;
   id: number;
   personnel_number: string | null;
   full_name: string | null;
@@ -119,7 +142,14 @@ export interface PaymentRow {
   settlement_date: string | null;
 }
 
-export type PaymentField = keyof Omit<PaymentRow, 'id'>;
+export type PaymentField = keyof Omit<PaymentRow, 'id' | 'custom_values'>;
+
+export interface ResidentPaymentResult {
+  payment: PaymentRow;
+  created: boolean;
+  copied_columns: string[];
+  skipped_columns: string[];
+}
 
 export interface DashboardResponse {
   snapshot_date: string | null;
@@ -127,6 +157,7 @@ export interface DashboardResponse {
   dormitories: {
     id: string;
     name: string;
+    is_archived?: boolean;
     residents: number | null;
     attendance: number | null;
     turnover: number | null;
@@ -186,7 +217,101 @@ async function readErrorMessage(response: Response): Promise<string> {
   return `Запрос не удался (${response.status})`;
 }
 
+export type TableKey = 'residents' | 'inflow' | 'outflow' | 'advance' | 'settlement' | 'archive';
+export type CellValue = string | number | boolean | null;
+export type ColumnKind = 'text' | 'number' | 'date' | 'checkbox' | 'select' | 'action' | 'hostel';
+export interface ColumnOption {
+  id: string | null;
+  label: string;
+  archived: boolean;
+}
+export interface TableColumn {
+  id: number;
+  table_key: TableKey;
+  builtin_key: string | null;
+  name: string;
+  kind: ColumnKind;
+  position: number;
+  options: ColumnOption[];
+  archived: boolean;
+}
+export type ColumnInput = Pick<TableColumn, 'name' | 'kind' | 'options'>;
+export interface ReportLink {
+  table_key: TableKey;
+  column_id: number;
+  operator?: 'equals' | 'not_empty';
+  value: CellValue;
+  date_column_id: number | null;
+}
+export interface ArchiveRow {
+  id: number;
+  created_at: string;
+  custom_values: Record<string, CellValue>;
+}
+
 export const api = {
+  tableColumns(id: string, table: TableKey, signal?: AbortSignal): Promise<TableColumn[]> {
+    return request(`/dormitories/${encodeURIComponent(id)}/tables/${table}/columns`, { signal });
+  },
+  createColumn(id: string, table: TableKey, input: ColumnInput): Promise<TableColumn> {
+    return request(`/dormitories/${encodeURIComponent(id)}/tables/${table}/columns`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  updateColumn(
+    id: string,
+    table: TableKey,
+    columnId: number,
+    input: ColumnInput,
+  ): Promise<TableColumn> {
+    return request(`/dormitories/${encodeURIComponent(id)}/tables/${table}/columns/${columnId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  },
+  deleteColumn(id: string, table: TableKey, columnId: number): Promise<void> {
+    return request(`/dormitories/${encodeURIComponent(id)}/tables/${table}/columns/${columnId}`, {
+      method: 'DELETE',
+    });
+  },
+  restoreColumn(id: string, table: TableKey, columnId: number): Promise<TableColumn> {
+    return request(
+      `/dormitories/${encodeURIComponent(id)}/tables/${table}/columns/${columnId}/restore`,
+      { method: 'POST' },
+    );
+  },
+  saveCustomCell(
+    id: string,
+    table: TableKey,
+    rowId: number,
+    columnId: number,
+    value: CellValue,
+  ): Promise<{ value: CellValue }> {
+    return request(
+      `/dormitories/${encodeURIComponent(id)}/tables/${table}/rows/${rowId}/cells/${columnId}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ value }),
+      },
+    );
+  },
+  archive(id: string, from: string, to: string, signal?: AbortSignal): Promise<ArchiveRow[]> {
+    return request(
+      `/dormitories/${encodeURIComponent(id)}/tables/archive/rows?${new URLSearchParams({ from, to })}`,
+      { signal },
+    );
+  },
+  createArchiveRow(id: string): Promise<ArchiveRow> {
+    return request(`/dormitories/${encodeURIComponent(id)}/tables/archive/rows`, {
+      method: 'POST',
+    });
+  },
+  deleteArchiveRow(id: string, rowId: number): Promise<void> {
+    return request(`/dormitories/${encodeURIComponent(id)}/tables/archive/rows/${rowId}`, {
+      method: 'DELETE',
+    });
+  },
   register(email: string, fullName: string): Promise<RegisterResult> {
     return request<RegisterResult>('/auth/register', {
       method: 'POST',
@@ -226,6 +351,16 @@ export const api = {
 
   createDormitory(input: CreateDormitoryInput): Promise<Dormitory> {
     return request<Dormitory>('/dormitories', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  updateDormitory(
+    id: string,
+    input: { name?: string; client_name?: string; is_archived?: boolean },
+  ): Promise<Dormitory> {
+    return request<Dormitory>(`/dormitories/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
   },
 
   reportTemplates(signal?: AbortSignal): Promise<ReportTemplate[]> {
@@ -295,6 +430,79 @@ export const api = {
   deleteResident(id: string, residentId: number): Promise<void> {
     return request<void>(`/dormitories/${encodeURIComponent(id)}/residents/${residentId}`, {
       method: 'DELETE',
+    });
+  },
+
+  registerResidentPayment(
+    id: string,
+    residentId: number,
+    kind: PaymentKind,
+  ): Promise<ResidentPaymentResult> {
+    return request<ResidentPaymentResult>(
+      `/dormitories/${encodeURIComponent(id)}/residents/${residentId}/payments/${kind}`,
+      { method: 'POST' },
+    );
+  },
+
+  previewResidentTransfer(
+    id: string,
+    residentId: number,
+    targetId: number,
+    month: string,
+    signal?: AbortSignal,
+  ): Promise<ResidentTransferPreview> {
+    return request(
+      `/dormitories/${encodeURIComponent(id)}/residents/${residentId}/transfer/preview`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ target_dormitory_id: targetId, month: `${month}-01` }),
+        signal,
+      },
+    );
+  },
+
+  transferResident(
+    id: string,
+    residentId: number,
+    targetId: number,
+    month: string,
+    previewToken: string,
+    confirmLoss: boolean,
+  ): Promise<Resident> {
+    return request(`/dormitories/${encodeURIComponent(id)}/residents/${residentId}/transfer`, {
+      method: 'POST',
+      body: JSON.stringify({
+        target_dormitory_id: targetId,
+        month: `${month}-01`,
+        preview_token: previewToken,
+        confirm_loss: confirmLoss,
+      }),
+    });
+  },
+
+  previewResidentOutflow(
+    id: string,
+    residentId: number,
+    signal?: AbortSignal,
+  ): Promise<ResidentOutflowPreview> {
+    return request(
+      `/dormitories/${encodeURIComponent(id)}/residents/${residentId}/outflow/preview`,
+      {
+        method: 'POST',
+        signal,
+      },
+    );
+  },
+
+  moveResidentToOutflow(
+    id: string,
+    residentId: number,
+    previewToken: string,
+    confirmLoss: boolean,
+  ): Promise<OutflowRow> {
+    return request(`/dormitories/${encodeURIComponent(id)}/residents/${residentId}/outflow`, {
+      method: 'POST',
+      body: JSON.stringify({ preview_token: previewToken, confirm_loss: confirmLoss }),
     });
   },
 
@@ -401,6 +609,12 @@ export const api = {
     });
   },
 
+  clearPaymentRows(id: string, kind: PaymentKind): Promise<void> {
+    return request<void>(`/dormitories/${encodeURIComponent(id)}/payments/${kind}`, {
+      method: 'DELETE',
+    });
+  },
+
   createHostel(id: string, name: string, month: string): Promise<{ id: number; name: string }> {
     return request<{ id: number; name: string }>(`/dormitories/${encodeURIComponent(id)}/hostels`, {
       method: 'POST',
@@ -431,10 +645,15 @@ export const api = {
     );
   },
 
-  createReportRow(id: string, name: string, formula: string | null): Promise<ReportRow> {
+  createReportRow(
+    id: string,
+    name: string,
+    formula: string | null,
+    link?: ReportLink | null,
+  ): Promise<ReportRow> {
     return request<ReportRow>(`/dormitories/${encodeURIComponent(id)}/report/rows`, {
       method: 'POST',
-      body: JSON.stringify({ name, formula }),
+      body: JSON.stringify({ name, formula, ...(link !== undefined ? { link } : {}) }),
     });
   },
 
@@ -443,10 +662,11 @@ export const api = {
     rowId: number,
     name: string,
     formula: string | null,
+    link?: ReportLink | null,
   ): Promise<ReportRow> {
     return request<ReportRow>(`/dormitories/${encodeURIComponent(id)}/report/rows/${rowId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name, formula }),
+      body: JSON.stringify({ name, formula, ...(link !== undefined ? { link } : {}) }),
     });
   },
 

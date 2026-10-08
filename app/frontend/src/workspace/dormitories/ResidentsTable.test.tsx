@@ -1,12 +1,16 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { Resident } from '../../api/client';
-import { mockFetch } from '../../test/mockFetch';
+import { api, ApiError } from '../../api/client';
+import type { PaymentKind, Resident, ResidentPaymentResult } from '../../api/client';
+import { defaultColumns, mockTableFetch as mockFetch } from '../../test/tableColumns';
 import { ResidentsTable } from './ResidentsTable';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 const blank: Resident = {
   id: 3,
@@ -66,7 +70,11 @@ describe('Проживающие', () => {
     );
     await waitFor(() => expect(resident?.hostel_id).toBe(9));
     expect((resident as Resident | null)?.full_name).toBe('Иванова Мария');
-    expect(within(row).getByRole('button', { name: 'Записать' })).toBeDisabled();
+    const headers = screen.getAllByRole('columnheader').map((header) => header.textContent);
+    expect(headers.indexOf('Запись на расчёт')).toBe(headers.indexOf('Запись на аванс') + 1);
+    const registrationButtons = within(row).getAllByRole('button', { name: /Записать на/ });
+    expect(registrationButtons).toHaveLength(2);
+    registrationButtons.forEach((button) => expect(button).toBeEnabled());
     await user.click(within(row).getByRole('button', { name: 'Удалить' }));
     const dialog = screen.getByRole('dialog', { name: 'Удалить проживающего?' });
     await user.click(within(dialog).getByRole('button', { name: 'Отмена' }));
@@ -82,4 +90,138 @@ describe('Проживающие', () => {
       ),
     ).toBe(true);
   });
+
+  it.each(['advance', 'settlement'] as PaymentKind[])(
+    'записывает в %s, сообщает о повторе и позволяет повторить после ошибки',
+    async (kind) => {
+      mockResident();
+      const result = paymentResult();
+      const registration = vi
+        .spyOn(api, 'registerResidentPayment')
+        .mockRejectedValueOnce(new ApiError(503, 'Не удалось записать'))
+        .mockResolvedValueOnce(result)
+        .mockResolvedValueOnce({ ...result, created: false });
+      const user = userEvent.setup();
+      render(<ResidentsTable dormitoryId="7" />);
+      const row = await screen.findByTestId('resident-3');
+      const destination = kind === 'advance' ? 'аванс' : 'расчёт';
+      const button = within(row).getByRole('button', {
+        name: `Записать на ${destination}, строка 1`,
+      });
+      await user.click(button);
+      expect(await within(row).findByRole('alert')).toHaveTextContent('Не удалось записать');
+      expect(button).toBeEnabled();
+      await user.click(button);
+      expect(await within(row).findByRole('status')).toHaveTextContent(
+        `Записан на ${destination}.`,
+      );
+      await user.click(button);
+      await waitFor(() =>
+        expect(within(row).getByRole('status')).toHaveTextContent(`Уже записан на ${destination}.`),
+      );
+      expect(registration).toHaveBeenCalledTimes(3);
+      expect(registration).toHaveBeenLastCalledWith('7', 3, kind);
+      expect(row).toBeInTheDocument();
+    },
+  );
+
+  it('дожидается сохранения ФИО перед записью и блокирует повторное нажатие во время запроса', async () => {
+    mockResident();
+    let finishSave!: (resident: Resident) => void;
+    vi.spyOn(api, 'updateResident').mockImplementation(
+      () => new Promise((resolve) => (finishSave = resolve)),
+    );
+    let finishRegistration!: (result: ResidentPaymentResult) => void;
+    const registration = vi
+      .spyOn(api, 'registerResidentPayment')
+      .mockImplementation(() => new Promise((resolve) => (finishRegistration = resolve)));
+    const user = userEvent.setup();
+    render(<ResidentsTable dormitoryId="7" />);
+    const row = await screen.findByTestId('resident-3');
+    await user.type(within(row).getByRole('textbox', { name: 'ФИО, строка 1' }), 'Новое имя');
+    const button = within(row).getByRole('button', { name: 'Записать на аванс, строка 1' });
+    await user.click(button);
+    expect(registration).not.toHaveBeenCalled();
+    expect(button).toBeDisabled();
+    await act(async () => finishSave({ ...blank, full_name: 'Новое имя' }));
+    await waitFor(() => expect(registration).toHaveBeenCalledTimes(1));
+    await user.click(button);
+    expect(registration).toHaveBeenCalledTimes(1);
+    await act(async () => finishRegistration(paymentResult()));
+    expect(await within(row).findByRole('status')).toHaveTextContent('Записан на аванс.');
+    expect(button).toBeEnabled();
+  });
+
+  it('дожидается добавленной ячейки, блокирует запись после ошибки сохранения и сообщает о пропущенных значениях', async () => {
+    mockResident();
+    vi.spyOn(api, 'tableColumns').mockResolvedValue([
+      ...defaultColumns('residents'),
+      {
+        id: 100,
+        table_key: 'residents',
+        builtin_key: null,
+        name: 'Комментарий',
+        kind: 'text',
+        position: 11,
+        options: [],
+        archived: false,
+      },
+    ]);
+    let finishSave!: (result: { value: string }) => void;
+    vi.spyOn(api, 'saveCustomCell')
+      .mockImplementationOnce(() => new Promise((resolve) => (finishSave = resolve)))
+      .mockRejectedValueOnce(new ApiError(503, 'Ошибка ячейки'))
+      .mockResolvedValueOnce({ value: 'Сохранено' });
+    const registration = vi.spyOn(api, 'registerResidentPayment').mockResolvedValue({
+      ...paymentResult(),
+      skipped_columns: ['Личный статус'],
+    });
+    const user = userEvent.setup();
+    render(<ResidentsTable dormitoryId="7" />);
+    const row = await screen.findByTestId('resident-3');
+    const input = within(row).getByRole('textbox', { name: 'Комментарий, строка 3' });
+    const button = within(row).getByRole('button', { name: 'Записать на расчёт, строка 1' });
+    await user.type(input, 'Сохранено');
+    await user.click(button);
+    expect(registration).not.toHaveBeenCalled();
+    await act(async () => finishSave({ value: 'Сохранено' }));
+    await waitFor(() => expect(registration).toHaveBeenCalledTimes(1));
+    expect(within(row).getByRole('status')).toHaveTextContent('Личный статус');
+    await user.type(input, ' ещё');
+    await user.click(button);
+    await waitFor(() =>
+      expect(
+        within(row)
+          .getAllByRole('alert')
+          .some((alert) => alert.textContent?.includes('Сначала исправьте')),
+      ).toBe(true),
+    );
+    expect(registration).toHaveBeenCalledTimes(1);
+    await user.click(within(row).getByRole('button', { name: 'Повторить' }));
+    await user.click(button);
+    await waitFor(() => expect(registration).toHaveBeenCalledTimes(2));
+  });
 });
+
+function mockResident(): void {
+  mockFetch((url) =>
+    url.includes('/residents?')
+      ? { status: 200, body: { residents: [{ ...blank }], hostels: [] } }
+      : { status: 404 },
+  );
+}
+
+function paymentResult(): ResidentPaymentResult {
+  return {
+    payment: {
+      id: 10,
+      personnel_number: null,
+      full_name: 'Новое имя',
+      advance_amount: null,
+      settlement_date: null,
+    },
+    created: true,
+    copied_columns: ['ФИО'],
+    skipped_columns: [],
+  };
+}

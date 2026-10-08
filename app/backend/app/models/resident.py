@@ -6,9 +6,10 @@ from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.models.table_column import CustomValuesMixin
 
 
-class Resident(Base):
+class Resident(CustomValuesMixin, Base):
     __tablename__ = "residents"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

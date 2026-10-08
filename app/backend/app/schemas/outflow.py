@@ -27,6 +27,8 @@ class UpdateOutflowRequest(BaseModel):
 class OutflowResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    custom_values: dict[str, str | bool | int | float | None] = Field(default_factory=dict)
+
     id: int
     departure_date: date | None
     personnel_number: str | None

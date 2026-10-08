@@ -272,8 +272,14 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
                       </li>
                     ))
                   : data.dormitories.map((dormitory) => (
-                      <li key={dormitory.id}>
-                        <span>{dormitory.name}</span>
+                      <li
+                        key={dormitory.id}
+                        data-archived={dormitory.is_archived ? 'true' : 'false'}
+                      >
+                        <span>
+                          {dormitory.name}
+                          {dormitory.is_archived ? ' (Архив)' : ''}
+                        </span>
                         <strong>{formatCount(dormitory[block.key])}</strong>
                       </li>
                     ))}
@@ -319,8 +325,11 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
         {data.dormitories.length ? (
           <ul className={styles.metricList}>
             {data.dormitories.map((dormitory) => (
-              <li key={dormitory.id}>
-                <span>{dormitory.name}</span>
+              <li key={dormitory.id} data-archived={dormitory.is_archived ? 'true' : 'false'}>
+                <span>
+                  {dormitory.name}
+                  {dormitory.is_archived ? ' (Архив)' : ''}
+                </span>
                 <span className={styles.pendingStatus}>
                   <i className={styles.statusDot} aria-hidden="true" />
                   Ожидает подключения отчётов

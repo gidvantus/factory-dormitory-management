@@ -5,6 +5,13 @@ import type { InflowField, InflowRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
 import styles from './InflowTable.module.css';
+import {
+  ColumnsControls,
+  ConfiguredCells,
+  ConfiguredHeaders,
+  ConfiguredTable,
+  TableColumnsProvider,
+} from './ConfigurableColumns';
 
 type FieldValue = string | number | null;
 
@@ -65,60 +72,73 @@ function InflowEntry({
 
   return (
     <tr data-testid={`inflow-row-${row.id}`}>
-      <td>
-        <input
-          type="date"
-          aria-label={`Дата заселения, строка ${row.id}`}
-          value={draft.settlement_date ?? ''}
-          onChange={(event) => {
-            const value = event.target.value || null;
-            change('settlement_date', value);
-            void save('settlement_date', value);
-          }}
-        />
-      </td>
-      <td>{textField('personnel_number', 'Т/н')}</td>
-      <td>{textField('full_name', 'ФИО')}</td>
-      <td>{textField('citizenship', 'Гражданство')}</td>
-      <td>{textField('notes', 'Примечание')}</td>
-      <td>
-        <input
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          className={styles.numeric}
-          aria-label={`Кол-во смен, строка ${row.id}`}
-          value={shiftCountText}
-          onChange={(event) => {
-            if (/^\d*$/.test(event.target.value)) {
-              setShiftCountText(event.target.value);
-              setError('');
-            }
-          }}
-          onBlur={() => {
-            if (shiftCountText !== '' && Number(shiftCountText) > 1_000_000) {
-              setError('Количество смен должно быть не больше 1 000 000.');
-              return;
-            }
-            void save('shift_count', shiftCountText === '' ? null : Number(shiftCountText));
-          }}
-        />
-      </td>
-      <td className={styles.actionCell}>
-        <button type="button" disabled={saving} onClick={() => onDelete(draft)}>
-          Удалить
-        </button>
-        {(saving || error) && (
-          <span role={error ? 'alert' : 'status'} className={error ? styles.error : undefined}>
-            {error || 'Сохраняем…'}
-          </span>
-        )}
-      </td>
+      <ConfiguredCells
+        row={row}
+        fields={[
+          'settlement_date',
+          'personnel_number',
+          'full_name',
+          'citizenship',
+          'notes',
+          'shift_count',
+          'action_delete',
+        ]}
+      >
+        <td>
+          <input
+            type="date"
+            aria-label={`Дата заселения, строка ${row.id}`}
+            value={draft.settlement_date ?? ''}
+            onChange={(event) => {
+              const value = event.target.value || null;
+              change('settlement_date', value);
+              void save('settlement_date', value);
+            }}
+          />
+        </td>
+        <td>{textField('personnel_number', 'Т/н')}</td>
+        <td>{textField('full_name', 'ФИО')}</td>
+        <td>{textField('citizenship', 'Гражданство')}</td>
+        <td>{textField('notes', 'Примечание')}</td>
+        <td>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            className={styles.numeric}
+            aria-label={`Кол-во смен, строка ${row.id}`}
+            value={shiftCountText}
+            onChange={(event) => {
+              if (/^\d*$/.test(event.target.value)) {
+                setShiftCountText(event.target.value);
+                setError('');
+              }
+            }}
+            onBlur={() => {
+              if (shiftCountText !== '' && Number(shiftCountText) > 1_000_000) {
+                setError('Количество смен должно быть не больше 1 000 000.');
+                return;
+              }
+              void save('shift_count', shiftCountText === '' ? null : Number(shiftCountText));
+            }}
+          />
+        </td>
+        <td className={styles.actionCell}>
+          <button type="button" disabled={saving} onClick={() => onDelete(draft)}>
+            Удалить
+          </button>
+          {(saving || error) && (
+            <span role={error ? 'alert' : 'status'} className={error ? styles.error : undefined}>
+              {error || 'Сохраняем…'}
+            </span>
+          )}
+        </td>
+      </ConfiguredCells>
     </tr>
   );
 }
 
-export function InflowTable({
+function InflowContent({
   dormitoryId,
   range,
 }: {
@@ -186,6 +206,7 @@ export function InflowTable({
     <section className={styles.page} data-testid="dormitory-inflow">
       <div className={styles.heading}>
         <h2>Приток</h2>
+        <ColumnsControls />
         <button
           type="button"
           className={styles.addButton}
@@ -217,22 +238,10 @@ export function InflowTable({
       )}
       {status === 'ready' && (
         <div className={styles.tableScroll}>
-          <table className={styles.table}>
+          <ConfiguredTable className={styles.table}>
             <thead>
               <tr>
-                {[
-                  'Дата заселения',
-                  'Т/н',
-                  'ФИО',
-                  'Гражданство',
-                  'Примечание',
-                  'Кол-во смен',
-                  'Удалить',
-                ].map((label) => (
-                  <th key={label} scope="col">
-                    {label}
-                  </th>
-                ))}
+                <ConfiguredHeaders />
               </tr>
             </thead>
             <tbody>
@@ -245,7 +254,7 @@ export function InflowTable({
                 />
               ))}
             </tbody>
-          </table>
+          </ConfiguredTable>
           {rows.length === 0 && (
             <p className={styles.empty}>За выбранный период записей пока нет.</p>
           )}
@@ -283,5 +292,13 @@ export function InflowTable({
         </Modal>
       )}
     </section>
+  );
+}
+
+export function InflowTable(props: { dormitoryId: string; range: DateRange }): JSX.Element {
+  return (
+    <TableColumnsProvider key={props.dormitoryId} dormitoryId={props.dormitoryId} table="inflow">
+      <InflowContent {...props} />
+    </TableColumnsProvider>
   );
 }

@@ -9,9 +9,11 @@ from app.models.payment import PaymentEntry
 from app.models.report import ReportCell, ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
 from app.models.resident import Resident
+from app.models.table_column import ArchiveEntry, TableColumn
 from app.models.user import User
 
 __all__ = [
+    "ArchiveEntry",
     "Base",
     "Dormitory",
     "Hostel",
@@ -24,5 +26,6 @@ __all__ = [
     "ReportTemplate",
     "ReportTemplateRow",
     "Resident",
+    "TableColumn",
     "User",
 ]
