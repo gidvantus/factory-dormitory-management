@@ -1,19 +1,14 @@
 """Списки аванса и расчёта сохраняются отдельно."""
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
-from tests.conftest import register_user
+from tests.conftest import sign_in
 
 
-def test_advance_and_settlement_rows(client: TestClient) -> None:
+def test_advance_and_settlement_rows(client: TestClient, db_session: Session) -> None:
     assert client.get("/api/dormitories/1/payments/advance").status_code == 401
-    password = register_user(client, email="payments@example.com")["password"]
-    assert (
-        client.post(
-            "/api/auth/login", json={"email": "payments@example.com", "password": password}
-        ).status_code
-        == 200
-    )
+    sign_in(client, db_session, email="payments@example.com")
     dormitory = client.post(
         "/api/dormitories", json={"name": "Северное", "client_name": "Клиент"}
     ).json()["id"]

@@ -1,17 +1,12 @@
 """Общие на общежитие строки, посуточные значения и безопасные формулы."""
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.report_defaults import REQUIRED_REPORT_ROW_NAMES
-from tests.conftest import register_user
+from tests.conftest import sign_in
 
-
-def sign_in(client: TestClient, email: str = "reports@example.com") -> None:
-    password = register_user(client, email=email)["password"]
-    assert (
-        client.post("/api/auth/login", json={"email": email, "password": password}).status_code
-        == 200
-    )
+REPORTS_EMAIL = "reports@example.com"
 
 
 def create_dormitory(client: TestClient, name: str = "Северное") -> int:
@@ -26,8 +21,10 @@ def create_row(client: TestClient, base: str, name: str, formula: str | None = N
     return response.json()["id"]
 
 
-def test_report_is_shared_and_formula_fills_each_date(client: TestClient) -> None:
-    sign_in(client)
+def test_report_is_shared_and_formula_fills_each_date(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session, email=REPORTS_EMAIL)
     dormitory_id = create_dormitory(client)
     base = f"/api/dormitories/{dormitory_id}/report"
     residents = create_row(client, base, "Проживающие")
@@ -50,7 +47,7 @@ def test_report_is_shared_and_formula_fills_each_date(client: TestClient) -> Non
         == 204
     )
     client.post("/api/auth/logout")
-    sign_in(client, "colleague@example.com")
+    sign_in(client, db_session, email="colleague@example.com")
     response = client.get(f"{base}?from=2026-10-01&to=2026-10-03")
     assert response.status_code == 200
     rows = response.json()["rows"]
@@ -76,8 +73,10 @@ def test_report_is_shared_and_formula_fills_each_date(client: TestClient) -> Non
     }
 
 
-def test_rename_preserves_formula_and_deletion_checks_dependencies(client: TestClient) -> None:
-    sign_in(client)
+def test_rename_preserves_formula_and_deletion_checks_dependencies(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session, email=REPORTS_EMAIL)
     base = f"/api/dormitories/{create_dormitory(client)}/report"
     source = create_row(client, base, "Выход")
     computed = create_row(client, base, "Двойной выход", "=[Выход]*2")
@@ -102,9 +101,11 @@ def test_rename_preserves_formula_and_deletion_checks_dependencies(client: TestC
     ] == list(REQUIRED_REPORT_ROW_NAMES)
 
 
-def test_cell_clear_formula_errors_and_dormitory_isolation(client: TestClient) -> None:
+def test_cell_clear_formula_errors_and_dormitory_isolation(
+    client: TestClient, db_session: Session
+) -> None:
     assert client.get("/api/dormitories/1/report?from=2026-10-01&to=2026-10-02").status_code == 401
-    sign_in(client)
+    sign_in(client, db_session, email=REPORTS_EMAIL)
     first = create_dormitory(client)
     second = create_dormitory(client, "Южное")
     base = f"/api/dormitories/{first}/report"
@@ -141,8 +142,8 @@ def test_cell_clear_formula_errors_and_dormitory_isolation(client: TestClient) -
     )
 
 
-def test_rows_can_be_reordered_and_order_persists(client: TestClient) -> None:
-    sign_in(client)
+def test_rows_can_be_reordered_and_order_persists(client: TestClient, db_session: Session) -> None:
+    sign_in(client, db_session, email=REPORTS_EMAIL)
     base = f"/api/dormitories/{create_dormitory(client)}/report"
     first = create_row(client, base, "Первая")
     second = create_row(client, base, "Вторая")
@@ -165,8 +166,8 @@ def test_rows_can_be_reordered_and_order_persists(client: TestClient) -> None:
     )
 
 
-def test_formula_treats_empty_cells_as_zero(client: TestClient) -> None:
-    sign_in(client)
+def test_formula_treats_empty_cells_as_zero(client: TestClient, db_session: Session) -> None:
+    sign_in(client, db_session, email=REPORTS_EMAIL)
     base = f"/api/dormitories/{create_dormitory(client)}/report"
     residents = create_row(client, base, "Проживающие")
     arrivals = create_row(client, base, "Прибывшие")
@@ -188,8 +189,10 @@ def test_formula_treats_empty_cells_as_zero(client: TestClient) -> None:
     }
 
 
-def test_required_totals_keep_name_and_formula_but_allow_formula_edit(client: TestClient) -> None:
-    sign_in(client)
+def test_required_totals_keep_name_and_formula_but_allow_formula_edit(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session, email=REPORTS_EMAIL)
     base = f"/api/dormitories/{create_dormitory(client)}/report"
     rows = client.get(f"{base}?from=2026-10-01&to=2026-10-01").json()["rows"]
     total_id = rows[0]["id"]

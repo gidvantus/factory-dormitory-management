@@ -11,9 +11,13 @@ from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.outflow import PersonnelOutflow
 from app.schemas.outflow import OutflowResponse, UpdateOutflowRequest
-from app.security import CurrentUser
+from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
-router = APIRouter(prefix="/dormitories/{dormitory_id}/outflow", tags=["outflow"])
+router = APIRouter(
+    prefix="/dormitories/{dormitory_id}/outflow",
+    tags=["outflow"],
+    responses={**ACTIVE_USER_RESPONSES},
+)
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
 OutflowId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -29,7 +33,7 @@ def get_outflow(db: Session, dormitory_id: int, row_id: int) -> PersonnelOutflow
 @router.get("", response_model=list[OutflowResponse], summary="Отток персонала за период")
 def list_outflow(
     dormitory_id: DormitoryId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -58,9 +62,7 @@ def list_outflow(
     status_code=status.HTTP_201_CREATED,
     summary="Добавить строку оттока",
 )
-def create_outflow(
-    dormitory_id: DormitoryId, _user: CurrentUser, db: DbSession
-) -> PersonnelOutflow:
+def create_outflow(dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession) -> PersonnelOutflow:
     require_dormitory(db, dormitory_id)
     row = PersonnelOutflow(dormitory_id=dormitory_id)
     db.add(row)
@@ -74,7 +76,7 @@ def update_outflow(
     dormitory_id: DormitoryId,
     row_id: OutflowId,
     payload: UpdateOutflowRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> PersonnelOutflow:
     require_dormitory(db, dormitory_id)
@@ -90,7 +92,7 @@ def update_outflow(
 def delete_outflow(
     dormitory_id: DormitoryId,
     row_id: OutflowId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> None:
     require_dormitory(db, dormitory_id)

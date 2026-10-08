@@ -1,19 +1,16 @@
 """Приток персонала: сохранение, фильтр и удаление."""
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
-from tests.conftest import register_user
+from tests.conftest import sign_in
 
 
-def test_inflow_rows_are_persistent_filtered_and_isolated(client: TestClient) -> None:
+def test_inflow_rows_are_persistent_filtered_and_isolated(
+    client: TestClient, db_session: Session
+) -> None:
     assert client.get("/api/dormitories/1/inflow?from=2026-10-01&to=2026-10-31").status_code == 401
-    password = register_user(client, email="inflow@example.com")["password"]
-    assert (
-        client.post(
-            "/api/auth/login", json={"email": "inflow@example.com", "password": password}
-        ).status_code
-        == 200
-    )
+    sign_in(client, db_session, email="inflow@example.com")
     first = client.post(
         "/api/dormitories", json={"name": "Северное", "client_name": "Клиент"}
     ).json()["id"]

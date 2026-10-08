@@ -1,13 +1,23 @@
-"""Регистрация."""
+"""Регистрация: неактивный аккаунт, захешированный токен и письмо активации."""
+
+import json
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
+from app.models.activation import ActivationToken
 from app.models.user import User
 from tests.conftest import register_user
 
 PAYLOAD = {"email": "worker@example.com", "full_name": "Иванов Иван Иванович"}
+
+
+def as_utc(value: datetime) -> datetime:
+    """SQLite отдаёт naive datetime: сравнивать его с aware нельзя."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def test_health_is_open(client: TestClient) -> None:
@@ -16,31 +26,53 @@ def test_health_is_open(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_register_creates_user_and_returns_password(
-    client: TestClient, db_session: Session
-) -> None:
+def test_register_creates_inactive_user(client: TestClient, db_session: Session) -> None:
     response = client.post("/api/auth/register", json=PAYLOAD)
 
     assert response.status_code == 201
     body = response.json()
     assert body["email"] == PAYLOAD["email"]
     assert body["full_name"] == PAYLOAD["full_name"]
-    assert len(body["password"]) >= 12
     assert body["created_at"]
+    # SMTP в тестах выключен, шаблона в тестовой базе нет — письмо не отправлено.
+    assert body["activation_email_sent"] is False
 
     user = db_session.scalar(select(User).where(User.email == PAYLOAD["email"]))
     assert user is not None
     assert user.full_name == PAYLOAD["full_name"]
-    assert user.is_active is True
+    assert user.is_active is False
 
 
-def test_password_hash_is_not_the_open_password(client: TestClient, db_session: Session) -> None:
+def test_register_never_returns_the_generated_password(
+    client: TestClient, db_session: Session
+) -> None:
     body = register_user(client)
+
+    assert "password" not in body
 
     user = db_session.scalar(select(User).where(User.email == body["email"]))
     assert user is not None
-    assert user.password_hash != body["password"]
-    assert body["password"] not in user.password_hash
+    assert user.password_hash.startswith("$argon2")
+    assert user.password_hash not in json.dumps(body)
+
+
+def test_register_stores_only_the_hash_of_the_activation_token(
+    client: TestClient, db_session: Session
+) -> None:
+    body = register_user(client)
+    user = db_session.scalar(select(User).where(User.email == body["email"]))
+    assert user is not None
+    token = db_session.scalar(select(ActivationToken).where(ActivationToken.user_id == user.id))
+
+    assert token is not None
+    assert token.used_at is None
+    # SHA-256 в hex: 64 символа. Открытого токена из письма в базе нет.
+    assert len(token.token_hash) == 64
+    assert set(token.token_hash) <= set("0123456789abcdef")
+
+    expires_in = as_utc(token.expires_at) - datetime.now(UTC)
+    ttl = timedelta(hours=get_settings().activation_token_ttl_hours)
+    assert abs(expires_in - ttl) < timedelta(minutes=1)
 
 
 def test_register_does_not_set_session_cookie(client: TestClient) -> None:

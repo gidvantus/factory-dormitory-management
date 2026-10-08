@@ -18,18 +18,18 @@ from app.schemas.report_template import (
     ReportTemplateRowResponse,
 )
 from app.schemas.user import ErrorResponse
-from app.security import CurrentUser
+from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
 router = APIRouter(
     prefix="/report-templates",
     tags=["report-templates"],
-    responses={401: {"model": ErrorResponse}},
+    responses={401: {"model": ErrorResponse}, **ACTIVE_USER_RESPONSES},
 )
 DbSession = Annotated[Session, Depends(get_db)]
 
 
 @router.get("", response_model=list[ReportTemplateResponse], summary="Список шаблонов отчёта")
-def list_templates(_user: CurrentUser, db: DbSession) -> list[ReportTemplateResponse]:
+def list_templates(_user: ActiveUser, db: DbSession) -> list[ReportTemplateResponse]:
     result = db.execute(
         select(ReportTemplate, func.count(ReportTemplateRow.id))
         .outerjoin(ReportTemplateRow, ReportTemplateRow.template_id == ReportTemplate.id)
@@ -52,7 +52,7 @@ def list_templates(_user: CurrentUser, db: DbSession) -> list[ReportTemplateResp
 )
 def read_template(
     template_id: Annotated[int, Path(ge=1, le=2147483647)],
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> ReportTemplateDetailResponse:
     template = db.get(ReportTemplate, template_id)
@@ -84,7 +84,7 @@ def read_template(
     summary="Сохранить структуру отчёта как шаблон",
 )
 def create_template(
-    payload: CreateReportTemplateRequest, user: CurrentUser, db: DbSession
+    payload: CreateReportTemplateRequest, user: ActiveUser, db: DbSession
 ) -> ReportTemplateResponse:
     if db.get(Dormitory, payload.dormitory_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Общежитие не найдено")
@@ -128,7 +128,7 @@ def create_template(
 @router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Удалить шаблон")
 def delete_template(
     template_id: Annotated[int, Path(ge=1, le=2147483647)],
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> None:
     template = db.get(ReportTemplate, template_id)
