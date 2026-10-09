@@ -1,18 +1,11 @@
 """Дашборд считает обязательные итоговые строки всех общежитий."""
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
-from tests.conftest import register_user
+from tests.conftest import sign_in
 
-
-def sign_in(client: TestClient) -> None:
-    password = register_user(client, email="dashboard@example.com")["password"]
-    assert (
-        client.post(
-            "/api/auth/login", json={"email": "dashboard@example.com", "password": password}
-        ).status_code
-        == 200
-    )
+DASHBOARD_EMAIL = "dashboard@example.com"
 
 
 def dormitory(client: TestClient, name: str, customer: str, values: dict[str, str]) -> int:
@@ -41,9 +34,11 @@ def dormitory(client: TestClient, name: str, customer: str, values: dict[str, st
     return dormitory_id
 
 
-def test_dashboard_aggregates_dormitories_clients_and_daily_formulas(client: TestClient) -> None:
+def test_dashboard_aggregates_dormitories_clients_and_daily_formulas(
+    client: TestClient, db_session: Session
+) -> None:
     assert client.get("/api/dashboard?from=2025-09-01&to=2025-09-02").status_code == 401
-    sign_in(client)
+    sign_in(client, db_session, email=DASHBOARD_EMAIL)
     first = dormitory(
         client,
         "Северное",
@@ -107,8 +102,10 @@ def test_dashboard_aggregates_dormitories_clients_and_daily_formulas(client: Tes
     }
 
 
-def test_archived_dormitories_stay_in_all_dashboard_calculations(client: TestClient) -> None:
-    sign_in(client)
+def test_archived_dormitories_stay_in_all_dashboard_calculations(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session, email=DASHBOARD_EMAIL)
     first = dormitory(
         client,
         "Северное",
@@ -143,8 +140,10 @@ def test_archived_dormitories_stay_in_all_dashboard_calculations(client: TestCli
     assert client.get(url).json()["totals"] == before["totals"]
 
 
-def test_dashboard_rejects_invalid_period_and_future_dates_have_no_data(client: TestClient) -> None:
-    sign_in(client)
+def test_dashboard_rejects_invalid_period_and_future_dates_have_no_data(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session, email=DASHBOARD_EMAIL)
     dormitory(client, "Будущее", "Клиент", {})
     assert client.get("/api/dashboard?from=2025-09-03&to=2025-09-02").status_code == 422
     assert client.get("/api/dashboard?from=2025-01-01&to=2027-01-01").status_code == 422

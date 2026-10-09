@@ -22,9 +22,9 @@ from app.schemas.dashboard import (
     DashboardTotals,
 )
 from app.schemas.report import ReportRowResponse
-from app.security import CurrentUser
+from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+router = APIRouter(prefix="/dashboard", tags=["dashboard"], responses={**ACTIVE_USER_RESPONSES})
 DbSession = Annotated[Session, Depends(get_db)]
 ATTENDANCE, RESIDENTS, TURNOVER = REQUIRED_REPORT_ROW_NAMES
 
@@ -50,7 +50,7 @@ def as_float(value: Decimal | None) -> float | None:
 
 @router.get("", response_model=DashboardResponse, summary="Обзор по всем общежитиям")
 def read_dashboard(
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],

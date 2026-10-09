@@ -34,7 +34,7 @@ def payload(target: int, plan: dict[str, Any], confirm: bool = False) -> dict[st
 def test_transfer_copies_all_current_fields_remaps_options_and_keeps_payments(
     client: TestClient, db_session: Session
 ) -> None:
-    source, resident = setup(client)
+    source, resident = setup(client, db_session)
     target = create_dormitory(client, "Новое")
     custom_values: dict[str, Any] = {}
     for kind, value in [
@@ -110,8 +110,10 @@ def test_transfer_copies_all_current_fields_remaps_options_and_keeps_payments(
     assert len(list(db_session.scalars(select(Resident)))) == 1
 
 
-def test_missing_deleted_and_mismatched_fields_require_confirmation(client: TestClient) -> None:
-    source, resident = setup(client)
+def test_missing_deleted_and_mismatched_fields_require_confirmation(
+    client: TestClient, db_session: Session
+) -> None:
+    source, resident = setup(client, db_session)
     target = create_dormitory(client, "Новое")
     targets = client.get(f"/api/dormitories/{target}/tables/residents/columns").json()
     number = next(col for col in targets if col["builtin_key"] == "personnel_number")
@@ -157,9 +159,9 @@ def test_missing_deleted_and_mismatched_fields_require_confirmation(client: Test
     "change", ["source_value", "source_column", "target_column", "target_archive"]
 )
 def test_changes_after_preview_do_not_move_or_lose_the_source(
-    client: TestClient, change: str
+    client: TestClient, db_session: Session, change: str
 ) -> None:
-    source, resident = setup(client)
+    source, resident = setup(client, db_session)
     target = create_dormitory(client, "Новое")
     plan = preview(client, source, resident, target)
     if change == "source_value":
@@ -191,9 +193,9 @@ def test_changes_after_preview_do_not_move_or_lose_the_source(
 
 @pytest.mark.parametrize("matching_hostel", [True, False])
 def test_hostel_is_mapped_by_active_name_or_requires_confirmation(
-    client: TestClient, matching_hostel: bool
+    client: TestClient, db_session: Session, matching_hostel: bool
 ) -> None:
-    source, resident = setup(client)
+    source, resident = setup(client, db_session)
     target = create_dormitory(client, "Новое")
     source_hostel = client.post(
         f"/api/dormitories/{source}/hostels", json={"name": "Хостел 1", "month": "2026-10-01"}
@@ -223,8 +225,9 @@ def test_hostel_is_mapped_by_active_name_or_requires_confirmation(
 
 def test_select_missing_option_and_custom_to_builtin_validation_are_reported(
     client: TestClient,
+    db_session: Session,
 ) -> None:
-    source, resident = setup(client)
+    source, resident = setup(client, db_session)
     target = create_dormitory(client, "Новое")
     selected = column(client, source, "residents", "Статус", "select")
     target_selected = column(client, target, "residents", "Статус", "select")
@@ -262,7 +265,9 @@ def test_select_missing_option_and_custom_to_builtin_validation_are_reported(
     assert not moved.json()["custom_values"]
 
 
-def test_preview_auth_scope_duplicate_and_invalid_destination(client: TestClient) -> None:
+def test_preview_auth_scope_duplicate_and_invalid_destination(
+    client: TestClient, db_session: Session
+) -> None:
     assert (
         client.post(
             "/api/dormitories/1/residents/1/transfer/preview",
@@ -270,7 +275,7 @@ def test_preview_auth_scope_duplicate_and_invalid_destination(client: TestClient
         ).status_code
         == 401
     )
-    source, resident = setup(client)
+    source, resident = setup(client, db_session)
     target = create_dormitory(client, "Новое")
     url = f"/api/dormitories/{source}/residents/{resident}/transfer/preview"
     for destination, month, expected in [

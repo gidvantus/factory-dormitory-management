@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import type { UserProfile } from '../api/client';
+import { openActivation, subscribeToActivationRequired } from './activation';
 
 export type SessionStatus = 'loading' | 'authenticated' | 'anonymous';
 
@@ -19,6 +21,7 @@ const SessionContext = createContext<SessionValue | null>(null);
 export function SessionProvider({ children }: { children: ReactNode }): JSX.Element {
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [user, setUser] = useState<UserProfile | null>(null);
+  const navigate = useNavigate();
 
   const setAuthenticatedUser = useCallback((profile: UserProfile) => {
     setUser(profile);
@@ -50,6 +53,13 @@ export function SessionProvider({ children }: { children: ReactNode }): JSX.Elem
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(
+    // 403 «Активируйте личный кабинет» с рабочей ручки — это не «не удалось
+    // загрузить», а повод открыть экран активации.
+    () => subscribeToActivationRequired(() => openActivation(navigate)),
+    [navigate],
+  );
 
   const value = useMemo<SessionValue>(
     () => ({ status, user, setUser: setAuthenticatedUser, refresh, logout }),

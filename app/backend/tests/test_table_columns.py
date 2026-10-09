@@ -13,8 +13,8 @@ from app.models.table_column import TableColumn
 from tests.test_reports import create_dormitory, sign_in
 
 
-def setup_table(client: TestClient, table: str = "outflow") -> tuple[int, str]:
-    sign_in(client)
+def setup_table(client: TestClient, db_session: Session, table: str = "outflow") -> tuple[int, str]:
+    sign_in(client, db_session)
     dorm = create_dormitory(client)
     return dorm, f"/api/dormitories/{dorm}/tables/{table}"
 
@@ -37,7 +37,7 @@ def add_column(
 def test_residents_settlement_action_updates_existing_columns_once(
     client: TestClient, db_session: Session
 ) -> None:
-    _, base = setup_table(client, "residents")
+    _, base = setup_table(client, db_session, "residents")
     columns = client.get(f"{base}/columns").json()
     keys = [col["builtin_key"] for col in columns]
     assert keys.index("action_settlement") == keys.index("action_advance") + 1
@@ -64,8 +64,10 @@ def test_residents_settlement_action_updates_existing_columns_once(
     )["archived"]
 
 
-def test_rename_archive_restore_keeps_values_and_ids(client: TestClient) -> None:
-    dorm, base = setup_table(client)
+def test_rename_archive_restore_keeps_values_and_ids(
+    client: TestClient, db_session: Session
+) -> None:
+    dorm, base = setup_table(client, db_session)
     column = add_column(client, base)
     option = column["options"][0]["id"]
     row = client.post(f"/api/dormitories/{dorm}/outflow").json()
@@ -109,9 +111,9 @@ def test_rename_archive_restore_keeps_values_and_ids(client: TestClient) -> None
     ],
 )
 def test_all_tables_allow_builtin_removal_and_typed_cells(
-    client: TestClient, table: str, endpoint: str
+    client: TestClient, db_session: Session, table: str, endpoint: str
 ) -> None:
-    dorm, base = setup_table(client, table)
+    dorm, base = setup_table(client, db_session, table)
     builtin = client.get(f"{base}/columns").json()[0]
     assert client.delete(f"{base}/columns/{builtin['id']}").status_code == 204
     assert client.get(f"{base}/columns").json()[0]["archived"]
@@ -131,7 +133,7 @@ def test_all_tables_allow_builtin_removal_and_typed_cells(
 def test_links_count_by_moscow_creation_day_and_feed_formulas(
     client: TestClient, db_session: Session
 ) -> None:
-    dorm, base = setup_table(client)
+    dorm, base = setup_table(client, db_session)
     column = add_column(client, base)
     value = column["options"][0]["id"]
     rows = [client.post(f"/api/dormitories/{dorm}/outflow").json() for _ in range(3)]
@@ -183,9 +185,9 @@ def test_links_count_by_moscow_creation_day_and_feed_formulas(
 
 @pytest.mark.parametrize("custom", [False, True])
 def test_filled_dates_count_all_arrivals_on_their_own_dates(
-    client: TestClient, custom: bool
+    client: TestClient, db_session: Session, custom: bool
 ) -> None:
-    dorm, base = setup_table(client, "inflow")
+    dorm, base = setup_table(client, db_session, "inflow")
     columns = client.get(f"{base}/columns").json()
     column = (
         add_column(client, base, "Дата приезда", "date")
@@ -237,8 +239,8 @@ def test_filled_dates_count_all_arrivals_on_their_own_dates(
     assert values["2026-10-02"] == "2"
 
 
-def test_event_date_links_and_dependency_guards(client: TestClient) -> None:
-    dorm, base = setup_table(client)
+def test_event_date_links_and_dependency_guards(client: TestClient, db_session: Session) -> None:
+    dorm, base = setup_table(client, db_session)
     columns = client.get(f"{base}/columns").json()
     reason = next(col for col in columns if col["builtin_key"] == "reason")
     day = next(col for col in columns if col["builtin_key"] == "departure_date")
@@ -281,7 +283,7 @@ def test_event_date_links_and_dependency_guards(client: TestClient) -> None:
 def test_scope_validation_and_broken_link_is_error_not_zero(
     client: TestClient, db_session: Session
 ) -> None:
-    dorm, base = setup_table(client)
+    dorm, base = setup_table(client, db_session)
     other = create_dormitory(client, "Другой")
     column = add_column(client, base)
     other_column = add_column(client, f"/api/dormitories/{other}/tables/outflow")
@@ -311,8 +313,10 @@ def test_scope_validation_and_broken_link_is_error_not_zero(
     assert "Проверьте связь" in result["errors"]["2026-10-01"]
 
 
-def test_template_clones_link_columns_without_source_data(client: TestClient) -> None:
-    dorm, base = setup_table(client)
+def test_template_clones_link_columns_without_source_data(
+    client: TestClient, db_session: Session
+) -> None:
+    dorm, base = setup_table(client, db_session)
     old_columns = client.get(f"{base}/columns").json()
     old_reason = next(col for col in old_columns if col["builtin_key"] == "reason")
     assert client.delete(f"{base}/columns/{old_reason['id']}").status_code == 204

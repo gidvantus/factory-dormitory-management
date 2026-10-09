@@ -9,22 +9,13 @@ from app.config import get_settings
 from app.security import (
     create_access_token,
     decode_access_token,
-    generate_password,
     hash_password,
     verify_password,
 )
 
 
-def test_generated_password_is_long_enough() -> None:
-    assert len(generate_password()) >= 12
-
-
-def test_generated_passwords_differ() -> None:
-    assert generate_password() != generate_password()
-
-
 def test_hash_is_not_the_password() -> None:
-    password = generate_password()
+    password = "correct-horse-battery-staple"
     password_hash = hash_password(password)
     assert password_hash != password
     assert password not in password_hash

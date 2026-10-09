@@ -1,13 +1,17 @@
 """Пароли и сессии.
 
-Здесь собрано всё, что относится к аутентификации: генерация и хеширование
-пароля, выпуск и разбор JWT, cookie сессии и зависимость, достающая текущего
+Здесь собрано всё, что относится к аутентификации: хеширование и проверка
+пароля, выпуск и разбор JWT, cookie сессии и зависимости, достающие текущего
 пользователя. Роуты и экраны не знают, как именно устроен токен, поэтому слой
 можно заменить (например, на внешний OIDC), не трогая их.
+
+Две зависимости разделены по смыслу: `CurrentUser` — «кто это», `ActiveUser` —
+«кто это и кабинет активирован». Неактивному доступна только активация.
 """
 
-import secrets
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
+from secrets import token_urlsafe
 from typing import Annotated, Any
 
 import jwt
@@ -19,18 +23,15 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
+from app.models.activation import ActivationToken
 from app.models.user import User
+from app.schemas.user import ErrorResponse
 
-# Длина пароля, который сервер выдаёт пользователю (в символах, не в байтах).
-GENERATED_PASSWORD_BYTES = 12
+# Длина открытого токена активации: 32 байта энтропии подобрать нельзя.
+ACTIVATION_TOKEN_BYTES = 32
 
 # Единственный экземпляр хешера: argon2 сам держит параметры и соль.
 _password_hash = PasswordHash((Argon2Hasher(),))
-
-
-def generate_password() -> str:
-    """Открытый пароль показывается пользователю ровно один раз."""
-    return secrets.token_urlsafe(GENERATED_PASSWORD_BYTES)
 
 
 def hash_password(password: str) -> str:
@@ -102,11 +103,47 @@ def unauthorized() -> HTTPException:
     )
 
 
+def hash_activation_token(token: str) -> str:
+    """Хеш токена для базы: утечка строки не даёт активировать чужой кабинет."""
+    return sha256(token.encode("utf-8")).hexdigest()
+
+
+def activation_expires_at(now: datetime | None = None) -> datetime:
+    """Момент, до которого ссылка активации живёт."""
+    return (now or datetime.now(UTC)) + timedelta(hours=get_settings().activation_token_ttl_hours)
+
+
+def issue_activation_token(db: Session, user_id: int, *, kind: str = "activation") -> str:
+    """Выпустить одноразовую ссылку: открытый токен возвращается, в базу идёт хеш.
+
+    `kind` различает письмо активации и письмо восстановления пароля: по нему
+    потом видно, откуда пришла ссылка, хотя экран смены пароля у них общий.
+
+    Коммитит вызывающий: регистрация сохраняет пользователя и токен вместе,
+    а повторная отправка — пометку старых токенов и новый одним коммитом.
+    """
+    token = token_urlsafe(ACTIVATION_TOKEN_BYTES)
+    db.add(
+        ActivationToken(
+            user_id=user_id,
+            kind=kind,
+            token_hash=hash_activation_token(token),
+            expires_at=activation_expires_at(),
+        )
+    )
+    return token
+
+
 def get_current_user(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
-    """Текущий пользователь из cookie сессии."""
+    """Текущий пользователь из cookie сессии.
+
+    Неактивный пользователь здесь проходит: он должен дойти до экрана
+    активации, а не получить 401 «нет сессии». Рабочие ручки закрывает
+    `require_active_user`.
+    """
     settings = get_settings()
     token = request.cookies.get(settings.session_cookie_name)
     if not token:
@@ -121,10 +158,34 @@ def get_current_user(
         raise unauthorized()
 
     user = db.get(User, int(subject))
-    if user is None or not user.is_active:
+    if user is None:
         raise unauthorized()
 
     return user
 
 
+# Текст 403 дословно совпадает с тем, что показывает фронт на экране активации.
+ACTIVATION_REQUIRED_DETAIL = "Активируйте личный кабинет"
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def require_active_user(user: CurrentUser) -> User:
+    """Тот же пользователь, но с активированным кабинетом. Иначе — 403."""
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ACTIVATION_REQUIRED_DETAIL,
+        )
+    return user
+
+
+ActiveUser = Annotated[User, Depends(require_active_user)]
+
+# Единое описание этого 403 для `responses=` рабочих роутеров.
+ACTIVE_USER_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_403_FORBIDDEN: {
+        "model": ErrorResponse,
+        "description": ACTIVATION_REQUIRED_DETAIL,
+    }
+}

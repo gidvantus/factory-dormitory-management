@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models.table_column import ArchiveEntry, TableColumn
 from app.schemas.table_column import CellRequest, ColumnRequest, ColumnResponse, TableKey
-from app.security import CurrentUser
+from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import (
     column_dependencies,
     ensure_columns,
@@ -23,7 +23,11 @@ from app.table_data import (
     normalize_value,
 )
 
-router = APIRouter(prefix="/dormitories/{dormitory_id}/tables", tags=["table-columns"])
+router = APIRouter(
+    prefix="/dormitories/{dormitory_id}/tables",
+    tags=["table-columns"],
+    responses={**ACTIVE_USER_RESPONSES},
+)
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
 ColumnId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -62,7 +66,7 @@ def check_name(columns: list[TableColumn], name: str, column_id: int | None = No
 
 @router.get("/{table_key}/columns", response_model=list[ColumnResponse])
 def list_columns(
-    dormitory_id: DormitoryId, table_key: TableKey, _user: CurrentUser, db: DbSession
+    dormitory_id: DormitoryId, table_key: TableKey, _user: ActiveUser, db: DbSession
 ) -> list[TableColumn]:
     columns = ensure_columns(db, dormitory_id, table_key)
     db.commit()
@@ -74,7 +78,7 @@ def create_column(
     dormitory_id: DormitoryId,
     table_key: TableKey,
     payload: ColumnRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
@@ -112,7 +116,7 @@ def update_column(
     table_key: TableKey,
     column_id: ColumnId,
     payload: ColumnRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
@@ -140,7 +144,7 @@ def delete_column(
     dormitory_id: DormitoryId,
     table_key: TableKey,
     column_id: ColumnId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> None:
     lock_dormitory(db, dormitory_id)
@@ -161,7 +165,7 @@ def restore_column(
     dormitory_id: DormitoryId,
     table_key: TableKey,
     column_id: ColumnId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
@@ -180,7 +184,7 @@ def save_custom_cell(
     row_id: ColumnId,
     column_id: ColumnId,
     payload: CellRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> CellRequest:
     lock_dormitory(db, dormitory_id)
@@ -205,7 +209,7 @@ class ArchiveResponse(BaseModel):
 @router.get("/archive/rows", response_model=list[ArchiveResponse])
 def list_archive(
     dormitory_id: DormitoryId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -230,7 +234,7 @@ def list_archive(
 
 
 @router.post("/archive/rows", response_model=ArchiveResponse, status_code=201)
-def create_archive(dormitory_id: DormitoryId, _user: CurrentUser, db: DbSession) -> ArchiveEntry:
+def create_archive(dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession) -> ArchiveEntry:
     lock_dormitory(db, dormitory_id)
     row = ArchiveEntry(dormitory_id=dormitory_id)
     db.add(row)
@@ -241,7 +245,7 @@ def create_archive(dormitory_id: DormitoryId, _user: CurrentUser, db: DbSession)
 
 @router.delete("/archive/rows/{row_id}", status_code=204)
 def delete_archive(
-    dormitory_id: DormitoryId, row_id: ColumnId, _user: CurrentUser, db: DbSession
+    dormitory_id: DormitoryId, row_id: ColumnId, _user: ActiveUser, db: DbSession
 ) -> None:
     lock_dormitory(db, dormitory_id)
     db.delete(get_record(db, dormitory_id, "archive", row_id))

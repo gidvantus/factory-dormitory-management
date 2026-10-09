@@ -18,9 +18,13 @@ from app.schemas.hostel import (
     PlacesResponse,
     SaveHostelCellRequest,
 )
-from app.security import CurrentUser
+from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
-router = APIRouter(prefix="/dormitories/{dormitory_id}/hostels", tags=["hostels"])
+router = APIRouter(
+    prefix="/dormitories/{dormitory_id}/hostels",
+    tags=["hostels"],
+    responses={**ACTIVE_USER_RESPONSES},
+)
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
 HostelId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -51,7 +55,7 @@ def active_in_month(hostel: Hostel, month: date) -> bool:
 @router.get("", response_model=PlacesResponse, summary="Таблицы мест за период")
 def read_places(
     dormitory_id: DormitoryId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -130,7 +134,7 @@ def read_places(
 def create_hostel(
     dormitory_id: DormitoryId,
     payload: CreateHostelRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> dict[str, int | str]:
     require_dormitory(db, dormitory_id)
@@ -156,7 +160,7 @@ def create_hostel(
 def remove_hostel(
     dormitory_id: DormitoryId,
     hostel_id: HostelId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
     month: Annotated[date, Query()],
 ) -> None:
@@ -185,7 +189,7 @@ def save_hostel_cell(
     report_date: date,
     field: PlaceField,
     payload: SaveHostelCellRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> None:
     require_dormitory(db, dormitory_id)

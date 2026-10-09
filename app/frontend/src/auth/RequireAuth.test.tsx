@@ -9,7 +9,10 @@ const PROFILE = {
   email: 'worker@example.com',
   full_name: 'Иванов Иван Иванович',
   created_at: '2026-01-01T00:00:00Z',
+  is_active: true,
 };
+
+const INACTIVE_PROFILE = { ...PROFILE, is_active: false };
 
 function sessionRoutes(session: MockResponse, login: MockResponse = session) {
   return (url: string): MockResponse => {
@@ -34,6 +37,22 @@ describe('защищённый маршрут /cabinet', () => {
 
     expect(await screen.findByTestId('login-submit')).toBeInTheDocument();
     expect(screen.queryByTestId('cabinet-full-name')).not.toBeInTheDocument();
+  });
+
+  it('с неактивированным кабинетом отправляет на экран активации', async () => {
+    mockFetch(sessionRoutes({ status: 200, body: INACTIVE_PROFILE }));
+    renderApp('/cabinet');
+
+    expect(await screen.findByTestId('activate-pending')).toBeInTheDocument();
+    expect(screen.queryByTestId('workspace-overview')).not.toBeInTheDocument();
+  });
+
+  it('на экран активации уводит и прямой заход в раздел кабинета', async () => {
+    mockFetch(sessionRoutes({ status: 200, body: INACTIVE_PROFILE }));
+    renderApp('/cabinet/dormitories');
+
+    expect(await screen.findByTestId('activate-pending')).toBeInTheDocument();
+    expect(screen.queryByTestId('dormitories-page')).not.toBeInTheDocument();
   });
 
   it('открывает обзор, а реальные личные данные показывает внутри общей оболочки', async () => {

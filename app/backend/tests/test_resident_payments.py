@@ -12,8 +12,8 @@ from app.models.resident import Resident
 from tests.test_reports import create_dormitory, sign_in
 
 
-def setup(client: TestClient) -> tuple[int, int]:
-    sign_in(client)
+def setup(client: TestClient, db_session: Session) -> tuple[int, int]:
+    sign_in(client, db_session)
     dorm = create_dormitory(client)
     resident = client.post(f"/api/dormitories/{dorm}/residents").json()["id"]
     assert (
@@ -53,7 +53,7 @@ def cell(client: TestClient, dorm: int, resident: int, col: dict[str, Any], valu
 def test_copies_default_and_dynamic_fields_with_option_mapping(
     client: TestClient, db_session: Session, kind: str
 ) -> None:
-    dorm, resident = setup(client)
+    dorm, resident = setup(client, db_session)
     targets: dict[str, dict[str, Any]] = {}
     for data_kind, value in [
         ("text", "Примечание"),
@@ -92,8 +92,10 @@ def test_copies_default_and_dynamic_fields_with_option_mapping(
     assert db_session.get(PaymentEntry, payment["id"]).source_resident_id == resident
 
 
-def test_uses_current_names_types_and_archived_columns(client: TestClient) -> None:
-    dorm, resident = setup(client)
+def test_uses_current_names_types_and_archived_columns(
+    client: TestClient, db_session: Session
+) -> None:
+    dorm, resident = setup(client, db_session)
     source = column(client, dorm, "residents", "Комментарий", "text")
     target = column(client, dorm, "advance", "Комментарий", "text")
     cell(client, dorm, resident, source, "Первый")
@@ -150,8 +152,9 @@ def test_uses_current_names_types_and_archived_columns(client: TestClient) -> No
 
 def test_copies_custom_fields_into_standard_date_and_amount_and_reports_incompatible_values(
     client: TestClient,
+    db_session: Session,
 ) -> None:
-    dorm, resident = setup(client)
+    dorm, resident = setup(client, db_session)
     amount = column(client, dorm, "residents", "Сумма аванса", "number")
     day = column(client, dorm, "residents", "Дата расчёта", "date")
     cell(client, dorm, resident, amount, "1250.50")
@@ -185,7 +188,7 @@ def test_copies_custom_fields_into_standard_date_and_amount_and_reports_incompat
 def test_duplicates_keep_existing_edits_and_allow_registration_after_clear(
     client: TestClient, db_session: Session
 ) -> None:
-    dorm, resident = setup(client)
+    dorm, resident = setup(client, db_session)
     url = f"/api/dormitories/{dorm}/residents/{resident}/payments/advance"
     first = client.post(url).json()["payment"]
     assert (
@@ -222,9 +225,11 @@ def test_duplicates_keep_existing_edits_and_allow_registration_after_clear(
     assert len(list(db_session.scalars(select(PaymentEntry)))) == 2
 
 
-def test_manual_duplicate_empty_sources_and_authentication(client: TestClient) -> None:
+def test_manual_duplicate_empty_sources_and_authentication(
+    client: TestClient, db_session: Session
+) -> None:
     assert client.post("/api/dormitories/1/residents/1/payments/advance").status_code == 401
-    dorm, resident = setup(client)
+    dorm, resident = setup(client, db_session)
     manual = client.post(f"/api/dormitories/{dorm}/payments/advance").json()["id"]
     assert (
         client.patch(

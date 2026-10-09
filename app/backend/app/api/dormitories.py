@@ -13,19 +13,22 @@ from app.models.report_template import ReportTemplate, ReportTemplateRow
 from app.report_defaults import DEFAULT_REPORT_FORMULA, REQUIRED_REPORT_ROW_NAMES, required_row_name
 from app.schemas.dormitory import CreateDormitoryRequest, DormitoryResponse, UpdateDormitoryRequest
 from app.schemas.user import ErrorResponse
-from app.security import CurrentUser
+from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import restore_link
 
 router = APIRouter(
     prefix="/dormitories",
     tags=["dormitories"],
-    responses={401: {"model": ErrorResponse, "description": "Требуется авторизация"}},
+    responses={
+        401: {"model": ErrorResponse, "description": "Требуется авторизация"},
+        **ACTIVE_USER_RESPONSES,
+    },
 )
 DbSession = Annotated[Session, Depends(get_db)]
 
 
 @router.get("", response_model=list[DormitoryResponse], summary="Список общежитий")
-def list_dormitories(_user: CurrentUser, db: DbSession) -> list[DormitoryResponse]:
+def list_dormitories(_user: ActiveUser, db: DbSession) -> list[DormitoryResponse]:
     dormitories = db.scalars(
         select(Dormitory).order_by(Dormitory.created_at.desc(), Dormitory.id.desc())
     )
@@ -40,7 +43,7 @@ def list_dormitories(_user: CurrentUser, db: DbSession) -> list[DormitoryRespons
     responses={400: {"model": ErrorResponse, "description": "Некорректное тело JSON"}},
 )
 def create_dormitory(
-    payload: CreateDormitoryRequest, user: CurrentUser, db: DbSession
+    payload: CreateDormitoryRequest, user: ActiveUser, db: DbSession
 ) -> DormitoryResponse:
     template_rows: list[ReportTemplateRow] = []
     if payload.template_id is not None:
@@ -109,7 +112,7 @@ def create_dormitory(
 def update_dormitory(
     dormitory_id: Annotated[int, Path(ge=1, le=2147483647)],
     payload: UpdateDormitoryRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> DormitoryResponse:
     dormitory = db.scalar(select(Dormitory).where(Dormitory.id == dormitory_id).with_for_update())
@@ -129,7 +132,7 @@ def update_dormitory(
     responses={404: {"model": ErrorResponse, "description": "Общежитие не найдено"}},
 )
 def read_dormitory(
-    dormitory_id: Annotated[int, Path(ge=1, le=2147483647)], _user: CurrentUser, db: DbSession
+    dormitory_id: Annotated[int, Path(ge=1, le=2147483647)], _user: ActiveUser, db: DbSession
 ) -> DormitoryResponse:
     dormitory = db.scalar(select(Dormitory).where(Dormitory.id == dormitory_id))
     if dormitory is None:

@@ -6,17 +6,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.hostel import HostelCell
-from tests.conftest import register_user
+from tests.conftest import sign_in
 
-
-def sign_in(client: TestClient) -> None:
-    password = register_user(client, email="places@example.com")["password"]
-    assert (
-        client.post(
-            "/api/auth/login", json={"email": "places@example.com", "password": password}
-        ).status_code
-        == 200
-    )
+PLACES_EMAIL = "places@example.com"
 
 
 def create_dormitory(client: TestClient) -> int:
@@ -25,9 +17,11 @@ def create_dormitory(client: TestClient) -> int:
     return response.json()["id"]
 
 
-def test_hostels_carry_forward_and_keep_past_months(client: TestClient) -> None:
+def test_hostels_carry_forward_and_keep_past_months(
+    client: TestClient, db_session: Session
+) -> None:
     assert client.get("/api/dormitories/1/hostels?from=2025-10-01&to=2025-10-31").status_code == 401
-    sign_in(client)
+    sign_in(client, db_session, email=PLACES_EMAIL)
     base = f"/api/dormitories/{create_dormitory(client)}/hostels"
     october = "2025-10-01"
     first = client.post(base, json={"name": "Хостел 1", "month": october})
@@ -72,8 +66,8 @@ def test_hostels_carry_forward_and_keep_past_months(client: TestClient) -> None:
     assert months["2026-01-01"]["hostels"][0]["id"] == first_id
 
 
-def test_hostel_dates_values_and_isolation(client: TestClient) -> None:
-    sign_in(client)
+def test_hostel_dates_values_and_isolation(client: TestClient, db_session: Session) -> None:
+    sign_in(client, db_session, email=PLACES_EMAIL)
     dormitory_id = create_dormitory(client)
     base = f"/api/dormitories/{dormitory_id}/hostels"
     assert client.post(base, json={"name": "А", "month": "2025-10-15"}).status_code == 422
@@ -121,7 +115,7 @@ def test_hostel_dates_values_and_isolation(client: TestClient) -> None:
 def test_free_places_follow_sources_and_ignore_old_manual_values(
     client: TestClient, db_session: Session
 ) -> None:
-    sign_in(client)
+    sign_in(client, db_session)
     base = f"/api/dormitories/{create_dormitory(client)}/hostels"
     hostel_id = client.post(base, json={"name": "А", "month": "2025-10-01"}).json()["id"]
     cells = f"{base}/{hostel_id}/cells"

@@ -11,9 +11,13 @@ from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.inflow import PersonnelInflow
 from app.schemas.inflow import InflowResponse, UpdateInflowRequest
-from app.security import CurrentUser
+from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
-router = APIRouter(prefix="/dormitories/{dormitory_id}/inflow", tags=["inflow"])
+router = APIRouter(
+    prefix="/dormitories/{dormitory_id}/inflow",
+    tags=["inflow"],
+    responses={**ACTIVE_USER_RESPONSES},
+)
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
 InflowId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -29,7 +33,7 @@ def get_inflow(db: Session, dormitory_id: int, row_id: int) -> PersonnelInflow:
 @router.get("", response_model=list[InflowResponse], summary="Приток персонала за период")
 def list_inflow(
     dormitory_id: DormitoryId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -58,7 +62,7 @@ def list_inflow(
     status_code=status.HTTP_201_CREATED,
     summary="Добавить строку притока",
 )
-def create_inflow(dormitory_id: DormitoryId, _user: CurrentUser, db: DbSession) -> PersonnelInflow:
+def create_inflow(dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession) -> PersonnelInflow:
     require_dormitory(db, dormitory_id)
     row = PersonnelInflow(dormitory_id=dormitory_id)
     db.add(row)
@@ -72,7 +76,7 @@ def update_inflow(
     dormitory_id: DormitoryId,
     row_id: InflowId,
     payload: UpdateInflowRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> PersonnelInflow:
     require_dormitory(db, dormitory_id)
@@ -90,7 +94,7 @@ def update_inflow(
 def delete_inflow(
     dormitory_id: DormitoryId,
     row_id: InflowId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> None:
     require_dormitory(db, dormitory_id)

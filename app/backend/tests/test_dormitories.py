@@ -8,15 +8,9 @@ from sqlalchemy.orm import Session
 from app.models.dormitory import Dormitory
 from app.models.user import User
 from app.report_defaults import REQUIRED_REPORT_ROW_NAMES
-from tests.conftest import register_user
+from tests.conftest import sign_in
 
 PAYLOAD = {"name": "Северное", "client_name": "Стройкомплект"}
-
-
-def sign_in(client: TestClient, email: str = "creator@example.com") -> None:
-    user = register_user(client, email=email)
-    response = client.post("/api/auth/login", json={"email": email, "password": user["password"]})
-    assert response.status_code == 200
 
 
 def test_dormitories_require_authentication(client: TestClient) -> None:
@@ -29,7 +23,7 @@ def test_dormitories_require_authentication(client: TestClient) -> None:
 def test_create_persists_and_returns_list_and_details(
     client: TestClient, db_session: Session
 ) -> None:
-    sign_in(client)
+    sign_in(client, db_session, email="creator@example.com")
     assert client.get("/api/dormitories").json() == []
     response = client.post("/api/dormitories", json=PAYLOAD)
     assert response.status_code == 201
@@ -53,11 +47,11 @@ def test_create_persists_and_returns_list_and_details(
     assert [row["formula"] for row in report["rows"]] == ["=0", "=0", "=0"]
 
 
-def test_all_authenticated_users_share_dormitories(client: TestClient) -> None:
-    sign_in(client)
+def test_all_authenticated_users_share_dormitories(client: TestClient, db_session: Session) -> None:
+    sign_in(client, db_session, email="creator@example.com")
     first = client.post("/api/dormitories", json=PAYLOAD).json()
     client.post("/api/auth/logout")
-    sign_in(client, email="colleague@example.com")
+    sign_in(client, db_session, email="colleague@example.com")
     assert client.get("/api/dormitories").json() == [first]
     assert client.get(f"/api/dormitories/{first['id']}").json() == first
     second = client.post(
@@ -84,13 +78,13 @@ def test_all_authenticated_users_share_dormitories(client: TestClient) -> None:
 def test_invalid_fields_do_not_create_rows(
     client: TestClient, db_session: Session, payload: dict[str, object]
 ) -> None:
-    sign_in(client)
+    sign_in(client, db_session, email="creator@example.com")
     assert client.post("/api/dormitories", json=payload).status_code == 422
     assert db_session.scalar(select(func.count()).select_from(Dormitory)) == 0
 
 
-def test_names_are_normalized(client: TestClient) -> None:
-    sign_in(client)
+def test_names_are_normalized(client: TestClient, db_session: Session) -> None:
+    sign_in(client, db_session, email="creator@example.com")
     created = client.post(
         "/api/dormitories",
         json={"name": "  Северное   общежитие  ", "client_name": "  ООО  Стройкомплект  "},
@@ -99,8 +93,8 @@ def test_names_are_normalized(client: TestClient) -> None:
     assert created["client_name"] == "ООО Стройкомплект"
 
 
-def test_missing_dormitory_and_response_contract(client: TestClient) -> None:
-    sign_in(client)
+def test_missing_dormitory_and_response_contract(client: TestClient, db_session: Session) -> None:
+    sign_in(client, db_session, email="creator@example.com")
     assert client.get("/api/dormitories/999").status_code == 404
     assert client.get("/api/dormitories/999999999999999999999").status_code == 422
     schema = client.get("/openapi.json").json()["paths"]
@@ -111,8 +105,10 @@ def test_missing_dormitory_and_response_contract(client: TestClient) -> None:
     )
 
 
-def test_rename_archive_and_restore_keep_report_and_identity(client: TestClient) -> None:
-    sign_in(client)
+def test_rename_archive_and_restore_keep_report_and_identity(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session)
     created = client.post("/api/dormitories", json=PAYLOAD).json()
     other = client.post("/api/dormitories", json={"name": "Южное", "client_name": "Б"}).json()
     base = f"/api/dormitories/{created['id']}"
@@ -158,9 +154,9 @@ def test_rename_archive_and_restore_keep_report_and_identity(client: TestClient)
     ],
 )
 def test_invalid_updates_do_not_change_dormitory(
-    client: TestClient, changes: dict[str, object]
+    client: TestClient, db_session: Session, changes: dict[str, object]
 ) -> None:
-    sign_in(client)
+    sign_in(client, db_session)
     created = client.post("/api/dormitories", json=PAYLOAD).json()
     base = f"/api/dormitories/{created['id']}"
     assert client.patch(base, json=changes).status_code == 422

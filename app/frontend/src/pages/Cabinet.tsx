@@ -222,6 +222,12 @@ export function Cabinet(): JSX.Element {
           </div>
         </header>
         <main ref={mainRef}>
+          {user?.is_active === false && (
+            <p className={styles['activation-banner']} data-testid="activation-banner" role="alert">
+              Кабинет не активирован: мы отправили письмо со ссылкой. Откройте её или{' '}
+              <Link to="/activate">запросите письмо ещё раз</Link>.
+            </p>
+          )}
           {logoutError && (
             <p className={styles['logout-error']} role="alert">
               {logoutError}

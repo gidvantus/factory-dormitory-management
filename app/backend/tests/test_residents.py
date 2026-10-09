@@ -1,19 +1,16 @@
 """Таблица проживающих и привязка к действующим хостелам."""
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
-from tests.conftest import register_user
+from tests.conftest import sign_in
 
 
-def test_residents_are_shared_and_deleted_only_after_request(client: TestClient) -> None:
+def test_residents_are_shared_and_deleted_only_after_request(
+    client: TestClient, db_session: Session
+) -> None:
     assert client.get("/api/dormitories/1/residents?month=2026-10-01").status_code == 401
-    password = register_user(client, email="resident@example.com")["password"]
-    assert (
-        client.post(
-            "/api/auth/login", json={"email": "resident@example.com", "password": password}
-        ).status_code
-        == 200
-    )
+    sign_in(client, db_session, email="resident@example.com")
     dormitory = client.post(
         "/api/dormitories", json={"name": "Северное", "client_name": "Клиент"}
     ).json()["id"]

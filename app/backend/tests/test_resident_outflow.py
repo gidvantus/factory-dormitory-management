@@ -38,7 +38,7 @@ def register_payments(client: TestClient, dorm: int, resident: int) -> None:
 def test_current_builtin_and_dynamic_fields_copy_and_payments_are_removed(
     client: TestClient, db_session: Session
 ) -> None:
-    dorm, resident = setup(client)
+    dorm, resident = setup(client, db_session)
     expected: dict[str, Any] = {}
     for kind, value in [
         ("text", "Текст"),
@@ -86,7 +86,7 @@ def test_current_builtin_and_dynamic_fields_copy_and_payments_are_removed(
 def test_mismatch_and_hidden_data_require_confirmation_and_do_not_delete_on_cancel(
     client: TestClient, db_session: Session
 ) -> None:
-    dorm, resident = setup(client)
+    dorm, resident = setup(client, db_session)
     register_payments(client, dorm, resident)
     columns = client.get(f"/api/dormitories/{dorm}/tables/outflow/columns").json()
     number = next(col for col in columns if col["builtin_key"] == "personnel_number")
@@ -122,7 +122,7 @@ def test_mismatch_and_hidden_data_require_confirmation_and_do_not_delete_on_canc
 def test_changed_snapshot_never_deletes_unreviewed_data(
     client: TestClient, db_session: Session, change: str
 ) -> None:
-    dorm, resident = setup(client)
+    dorm, resident = setup(client, db_session)
     register_payments(client, dorm, resident)
     plan = preview(client, dorm, resident)
     if change == "resident":
@@ -163,7 +163,7 @@ def test_changed_snapshot_never_deletes_unreviewed_data(
 def test_payment_cleanup_is_scoped_and_includes_manual_numbers_but_not_names(
     client: TestClient, db_session: Session
 ) -> None:
-    dorm, resident = setup(client)
+    dorm, resident = setup(client, db_session)
     other = create_dormitory(client, "Другое")
     register_payments(client, dorm, resident)
     manual = PaymentEntry(dormitory_id=dorm, kind="settlement", personnel_number=" 123 ")
@@ -192,9 +192,9 @@ def test_payment_cleanup_is_scoped_and_includes_manual_numbers_but_not_names(
 
 @pytest.mark.parametrize("date_kind", [None, "text", "date"])
 def test_departure_date_is_only_copied_from_matching_date_column(
-    client: TestClient, date_kind: str | None
+    client: TestClient, db_session: Session, date_kind: str | None
 ) -> None:
-    dorm, resident = setup(client)
+    dorm, resident = setup(client, db_session)
     if date_kind:
         departure = column(client, dorm, "residents", "Дата выезда", date_kind)
         cell(client, dorm, resident, departure, "2026-10-16")
@@ -205,8 +205,10 @@ def test_departure_date_is_only_copied_from_matching_date_column(
     assert result.status_code == 201 and result.json()["departure_date"] == expected
 
 
-def test_unavailable_select_value_is_reported_and_not_copied(client: TestClient) -> None:
-    dorm, resident = setup(client)
+def test_unavailable_select_value_is_reported_and_not_copied(
+    client: TestClient, db_session: Session
+) -> None:
+    dorm, resident = setup(client, db_session)
     source = column(client, dorm, "residents", "Статус", "select")
     target = column(client, dorm, "outflow", "Статус", "select")
     cell(client, dorm, resident, source, source["options"][0]["id"])
@@ -224,9 +226,9 @@ def test_unavailable_select_value_is_reported_and_not_copied(client: TestClient)
     assert result.status_code == 201 and str(target["id"]) not in result.json()["custom_values"]
 
 
-def test_outflow_auth_scope_and_payload_validation(client: TestClient) -> None:
+def test_outflow_auth_scope_and_payload_validation(client: TestClient, db_session: Session) -> None:
     assert client.post("/api/dormitories/1/residents/1/outflow/preview").status_code == 401
-    dorm, resident = setup(client)
+    dorm, resident = setup(client, db_session)
     other = create_dormitory(client, "Другое")
     assert (
         client.post(f"/api/dormitories/{other}/residents/{resident}/outflow/preview").status_code

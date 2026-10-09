@@ -24,13 +24,17 @@ from app.schemas.report import (
 )
 from app.schemas.table_column import ReportLink
 from app.schemas.user import ErrorResponse
-from app.security import CurrentUser
+from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import Record, linked_counts, lock_dormitory, records_for, validate_link
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/report",
     tags=["reports"],
-    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    responses={
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        **ACTIVE_USER_RESPONSES,
+    },
 )
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -101,7 +105,7 @@ def row_response(row: ReportRow) -> ReportRowResponse:
 @router.get("", response_model=ReportResponse, summary="Большой отчёт за период")
 def read_report(
     dormitory_id: DormitoryId,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -196,7 +200,7 @@ def read_report(
 def create_row(
     dormitory_id: DormitoryId,
     payload: CreateReportRowRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> ReportRowResponse:
     lock_dormitory(db, dormitory_id)
@@ -231,7 +235,7 @@ def update_row(
     dormitory_id: DormitoryId,
     row_id: RowId,
     payload: UpdateReportRowRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> ReportRowResponse:
     lock_dormitory(db, dormitory_id)
@@ -292,7 +296,7 @@ def move_row(
     dormitory_id: DormitoryId,
     row_id: RowId,
     payload: MoveReportRowRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> ReportRowResponse:
     require_dormitory(db, dormitory_id)
@@ -312,7 +316,7 @@ def move_row(
 
 
 @router.delete("/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Удалить строку")
-def delete_row(dormitory_id: DormitoryId, row_id: RowId, _user: CurrentUser, db: DbSession) -> None:
+def delete_row(dormitory_id: DormitoryId, row_id: RowId, _user: ActiveUser, db: DbSession) -> None:
     require_dormitory(db, dormitory_id)
     row = get_row(db, dormitory_id, row_id)
     if required_row_name(row.name):
@@ -335,7 +339,7 @@ def save_cell(
     row_id: RowId,
     report_date: date,
     payload: SaveReportCellRequest,
-    _user: CurrentUser,
+    _user: ActiveUser,
     db: DbSession,
 ) -> None:
     lock_dormitory(db, dormitory_id)
