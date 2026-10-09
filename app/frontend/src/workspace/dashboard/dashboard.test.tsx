@@ -2,8 +2,9 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { mockFetch } from '../../test/mockFetch';
 import { Dashboard } from './Dashboard';
-import { EMPTY_DASHBOARD } from './data';
+import { EMPTY_DASHBOARD, loadDashboard } from './data';
 import type { DashboardData, DashboardLoader } from './data';
 import { currentMonth } from './dates';
 
@@ -14,6 +15,10 @@ const DATA: DashboardData = {
     { id: 'one', name: 'Северное', residents: 20, attendance: 15, turnover: 2, vacancies: 10 },
     { id: 'two', name: 'Южное', residents: 15, attendance: 8, turnover: 0, vacancies: null },
   ],
+  clients: [
+    { name: 'Клиент А', attendance: 15 },
+    { name: 'Клиент Б', attendance: 8 },
+  ],
   daily: [
     { date: '2026-09-30', residents: 24, attendance: 12, turnover: 0 },
     { date: '2026-10-01', residents: 30, attendance: 22, turnover: 1 },
@@ -21,7 +26,10 @@ const DATA: DashboardData = {
   ],
 };
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 function setPeriod(from: string, to: string): void {
   fireEvent.change(screen.getByLabelText('От'), { target: { value: from } });
@@ -30,6 +38,37 @@ function setPeriod(from: string, to: string): void {
 }
 
 describe('дашборд', () => {
+  it('загружает реальные показатели обзора одним запросом за выбранный период', async () => {
+    const fetchMock = mockFetch((url) => {
+      if (url.includes('/api/dashboard?'))
+        return {
+          status: 200,
+          body: {
+            snapshot_date: '2025-09-02',
+            totals: { residents: 35, attendance: 13 },
+            dormitories: [],
+            clients: [{ name: 'Клиент А', attendance: 13 }],
+            daily: [{ date: '2025-09-02', residents: 35, attendance: 13, turnover: 2 }],
+          },
+        };
+      return { status: 404, body: {} };
+    });
+    const result = await loadDashboard(
+      { from: '2025-09-01', to: '2025-09-02' },
+      new AbortController().signal,
+    );
+    expect(result.snapshotDate).toBe('2025-09-02');
+    expect(result.totals).toEqual({ residents: 35, attendance: 13 });
+    expect(result.clients).toEqual([{ name: 'Клиент А', attendance: 13 }]);
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/dashboard?from=2025-09-01&to=2025-09-02');
+    await loadDashboard(
+      { from: '2025-09-01', to: '2025-09-02' },
+      new AbortController().signal,
+      '7',
+    );
+    expect(fetchMock.mock.calls[1][0]).toContain('dormitory_id=7');
+  });
+
   it('по умолчанию выбирает весь текущий месяц и показывает отсутствие данных без вымышленных чисел', async () => {
     const loader = vi.fn<DashboardLoader>().mockResolvedValue(EMPTY_DASHBOARD);
     render(<Dashboard loader={loader} />);
@@ -39,7 +78,7 @@ describe('дашборд', () => {
     await waitFor(() =>
       expect(screen.queryByText('Загружаем показатели…')).not.toBeInTheDocument(),
     );
-    expect(loader).toHaveBeenCalledWith(month, expect.any(AbortSignal));
+    expect(loader).toHaveBeenCalledWith(month, expect.any(AbortSignal), null);
     expect(screen.getByTestId('dashboard-total-residents')).toHaveTextContent('—');
     expect(screen.getByTestId('dashboard-total-attendance')).toHaveTextContent('—');
     expect(screen.getByText('За этот период пока нет данных')).toBeInTheDocument();
@@ -95,6 +134,7 @@ describe('дашборд', () => {
       expect(loader).toHaveBeenLastCalledWith(
         { from: '2026-09-30', to: '2026-09-30' },
         expect.any(AbortSignal),
+        null,
       ),
     );
     await waitFor(() =>
@@ -129,11 +169,44 @@ describe('дашборд', () => {
     expect(loader).toHaveBeenCalledTimes(1);
   });
 
+  it('переключает график на общежитие и обратно, сохраняя общие показатели', async () => {
+    const user = userEvent.setup();
+    const loader = vi.fn<DashboardLoader>().mockImplementation(async (_range, _signal, id) => ({
+      ...DATA,
+      daily:
+        id === 'one'
+          ? [{ date: '2026-10-02', residents: 20, attendance: 15, turnover: 2 }]
+          : DATA.daily,
+    }));
+    render(<Dashboard loader={loader} />);
+    const selector = screen.getByRole('combobox', { name: 'Общежитие' });
+    await waitFor(() =>
+      expect(screen.getByTestId('dashboard-total-residents')).toHaveTextContent('35'),
+    );
+    expect(selector).toHaveValue('');
+    await user.selectOptions(selector, 'one');
+    await waitFor(() =>
+      expect(loader).toHaveBeenLastCalledWith(expect.any(Object), expect.any(AbortSignal), 'one'),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('chart-series-attendance')).toHaveTextContent('Выход: 15'),
+    );
+    expect(screen.getByTestId('dashboard-total-residents')).toHaveTextContent('35');
+    await user.selectOptions(selector, '');
+    await waitFor(() =>
+      expect(screen.getByTestId('chart-series-attendance')).toHaveTextContent('Выход: 23'),
+    );
+  });
+
   it('отличает нулевой показатель от отсутствующего и оставляет статусы отчётов неподключёнными', async () => {
     render(<Dashboard loader={() => Promise.resolve(DATA)} />);
     const turnover = screen.getByRole('region', { name: 'Текучка по общежитиям' });
     await waitFor(() => expect(within(turnover).getByText('Южное')).toBeInTheDocument());
     expect(within(turnover).getByText('0')).toBeInTheDocument();
+    const attendance = screen.getByRole('region', { name: 'Выход на работу' });
+    expect(within(attendance).getByText('Клиент А')).toBeInTheDocument();
+    expect(within(attendance).getByText('15')).toBeInTheDocument();
+    expect(within(attendance).queryByText('Северное')).not.toBeInTheDocument();
     expect(
       within(screen.getByRole('region', { name: 'Свободные места' })).getByText('—'),
     ).toBeInTheDocument();

@@ -40,6 +40,9 @@ export function rangeError(range: DateRange): string {
     return 'Укажите обе даты полностью.';
   }
   if (range.from > range.to) return 'Дата «От» должна быть не позже даты «До».';
+  if (dateNumber(range.to) - dateNumber(range.from) > 365 * DAY_MS) {
+    return 'Выберите период не длиннее года.';
+  }
   return '';
 }
 

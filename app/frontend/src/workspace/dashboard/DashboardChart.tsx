@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import { CHART, chartSegments, chartX, chartY, filteredDays } from './chart';
 import { formatCount, METRICS } from './data';
-import type { DailyMetrics, Metric } from './data';
+import type { DailyMetrics, DormitoryMetrics, Metric } from './data';
 import { formatDate, rangeTicks } from './dates';
 import type { DateRange } from './dates';
 import styles from './Dashboard.module.css';
@@ -13,9 +13,20 @@ interface Props {
   range: DateRange;
   selected: Metric[];
   onToggle: (metric: Metric) => void;
+  dormitories: DormitoryMetrics[];
+  dormitoryId: string;
+  onDormitoryChange: (id: string) => void;
 }
 
-export function DashboardChart({ rows, range, selected, onToggle }: Props): JSX.Element {
+export function DashboardChart({
+  rows,
+  range,
+  selected,
+  onToggle,
+  dormitories,
+  dormitoryId,
+  onDormitoryChange,
+}: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const [chartWidth, setChartWidth] = useState(CHART.width);
 
@@ -30,6 +41,7 @@ export function DashboardChart({ rows, range, selected, onToggle }: Props): JSX.
   }, []);
 
   const days = filteredDays(rows, range);
+  const scopeName = dormitories.find((item) => item.id === dormitoryId)?.name ?? 'все общежития';
   const series = METRICS.filter((metric) => selected.includes(metric.key));
   const values = days.flatMap((day) =>
     series.flatMap((metric) => (day[metric.key] === null ? [] : [day[metric.key] as number])),
@@ -47,11 +59,24 @@ export function DashboardChart({ rows, range, selected, onToggle }: Props): JSX.
           <h2 className={styles.cardTitle} id="dynamics-title">
             Динамика показателей
           </h2>
-          <p className={styles.cardSubtitle}>По дням · все общежития</p>
+          <p className={styles.cardSubtitle}>По дням · {scopeName}</p>
         </div>
-        <span className={styles.periodLabel}>
-          {formatDate(range.from)} — {formatDate(range.to)}
-        </span>
+        <div className={styles.chartFilters}>
+          <label className={styles.dormitoryFilter}>
+            Общежитие
+            <select value={dormitoryId} onChange={(event) => onDormitoryChange(event.target.value)}>
+              <option value="">Все общежития</option>
+              {dormitories.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className={styles.periodLabel}>
+            {formatDate(range.from)} — {formatDate(range.to)}
+          </span>
+        </div>
       </div>
       <fieldset className={styles.seriesControls}>
         <legend className={styles.srOnly}>Показатели на графике</legend>
@@ -178,7 +203,7 @@ export function DashboardChart({ rows, range, selected, onToggle }: Props): JSX.
       </div>
       <div className={styles.chartFooter}>
         <span>Количество человек</span>
-        <span>Пропуски в отчётах не считаются нулём</span>
+        <span>Формула =0 показывает ноль до настройки строки</span>
       </div>
       {hasData && (
         <details className={styles.dailyDetails}>

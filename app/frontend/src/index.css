@@ -1447,6 +1447,42 @@ tbody tr:last-child td {
 }
 
 /* ==========================================================================
+   Экран активации кабинета (/activate и /activate/:token)
+   ========================================================================== */
+
+.activate {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  min-height: 100vh;
+  padding: clamp(2rem, 1rem + 6vw, 6rem) var(--space-4);
+  background: var(--color-bg-page);
+}
+
+.activate__card {
+  display: grid;
+  gap: var(--space-4);
+  width: min(100%, 30rem);
+  padding: clamp(1.5rem, 1rem + 2vw, 2.5rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.activate__title {
+  font-size: var(--text-h3);
+  color: var(--color-text);
+}
+
+/* Содержимое экрана активации — та же вертикальная сетка, что и у формы.
+   У абзацев сброшен margin, поэтому без явного gap сообщение о повторной
+   отправке липло к кнопке «Отправить письмо ещё раз». */
+.activate__panel {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* ==========================================================================
    Модальное окно
    ========================================================================== */
 

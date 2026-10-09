@@ -1,5 +1,11 @@
 """Схемы API."""
 
+from app.schemas.activation import (
+    ActivateRequest,
+    ActivationInfoResponse,
+    ResendActivationRequest,
+    ResendActivationResponse,
+)
 from app.schemas.user import (
     LoginRequest,
     RegisterRequest,
@@ -9,9 +15,13 @@ from app.schemas.user import (
 )
 
 __all__ = [
+    "ActivateRequest",
+    "ActivationInfoResponse",
     "LoginRequest",
     "RegisterRequest",
     "RegisterResponse",
+    "ResendActivationRequest",
+    "ResendActivationResponse",
     "UserResponse",
     "normalize_email",
 ]

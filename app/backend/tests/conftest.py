@@ -1,6 +1,8 @@
 """Общие фикстуры тестов.
 
 Юнит-тесты герметичны: поднимается SQLite в памяти, настоящая PostgreSQL не нужна.
+Почта наружу тоже не ходит — SMTP отключён до импорта приложения, поэтому
+фоновые задачи регистрации выходят раньше первого сетевого вызова.
 """
 
 import os
@@ -9,11 +11,16 @@ import os
 # выставляем здесь — до первых импортов app.*.
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("JWT_SECRET", "unit-test-secret-value-0123456789")
+# Жёстко, а не setdefault: на стенде SMTP_HOST приходит из compose, и тесты
+# не должны из-за этого стучаться в настоящий smtp.timeweb.ru.
+os.environ["SMTP_HOST"] = ""
+os.environ["SMTP_PASSWORD"] = ""
 
 from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -21,6 +28,12 @@ from sqlalchemy.pool import StaticPool
 from app.db import get_db
 from app.main import app
 from app.models import Base
+from app.models.user import User
+from app.security import hash_password
+
+# Пароль, которым тесты входят в кабинет. Сервер его не показывает, поэтому
+# пользователь с известным паролем создаётся прямо в базе (см. create_user).
+TEST_PASSWORD = "unit-test-password"
 
 
 @pytest.fixture
@@ -68,11 +81,52 @@ def register_user(
     client: TestClient,
     email: str = "worker@example.com",
     full_name: str = "Иванов Иван Иванович",
-) -> dict[str, str]:
-    """Регистрирует пользователя и возвращает тело ответа с открытым паролем."""
+) -> dict[str, object]:
+    """Регистрирует пользователя через API.
+
+    Открытый пароль сервер не возвращает: вход в тестах идёт через `create_user`.
+    """
     response = client.post(
         "/api/auth/register",
         json={"email": email, "full_name": full_name},
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def create_user(
+    db_session: Session,
+    email: str = "worker@example.com",
+    full_name: str = "Иванов Иван Иванович",
+    password: str = TEST_PASSWORD,
+    is_active: bool = True,
+) -> User:
+    """Пользователь с известным паролем: тест может войти, не зная служебный."""
+    user = User(
+        email=email.strip().lower(),
+        full_name=full_name,
+        password_hash=hash_password(password),
+        is_active=is_active,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+def login(client: TestClient, email: str, password: str = TEST_PASSWORD) -> Response:
+    """Вход по паролю известного тестового пользователя."""
+    return client.post("/api/auth/login", json={"email": email, "password": password})
+
+
+def sign_in(
+    client: TestClient,
+    db_session: Session,
+    email: str = "worker@example.com",
+    is_active: bool = True,
+) -> User:
+    """Создать пользователя и войти им. Возвращает строку пользователя в базе."""
+    user = create_user(db_session, email=email, is_active=is_active)
+    response = login(client, email)
+    assert response.status_code == 200, response.text
+    return user

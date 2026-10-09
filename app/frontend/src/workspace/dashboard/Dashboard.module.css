@@ -223,6 +223,29 @@
   font-size: 11px;
   color: var(--color-text-muted);
 }
+.dashboard .chartFilters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.dashboard .dormitoryFilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.dashboard .dormitoryFilter select {
+  min-width: 170px;
+  max-width: 240px;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--color-text);
+  font: inherit;
+}
 .dashboard .seriesControls {
   display: flex;
   flex-wrap: wrap;

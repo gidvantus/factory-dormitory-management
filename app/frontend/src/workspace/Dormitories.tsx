@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Dormitory } from '../api/client';
 import { CreateDormitoryDialog } from './dormitories/CreateDormitoryDialog';
+import { ReportTemplatesPanel } from './dormitories/ReportTemplatesPanel';
 import { WorkspaceIcon } from './WorkspaceIcon';
 import styles from './Workspace.module.css';
 import listStyles from './dormitories/Dormitories.module.css';
@@ -123,6 +124,7 @@ export function Dormitories(): JSX.Element {
           ))}
         </ul>
       )}
+      {status === 'ready' && <ReportTemplatesPanel />}
       {dialogOpen && (
         <CreateDormitoryDialog
           triggerRef={createRef}
