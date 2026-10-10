@@ -1,4 +1,4 @@
-"""Организация пользователя: чтение и правка.
+"""Организация пользователя: чтение, правка, участники и приглашения.
 
 Здесь два слоя сразу: хелпер, которым активация кабинета заводит владельцу
 пустую организацию, и ручки `/api/organization`. Держим их в одном модуле
@@ -11,22 +11,39 @@
 * **404** — пользователь не привязан к организации (нет `active_organization_id`
   или нет строки членства);
 * **403** — привязан, но править не может: роль не `owner` и не `admin`;
-* **409** — ИНН уже занят другой организацией.
+* **409** — ИНН уже занят другой организацией или email сотрудника занят.
+
+Проверок по роли участника здесь нет намеренно: роль сотрудника — данные для
+отображения, а не право. Права на правку организации остаются у `EDIT_ROLES`.
 """
 
+import secrets
+from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.mail import send_invitation_email_task
+from app.models.activation import ActivationToken
 from app.models.organization import Organization, OrganizationMember
 from app.models.user import User
-from app.schemas.organization import OrganizationResponse, UpdateOrganizationRequest
-from app.schemas.user import ErrorResponse
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
+from app.schemas.organization import (
+    InviteMemberRequest,
+    OrganizationMemberResponse,
+    OrganizationResponse,
+    UpdateOrganizationRequest,
+)
+from app.schemas.user import ErrorResponse, normalize_email
+from app.security import (
+    ACTIVE_USER_RESPONSES,
+    ActiveUser,
+    hash_password,
+    issue_activation_token,
+)
 
 router = APIRouter(
     prefix="/organization",
@@ -41,6 +58,15 @@ DbSession = Annotated[Session, Depends(get_db)]
 ORGANIZATION_NOT_FOUND_DETAIL = "Организация не найдена"
 ORGANIZATION_EDIT_FORBIDDEN_DETAIL = "Недостаточно прав"
 INN_CONFLICT_DETAIL = "Организация с таким ИНН уже есть"
+EMAIL_TAKEN_DETAIL = "Пользователь с таким email уже зарегистрирован"
+INVALID_INVITATION_DETAIL = "Некорректный email, пустое ФИО или роль owner/member"
+
+# Длина служебного пароля приглашённого (в байтах): он нужен только чтобы у
+# неактивной строки был хеш, а пользователь задаёт свой пароль по ссылке.
+SERVICE_PASSWORD_BYTES = 12
+
+# Вид токена для письма-приглашения: по нему видно, откуда пришла ссылка.
+INVITATION_TOKEN_KIND = "invitation"
 
 # Роли, которым разрешена правка. Остальные роли читают организацию, но не меняют.
 EDIT_ROLES = frozenset({"owner", "admin"})
@@ -192,3 +218,122 @@ def _inn_taken(db: Session, inn: str, organization_id: int) -> bool:
         )
         is not None
     )
+
+
+def _member_response(member: OrganizationMember, user: User) -> OrganizationMemberResponse:
+    """Собрать ответ по строке членства и её учётной записи."""
+    return OrganizationMemberResponse(
+        id=member.id,
+        email=user.email,
+        full_name=user.full_name,
+        role=member.role,
+        is_active=user.is_active,
+        created_at=member.created_at,
+    )
+
+
+@router.get(
+    "/members",
+    response_model=list[OrganizationMemberResponse],
+    summary="Участники организации",
+    responses=NOT_FOUND_RESPONSES,
+)
+def read_members(membership: Membership, db: DbSession) -> list[OrganizationMemberResponse]:
+    """Участники организации — любой её участник, роль значения не имеет.
+
+    Приглашённый, который ещё не открыл письмо, тоже в списке: `is_active`
+    отличает его от того, кто уже активировал кабинет.
+    """
+    rows = db.execute(
+        select(OrganizationMember, User)
+        .join(User, User.id == OrganizationMember.user_id)
+        .where(OrganizationMember.organization_id == membership.organization_id)
+        .order_by(OrganizationMember.id)
+    ).all()
+    return [_member_response(member, user) for member, user in rows]
+
+
+@router.post(
+    "/invitations",
+    status_code=status.HTTP_201_CREATED,
+    response_model=OrganizationMemberResponse,
+    summary="Пригласить сотрудника в организацию",
+    responses={
+        **NOT_FOUND_RESPONSES,
+        status.HTTP_400_BAD_REQUEST: {
+            "model": ErrorResponse,
+            "description": "Тело запроса не разбирается как JSON",
+        },
+        status.HTTP_409_CONFLICT: {
+            "model": ErrorResponse,
+            "description": EMAIL_TAKEN_DETAIL,
+        },
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "model": ErrorResponse,
+            "description": INVALID_INVITATION_DETAIL,
+        },
+    },
+)
+def invite_member(
+    payload: InviteMemberRequest,
+    background_tasks: BackgroundTasks,
+    membership: Membership,
+    db: DbSession,
+) -> OrganizationMemberResponse:
+    """Завести неактивного сотрудника в организации приглашающего и позвать его письмом.
+
+    Приглашённый появляется сразу: неактивная учётная запись, строки членства и
+    живая ссылка-приглашение сохраняются одним коммитом, а письмо уходит фоном
+    уже после ответа. Ссылка ведёт на общий экран активации: задав пароль,
+    сотрудник попадает в организацию приглашающего, а не заводит свою.
+
+    Роль проверяется только схемой (`admin`, `manager`, `commandant`): прав по
+    ней в этой задаче нет, она хранится и показывается.
+    """
+    email = normalize_email(payload.email)
+
+    # Занятый email — 409 до любых вставок: ничего не создаём и письма не шлём.
+    if db.scalar(select(User.id).where(User.email == email)) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, EMAIL_TAKEN_DETAIL)
+
+    user = User(
+        email=email,
+        full_name=payload.full_name,
+        # Пароль служебный: пользователь его не видит и заменяет своим по ссылке.
+        password_hash=hash_password(secrets.token_urlsafe(SERVICE_PASSWORD_BYTES)),
+        is_active=False,
+    )
+    db.add(user)
+    try:
+        db.flush()
+        member = OrganizationMember(
+            organization_id=membership.organization_id,
+            user_id=user.id,
+            role=payload.role,
+        )
+        db.add(member)
+        db.flush()
+        user.active_organization_id = membership.organization_id
+        # Прежние живые ссылки гасим: у письма должна быть ровно одна рабочая.
+        db.execute(
+            update(ActivationToken)
+            .where(ActivationToken.user_id == user.id, ActivationToken.used_at.is_(None))
+            .values(used_at=datetime.now(UTC))
+        )
+        token = issue_activation_token(db, user.id, kind=INVITATION_TOKEN_KIND)
+        db.commit()
+    except IntegrityError:
+        # Гонка на email или на паре «организация — пользователь»: без отката
+        # транзакция осталась бы сломанной и уронила следующий запрос.
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, EMAIL_TAKEN_DETAIL) from None
+    db.refresh(member)
+    db.refresh(user)
+
+    background_tasks.add_task(
+        send_invitation_email_task,
+        to=user.email,
+        full_name=user.full_name,
+        token=token,
+    )
+    return _member_response(member, user)

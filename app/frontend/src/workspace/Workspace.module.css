@@ -812,3 +812,26 @@
   font-weight: 700;
   text-decoration: underline;
 }
+/* Форма приглашения идёт вторым блоком после таблицы сотрудников. */
+.shell .invite-card {
+  margin-top: 18px;
+}
+/* Поля приглашения встают в строку, пока хватает места, и в столбик на узком
+   экране: `auto-fit` делает это без отдельной медиа-точки. */
+.shell .invite-form {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-items: start;
+}
+.shell .invite-form > .field {
+  min-width: 0;
+}
+.shell .invite-form .alert,
+.shell .invite-form > button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+/* Таблица участников на узком экране прокручивается внутри карточки, а не
+   растягивает страницу: колонки остаются читаемыми. */
+.shell .members-table {
+  min-width: 640px;
+}

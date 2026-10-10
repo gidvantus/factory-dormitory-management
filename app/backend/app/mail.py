@@ -1,9 +1,9 @@
 """Почта: единственное место, где приложение разговаривает с SMTP.
 
-Письмо собирается из строки `mail_templates` с нужным кодом — `activation` или
-`password_recovery`, — поэтому формулировка правится в базе без релиза. Открытый
-токен живёт только в ссылке письма: в логи он не попадает ни при успехе, ни при
-ошибке отправки.
+Письмо собирается из строки `mail_templates` с нужным кодом — `activation`,
+`password_recovery` или `invitation`, — поэтому формулировка правится в базе без
+релиза. Открытый токен живёт только в ссылке письма: в логи он не попадает ни
+при успехе, ни при ошибке отправки.
 """
 
 import html
@@ -26,6 +26,9 @@ ACTIVATION_TEMPLATE_CODE = "activation"
 # Код шаблона письма восстановления пароля: отдельная формулировка для того же экрана.
 PASSWORD_RECOVERY_TEMPLATE_CODE = "password_recovery"
 
+# Код шаблона письма-приглашения сотрудника в организацию.
+INVITATION_TEMPLATE_CODE = "invitation"
+
 # Лимит писем восстановления: не больше трёх запросов на адрес за окно.
 RECOVERY_MAX_REQUESTS_PER_HOUR = 3
 RECOVERY_WINDOW_MINUTES = 60
@@ -36,6 +39,31 @@ SMTP_TIMEOUT_SECONDS = 10
 
 class MailTemplateNotFound(RuntimeError):
     """Шаблона письма нет в базе: отправлять нечего, письмо не уходит."""
+
+
+class _EmptyPlaceholders(dict[str, str]):
+    """Словарь подстановок, который отдаёт пустую строку на неизвестное имя.
+
+    Тема и текст письма правятся прямо в базе, без релиза, поэтому шаблон может
+    сослаться на плейсхолдер, которого приложение ещё не знает. `str.format` в
+    таком случае падает `KeyError`, письмо не уходит вовсе, а фоновая задача
+    завершается ошибкой — вместо этого неизвестное имя должно дать пустую
+    строку: текст без него всё равно полезнее неотправленного письма.
+    """
+
+    def __missing__(self, key: str) -> str:
+        return ""
+
+
+def _substitute(template: str, context: dict[str, str]) -> str:
+    """Подставить значения в шаблон из базы, не падая на незнакомых именах."""
+    try:
+        return template.format_map(_EmptyPlaceholders(context))
+    except (ValueError, IndexError) as error:
+        # Незакрытая скобка в шаблоне: письмо всё равно отправляем, но текст
+        # останется сырым — об этом должна знать поддержка, а не пользователь.
+        logger.warning("Шаблон письма содержит некорректный плейсхолдер: %s", error)
+        return template
 
 
 def build_activation_url(token: str) -> str:
@@ -67,8 +95,9 @@ def _render_email(
 ) -> tuple[str, str]:
     """Тема и текст письма по коду шаблона с подставленными значениями.
 
-    Подстановки у писем активации и восстановления одинаковые. Отсутствие
-    шаблона — это `MailTemplateNotFound`, а не пустое письмо.
+    Подстановки у писем активации, восстановления пароля и приглашения
+    одинаковые. Отсутствие шаблона — это `MailTemplateNotFound`, а не пустое
+    письмо.
     """
     template = _active_template(db, code)
     if template is None:
@@ -79,7 +108,7 @@ def _render_email(
         "activation_url": activation_url,
         "expires_hours": str(get_settings().activation_token_ttl_hours),
     }
-    return template.subject.format(**context), template.body.format(**context)
+    return _substitute(template.subject, context), _substitute(template.body, context)
 
 
 def render_activation_email(db: Session, *, full_name: str, activation_url: str) -> tuple[str, str]:
@@ -101,6 +130,17 @@ def render_password_recovery_email(
         code=PASSWORD_RECOVERY_TEMPLATE_CODE,
         full_name=full_name,
         activation_url=activation_url,
+    )
+
+
+def render_invitation_email(db: Session, *, full_name: str, activation_url: str) -> tuple[str, str]:
+    """Тема и текст письма-приглашения по коду `invitation`.
+
+    Ссылка ведёт на общий экран активации: задав по ней пароль, приглашённый
+    попадает в организацию приглашающего.
+    """
+    return _render_email(
+        db, code=INVITATION_TEMPLATE_CODE, full_name=full_name, activation_url=activation_url
     )
 
 
@@ -201,6 +241,30 @@ def send_password_recovery_email(db: Session, *, to: str, full_name: str, token:
     )
 
 
+def send_invitation_email(db: Session, *, to: str, full_name: str, token: str) -> bool:
+    """Собрать и отправить письмо-приглашение сотруднику.
+
+    Поведение то же, что у остальных писем: `False` вместо исключения, если SMTP
+    не настроен или шаблона `invitation` нет в базе. Приглашение при этом
+    остаётся созданным — администратор видит сотрудника со статусом
+    «Приглашение отправлено» и может позвать его повторно.
+    """
+    settings = get_settings()
+    if not settings.smtp_host or not settings.smtp_from:
+        logger.warning("SMTP не настроен: письмо-приглашение не отправлено")
+        return False
+
+    try:
+        subject, body = render_invitation_email(
+            db, full_name=full_name, activation_url=build_activation_url(token)
+        )
+    except MailTemplateNotFound as error:
+        logger.error("Письмо-приглашение не отправлено: %s", error)
+        return False
+
+    return _deliver_email(to=to, subject=subject, body=body, log_label="Письмо-приглашение")
+
+
 def send_activation_email_task(*, to: str, full_name: str, token: str) -> None:
     """Фоновая отправка: у задачи своя сессия базы, запрос к этому моменту закрыт."""
     with SessionLocal() as db:
@@ -211,3 +275,13 @@ def send_password_recovery_email_task(*, to: str, full_name: str, token: str) ->
     """Фоновая отправка письма восстановления — со своей сессией базы."""
     with SessionLocal() as db:
         send_password_recovery_email(db, to=to, full_name=full_name, token=token)
+
+
+def send_invitation_email_task(*, to: str, full_name: str, token: str) -> None:
+    """Фоновая отправка письма-приглашения — со своей сессией базы.
+
+    К моменту вызова запрос уже закрыт, а шаблон письма лежит в базе: сессию
+    фоновая задача открывает свою.
+    """
+    with SessionLocal() as db:
+        send_invitation_email(db, to=to, full_name=full_name, token=token)

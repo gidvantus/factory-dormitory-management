@@ -10,6 +10,7 @@ const sectionTitles: Record<string, string> = {
   '/cabinet': 'Обзор',
   '/cabinet/dormitories': 'Общежития',
   '/cabinet/organization': 'Организация',
+  '/cabinet/organization/members': 'Сотрудники',
   '/cabinet/profile': 'Личные данные',
 };
 
@@ -18,8 +19,11 @@ export function Cabinet(): JSX.Element {
   const { user, logout } = useSession();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const sectionPath = pathname.replace(/\/$/, '').split('/').slice(0, 3).join('/');
-  const sectionTitle = sectionTitles[sectionPath] ?? 'Обзор';
+  const trimmedPath = pathname.replace(/\/$/, '');
+  const sectionPath = trimmedPath.split('/').slice(0, 3).join('/');
+  // Сначала точный адрес, потом общий раздел: у «Сотрудников» свой заголовок,
+  // хотя они и вложены в «Организацию».
+  const sectionTitle = sectionTitles[trimmedPath] ?? sectionTitles[sectionPath] ?? 'Обзор';
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState('');
@@ -169,11 +173,21 @@ export function Cabinet(): JSX.Element {
             <NavLink
               className={styles['nav-link']}
               to="/cabinet/organization"
+              end
               onClick={closeMenu}
               data-testid="workspace-nav-organization"
             >
               <WorkspaceIcon name="building" />
               Организация
+            </NavLink>
+            <NavLink
+              className={styles['nav-link']}
+              to="/cabinet/organization/members"
+              onClick={closeMenu}
+              data-testid="workspace-nav-members"
+            >
+              <WorkspaceIcon name="people" />
+              Сотрудники
             </NavLink>
             <NavLink
               className={styles['nav-link']}
