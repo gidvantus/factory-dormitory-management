@@ -467,3 +467,153 @@ def test_editing_requires_a_session(client: TestClient, db_session: Session) -> 
     assert client.post("/api/tariffs", json={"name": "X", "amount": "1"}).status_code == 401
     assert client.patch(f"/api/tariffs/{tariff.id}", json={"amount": "1"}).status_code == 401
     assert client.delete(f"/api/tariffs/{tariff.id}").status_code == 401
+
+
+# --- 6. Тариф организации -----------------------------------------------------
+#
+# Кабинет показывает не прайс, а выбранный организацией тариф, и тот же тариф
+# виден в дашборде. Прайс — отдельный экран, эти проверки его не касаются.
+
+
+def test_current_tariff_is_empty_until_the_organization_chooses(
+    client: TestClient, db_session: Session
+) -> None:
+    editor(client, db_session)
+
+    response = client.get("/api/tariffs/current")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"tariff": None, "editable": True}
+
+
+def test_owner_chooses_the_tariff_of_the_organization(
+    client: TestClient, db_session: Session
+) -> None:
+    editor(client, db_session)
+    tariff = add_tariff(db_session, unit_label="за одно место")
+
+    response = client.put("/api/tariffs/current", json={"tariff_id": tariff.id})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["editable"] is True
+    assert body["tariff"]["id"] == tariff.id
+    assert body["tariff"]["price_label"] == f"5{NBSP}000 ₽ за одно место в месяц"
+    assert client.get("/api/tariffs/current").json()["tariff"]["id"] == tariff.id
+
+
+def test_organization_keeps_the_tariff_after_it_is_hidden(
+    client: TestClient, db_session: Session
+) -> None:
+    """Скрытый тариф не продаётся, но у выбравшей его организации не исчезает."""
+    editor(client, db_session)
+    tariff = add_tariff(db_session)
+    assert client.put("/api/tariffs/current", json={"tariff_id": tariff.id}).status_code == 200
+
+    client.patch(f"/api/tariffs/{tariff.id}", json={"is_visible": False})
+
+    body = client.get("/api/tariffs/current").json()
+    assert body["tariff"]["id"] == tariff.id
+    assert body["tariff"]["is_visible"] is False
+
+
+def test_organization_tariff_can_be_changed(client: TestClient, db_session: Session) -> None:
+    editor(client, db_session)
+    first = add_tariff(db_session, name="Первый")
+    second = add_tariff(db_session, name="Второй")
+    client.put("/api/tariffs/current", json={"tariff_id": first.id})
+
+    response = client.put("/api/tariffs/current", json={"tariff_id": second.id})
+
+    assert response.status_code == 200
+    assert response.json()["tariff"]["id"] == second.id
+
+
+def test_manager_reads_the_organization_tariff_but_does_not_change_it(
+    client: TestClient, db_session: Session
+) -> None:
+    editor(client, db_session, role="manager")
+    tariff = add_tariff(db_session)
+
+    read = client.get("/api/tariffs/current")
+    change = client.put("/api/tariffs/current", json={"tariff_id": tariff.id})
+
+    assert read.status_code == 200
+    assert read.json() == {"tariff": None, "editable": False}
+    assert change.status_code == 403
+    assert change.json()["detail"] == "Недостаточно прав"
+
+
+def test_organization_tariff_requires_a_session(client: TestClient) -> None:
+    assert client.get("/api/tariffs/current").status_code == 401
+    assert client.put("/api/tariffs/current", json={"tariff_id": 1}).status_code == 401
+
+
+def test_organization_tariff_without_organization_is_not_found(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session, email="lonely@example.com")
+
+    read = client.get("/api/tariffs/current")
+    change = client.put("/api/tariffs/current", json={"tariff_id": 1})
+
+    assert read.status_code == 404
+    assert change.status_code == 404
+
+
+def test_hidden_tariff_cannot_be_chosen(client: TestClient, db_session: Session) -> None:
+    """Скрытый тариф снаружи не существует: выбрать его — тот же 404, что и чужой id."""
+    editor(client, db_session)
+    hidden = add_tariff(db_session, name="Скрытый", is_visible=False)
+
+    response = client.put("/api/tariffs/current", json={"tariff_id": hidden.id})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Тариф не найден"
+    assert client.get("/api/tariffs/current").json()["tariff"] is None
+
+
+def test_choosing_missing_tariff_is_not_found(client: TestClient, db_session: Session) -> None:
+    editor(client, db_session)
+
+    response = client.put("/api/tariffs/current", json={"tariff_id": 9999})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Тариф не найден"
+
+
+def test_choosing_tariff_rejects_broken_body(client: TestClient, db_session: Session) -> None:
+    editor(client, db_session)
+
+    assert client.put("/api/tariffs/current", json={}).status_code == 422
+    assert client.put("/api/tariffs/current", json={"tariff_id": 0}).status_code == 422
+    assert client.put("/api/tariffs/current", json={"tariff_id": "первый"}).status_code == 422
+    assert (
+        client.put("/api/tariffs/current", json={"tariff_id": 1, "name": "Свой"}).status_code == 422
+    )
+
+
+def test_deleting_tariff_clears_the_organization_choice(
+    client: TestClient, db_session: Session
+) -> None:
+    editor(client, db_session)
+    tariff = add_tariff(db_session)
+    assert client.put("/api/tariffs/current", json={"tariff_id": tariff.id}).status_code == 200
+
+    assert client.delete(f"/api/tariffs/{tariff.id}").status_code == 204
+
+    assert client.get("/api/tariffs/current").json() == {"tariff": None, "editable": True}
+
+
+def test_organization_choice_is_private_to_its_organization(
+    client: TestClient, db_session: Session
+) -> None:
+    """Организация видит только свой тариф: чужая настройка на неё не влияет."""
+    editor(client, db_session, email="first@example.com")
+    tariff = add_tariff(db_session)
+    client.put("/api/tariffs/current", json={"tariff_id": tariff.id})
+    client.post("/api/auth/logout")
+
+    editor(client, db_session, email="second@example.com")
+
+    assert client.get("/api/tariffs/current").json() == {"tariff": None, "editable": True}

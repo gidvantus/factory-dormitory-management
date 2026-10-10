@@ -199,3 +199,28 @@ class TariffResponse(BaseModel):
     is_visible: bool
     price_label: str
     editable: bool = False
+
+
+class SetOrganizationTariffRequest(BaseModel):
+    """Выбор тарифа организацией: ссылка на строку прайса.
+
+    Отдельная схема, а не `TariffInput`: организация не правит тариф, а только
+    ссылается на существующий, поэтому других полей здесь быть не должно и
+    `extra="forbid"` их отвергает.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tariff_id: int = Field(ge=1, le=2147483647)
+
+
+class OrganizationTariffResponse(BaseModel):
+    """Тариф организации для кабинета и дашборда.
+
+    `tariff: null` — организация ещё не выбрала тариф, это не ошибка: экран
+    показывает состояние «тариф не выбран». `editable` говорит, может ли текущая
+    роль сменить тариф: читают его все участники, меняет владелец или админ.
+    """
+
+    tariff: TariffResponse | None
+    editable: bool = False

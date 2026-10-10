@@ -80,6 +80,13 @@ export interface TariffInput {
   is_visible?: boolean;
 }
 
+/** Тариф организации: `tariff` = null, пока тариф не выбран. */
+export interface OrganizationTariff {
+  tariff: Tariff | null;
+  /** false — роль не `owner`/`admin`: тариф видно, менять нельзя. */
+  editable: boolean;
+}
+
 /** Роли, которые можно выдать приглашением. `owner` у организации один. */
 export type InviteRole = 'admin' | 'manager' | 'commandant';
 
@@ -414,6 +421,19 @@ export const api = {
 
   deleteTariff(id: number): Promise<void> {
     return request<void>(`/tariffs/${id}`, { method: 'DELETE' });
+  },
+
+  /** Тариф, выбранный организацией. 404 — у пользователя нет организации. */
+  currentTariff(signal?: AbortSignal): Promise<OrganizationTariff> {
+    return request<OrganizationTariff>('/tariffs/current', { signal });
+  },
+
+  /** Выбрать или сменить тариф организации. 404 — такого опубликованного тарифа нет. */
+  setCurrentTariff(tariffId: number): Promise<OrganizationTariff> {
+    return request<OrganizationTariff>('/tariffs/current', {
+      method: 'PUT',
+      body: JSON.stringify({ tariff_id: tariffId }),
+    });
   },
 
   dashboard(

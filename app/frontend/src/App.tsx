@@ -12,6 +12,7 @@ import { DormitoryDetails } from './workspace/dormitories/DormitoryDetails';
 import { Members } from './workspace/Members';
 import { Organization } from './workspace/Organization';
 import { PersonalData } from './workspace/PersonalData';
+import { TariffCatalog } from './workspace/TariffCatalog';
 import { Tariffs } from './workspace/Tariffs';
 import { WorkspaceOverview } from './workspace/WorkspaceOverview';
 
@@ -22,8 +23,9 @@ import { WorkspaceOverview } from './workspace/WorkspaceOverview';
  * неактивный пользователь обязан до него дойти. Запрос восстановления пароля —
  * тоже отдельный адрес `/forgot-password`: на него ссылаются из формы входа и
  * из письма, и он доступен без сессии, как и `/activate`. Страница тарифов
- * `/pricing` тоже вне `RequireAuth`: прайс публичный, а правка живёт в кабинете
- * отдельным разделом `/cabinet/tariffs`.
+ * `/pricing` тоже вне `RequireAuth`: прайс публичный, а в кабинете живёт раздел
+ * «Тариф» с тарифом самой организации (`/cabinet/tariffs`) и отдельный
+ * прайс-лист для владельца и администратора (`/cabinet/tariffs/catalog`).
  */
 export function App(): JSX.Element {
   return (
@@ -49,6 +51,7 @@ export function App(): JSX.Element {
         <Route path="organization" element={<Organization />} />
         <Route path="organization/members" element={<Members />} />
         <Route path="tariffs" element={<Tariffs />} />
+        <Route path="tariffs/catalog" element={<TariffCatalog />} />
         <Route path="profile" element={<PersonalData />} />
       </Route>
       <Route path="*" element={<NotFound />} />

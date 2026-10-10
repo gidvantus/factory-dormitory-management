@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import type { WorkspaceIconName } from '../WorkspaceIcon';
@@ -47,7 +47,14 @@ const breakdowns: {
   },
 ];
 
-export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader }): JSX.Element {
+export function Dashboard({
+  loader = loadDashboard,
+  tariffSlot,
+}: {
+  loader?: DashboardLoader;
+  /** Блок тарифа организации: обзор показывает его под заголовком. */
+  tariffSlot?: ReactNode;
+}): JSX.Element {
   const [range, setRange] = useState<DateRange>(() => currentMonth());
   const [draft, setDraft] = useState<DateRange>(range);
   const [error, setError] = useState('');
@@ -124,6 +131,8 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
           Все общежития
         </span>
       </div>
+
+      {tariffSlot}
 
       <form
         className={styles.periodForm}

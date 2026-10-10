@@ -32,7 +32,7 @@ const TARIFF = {
   editable: true,
 };
 
-const CREATED = {
+const YEARLY = {
   ...TARIFF,
   id: 2,
   name: 'Годовой',
@@ -42,18 +42,23 @@ const CREATED = {
   price_label: '60 000 ₽ в год',
 };
 
-/** Обработчик на один маршрут: `null` — «не мой случай, решает `cabinetRoutes`». */
+/** Обработчик на один маршрут: `null` — «не мой случай, решает `tariffRoutes`». */
 type PartialHandler = (url: string, init?: RequestInit) => MockResponse | null;
 
-/** Маршруты кабинета: `/api/me` — активная сессия, остальное задаёт тест. */
-function cabinetRoutes(manageTariffs: MockResponse, extra?: PartialHandler): MockHandler {
+/** Маршруты кабинета: `/api/me` — активная сессия, прайс для выбора — два тарифа. */
+function tariffRoutes(current: MockResponse, extra?: PartialHandler): MockHandler {
   return (url, init) => {
     const custom = extra?.(url, init);
     if (custom) return custom;
     if (url.endsWith('/api/me')) return PROFILE;
-    if (url.endsWith('/api/tariffs/manage')) return manageTariffs;
+    if (url.endsWith('/api/tariffs/current')) return current;
+    if (url.endsWith('/api/tariffs')) return { status: 200, body: [TARIFF, YEARLY] };
     return NOT_FOUND;
   };
+}
+
+function chosen(tariff: typeof TARIFF | null, editable = true): MockResponse {
+  return { status: 200, body: { tariff, editable } };
 }
 
 /** Тело запроса по вызову `fetch`. */
@@ -65,23 +70,38 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('раздел «Тарифы» в кабинете', () => {
-  it('показывает прайс и пункт меню со своим заголовком', async () => {
-    mockFetch(cabinetRoutes({ status: 200, body: [TARIFF] }));
+describe('раздел «Тариф» в кабинете', () => {
+  it('показывает тариф организации, а не прайс', async () => {
+    mockFetch(tariffRoutes(chosen(TARIFF)));
     renderApp('/cabinet/tariffs');
 
-    expect(await screen.findByTestId('tariff-row')).toBeInTheDocument();
+    expect(await screen.findByTestId('tariff-current')).toBeInTheDocument();
+    expect(screen.getByTestId('tariff-current-name')).toHaveTextContent('Базовый');
+    expect(screen.getByTestId('tariff-current-price')).toHaveTextContent('5 000 ₽ в месяц');
+    expect(screen.getByTestId('tariff-current-description')).toHaveTextContent('Всё основное');
+    // Строки прайса с кнопками правки — это другой экран.
+    expect(screen.queryByTestId('tariff-row')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tariff-edit')).not.toBeInTheDocument();
     expect(screen.getByTestId('workspace-nav-tariffs')).toHaveAttribute('href', '/cabinet/tariffs');
-    expect(screen.getByTestId('tariff-row-price')).toHaveTextContent('5 000 ₽ в месяц');
-    expect(screen.getByTestId('tariff-visibility')).toHaveTextContent('Опубликован');
-    expect(document.title).toBe('Тарифы — Домовой');
+    expect(document.title).toBe('Тариф — Домовой');
   });
 
-  it('показывает загрузку, пока список не пришёл', async () => {
+  it('ведёт на прайс-лист только того, кому сервер разрешил правку', async () => {
+    mockFetch(tariffRoutes(chosen(TARIFF)));
+    renderApp('/cabinet/tariffs');
+
+    expect(await screen.findByTestId('tariff-catalog-link')).toHaveAttribute(
+      'href',
+      '/cabinet/tariffs/catalog',
+    );
+    expect(screen.getByTestId('tariff-change')).toBeInTheDocument();
+  });
+
+  it('показывает загрузку, пока тариф не пришёл', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) =>
-        String(input).endsWith('/api/tariffs/manage')
+        String(input).endsWith('/api/tariffs/current')
           ? new Promise<Response>(() => {})
           : new Response(JSON.stringify(PROFILE.body), {
               status: 200,
@@ -101,7 +121,7 @@ describe('раздел «Тарифы» в кабинете', () => {
       attempts += 1;
       return attempts === 1
         ? { status: 500, body: { detail: 'Внутренняя ошибка' } }
-        : { status: 200, body: [TARIFF] };
+        : chosen(TARIFF);
     });
     const user = userEvent.setup();
     renderApp('/cabinet/tariffs');
@@ -110,155 +130,59 @@ describe('раздел «Тарифы» в кабинете', () => {
 
     await user.click(screen.getByRole('button', { name: 'Повторить' }));
 
-    expect(await screen.findByTestId('tariff-row')).toBeInTheDocument();
-    expect(callsTo(fetchMock, '/api/tariffs/manage')).toHaveLength(2);
+    expect(await screen.findByTestId('tariff-current')).toBeInTheDocument();
+    expect(callsTo(fetchMock, '/api/tariffs/current')).toHaveLength(2);
   });
 
-  it('на пустом прайсе предлагает добавить тариф', async () => {
-    mockFetch(cabinetRoutes({ status: 200, body: [] }));
+  it('без выбранного тарифа предлагает его выбрать', async () => {
+    mockFetch(tariffRoutes(chosen(null)));
     renderApp('/cabinet/tariffs');
 
-    expect(await screen.findByTestId('tariffs-empty')).toHaveTextContent('Тарифов пока нет');
-    expect(screen.getByTestId('tariff-add')).toBeInTheDocument();
+    expect(await screen.findByTestId('tariffs-empty')).toHaveTextContent(
+      'У организации пока нет тарифа',
+    );
+    expect(screen.getByTestId('tariff-choose')).toBeInTheDocument();
   });
 
-  it('при editable=false показывает список без кнопок правки', async () => {
-    mockFetch(cabinetRoutes({ status: 200, body: [{ ...TARIFF, editable: false }] }));
+  it('при editable=false показывает тариф без кнопок правки', async () => {
+    mockFetch(tariffRoutes(chosen(TARIFF, false)));
     renderApp('/cabinet/tariffs');
 
     expect(await screen.findByTestId('tariffs-readonly')).toHaveTextContent(
-      'Править тарифы может владелец или администратор организации',
+      'Менять тариф может владелец или администратор организации',
     );
-    expect(screen.getByTestId('tariff-row')).toBeInTheDocument();
-    expect(screen.queryByTestId('tariff-add')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('tariff-edit')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('tariff-toggle-visibility')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('tariff-delete')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tariff-current')).toBeInTheDocument();
+    expect(screen.queryByTestId('tariff-change')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tariff-choose')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tariff-catalog-link')).not.toBeInTheDocument();
   });
-});
 
-describe('правка тарифов', () => {
-  it('создаёт тариф через модальное окно', async () => {
-    let created = false;
-    const fetchMock = mockFetch(
-      cabinetRoutes({ status: 200, body: [] }, (url, init) => {
-        if (url.endsWith('/api/tariffs/manage')) {
-          return { status: 200, body: created ? [CREATED] : [] };
-        }
-        if (url.endsWith('/api/tariffs') && init?.method === 'POST') {
-          created = true;
-          return { status: 201, body: CREATED };
-        }
-        return null;
-      }),
-    );
+  it('закрывает выбор по «Отмена» без запроса', async () => {
+    const fetchMock = mockFetch(tariffRoutes(chosen(null)));
     const user = userEvent.setup();
     renderApp('/cabinet/tariffs');
 
-    await user.click(await screen.findByTestId('tariff-add'));
-    expect(screen.getByTestId('tariff-modal')).toBeInTheDocument();
-    // Модальное окно само ставит фокус в первое поле формы.
-    expect(screen.getByTestId('tariff-form-name')).toHaveFocus();
-
-    await user.type(screen.getByTestId('tariff-form-name'), 'Годовой');
-    await user.type(screen.getByTestId('tariff-form-description'), 'На год вперёд');
-    await user.type(screen.getByTestId('tariff-form-amount'), '60000');
-    await user.selectOptions(screen.getByTestId('tariff-form-period'), 'year');
-    await user.type(screen.getByTestId('tariff-form-unit'), 'за одно место');
-    await user.click(screen.getByTestId('tariff-save'));
-
-    expect(await screen.findByTestId('tariff-row')).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByTestId('tariff-modal')).not.toBeInTheDocument());
-    const post = callsTo(fetchMock, '/api/tariffs')[0];
-    expect(bodyOf(post)).toEqual({
-      name: 'Годовой',
-      description: 'На год вперёд',
-      amount: 60000,
-      currency: 'RUB',
-      period: 'year',
-      unit_label: 'за одно место',
-      is_visible: true,
-    });
-  });
-
-  it('не отправляет форму без названия', async () => {
-    const fetchMock = mockFetch(cabinetRoutes({ status: 200, body: [TARIFF] }));
-    const user = userEvent.setup();
-    renderApp('/cabinet/tariffs');
-
-    await user.click(await screen.findByTestId('tariff-add'));
-    await user.click(screen.getByTestId('tariff-save'));
-
-    expect(screen.getByTestId('tariff-form-error')).toHaveTextContent('Укажите название тарифа');
-    expect(callsTo(fetchMock, '/api/tariffs')).toHaveLength(0);
-  });
-
-  it('показывает отказ сервера в форме', async () => {
-    mockFetch(
-      cabinetRoutes({ status: 200, body: [TARIFF] }, (url, init) => {
-        if (url.endsWith('/api/tariffs') && init?.method === 'POST') {
-          return { status: 409, body: { detail: 'Тариф с таким названием уже есть' } };
-        }
-        return null;
-      }),
-    );
-    const user = userEvent.setup();
-    renderApp('/cabinet/tariffs');
-
-    await user.click(await screen.findByTestId('tariff-add'));
-    await user.type(screen.getByTestId('tariff-form-name'), 'Базовый');
-    await user.type(screen.getByTestId('tariff-form-amount'), '100');
-    await user.click(screen.getByTestId('tariff-save'));
-
-    expect(await screen.findByTestId('tariff-form-error')).toHaveTextContent(
-      'Тариф с таким названием уже есть',
-    );
-  });
-
-  it('правит сумму существующего тарифа', async () => {
-    const fetchMock = mockFetch(
-      cabinetRoutes({ status: 200, body: [TARIFF] }, (url, init) => {
-        if (url.endsWith('/api/tariffs/1') && init?.method === 'PATCH') {
-          return { status: 200, body: { ...TARIFF, amount: '7500.00' } };
-        }
-        return null;
-      }),
-    );
-    const user = userEvent.setup();
-    renderApp('/cabinet/tariffs');
-
-    await user.click(await screen.findByTestId('tariff-edit'));
-
-    const amount = screen.getByTestId('tariff-form-amount');
-    expect(amount).toHaveValue('5000.00');
-    await user.clear(amount);
-    await user.type(amount, '7500');
-    await user.click(screen.getByTestId('tariff-save'));
-
-    await waitFor(() => expect(screen.queryByTestId('tariff-modal')).not.toBeInTheDocument());
-    // Форма шлёт все поля целиком: на сервер правка приходит как `PATCH`.
-    const patch = callsTo(fetchMock, '/api/tariffs/1')[0];
-    expect((patch[1] as RequestInit).method).toBe('PATCH');
-    expect(bodyOf(patch)).toMatchObject({ name: 'Базовый', amount: 7500 });
-  });
-
-  it('закрывает форму по кнопке «Отмена» без запроса', async () => {
-    const fetchMock = mockFetch(cabinetRoutes({ status: 200, body: [TARIFF] }));
-    const user = userEvent.setup();
-    renderApp('/cabinet/tariffs');
-
-    await user.click(await screen.findByTestId('tariff-edit'));
+    await user.click(await screen.findByTestId('tariff-choose'));
     await user.click(screen.getByTestId('tariff-cancel'));
 
     expect(screen.queryByTestId('tariff-modal')).not.toBeInTheDocument();
-    expect(callsTo(fetchMock, '/api/tariffs/1')).toHaveLength(0);
+    expect(
+      (callsTo(fetchMock, '/api/tariffs/current')[0][1] as RequestInit).method,
+    ).toBeUndefined();
   });
+});
 
-  it('скрывает тариф кнопкой в строке', async () => {
+describe('выбор тарифа организации', () => {
+  it('выбирает тариф из опубликованного прайса', async () => {
+    let selected: typeof TARIFF | null = null;
     const fetchMock = mockFetch(
-      cabinetRoutes({ status: 200, body: [TARIFF] }, (url, init) => {
-        if (url.endsWith('/api/tariffs/1') && init?.method === 'PATCH') {
-          return { status: 200, body: { ...TARIFF, is_visible: false } };
+      tariffRoutes(chosen(null), (url, init) => {
+        if (url.endsWith('/api/tariffs/current') && init?.method === 'PUT') {
+          selected = YEARLY;
+          return { status: 200, body: { tariff: YEARLY, editable: true } };
+        }
+        if (url.endsWith('/api/tariffs/current')) {
+          return { status: 200, body: { tariff: selected, editable: true } };
         }
         return null;
       }),
@@ -266,35 +190,54 @@ describe('правка тарифов', () => {
     const user = userEvent.setup();
     renderApp('/cabinet/tariffs');
 
-    await user.click(await screen.findByTestId('tariff-toggle-visibility'));
+    await user.click(await screen.findByTestId('tariff-choose'));
+    expect(await screen.findAllByTestId('tariff-option')).toHaveLength(2);
 
-    await waitFor(() => expect(callsTo(fetchMock, '/api/tariffs/1')).toHaveLength(1));
-    expect(bodyOf(callsTo(fetchMock, '/api/tariffs/1')[0])).toEqual({ is_visible: false });
+    await user.click(screen.getByRole('radio', { name: /Годовой/ }));
+    await user.click(screen.getByTestId('tariff-save'));
+
+    expect(await screen.findByTestId('tariff-current-name')).toHaveTextContent('Годовой');
+    await waitFor(() => expect(screen.queryByTestId('tariff-modal')).not.toBeInTheDocument());
+    const put = callsTo(fetchMock, '/api/tariffs/current').find(
+      (call) => (call[1] as RequestInit | undefined)?.method === 'PUT',
+    );
+    expect(bodyOf(put as unknown[])).toEqual({ tariff_id: 2 });
   });
 
-  it('удаляет тариф', async () => {
-    const fetchMock = mockFetch(
-      cabinetRoutes({ status: 200, body: [TARIFF] }, (url, init) => {
-        if (url.endsWith('/api/tariffs/1') && init?.method === 'DELETE') {
-          return { status: 204 };
-        }
-        return null;
-      }),
-    );
+  it('не отправляет пустой выбор', async () => {
+    const fetchMock = mockFetch(tariffRoutes(chosen(null)));
     const user = userEvent.setup();
     renderApp('/cabinet/tariffs');
 
-    await user.click(await screen.findByTestId('tariff-delete'));
+    await user.click(await screen.findByTestId('tariff-choose'));
+    await screen.findAllByTestId('tariff-option');
 
-    await waitFor(() => expect(callsTo(fetchMock, '/api/tariffs/1')).toHaveLength(1));
-    expect((callsTo(fetchMock, '/api/tariffs/1')[0][1] as RequestInit).method).toBe('DELETE');
+    expect(screen.getByTestId('tariff-save')).toBeDisabled();
+    expect(callsTo(fetchMock, '/api/tariffs/current')).toHaveLength(1);
   });
 
-  it('показывает ошибку действия, если сервер отказал', async () => {
+  it('сообщает, если в прайсе нет опубликованных тарифов', async () => {
     mockFetch(
-      cabinetRoutes({ status: 200, body: [TARIFF] }, (url, init) => {
-        if (url.endsWith('/api/tariffs/1') && init?.method === 'DELETE') {
-          return { status: 403, body: { detail: 'Недостаточно прав' } };
+      tariffRoutes(chosen(null), (url) => {
+        if (url.endsWith('/api/tariffs')) return { status: 200, body: [] };
+        return null;
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp('/cabinet/tariffs');
+
+    await user.click(await screen.findByTestId('tariff-choose'));
+
+    expect(await screen.findByTestId('tariff-choice-empty')).toHaveTextContent(
+      'В прайсе нет опубликованных тарифов',
+    );
+  });
+
+  it('показывает отказ сервера в модальном окне', async () => {
+    mockFetch(
+      tariffRoutes(chosen(null), (url, init) => {
+        if (url.endsWith('/api/tariffs/current') && init?.method === 'PUT') {
+          return { status: 404, body: { detail: 'Тариф не найден' } };
         }
         return null;
       }),
@@ -302,10 +245,11 @@ describe('правка тарифов', () => {
     const user = userEvent.setup();
     renderApp('/cabinet/tariffs');
 
-    await user.click(await screen.findByTestId('tariff-delete'));
+    await user.click(await screen.findByTestId('tariff-choose'));
+    await user.click(await screen.findByRole('radio', { name: /Базовый/ }));
+    await user.click(screen.getByTestId('tariff-save'));
 
-    expect(await screen.findByTestId('tariffs-action-error')).toHaveTextContent(
-      'Недостаточно прав',
-    );
+    expect(await screen.findByTestId('tariff-form-error')).toHaveTextContent('Тариф не найден');
+    expect(screen.getByTestId('tariff-modal')).toBeInTheDocument();
   });
 });

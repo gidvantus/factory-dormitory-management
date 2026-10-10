@@ -196,3 +196,31 @@ def test_tariffs_create_broken_json_400_is_documented(
 
     assert response.status_code == 400
     assert "400" in documented_statuses(client, "/api/tariffs", "post")
+
+
+def test_tariffs_current_read_documents_every_status_it_returns(client: TestClient) -> None:
+    """Тариф организации: 200 у участника, 401 без cookie, 403 и 404 по доступу."""
+    documented = documented_statuses(client, "/api/tariffs/current", "get")
+
+    assert {"200", "401", "403", "404"} <= documented
+
+
+def test_tariffs_current_put_documents_every_status_it_returns(client: TestClient) -> None:
+    documented = documented_statuses(client, "/api/tariffs/current", "put")
+
+    assert {"200", "400", "401", "403", "404", "422"} <= documented
+
+
+def test_tariffs_current_put_broken_json_400_is_documented(
+    client: TestClient, db_session: Session
+) -> None:
+    user = create_user(db_session, email="org-tariff-owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    response = client.put(
+        "/api/tariffs/current", content=BROKEN_JSON_BODY, headers=BROKEN_JSON_HEADERS
+    )
+
+    assert response.status_code == 400
+    assert "400" in documented_statuses(client, "/api/tariffs/current", "put")

@@ -9,6 +9,11 @@
 
 ИНН уникален, но nullable: пустая заготовка организации — нормальное состояние,
 а в Postgres несколько `NULL` в уникальном индексе друг другу не мешают.
+
+Ссылка на тариф (`tariff_id`) — это «купленный» тариф организации: одна строка
+прайса на организацию, `NULL` — тариф ещё не выбран. Внешний ключ с
+`ON DELETE SET NULL`: удаление тарифа из прайса не должно ломать организацию,
+она просто остаётся без тарифа, как и до выбора.
 """
 
 from datetime import datetime
@@ -43,6 +48,10 @@ class Organization(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     inn: Mapped[str | None] = mapped_column(String(12), nullable=True, unique=True)
+    # Выбранный организации тариф. Пока `NULL` — организация без тарифа.
+    tariff_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tariffs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

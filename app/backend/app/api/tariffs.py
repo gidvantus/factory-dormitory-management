@@ -10,24 +10,38 @@
 `admin`. Коды отказа там же: 401 без сессии, 403 роли без права, 404 без
 членства.
 
+`/current` — тариф самой организации, а не прайс: его читает любой участник
+(роль не важна, это свои данные), а меняет только `TariffEditor`. Выбрать можно
+лишь опубликованный тариф (`is_visible = true`): скрытый тариф не продаётся, и
+для клиента его как будто нет — отсюда 404, а не 403.
+
 Удаление жёсткое: тарифы пока ни на что не ссылаются, и «мягкое» удаление
-завело бы второй способ скрыть тариф — помимо `is_visible`.
+завело бы второй способ скрыть тариф — помимо `is_visible`. Организации,
+выбравшие удаляемый тариф, остаются без него: внешний ключ объявлен с
+`ON DELETE SET NULL`.
 """
 
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.access import TariffEditor
-from app.api.organization import ORGANIZATION_NOT_FOUND_DETAIL
+from app.api.organization import (
+    EDIT_ROLES,
+    ORGANIZATION_NOT_FOUND_DETAIL,
+    Membership,
+)
 from app.db import get_db
+from app.models.organization import Organization
 from app.models.tariff import Tariff
 from app.pricing import format_price
 from app.schemas.tariff import (
     CreateTariffRequest,
+    OrganizationTariffResponse,
+    SetOrganizationTariffRequest,
     TariffResponse,
     UpdateTariffRequest,
 )
@@ -127,6 +141,83 @@ def list_tariffs(db: DbSession) -> list[TariffResponse]:
 def manage_tariffs(_membership: TariffEditor, db: DbSession) -> list[TariffResponse]:
     """Полный список, включая скрытые: кабинет показывает и то, что не опубликовано."""
     return [_response(tariff, editable=True) for tariff in _ordered_tariffs(db)]
+
+
+def _load_organization(db: Session, organization_id: int) -> Organization:
+    organization = db.get(Organization, organization_id)
+    if organization is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, ORGANIZATION_NOT_FOUND_DETAIL)
+    return organization
+
+
+def _organization_tariff(
+    organization: Organization, db: Session, *, editable: bool
+) -> OrganizationTariffResponse:
+    """Собрать ответ по тарифу организации: `None` — тариф ещё не выбран."""
+    if organization.tariff_id is None:
+        return OrganizationTariffResponse(tariff=None, editable=editable)
+    tariff = db.get(Tariff, organization.tariff_id)
+    if tariff is None:
+        # Внешний ключ с `ON DELETE SET NULL` такого не допускает: ссылка на
+        # удалённый тариф обнуляется вместе с удалением. Ответ без тарифа лучше
+        # падения экрана, если строка всё же разошлась.
+        return OrganizationTariffResponse(tariff=None, editable=editable)
+    return OrganizationTariffResponse(
+        tariff=_response(tariff, editable=editable), editable=editable
+    )
+
+
+@router.get(
+    "/current",
+    response_model=OrganizationTariffResponse,
+    summary="Тариф организации",
+    responses=EDITOR_RESPONSES,
+)
+def read_organization_tariff(membership: Membership, db: DbSession) -> OrganizationTariffResponse:
+    """Купленный организацией тариф. Читает любой участник, роль не важна.
+
+    `editable` показывает роль, а не данные: правят тариф организации только
+    `owner` и `admin`, поэтому у `manager` и `commandant` ответ тот же, но без
+    кнопок правки на клиенте.
+    """
+    organization = _load_organization(db, membership.organization_id)
+    return _organization_tariff(organization, db, editable=membership.role in EDIT_ROLES)
+
+
+@router.put(
+    "/current",
+    response_model=OrganizationTariffResponse,
+    summary="Выбрать тариф организации",
+    responses={
+        **EDITOR_RESPONSES,
+        **BROKEN_JSON_RESPONSE,
+        status.HTTP_404_NOT_FOUND: {
+            "model": ErrorResponse,
+            "description": f"{ORGANIZATION_NOT_FOUND_DETAIL} или {TARIFF_NOT_FOUND_DETAIL}",
+        },
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "model": ErrorResponse,
+            "description": "Неверный id тарифа",
+        },
+    },
+)
+def set_organization_tariff(
+    payload: SetOrganizationTariffRequest, membership: TariffEditor, db: DbSession
+) -> OrganizationTariffResponse:
+    """Выбрать организации опубликованный тариф — по одному на организацию.
+
+    Скрытый тариф выбрать нельзя: он не продаётся, и снаружи его не существует.
+    Повторный вызов с другим `tariff_id` меняет тариф, с тем же — идемпотентен.
+    """
+    organization = _load_organization(db, membership.organization_id)
+    tariff = db.get(Tariff, payload.tariff_id)
+    if tariff is None or not tariff.is_visible:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, TARIFF_NOT_FOUND_DETAIL)
+
+    organization.tariff_id = tariff.id
+    db.commit()
+    db.refresh(organization)
+    return _organization_tariff(organization, db, editable=True)
 
 
 @router.post(
@@ -233,7 +324,16 @@ def update_tariff(
     },
 )
 def delete_tariff(tariff_id: TARIFF_ID, _membership: TariffEditor, db: DbSession) -> None:
-    """Удаление безвозвратное: тариф ни на что не ссылается, корзины нет."""
+    """Удаление безвозвратное: тариф ни на что не ссылается, корзины нет.
+
+    Организации, выбравшие этот тариф, остаются без тарифа. На PostgreSQL это
+    сделал бы `ON DELETE SET NULL`, но в юнит-тестах SQLite внешние ключи по
+    умолчанию выключены, и поведение разошлось бы между стендом и тестами.
+    Ссылки снимаются явно, поэтому результат одинаков везде.
+    """
     tariff = _load_tariff(db, tariff_id)
+    db.execute(
+        update(Organization).where(Organization.tariff_id == tariff.id).values(tariff_id=None)
+    )
     db.delete(tariff)
     db.commit()

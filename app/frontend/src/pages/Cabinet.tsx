@@ -9,7 +9,8 @@ import styles from '../workspace/Workspace.module.css';
 const sectionTitles: Record<string, string> = {
   '/cabinet': 'Обзор',
   '/cabinet/dormitories': 'Общежития',
-  '/cabinet/tariffs': 'Тарифы',
+  '/cabinet/tariffs': 'Тариф',
+  '/cabinet/tariffs/catalog': 'Прайс-лист',
   '/cabinet/organization': 'Организация',
   '/cabinet/organization/members': 'Сотрудники',
   '/cabinet/profile': 'Личные данные',
@@ -175,7 +176,7 @@ export function Cabinet(): JSX.Element {
                 data-testid="workspace-nav-tariffs"
               >
                 <WorkspaceIcon name="chart" />
-                Тарифы
+                Тариф
               </NavLink>
             </li>
           </ul>
