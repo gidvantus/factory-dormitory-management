@@ -10,6 +10,18 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+def normalize_full_name(value: str) -> str:
+    """Схлопнуть пробелы в ФИО. Строка из одних пробелов — ошибка.
+
+    Общий помощник регистрации и приглашения сотрудника: ФИО в обоих случаях
+    вводит человек, и правила у них одинаковые.
+    """
+    collapsed = " ".join(value.split())
+    if not collapsed:
+        raise ValueError("ФИО не может быть пустым")
+    return collapsed
+
+
 class RegisterRequest(BaseModel):
     """Регистрация: пароль придумывает сервер, пользователь вводит только email и ФИО."""
 
@@ -18,11 +30,8 @@ class RegisterRequest(BaseModel):
 
     @field_validator("full_name")
     @classmethod
-    def normalize_full_name(cls, value: str) -> str:
-        collapsed = " ".join(value.split())
-        if not collapsed:
-            raise ValueError("ФИО не может быть пустым")
-        return collapsed
+    def validate_full_name(cls, value: str) -> str:
+        return normalize_full_name(value)
 
 
 class RegisterResponse(BaseModel):

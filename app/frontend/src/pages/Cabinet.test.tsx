@@ -73,6 +73,7 @@ describe('пункты меню учётной записи', () => {
           <Routes>
             <Route path="/cabinet" element={<Cabinet />}>
               <Route path="organization" element={<p>Страница организации</p>} />
+              <Route path="organization/members" element={<p>Страница сотрудников</p>} />
               <Route path="profile" element={<p>Личные данные</p>} />
             </Route>
           </Routes>
@@ -108,5 +109,37 @@ describe('пункты меню учётной записи', () => {
 
     expect(await screen.findByTestId('workspace-nav-organization')).toBeInTheDocument();
     expect(document.title).toBe('Организация — Домовой');
+  });
+
+  it('ставит «Сотрудников» рядом с «Организацией» и ведёт на свой адрес', async () => {
+    const user = userEvent.setup();
+    renderCabinetAt('/cabinet');
+
+    const organization = await screen.findByTestId('workspace-nav-organization');
+    const members = screen.getByTestId('workspace-nav-members');
+
+    expect(members).toHaveTextContent('Сотрудники');
+    expect(members).toHaveAttribute('href', '/cabinet/organization/members');
+    expect(
+      organization.compareDocumentPosition(members) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await user.click(members);
+    expect(await screen.findByText('Страница сотрудников')).toBeInTheDocument();
+  });
+
+  it('заголовок вкладки на странице сотрудников — «Сотрудники — Домовой»', async () => {
+    renderCabinetAt('/cabinet/organization/members');
+
+    expect(await screen.findByTestId('workspace-nav-members')).toBeInTheDocument();
+    expect(document.title).toBe('Сотрудники — Домовой');
+  });
+
+  it('подсвечивает ровно один пункт меню: «Сотрудники» не подсвечивает «Организацию»', async () => {
+    renderCabinetAt('/cabinet/organization/members');
+
+    const members = await screen.findByTestId('workspace-nav-members');
+    expect(members).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('workspace-nav-organization')).not.toHaveAttribute('aria-current');
   });
 });

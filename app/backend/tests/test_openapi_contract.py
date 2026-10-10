@@ -110,6 +110,39 @@ def test_organization_get_documents_not_found(
     assert {"401", "403", "404"} <= documented
 
 
+def test_organization_members_documents_every_status_it_returns(
+    client: TestClient,
+) -> None:
+    """Список участников: 401 без cookie, 403 у неактивного, 404 без организации."""
+    documented = documented_statuses(client, "/api/organization/members", "get")
+
+    assert {"401", "403", "404"} <= documented
+
+
+def test_organization_invitations_documents_every_status_it_returns(
+    client: TestClient,
+) -> None:
+    """201 и всё, что ручка приглашения возвращает по ошибкам."""
+    documented = documented_statuses(client, "/api/organization/invitations", "post")
+
+    assert {"201", "400", "401", "403", "404", "409", "422"} <= documented
+
+
+def test_organization_invitations_broken_json_400_is_documented(
+    client: TestClient, db_session: Session
+) -> None:
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    response = client.post(
+        "/api/organization/invitations", content=BROKEN_JSON_BODY, headers=BROKEN_JSON_HEADERS
+    )
+
+    assert response.status_code == 400
+    assert "400" in documented_statuses(client, "/api/organization/invitations", "post")
+
+
 def test_success_statuses_stay_documented(client: TestClient) -> None:
     assert "201" in documented_statuses(client, "/api/auth/register", "post")
     assert "200" in documented_statuses(client, "/api/auth/login", "post")

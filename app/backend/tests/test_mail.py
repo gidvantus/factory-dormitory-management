@@ -314,3 +314,44 @@ def test_send_recovery_without_template_logs_and_returns_false(
     assert FakeSMTP.sent == []
     assert PASSWORD_RECOVERY_TEMPLATE_CODE in caplog.text
     assert TOKEN not in caplog.text
+
+
+def test_render_puts_an_empty_string_for_an_unknown_placeholder(
+    db_session: Session, smtp_settings: None
+) -> None:
+    """Тема и текст правятся в базе: незнакомое имя не должно ломать письмо.
+
+    Раньше `str.format` падал `KeyError`, отправка обрывалась, а пользователь не
+    получал ссылку. Неизвестный плейсхолдер теперь даёт пустую строку.
+    """
+    template = seed_template(db_session)
+    template.subject = "Активация для {unknown_role}"
+    template.body = "Здравствуйте, {full_name}! Ваша роль: {unknown_role}. {activation_url}"
+    db_session.commit()
+
+    subject, body = render_activation_email(
+        db_session, full_name=FULL_NAME, activation_url="https://example/activate/x"
+    )
+
+    assert subject == "Активация для "
+    assert body.startswith(f"Здравствуйте, {FULL_NAME}!")
+    assert "Ваша роль: ." in body
+    assert "https://example/activate/x" in body
+
+
+def test_send_survives_an_unknown_placeholder(db_session: Session, smtp_settings: None) -> None:
+    """Письмо с незнакомым плейсхолдером всё равно уходит — со ссылкой внутри."""
+    template = seed_template(db_session)
+    template.body = template.body + "Роль: {unknown_role}\n"
+    db_session.commit()
+
+    assert send_activation_email(
+        db_session, to="worker@example.com", full_name=FULL_NAME, token=TOKEN
+    )
+
+    (message,) = FakeSMTP.sent
+    plain = message.get_body(preferencelist=("plain",))
+    assert plain is not None
+    text = plain.get_content()
+    assert "Роль:" in text
+    assert f"https://domovoy.example/activate/{TOKEN}" in text

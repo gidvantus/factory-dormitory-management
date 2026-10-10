@@ -48,6 +48,27 @@ export interface UpdateOrganizationInput {
   inn: string;
 }
 
+/** Роли, которые можно выдать приглашением. `owner` у организации один. */
+export type InviteRole = 'admin' | 'manager' | 'commandant';
+
+export interface OrganizationMember {
+  /** Идентификатор строки членства, а не пользователя. */
+  id: number;
+  email: string;
+  full_name: string;
+  /** Код роли: `owner`, `admin`, `manager`, `commandant` или устаревшее `member`. */
+  role: string;
+  /** false — приглашение отправлено, пароль по ссылке ещё не задан. */
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface InviteMemberInput {
+  email: string;
+  full_name: string;
+  role: InviteRole;
+}
+
 export interface ReportTemplate {
   id: number;
   name: string;
@@ -319,6 +340,19 @@ export const api = {
   saveOrganization(input: UpdateOrganizationInput): Promise<Organization> {
     return request<Organization>('/organization', {
       method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  },
+
+  /** Участники организации. Приглашённые приходят с `is_active: false`. */
+  members(signal?: AbortSignal): Promise<OrganizationMember[]> {
+    return request<OrganizationMember[]>('/organization/members', { signal });
+  },
+
+  /** Пригласить сотрудника. 409 — email занят, 422 — роль или поля не подходят. */
+  inviteMember(input: InviteMemberInput): Promise<OrganizationMember> {
+    return request<OrganizationMember>('/organization/invitations', {
+      method: 'POST',
       body: JSON.stringify(input),
     });
   },

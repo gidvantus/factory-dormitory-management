@@ -3,9 +3,10 @@
 В таблице лежит только SHA-256 открытого токена: утечка строки из базы не даёт
 возможности активировать чужой кабинет. Срок жизни задаёт `activation_token_ttl_hours`.
 
-`kind` различает письмо активации (`activation`) и письмо восстановления пароля
-(`recovery`). Смена пароля у них общая: обе ссылки ведут на один экран, разница
-только в тексте письма, которое ушло пользователю.
+`kind` различает письмо активации (`activation`), письмо восстановления пароля
+(`recovery`) и приглашение сотрудника в организацию (`invitation`). Экран у них
+общий: все три ссылки ведут на страницу активации, разница только в тексте
+письма, которое ушло пользователю.
 """
 
 from datetime import datetime
@@ -15,13 +16,21 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
 
+# Виды одноразовых ссылок. Перечень для `CHECK` собирается из константы, чтобы
+# модель и миграция не разошлись.
+ACTIVATION_TOKEN_KINDS = ("activation", "recovery", "invitation")
+
+ACTIVATION_TOKEN_KINDS_SQL = ", ".join(f"'{kind}'" for kind in ACTIVATION_TOKEN_KINDS)
+
 
 class ActivationToken(Base):
-    """Одноразовая ссылка активации или восстановления пароля, выпущенная на пользователя."""
+    """Одноразовая ссылка активации, восстановления пароля или приглашения."""
 
     __tablename__ = "activation_tokens"
     __table_args__ = (
-        CheckConstraint("kind IN ('activation', 'recovery')", name="ck_activation_tokens_kind"),
+        CheckConstraint(
+            f"kind IN ({ACTIVATION_TOKEN_KINDS_SQL})", name="ck_activation_tokens_kind"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

@@ -1,8 +1,10 @@
 """Организации и членство в них.
 
 Владелец появляется в момент активации кабинета: пустая организация (без
-названия и ИНН) плюс строка членства с ролью `owner`. Роль хранится строкой с
-`CHECK`, а не enum-типом Postgres: набор ролей ещё будет меняться, а ALTER TYPE
+названия и ИНН) плюс строка членства с ролью `owner`. Приглашённый сотрудник
+добавляется в организацию приглашающего с ролью `admin`, `manager` или
+`commandant` ещё до того, как задаст пароль. Роль хранится строкой с `CHECK`,
+а не enum-типом Postgres: набор ролей ещё будет меняться, а ALTER TYPE
 на enum тянет за собой отдельную возню с миграцией значений.
 
 ИНН уникален, но nullable: пустая заготовка организации — нормальное состояние,
@@ -24,8 +26,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
 
-# Роли участника организации. Приглашения и остальные роли — следующая задача.
-ORGANIZATION_ROLES = ("owner", "admin", "member")
+# Роли участника организации. Порядок — как в `CHECK`: сначала те, что выдаются
+# сейчас (`owner` — активацией кабинета, остальные — приглашением), последним
+# идёт устаревшее `member`: оно остаётся в базе ради уже существующих строк,
+# но новые приглашения его не выдают.
+ORGANIZATION_ROLES = ("owner", "admin", "manager", "commandant", "member")
+
+# Перечень значений для `CHECK` собирается из константы: список ролей должен
+# быть записан в модели и в миграции одинаково.
+ORGANIZATION_ROLES_SQL = ", ".join(f"'{role}'" for role in ORGANIZATION_ROLES)
 
 
 class Organization(Base):
@@ -50,7 +59,7 @@ class OrganizationMember(Base):
     __table_args__ = (
         UniqueConstraint("organization_id", "user_id", name="uq_organization_members_org_user"),
         CheckConstraint(
-            "role IN ('owner', 'admin', 'member')",
+            f"role IN ({ORGANIZATION_ROLES_SQL})",
             name="ck_organization_members_role",
         ),
     )

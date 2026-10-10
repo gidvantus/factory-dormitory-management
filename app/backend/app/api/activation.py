@@ -18,6 +18,7 @@ from app.api.recovery import RECOVERY_LIMIT_LOG, identifier_hash, try_consume_re
 from app.db import get_db
 from app.mail import send_activation_email_task
 from app.models.activation import ActivationToken
+from app.models.organization import OrganizationMember
 from app.models.user import User
 from app.schemas.activation import (
     ActivateRequest,
@@ -58,6 +59,19 @@ GONE_RESPONSES: dict[int | str, dict[str, Any]] = {
 def _as_utc(value: datetime) -> datetime:
     """SQLite отдаёт naive datetime: считаем его UTC, иначе сравнение падает."""
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def _has_membership(db: Session, user: User) -> bool:
+    """Есть ли у пользователя хоть одна строка членства в организации.
+
+    Смотрим на строки, а не на `users.active_organization_id`: приглашённый
+    получает членство в организации приглашающего ещё до активации, и ссылка в
+    `users` без строки членства не должна считаться «уже в организации».
+    """
+    return (
+        db.scalar(select(OrganizationMember.id).where(OrganizationMember.user_id == user.id))
+        is not None
+    )
 
 
 def load_activation_token(db: Session, token: str) -> tuple[ActivationToken, User]:
@@ -116,9 +130,11 @@ def activate(payload: ActivateRequest, response: Response, db: DbSession) -> Use
     record.used_at = datetime.now(UTC)
 
     # Момент «появления» аккаунта: пользователь впервые входит в кабинет, значит
-    # ему нужна своя организация. Проверка на `None` делает повторную активацию
-    # безопасной — второй организации у пользователя не появится.
-    if user.active_organization_id is None:
+    # ему нужна своя организация. Приглашённый — исключение: строка членства у
+    # него уже есть, он входит в организацию приглашающего, и второй организации
+    # ему заводить нельзя. Проверка на отсутствие членства делает повторную
+    # активацию безопасной: второй организации не появится ни у кого.
+    if not _has_membership(db, user):
         create_organization_for_user(db, user)
 
     db.commit()
