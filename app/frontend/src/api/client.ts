@@ -48,6 +48,38 @@ export interface UpdateOrganizationInput {
   inn: string;
 }
 
+/** Период списания тарифа: код в базе, «в месяц»/«в год»/«разово» собирает сервер. */
+export type TariffPeriod = 'month' | 'year' | 'once';
+
+export interface Tariff {
+  id: number;
+  name: string;
+  description: string | null;
+  /** Строка, а не число: `Numeric` едет по JSON как «5000.00», копейки терять нельзя. */
+  amount: string;
+  currency: string;
+  period: TariffPeriod;
+  /** «За что» именно эти деньги: «за одно место». */
+  unit_label: string | null;
+  position: number;
+  is_visible: boolean;
+  /** Готовая цена от сервера: «5 000 ₽ за одно место в месяц». */
+  price_label: string;
+  /** false — роль не `owner`/`admin`: список виден, правка нет. */
+  editable: boolean;
+}
+
+/** Тело запроса на создание и правку. Сумма уходит числом, приходит строкой. */
+export interface TariffInput {
+  name?: string;
+  description?: string | null;
+  amount?: number;
+  currency?: string;
+  period?: TariffPeriod;
+  unit_label?: string | null;
+  is_visible?: boolean;
+}
+
 /** Роли, которые можно выдать приглашением. `owner` у организации один. */
 export type InviteRole = 'admin' | 'manager' | 'commandant';
 
@@ -359,6 +391,29 @@ export const api = {
 
   dormitories(signal?: AbortSignal): Promise<Dormitory[]> {
     return request<Dormitory[]>('/dormitories', { signal });
+  },
+
+  /** Опубликованный прайс: страница `/pricing` ходит сюда без сессии. */
+  tariffs(signal?: AbortSignal): Promise<Tariff[]> {
+    return request<Tariff[]>('/tariffs', { signal });
+  },
+
+  /** Полный прайс для кабинета: включает скрытые тарифы. 403 — роль без права правки. */
+  manageTariffs(signal?: AbortSignal): Promise<Tariff[]> {
+    return request<Tariff[]>('/tariffs/manage', { signal });
+  },
+
+  /** Новый тариф. 409 — название занято, 422 — поля не подходят. */
+  createTariff(input: TariffInput): Promise<Tariff> {
+    return request<Tariff>('/tariffs', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  updateTariff(id: number, input: TariffInput): Promise<Tariff> {
+    return request<Tariff>(`/tariffs/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
+  },
+
+  deleteTariff(id: number): Promise<void> {
+    return request<void>(`/tariffs/${id}`, { method: 'DELETE' });
   },
 
   dashboard(

@@ -6,11 +6,13 @@ import { Cabinet } from './pages/Cabinet';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { Landing } from './pages/Landing';
 import { NotFound } from './pages/NotFound';
+import { Pricing } from './pages/Pricing';
 import { Dormitories } from './workspace/Dormitories';
 import { DormitoryDetails } from './workspace/dormitories/DormitoryDetails';
 import { Members } from './workspace/Members';
 import { Organization } from './workspace/Organization';
 import { PersonalData } from './workspace/PersonalData';
+import { Tariffs } from './workspace/Tariffs';
 import { WorkspaceOverview } from './workspace/WorkspaceOverview';
 
 /**
@@ -19,7 +21,9 @@ import { WorkspaceOverview } from './workspace/WorkspaceOverview';
  * было сослаться и обновить страницу. Экран активации стоит вне `RequireAuth`:
  * неактивный пользователь обязан до него дойти. Запрос восстановления пароля —
  * тоже отдельный адрес `/forgot-password`: на него ссылаются из формы входа и
- * из письма, и он доступен без сессии, как и `/activate`.
+ * из письма, и он доступен без сессии, как и `/activate`. Страница тарифов
+ * `/pricing` тоже вне `RequireAuth`: прайс публичный, а правка живёт в кабинете
+ * отдельным разделом `/cabinet/tariffs`.
  */
 export function App(): JSX.Element {
   return (
@@ -28,6 +32,7 @@ export function App(): JSX.Element {
       <Route path="/login" element={<Landing />} />
       <Route path="/register" element={<Landing />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/pricing" element={<Pricing />} />
       <Route path="/activate" element={<Activate />} />
       <Route path="/activate/:token" element={<Activate />} />
       <Route
@@ -43,6 +48,7 @@ export function App(): JSX.Element {
         <Route path="dormitories/:dormitoryId/*" element={<DormitoryDetails />} />
         <Route path="organization" element={<Organization />} />
         <Route path="organization/members" element={<Members />} />
+        <Route path="tariffs" element={<Tariffs />} />
         <Route path="profile" element={<PersonalData />} />
       </Route>
       <Route path="*" element={<NotFound />} />

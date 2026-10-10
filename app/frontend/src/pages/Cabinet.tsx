@@ -9,6 +9,7 @@ import styles from '../workspace/Workspace.module.css';
 const sectionTitles: Record<string, string> = {
   '/cabinet': 'Обзор',
   '/cabinet/dormitories': 'Общежития',
+  '/cabinet/tariffs': 'Тарифы',
   '/cabinet/organization': 'Организация',
   '/cabinet/organization/members': 'Сотрудники',
   '/cabinet/profile': 'Личные данные',
@@ -164,6 +165,17 @@ export function Cabinet(): JSX.Element {
               >
                 <WorkspaceIcon name="house" />
                 Общежития
+              </NavLink>
+            </li>
+            <li>
+              <NavLink
+                className={styles['nav-link']}
+                to="/cabinet/tariffs"
+                onClick={closeMenu}
+                data-testid="workspace-nav-tariffs"
+              >
+                <WorkspaceIcon name="chart" />
+                Тарифы
               </NavLink>
             </li>
           </ul>

@@ -835,3 +835,46 @@
 .shell .members-table {
   min-width: 640px;
 }
+/* Раздел «Тарифы»: та же прокрутка на узком экране и кнопки действий в строке. */
+.shell .tariffs-table {
+  min-width: 720px;
+}
+.shell .row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.shell .row-actions button {
+  padding: 6px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-bg-surface);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.shell .row-actions button:hover:not(:disabled) {
+  border-color: var(--ink-900);
+}
+.shell .row-actions .danger {
+  color: var(--color-danger);
+}
+/* Роль без права правки: список виден, кнопки скрыты, причина — плашкой сверху. */
+.shell .tariffs-readonly {
+  margin-bottom: 18px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--butter-100);
+  color: var(--ink-900);
+}
+.shell .tariff-visible {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+.shell .form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
