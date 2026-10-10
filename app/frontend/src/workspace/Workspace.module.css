@@ -15,16 +15,19 @@
 }
 /* Сброс типографики и цвета каркаса не должен перебивать глобальные
    компонентные классы `.btn` и `.link-button`: у `.shell button`
-   специфичность выше, чем у одного класса, поэтому они исключены явно. */
-.shell button:not(:global(.btn)):not(:global(.link-button)),
-.shell a:not(:global(.btn)):not(:global(.link-button)) {
+   специфичность выше, чем у одного класса, поэтому они исключены явно.
+   Оговорка обёрнута в `:where()` — она не поднимает специфичность правила
+   выше исходной (0,1,1), иначе сброс начал бы перебивать собственные правила
+   модулей той же специфичности (`._rowName_xxx button` и подобные). */
+.shell button:where(:not(:global(.btn))):where(:not(:global(.link-button))),
+.shell a:where(:not(:global(.btn))):where(:not(:global(.link-button))) {
   -webkit-tap-highlight-color: transparent;
 }
-.shell button:not(:global(.btn)):not(:global(.link-button)) {
+.shell button:where(:not(:global(.btn))):where(:not(:global(.link-button))) {
   font: inherit;
 }
-.shell button:not(:global(.btn)):not(:global(.link-button)),
-.shell a:not(:global(.btn)):not(:global(.link-button)) {
+.shell button:where(:not(:global(.btn))):where(:not(:global(.link-button))),
+.shell a:where(:not(:global(.btn))):where(:not(:global(.link-button))) {
   color: inherit;
 }
 .shell button:focus-visible,
