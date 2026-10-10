@@ -612,40 +612,6 @@ input {
   height: 20px;
 }
 
-.stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(1rem, 2vw, 2rem);
-  margin-top: clamp(2.5rem, 2rem + 3vw, 4rem);
-  padding-top: clamp(1.75rem, 1rem + 2vw, 2.5rem);
-  border-top: 1px solid var(--color-border);
-}
-
-.stat {
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 0.25rem;
-}
-
-.stat dt,
-.stat dd {
-  margin: 0;
-}
-
-.stat__value {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: clamp(1.5rem, 1.1rem + 1.4vw, 2rem);
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
-
-.stat__label {
-  margin-top: 0.25rem;
-  font-size: var(--text-sm);
-  color: var(--color-text-body);
-}
-
 /* ==========================================================================
    Карточки
    ========================================================================== */
@@ -657,10 +623,6 @@ input {
 
 .cards--3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.cards--2 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .card {
@@ -1152,43 +1114,6 @@ tbody tr:last-child td {
   margin-top: var(--space-4);
   font-size: var(--text-xs);
   color: var(--color-text-body);
-}
-
-/* ==========================================================================
-   Отзывы
-   ========================================================================== */
-
-.quote {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.quote blockquote {
-  margin: 0;
-  font-size: var(--text-lead);
-  color: var(--color-text);
-  line-height: 1.5;
-}
-
-.quote figcaption {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-sm);
-  color: var(--color-text-body);
-}
-
-.quote img {
-  width: 56px;
-  height: 56px;
-  flex: none;
-}
-
-.quote strong {
-  display: block;
-  font-family: var(--font-display);
-  color: var(--color-text);
 }
 
 /* ==========================================================================
@@ -1720,14 +1645,8 @@ tbody tr:last-child td {
     margin-inline-start: auto;
   }
 
-  .cards--3,
-  .cards--2 {
+  .cards--3 {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .stats {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1.25rem;
   }
 
   .tiles {

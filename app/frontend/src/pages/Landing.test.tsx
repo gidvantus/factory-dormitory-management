@@ -81,16 +81,12 @@ describe('контент лендинга на главной', () => {
     expect(
       screen.getByRole('heading', { name: 'Отчёты, которые не нужно собирать вручную' }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { name: 'Что говорят те, кто ведёт учёт каждый день' }),
-    ).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Частые вопросы' })).toBeInTheDocument();
 
     expect(container.querySelectorAll('.card--role')).toHaveLength(3);
     expect(container.querySelectorAll('.card--feature')).toHaveLength(6);
     expect(container.querySelectorAll('.step')).toHaveLength(4);
     expect(container.querySelectorAll('.chart__row')).toHaveLength(5);
-    expect(container.querySelectorAll('.quote')).toHaveLength(2);
     expect(container.querySelectorAll('.faq details')).toHaveLength(5);
   });
 

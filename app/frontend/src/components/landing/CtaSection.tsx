@@ -47,7 +47,7 @@ export function CtaSection({ onRegister, onLogin }: CtaSectionProps): JSX.Elemen
 
             <p className="note">
               Демо-стенд: данные вымышленные, форма регистрации создаёт реального пользователя в
-              этом контуре.
+              этом сервисе.
             </p>
           </div>
 

@@ -100,7 +100,7 @@ export function InterfaceSection(): JSX.Element {
               <span />
               <span />
             </span>
-            <span className="mockup__url">domovoy.local/dormitory/3</span>
+            <span className="mockup__url">app.domovoy.ru/dormitory/3</span>
           </div>
 
           <div className="mockup__body">
