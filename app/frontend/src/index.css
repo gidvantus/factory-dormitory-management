@@ -1292,6 +1292,65 @@ tbody tr:last-child td {
 }
 
 /* ==========================================================================
+   Страница тарифов
+   ========================================================================== */
+
+.pricing__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: clamp(1rem, 2vw, 1.5rem);
+  max-width: 64rem;
+  margin-inline: auto;
+  padding: 0;
+  list-style: none;
+}
+
+.pricing__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.pricing__card h3 {
+  font-size: var(--text-h3);
+}
+
+.pricing__description {
+  color: var(--color-text-body);
+  font-size: var(--text-sm);
+}
+
+/* Селектор с классом карточки: иначе `.card p` перебил бы размер и цвет цены. */
+.pricing__card .pricing__price {
+  margin-top: auto;
+  font-family: var(--font-display);
+  font-size: var(--text-h3);
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+.pricing__note {
+  max-width: 34rem;
+  margin-inline: auto;
+  text-align: center;
+  color: var(--color-text-body);
+}
+
+.pricing__error {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: center;
+  max-width: 34rem;
+  margin-inline: auto;
+  padding: clamp(1.25rem, 1rem + 1vw, 2rem);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-alt);
+  color: var(--color-danger);
+  text-align: center;
+}
+
+/* ==========================================================================
    Формы
    ========================================================================== */
 

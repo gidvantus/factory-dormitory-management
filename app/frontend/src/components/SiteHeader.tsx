@@ -61,11 +61,19 @@ export function SiteHeader({ actions, nav }: SiteHeaderProps): JSX.Element {
 
         {nav && nav.length > 0 ? (
           <nav className="nav__links" aria-label="Основная навигация">
-            {nav.map((link) => (
-              <a href={link.href} key={link.href}>
-                {link.label}
-              </a>
-            ))}
+            {nav.map((link) =>
+              // Якорь раздела — обычная ссылка, внутренний адрес — `Link`:
+              // переход по нему не должен перезагружать приложение.
+              link.href.startsWith('#') ? (
+                <a href={link.href} key={link.href}>
+                  {link.label}
+                </a>
+              ) : (
+                <Link to={link.href} key={link.href}>
+                  {link.label}
+                </Link>
+              ),
+            )}
           </nav>
         ) : null}
 
