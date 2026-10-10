@@ -19,6 +19,12 @@ const icons = {
     </>
   ),
   house: <path d="M3 21h18M5 21V8l7-5 7 5v13M10 21v-5h4v5M9 11h.01M15 11h.01" />,
+  building: (
+    <>
+      <path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h3a1 1 0 0 1 1 1v11M2 21h20" />
+      <path d="M8 7h1M8 11h1M8 15h1M12 7h1M12 11h1M12 15h1" />
+    </>
+  ),
   bed: <path d="M2 5v15M2 11h20v9M2 16h20M6 11V7h5a3 3 0 0 1 3 3v1" />,
   door: <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" />,
   chart: (

@@ -10,8 +10,9 @@
 """
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
-from tests.conftest import register_user
+from tests.conftest import create_user, login, organizations_for, register_user
 
 PAYLOAD = {"email": "worker@example.com", "full_name": "Иванов Иван Иванович"}
 
@@ -70,6 +71,43 @@ def test_login_broken_json_400_is_documented(client: TestClient) -> None:
 
     assert response.status_code == 400
     assert "400" in documented_statuses(client, "/api/auth/login", "post")
+
+
+def test_organization_patch_broken_json_400_is_documented(
+    client: TestClient, db_session: Session
+) -> None:
+    """Та же регрессия, что у `register`/`login`, но у новой ручки организации.
+
+    Schemathesis находил 400 «There was an error parsing the body» на
+    `PATCH /api/organization`, которого не было в опубликованной схеме.
+    """
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    response = client.patch(
+        "/api/organization", content=BROKEN_JSON_BODY, headers=BROKEN_JSON_HEADERS
+    )
+
+    assert response.status_code == 400
+    assert "400" in documented_statuses(client, "/api/organization", "patch")
+
+
+def test_organization_patch_documents_every_status_it_returns(
+    client: TestClient, db_session: Session
+) -> None:
+    """404 «не привязан», 403 «нельзя править», 409 и 422 — всё в схеме."""
+    documented = documented_statuses(client, "/api/organization", "patch")
+
+    assert {"400", "401", "403", "404", "409", "422"} <= documented
+
+
+def test_organization_get_documents_not_found(
+    client: TestClient,
+) -> None:
+    documented = documented_statuses(client, "/api/organization", "get")
+
+    assert {"401", "403", "404"} <= documented
 
 
 def test_success_statuses_stay_documented(client: TestClient) -> None:

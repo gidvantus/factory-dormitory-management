@@ -123,7 +123,7 @@ function ActivatePending(): JSX.Element {
 
 /** Экран с токеном из письма: проверка ссылки и форма нового пароля. */
 function ActivateToken({ token }: { token: string }): JSX.Element {
-  const { setUser } = useSession();
+  const { setUser, refresh } = useSession();
   const navigate = useNavigate();
   const [info, setInfo] = useState<ActivationInfo | null>(null);
   const [checkError, setCheckError] = useState('');
@@ -181,6 +181,10 @@ function ActivateToken({ token }: { token: string }): JSX.Element {
     try {
       const user = await api.activate(token, password);
       setUser(user);
+      // Активация меняет лежащее на сервере состояние кабинета (в том числе
+      // создаёт организацию), поэтому профиль в сессии перечитываем, а не
+      // доверяем только ответу ручки активации.
+      await refresh();
       setDone(true);
     } catch (error) {
       setSubmitError(error instanceof ApiError ? error.message : 'Не удалось активировать кабинет');

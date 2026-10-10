@@ -770,6 +770,36 @@
   background: var(--peach-100);
   color: #9c3d24;
 }
+/* Форма внутри карточки организации: те же отступы, что у `profile-intro`. */
+.shell .organization-form {
+  display: grid;
+  gap: 18px;
+  padding: 24px 28px 28px;
+}
+.shell .organization-hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+/* Ошибка загрузки — самостоятельный блок со своей кнопкой «Повторить»,
+   поэтому без нижнего отступа, который нужен плашке в потоке кабинета. */
+.shell .organization-error {
+  margin: 0;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--peach-100);
+  color: #9c3d24;
+}
+.shell .organization-error button {
+  margin-top: 10px;
+  padding: 7px 14px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
 .shell .activation-banner {
   margin-bottom: 20px;
   padding: 14px 18px;

@@ -28,6 +28,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import get_db
 from app.main import app
 from app.models import Base
+from app.models.organization import Organization, OrganizationMember
 from app.models.user import User
 from app.security import hash_password
 
@@ -130,3 +131,32 @@ def sign_in(
     response = login(client, email)
     assert response.status_code == 200, response.text
     return user
+
+
+def organizations_for(
+    db_session: Session,
+    user: User,
+    role: str = "owner",
+    name: str | None = None,
+    inn: str | None = None,
+) -> tuple[Organization, OrganizationMember]:
+    """Завести пользователю организацию напрямую в базе.
+
+    `create_user` создаёт пользователя минуя активацию, поэтому организации ему
+    никто не заводит. Роль нужна отличной от `owner`, чтобы проверить 403 на
+    правке, а имя и ИНН — чтобы подготовить конфликт по уникальному ИНН.
+    """
+    organization = Organization(name=name, inn=inn)
+    db_session.add(organization)
+    db_session.flush()
+    membership = OrganizationMember(
+        organization_id=organization.id,
+        user_id=user.id,
+        role=role,
+    )
+    db_session.add(membership)
+    user.active_organization_id = organization.id
+    db_session.commit()
+    db_session.refresh(organization)
+    db_session.refresh(membership)
+    return organization, membership
