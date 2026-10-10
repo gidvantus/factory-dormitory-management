@@ -209,22 +209,42 @@ function ResidentRow({
       </td>
       <td>{textField('notes', 'Доп. информация')}</td>
       <td>
-        <button type="button" disabled title="Функция появится позже">
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled
+          title="Функция появится позже"
+        >
           Записать
         </button>
       </td>
       <td>
-        <button type="button" disabled title="Функция появится позже">
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled
+          title="Функция появится позже"
+        >
           Перевести
         </button>
       </td>
       <td>
-        <button type="button" disabled title="Функция появится позже">
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled
+          title="Функция появится позже"
+        >
           Отток
         </button>
       </td>
       <td>
-        <button type="button" className={styles.deleteButton} onClick={() => onDelete(draft)}>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          aria-busy={saving}
+          onClick={() => onDelete(draft)}
+        >
           Удалить
         </button>
       </td>
@@ -304,7 +324,8 @@ export function ResidentsTable({ dormitoryId }: { dormitoryId: string }): JSX.El
         </div>
         <button
           type="button"
-          className={styles.addButton}
+          className="btn btn--primary btn--sm"
+          aria-busy={adding}
           disabled={adding || status !== 'ready'}
           onClick={() => void add()}
         >
@@ -397,17 +418,23 @@ export function ResidentsTable({ dormitoryId }: { dormitoryId: string }): JSX.El
               {error}
             </p>
           )}
-          <div className={styles.modalActions}>
-            <button type="button" disabled={removing} onClick={() => setDeleting(null)}>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={removing}
+              onClick={() => setDeleting(null)}
+            >
               Отмена
             </button>
             <button
               type="button"
-              className={styles.deleteButton}
+              className="btn btn--danger"
+              aria-busy={removing}
               disabled={removing}
               onClick={() => void remove()}
             >
-              {removing ? 'Удаляем…' : 'Удалить строку'}
+              Удалить строку
             </button>
           </div>
         </Modal>

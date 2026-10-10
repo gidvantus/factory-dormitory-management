@@ -95,14 +95,20 @@ function OutflowEntry({
       <td>{textField('notes', 'Примечание')}</td>
       <td>{textField('additional_info', 'Доп. информация')}</td>
       <td className={styles.actionCell}>
-        <button type="button" disabled title="Функция появится позже">
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          disabled
+          title="Функция появится позже"
+        >
           Выселение
         </button>
       </td>
       <td className={styles.actionCell}>
         <button
           type="button"
-          className={styles.deleteButton}
+          className="btn btn--ghost btn--sm"
+          aria-busy={saving}
           disabled={saving}
           onClick={() => onDelete(draft)}
         >
@@ -184,11 +190,12 @@ export function OutflowTable({
 
   return (
     <section className={styles.page} data-testid="dormitory-outflow">
-      <div className={styles.heading}>
+      <div className="toolbar">
         <h2>Отток</h2>
         <button
           type="button"
-          className={styles.addButton}
+          className="btn btn--primary btn--sm"
+          aria-busy={adding}
           disabled={adding || status !== 'ready'}
           onClick={() => void add()}
         >
@@ -269,17 +276,23 @@ export function OutflowTable({
               {error}
             </p>
           )}
-          <div className={styles.modalActions}>
-            <button type="button" disabled={removing} onClick={() => setDeleting(null)}>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={removing}
+              onClick={() => setDeleting(null)}
+            >
               Отмена
             </button>
             <button
               type="button"
-              className={styles.deleteButton}
+              className="btn btn--danger"
+              aria-busy={removing}
               disabled={removing}
               onClick={() => void remove()}
             >
-              {removing ? 'Удаляем…' : 'Удалить строку'}
+              Удалить строку
             </button>
           </div>
         </Modal>

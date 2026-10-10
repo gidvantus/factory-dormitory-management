@@ -19,26 +19,12 @@
   color: var(--color-text-muted);
   font-size: 12px;
 }
-.addButton {
-  padding: 9px 13px;
-  border: 1px solid var(--mint-600);
-  border-radius: 9px;
-  background: var(--mint-600);
-  color: white;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.addButton:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
 .tableScroll {
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: white;
+  background: var(--color-bg-surface);
 }
 .page .table {
   width: 100%;
@@ -75,7 +61,7 @@
   text-align: center;
 }
 .table tbody th:first-child {
-  background: white;
+  background: var(--color-bg-surface);
 }
 .table th:nth-child(2) {
   width: 51px;
@@ -134,28 +120,10 @@
 .table select:hover,
 .table select:focus {
   border-color: var(--mint-600);
-  background: white;
+  background: var(--color-bg-surface);
 }
 .table input[type='number'] {
   text-align: center;
-}
-.table button {
-  width: 100%;
-  padding: 6px 4px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 7px;
-  background: white;
-  color: var(--color-text);
-  font: inherit;
-}
-.table button:disabled {
-  opacity: 0.48;
-  cursor: not-allowed;
-}
-.table button.deleteButton,
-.modalActions .deleteButton {
-  color: var(--color-danger);
-  cursor: pointer;
 }
 .rowStatus {
   display: block;
@@ -170,17 +138,4 @@
 .error {
   color: var(--color-danger);
   font-size: 13px;
-}
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 18px;
-}
-.modalActions button {
-  padding: 8px 12px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
-  background: white;
-  cursor: pointer;
 }

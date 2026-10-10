@@ -89,7 +89,7 @@ export function Organization(): JSX.Element {
 
   return (
     <section aria-labelledby="organization-title" data-testid="organization-page">
-      <div className={styles['page-heading']}>
+      <div className="page-head">
         <div>
           <p className={styles.eyebrow}>Рабочее пространство</p>
           <h1 id="organization-title" tabIndex={-1}>

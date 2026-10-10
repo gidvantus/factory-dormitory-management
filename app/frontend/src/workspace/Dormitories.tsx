@@ -47,7 +47,7 @@ export function Dormitories(): JSX.Element {
       aria-labelledby="dormitories-title"
       data-testid="dormitories-page"
     >
-      <div className={styles['page-heading']}>
+      <div className="page-head">
         <div>
           <p className={styles.eyebrow}>Рабочее пространство</p>
           <h1 id="dormitories-title" tabIndex={-1}>
@@ -56,7 +56,7 @@ export function Dormitories(): JSX.Element {
           <p className={styles.subtitle}>Список общежитий</p>
         </div>
         <button
-          className={listStyles.createButton}
+          className="btn btn--primary"
           type="button"
           ref={createRef}
           data-testid="create-dormitory-button"

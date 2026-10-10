@@ -296,13 +296,13 @@ function RowDialog({
             {error}
           </p>
         )}
-        <div className={styles.dialogActions}>
+        <div className="dialog-actions">
           {row &&
             !required &&
             (confirmDelete ? (
               <button
                 type="button"
-                className={styles.deleteConfirm}
+                className="btn btn--danger dialogDelete"
                 onClick={() => void remove()}
                 disabled={saving || deleting}
               >
@@ -311,7 +311,7 @@ function RowDialog({
             ) : (
               <button
                 type="button"
-                className={styles.deleteButton}
+                className="btn btn--ghost dialogDelete"
                 onClick={() => setConfirmDelete(true)}
                 disabled={saving || deleting}
               >
@@ -320,14 +320,19 @@ function RowDialog({
             ))}
           <button
             type="button"
-            className={styles.cancelButton}
+            className="btn btn--ghost"
             onClick={onClose}
             disabled={saving || deleting}
           >
             Отмена
           </button>
-          <button type="submit" className={styles.saveButton} disabled={saving || deleting}>
-            {saving ? 'Сохраняем…' : 'Сохранить'}
+          <button
+            type="submit"
+            className="btn btn--primary"
+            aria-busy={saving}
+            disabled={saving || deleting}
+          >
+            Сохранить
           </button>
         </div>
       </form>
@@ -400,12 +405,12 @@ function SaveTemplateDialog({
             {error}
           </p>
         )}
-        <div className={styles.dialogActions}>
-          <button type="button" className={styles.cancelButton} onClick={onClose} disabled={saving}>
+        <div className="dialog-actions">
+          <button type="button" className="btn btn--ghost" onClick={onClose} disabled={saving}>
             Отмена
           </button>
-          <button type="submit" className={styles.saveButton} disabled={saving}>
-            {saving ? 'Сохраняем…' : 'Сохранить шаблон'}
+          <button type="submit" className="btn btn--primary" aria-busy={saving} disabled={saving}>
+            Сохранить шаблон
           </button>
         </div>
       </form>
@@ -488,7 +493,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
         </div>
         <div className={styles.headingActions}>
           <button
-            className={styles.templateButton}
+            className="btn btn--ghost btn--sm"
             type="button"
             onClick={() => setTemplateDialogOpen(true)}
             disabled={status !== 'ready' || rows.length === 0}
@@ -497,7 +502,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
             Сохранить как шаблон
           </button>
           <button
-            className={styles.addButton}
+            className="btn btn--primary btn--sm"
             type="button"
             onClick={() => setEditing('new')}
             data-testid="report-add-row"
@@ -537,7 +542,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
       {status === 'error' && (
         <div className={styles.loadError} role="alert">
           <p>{error}</p>
-          <button type="button" onClick={refresh}>
+          <button type="button" className="link-button" onClick={refresh}>
             Повторить
           </button>
         </div>
