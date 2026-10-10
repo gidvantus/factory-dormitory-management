@@ -17,6 +17,7 @@ from app.api import (
     report_templates,
     reports,
     residents,
+    tariffs,
     users,
 )
 
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     application.include_router(dormitories.router, prefix=API_PREFIX)
     application.include_router(reports.router, prefix=API_PREFIX)
     application.include_router(report_templates.router, prefix=API_PREFIX)
+    application.include_router(tariffs.router, prefix=API_PREFIX)
     return application
 
 
