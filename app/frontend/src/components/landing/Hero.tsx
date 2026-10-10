@@ -1,5 +1,5 @@
 import heroScene from '../../assets/hero-scene.svg';
-import { ChartLineIcon, HouseIcon, ShieldCheckIcon } from './icons';
+import { ChartLineIcon, HouseIcon } from './icons';
 
 interface HeroProps {
   /** Открыть окно регистрации: главное действие страницы. */
@@ -8,7 +8,7 @@ interface HeroProps {
   onLogin: () => void;
 }
 
-/** Герой: заголовок, показатели и иллюстрация с плашками занятости. */
+/** Герой: заголовок и иллюстрация с плашками занятости. */
 export function Hero({ onRegister, onLogin }: HeroProps): JSX.Element {
   return (
     <section className="hero" id="hero">
@@ -45,26 +45,6 @@ export function Hero({ onRegister, onLogin }: HeroProps): JSX.Element {
               Войти
             </button>
           </div>
-
-          <p className="hero__note">
-            <ShieldCheckIcon strokeWidth={2} />
-            Работает в вашем контуре: данные проживающих не уходят наружу
-          </p>
-
-          <dl className="stats">
-            <div className="stat">
-              <dt className="stat__label">мест под контролем</dt>
-              <dd className="stat__value">4 800</dd>
-            </div>
-            <div className="stat">
-              <dt className="stat__label">общежитий в одном окне</dt>
-              <dd className="stat__value">12</dd>
-            </div>
-            <div className="stat">
-              <dt className="stat__label">времени на отчёт по занятости</dt>
-              <dd className="stat__value">1 мин</dd>
-            </div>
-          </dl>
         </div>
 
         <div className="hero__art">

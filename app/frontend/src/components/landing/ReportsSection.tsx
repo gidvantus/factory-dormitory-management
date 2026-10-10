@@ -20,7 +20,7 @@ const CHART_LABEL = `Заполняемость общежитий: ${OCCUPANCY.
 /** Отчётность: текстовый блок и диаграмма заполняемости. */
 export function ReportsSection(): JSX.Element {
   return (
-    <section className="section section--alt" id="reports">
+    <section className="section" id="reports">
       <div className="container report">
         <div className="reveal">
           <p className="eyebrow">Отчётность</p>

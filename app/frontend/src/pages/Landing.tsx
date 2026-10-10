@@ -9,7 +9,6 @@ import { FeaturesSection } from '../components/landing/FeaturesSection';
 import { Hero } from '../components/landing/Hero';
 import { InterfaceSection } from '../components/landing/InterfaceSection';
 import { ReportsSection } from '../components/landing/ReportsSection';
-import { ReviewsSection } from '../components/landing/ReviewsSection';
 import { RolesSection } from '../components/landing/RolesSection';
 import { SiteFooter } from '../components/landing/SiteFooter';
 import { StepsSection } from '../components/landing/StepsSection';
@@ -96,7 +95,6 @@ export function Landing(): JSX.Element {
         <StepsSection />
         <InterfaceSection />
         <ReportsSection />
-        <ReviewsSection />
         <FaqSection />
         <CtaSection onRegister={() => navigate('/register')} onLogin={() => navigate('/login')} />
       </main>
