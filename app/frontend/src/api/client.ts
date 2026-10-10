@@ -203,6 +203,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
+/**
+ * Текст ошибки для пользователя.
+ *
+ * У ошибки приложения `detail` — строка («Организация с таким ИНН уже есть»), а у
+ * ошибки валидации FastAPI — **список** объектов вида
+ * `{type, loc, msg, input}`. Из-за этой разницы раньше любой 422 показывался
+ * пользователю как «Запрос не удался (422)» вместо конкретной причины, хотя
+ * требование задачи — показывать текст сервера. Поэтому список разбираем:
+ * берём `msg` каждого элемента и убираем служебную приставку pydantic.
+ */
 async function readErrorMessage(response: Response): Promise<string> {
   try {
     const body: unknown = await response.json();
@@ -211,11 +221,41 @@ async function readErrorMessage(response: Response): Promise<string> {
       if (typeof detail === 'string') {
         return detail;
       }
+      const validation = validationErrorsText(detail);
+      if (validation) {
+        return validation;
+      }
     }
   } catch {
     // Тело не JSON — показываем общий текст ниже.
   }
   return `Запрос не удался (${response.status})`;
+}
+
+/** `loc` вида `['body', 'inn']` → «inn»: путь поля в теле запроса. */
+function fieldFromLocation(location: unknown): string {
+  if (!Array.isArray(location)) return '';
+  const parts = location
+    .filter((part): part is string | number => typeof part === 'string' || typeof part === 'number')
+    .map(String)
+    .filter((part) => part !== 'body');
+  return parts.length > 0 ? `${parts.join('.')}: ` : '';
+}
+
+function validationErrorsText(detail: unknown): string {
+  if (!Array.isArray(detail)) return '';
+  const messages = detail
+    .map((item) => {
+      if (!item || typeof item !== 'object') return '';
+      const error = item as { loc?: unknown; msg?: unknown };
+      if (typeof error.msg !== 'string') return '';
+      // pydantic предваряет текст валидатора: «Value error, ИНН должен…».
+      const message = error.msg.replace(/^Value error,\s*/i, '').trim();
+      if (!message) return '';
+      return `${fieldFromLocation(error.loc)}${message}`;
+    })
+    .filter(Boolean);
+  return messages.join('; ');
 }
 
 export const api = {

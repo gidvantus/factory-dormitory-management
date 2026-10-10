@@ -143,6 +143,12 @@ def read_organization(membership: Membership, db: DbSession) -> OrganizationResp
     summary="Изменить название и ИНН организации",
     responses={
         **NOT_FOUND_RESPONSES,
+        # Тело, которое не декодируется как UTF-8, FastAPI превращает в 400
+        # «There was an error parsing the body» — этот код обязан быть в схеме.
+        status.HTTP_400_BAD_REQUEST: {
+            "model": ErrorResponse,
+            "description": "Тело запроса не разбирается как JSON",
+        },
         status.HTTP_409_CONFLICT: {
             "model": ErrorResponse,
             "description": INN_CONFLICT_DETAIL,

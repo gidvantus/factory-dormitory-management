@@ -273,6 +273,35 @@ def test_update_organization_rejects_a_too_long_name(
     assert response.status_code == 422
 
 
+def test_validation_error_body_carries_the_reason_for_the_user(
+    client: TestClient, db_session: Session
+) -> None:
+    """Тело 422 — список `detail`, и в нём есть и поле, и текст причины.
+
+    Форма ответа важна для фронта: он достаёт из `loc` имя поля и показывает
+    `msg`. Проверка держит контракт с обеих сторон, чтобы текст ошибки снова не
+    подменился общим «Запрос не удался (422)».
+    """
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    response = client.patch("/api/organization", json={"name": "ООО Ромашка", "inn": "12345"})
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert isinstance(detail, list) and detail
+    entry = detail[0]
+    assert entry["loc"] == ["body", "inn"]
+    assert "ИНН должен состоять из 10 или 12 цифр" in entry["msg"]
+
+    blank = client.patch("/api/organization", json={"name": "   ", "inn": INN_A})
+    assert blank.status_code == 422
+    blank_entry = blank.json()["detail"][0]
+    assert blank_entry["loc"] == ["body", "name"]
+    assert "Название не может быть пустым" in blank_entry["msg"]
+
+
 def test_update_organization_rejects_an_unknown_field(
     client: TestClient, db_session: Session
 ) -> None:

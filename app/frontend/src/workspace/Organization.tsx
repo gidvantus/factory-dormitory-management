@@ -28,6 +28,11 @@ export function Organization(): JSX.Element {
   const [saveError, setSaveError] = useState('');
   const inFlight = useRef(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const innRef = useRef<HTMLInputElement>(null);
+  // Куда вернуть фокус, когда сохранение закончится. Пока идёт запрос, кнопка
+  // «Сохранить» задизейблена и фокус с неё слетает на `<body>`; без этого
+  // возврата пользователь клавиатуры теряет место на странице.
+  const focusAfterSave = useRef<'name' | 'inn' | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -63,11 +68,22 @@ export function Organization(): JSX.Element {
       setName(updated.name ?? '');
       setInn(updated.inn ?? '');
       setSaved('Изменения сохранены.');
+      // Успех: возвращаем фокус на первое поле формы, чтобы не отдавать его `<body>`.
+      focusAfterSave.current = 'name';
     } catch (error) {
       setSaveError(saveErrorMessage(error));
+      focusAfterSave.current = fieldForError(error);
     } finally {
       inFlight.current = false;
       setSaving(false);
+      const target = focusAfterSave.current;
+      focusAfterSave.current = null;
+      // Кадр нужен потому, что сразу после `setSaving(false)` поля ещё
+      // задизейблены, а задизейбленный элемент фокус не принимает.
+      window.requestAnimationFrame(() => {
+        const field = target === 'inn' ? innRef.current : nameRef.current;
+        field?.focus({ preventScroll: true });
+      });
     }
   }
 
@@ -160,6 +176,7 @@ export function Organization(): JSX.Element {
                 className="field__input"
                 id="organization-inn"
                 data-testid="organization-inn"
+                ref={innRef}
                 value={inn}
                 onChange={(event) => setInn(event.target.value)}
                 inputMode="numeric"
@@ -205,4 +222,19 @@ function saveErrorMessage(error: unknown): string {
     return error.status === 401 ? 'Сессия завершилась. Войдите в аккаунт снова.' : error.message;
   }
   return 'Не удалось сохранить изменения. Проверьте соединение и попробуйте ещё раз.';
+}
+
+/**
+ * Куда вернуть фокус при ошибке сохранения.
+ *
+ * Поле определяется по имени в тексте сервера (`inn: …`, `name: …`), а не по
+ * префиксу строки: сообщение 409 начинается со слова «Организация», хотя
+ * касается именно ИНН, и по префиксу фокус уехал бы не туда. Если поле не
+ * названо, возвращаемся на первое — там начинается форма.
+ */
+function fieldForError(error: unknown): 'name' | 'inn' {
+  if (error instanceof ApiError && /(?:^|[\s;])inn\s*:/i.test(error.message)) {
+    return 'inn';
+  }
+  return 'name';
 }

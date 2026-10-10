@@ -104,10 +104,25 @@ describe('страница организации', () => {
     expect(screen.getByTestId('organization-inn')).toHaveValue('7701234567');
   });
 
-  it('показывает текст ошибки сервера на некорректный ИНН', async () => {
-    mountOrganization({ status: 200, body: EMPTY }, (_url, init) =>
+  it('показывает текст ошибки 422 так, как его отдаёт FastAPI, — списком detail', async () => {
+    // Тело настоящего ответа: у ошибки валидации `detail` — СПИСОК объектов,
+    // а не строка. Подменять его строкой нельзя: именно на этом различии
+    // пользователь вместо причины видел «Запрос не удался (422)».
+    const fetchMock = mountOrganization({ status: 200, body: EMPTY }, (_url, init) =>
       init?.method === 'PATCH'
-        ? { status: 422, body: { detail: 'ИНН должен состоять из 10 или 12 цифр' } }
+        ? {
+            status: 422,
+            body: {
+              detail: [
+                {
+                  type: 'value_error',
+                  loc: ['body', 'inn'],
+                  msg: 'Value error, ИНН должен состоять из 10 или 12 цифр',
+                  input: '12345',
+                },
+              ],
+            },
+          }
         : null,
     );
     const user = userEvent.setup();
@@ -117,10 +132,80 @@ describe('страница организации', () => {
     await user.type(screen.getByTestId('organization-inn'), '12345');
     await user.click(screen.getByTestId('organization-submit'));
 
-    expect(await screen.findByTestId('organization-save-error')).toHaveTextContent(
-      'ИНН должен состоять из 10 или 12 цифр',
-    );
+    const error = await screen.findByTestId('organization-save-error');
+    expect(error).toHaveTextContent('inn: ИНН должен состоять из 10 или 12 цифр');
+    expect(error).not.toHaveTextContent('Запрос не удался');
     expect(screen.queryByTestId('organization-save-success')).not.toBeInTheDocument();
+    // Тело запроса ушло ровно с тем, что ввели: тест проверяет разбор ответа,
+    // а не подмену клиента.
+    const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
+    expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ name: 'ООО Ромашка', inn: '12345' });
+  });
+
+  it('показывает 422 на пустое название текстом валидатора', async () => {
+    mountOrganization({ status: 200, body: EMPTY }, (_url, init) =>
+      init?.method === 'PATCH'
+        ? {
+            status: 422,
+            body: {
+              detail: [
+                {
+                  type: 'value_error',
+                  loc: ['body', 'name'],
+                  msg: 'Value error, Название не может быть пустым',
+                  input: '   ',
+                },
+              ],
+            },
+          }
+        : null,
+    );
+    const user = userEvent.setup();
+    renderApp('/cabinet/organization');
+
+    await user.type(await screen.findByTestId('organization-name'), '   ');
+    await user.click(screen.getByTestId('organization-submit'));
+
+    expect(await screen.findByTestId('organization-save-error')).toHaveTextContent(
+      'name: Название не может быть пустым',
+    );
+  });
+
+  it('возвращает фокус в поле с ошибкой после неудачного сохранения', async () => {
+    mountOrganization({ status: 200, body: EMPTY }, (_url, init) =>
+      init?.method === 'PATCH'
+        ? {
+            status: 422,
+            body: {
+              detail: [
+                { type: 'value_error', loc: ['body', 'inn'], msg: 'Value error, ИНН неверный' },
+              ],
+            },
+          }
+        : null,
+    );
+    const user = userEvent.setup();
+    renderApp('/cabinet/organization');
+
+    await user.type(await screen.findByTestId('organization-name'), 'ООО Ромашка');
+    await user.type(screen.getByTestId('organization-inn'), '12345');
+    await user.click(screen.getByTestId('organization-submit'));
+
+    await screen.findByTestId('organization-save-error');
+    // Поле ИНН названо в ошибке, значит фокус возвращается туда, а не на `<body>`.
+    await waitFor(() => expect(screen.getByTestId('organization-inn')).toHaveFocus());
+  });
+
+  it('возвращает фокус на первое поле после успешного сохранения', async () => {
+    mountOrganization({ status: 200, body: EMPTY });
+    const user = userEvent.setup();
+    renderApp('/cabinet/organization');
+
+    await user.type(await screen.findByTestId('organization-name'), 'ООО Ромашка');
+    await user.click(screen.getByTestId('organization-submit'));
+
+    await screen.findByTestId('organization-save-success');
+    await waitFor(() => expect(screen.getByTestId('organization-name')).toHaveFocus());
   });
 
   it('показывает 409 при занятом ИНН', async () => {
@@ -139,6 +224,9 @@ describe('страница организации', () => {
     expect(await screen.findByTestId('organization-save-error')).toHaveTextContent(
       'Организация с таким ИНН уже есть',
     );
+    // Текст 409 не называет поле, поэтому фокус возвращается на первое поле
+    // формы, а не остаётся на `<body>`.
+    await waitFor(() => expect(screen.getByTestId('organization-name')).toHaveFocus());
   });
 
   it('вместо формы выводит сообщение, если пользователь не привязан к организации', async () => {
