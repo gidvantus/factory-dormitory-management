@@ -166,10 +166,10 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
               aria-describedby={error ? 'dashboard-period-error' : undefined}
             />
           </label>
-          <button className={styles.applyButton} type="submit">
+          <button className="btn btn--primary btn--sm" type="submit">
             Применить
           </button>
-          <button className={styles.resetButton} type="button" onClick={resetPeriod}>
+          <button className="btn btn--ghost btn--sm" type="button" onClick={resetPeriod}>
             Текущий месяц
           </button>
         </div>
@@ -191,7 +191,11 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
       {result.status === 'error' && (
         <div className={styles.loadError} role="alert">
           <span>Не удалось загрузить показатели. Попробуйте ещё раз.</span>
-          <button type="button" onClick={() => setAttempt((current) => current + 1)}>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => setAttempt((current) => current + 1)}
+          >
             Повторить
           </button>
         </div>

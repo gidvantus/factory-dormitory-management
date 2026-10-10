@@ -78,38 +78,13 @@
   padding: 7px 10px;
   border: 1px solid var(--color-border-strong);
   border-radius: 9px;
-  background: white;
+  background: var(--color-bg-surface);
   color: var(--ink-900);
   font: 600 13px var(--font-body);
   color-scheme: light;
 }
 .dashboard .dateField input[aria-invalid='true'] {
   border-color: var(--color-danger);
-}
-.dashboard .applyButton,
-.dashboard .resetButton {
-  min-height: 39px;
-  padding: 8px 15px;
-  border-radius: 9px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.dashboard .applyButton {
-  border: 1px solid var(--mint-600);
-  background: var(--mint-600);
-  color: white;
-}
-.dashboard .applyButton:hover {
-  background: var(--mint-700);
-}
-.dashboard .resetButton {
-  border: 1px solid var(--color-border-strong);
-  background: white;
-  color: var(--color-text-body);
-}
-.dashboard .resetButton:hover {
-  background: var(--cream-100);
 }
 .dashboard .formError {
   width: 100%;
@@ -135,11 +110,8 @@
   border-radius: 12px;
   color: var(--color-danger);
 }
-.dashboard .loadError button {
-  border: 0;
-  background: transparent;
-  text-decoration: underline;
-  cursor: pointer;
+.dashboard .loadError .link-button {
+  color: inherit;
 }
 .dashboard .summary {
   display: grid;
@@ -195,7 +167,7 @@
 }
 .dashboard .card {
   min-width: 0;
-  background: white;
+  background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: 18px;
   overflow: hidden;
@@ -242,7 +214,7 @@
   padding: 7px 10px;
   border: 1px solid var(--color-border-strong);
   border-radius: 9px;
-  background: #fff;
+  background: var(--color-bg-surface);
   color: var(--color-text);
   font: inherit;
 }
@@ -399,7 +371,7 @@
 }
 .dashboard .blockIcon[data-tone='peach'] {
   background: var(--peach-100);
-  color: #97431f;
+  color: var(--clay-700);
 }
 .dashboard .blockIcon[data-tone='sky'] {
   background: var(--sky-100);
@@ -465,7 +437,7 @@
 .dashboard .pendingBadge {
   padding: 5px 10px;
   background: var(--butter-100);
-  color: #7a5c0d;
+  color: var(--butter-700);
   border-radius: 7px;
   font-size: 11px;
   font-weight: 700;
@@ -493,13 +465,13 @@
   height: 7px;
   border-radius: 50%;
   flex: none;
-  background: #909ba4;
+  background: var(--color-status-neutral);
 }
 .dashboard .statusDot[data-status='saved'] {
-  background: #2f7d62;
+  background: var(--color-status-ok);
 }
 .dashboard .statusDot[data-status='missing'] {
-  background: #c34d4d;
+  background: var(--color-status-missing);
 }
 .dashboard .reportsEmpty {
   padding: 20px 24px;

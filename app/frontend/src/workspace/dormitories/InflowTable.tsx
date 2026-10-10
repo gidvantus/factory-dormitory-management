@@ -105,7 +105,13 @@ function InflowEntry({
         />
       </td>
       <td className={styles.actionCell}>
-        <button type="button" disabled={saving} onClick={() => onDelete(draft)}>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm"
+          aria-busy={saving}
+          disabled={saving}
+          onClick={() => onDelete(draft)}
+        >
           Удалить
         </button>
         {(saving || error) && (
@@ -184,11 +190,12 @@ export function InflowTable({
 
   return (
     <section className={styles.page} data-testid="dormitory-inflow">
-      <div className={styles.heading}>
+      <div className="toolbar">
         <h2>Приток</h2>
         <button
           type="button"
-          className={styles.addButton}
+          className="btn btn--primary btn--sm"
+          aria-busy={adding}
           disabled={adding || status !== 'ready'}
           onClick={() => void add()}
         >
@@ -267,17 +274,23 @@ export function InflowTable({
               {error}
             </p>
           )}
-          <div className={styles.modalActions}>
-            <button type="button" disabled={removing} onClick={() => setDeleting(null)}>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={removing}
+              onClick={() => setDeleting(null)}
+            >
               Отмена
             </button>
             <button
               type="button"
-              className={styles.deleteButton}
+              className="btn btn--danger"
+              aria-busy={removing}
               disabled={removing}
               onClick={() => void remove()}
             >
-              {removing ? 'Удаляем…' : 'Удалить строку'}
+              Удалить строку
             </button>
           </div>
         </Modal>

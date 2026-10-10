@@ -31,9 +31,11 @@
   --peach-100: #fbe0d2;
   --peach-200: #f5c0a4;
   --clay-600: #c4623c;
+  --clay-700: #97431f;
 
   --butter-100: #fcefc7;
   --butter-200: #f2d793;
+  --butter-700: #7a5c0d;
 
   --sky-100: #dce9f7;
   --sky-200: #b7d3ec;
@@ -60,10 +62,15 @@
      плейсхолдеры. Значение ниже проверено на всех трёх фонах: 5,1:1 и выше. */
   --color-text-muted: #5c6a78;
   --color-text-placeholder: var(--ink-300);
+  /* Подпись, которая не текст, а метка: контраст не нормируется, потому что
+     значение живёт только в иконках и служебных разделителях. */
+  --color-text-subtle: #9ba3a9;
 
   --color-accent: var(--mint-600);
   --color-accent-hover: var(--mint-700);
   --color-on-accent: #ffffff;
+  /* Алиас для кнопок: семантика та же, что у `--color-on-accent`. */
+  --color-text-on-accent: var(--color-on-accent);
   --color-on-ink: var(--cream-50);
   --color-focus: var(--blue-600);
   /* Толщина обводки фокуса одинаковая по всему приложению: поля, кнопки и
@@ -73,6 +80,11 @@
      проходит, поэтому для текста ошибок берём тёмный терракотовый (5,4:1 на
      #fbe0d2). Примитив --clay-600 остался для заливок и иконок. */
   --color-danger: #9c3d24;
+
+  /* Статусные точки кабинета: цвет кодирует состояние отчёта, а не текст. */
+  --color-status-neutral: #909ba4;
+  --color-status-ok: var(--mint-600);
+  --color-status-missing: #c34d4d;
 
   /* --- Типографика ------------------------------------------------------ */
   --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -92,11 +104,25 @@
   --leading-body: 1.65;
 
   /* --- Форма и ритм ----------------------------------------------------- */
+  /* Малые радиусы рабочего пространства: 6/7/8/9/10px. Это отдельная шкала,
+     она не сворачивается в --radius-sm и выше. */
+  --radius-xs: 6px;
+  --radius-2xs: 7px;
+  --radius-3xs: 8px;
+  --radius-4xs: 9px;
+  --radius-5xs: 10px;
   --radius-sm: 12px;
   --radius-md: 18px;
   --radius-lg: 26px;
   --radius-xl: 34px;
   --radius-pill: 999px;
+
+  /* Контрольные высоты кнопок: 32 / 39 / 48px. */
+  --control-h-sm: 32px;
+  --control-h-md: 39px;
+  --control-h-lg: 48px;
+  --control-px-sm: 13px;
+  --control-px-md: 15px;
 
   --shadow-sm: 0 1px 2px rgba(39, 49, 61, 0.05);
   --shadow-md: 0 10px 24px -14px rgba(39, 49, 61, 0.22);
@@ -112,6 +138,21 @@
   --space-5: 1.5rem;
   --space-6: 2rem;
   --space-7: 3rem;
+
+  /* Шкала плотности рабочего пространства — в пикселях, потому что модули
+     кабинета считают отступы в px. `--space-*` в rem остаётся для лендинга. */
+  --gap-2: 2px;
+  --gap-4: 4px;
+  --gap-6: 6px;
+  --gap-8: 8px;
+  --gap-10: 10px;
+  --gap-12: 12px;
+  --gap-14: 14px;
+  --gap-16: 16px;
+  --gap-18: 18px;
+  --gap-20: 20px;
+  --gap-24: 24px;
+  --gap-28: 28px;
 }
 
 /* ==========================================================================
@@ -406,13 +447,69 @@ input {
   color: var(--color-text);
 }
 
+/* Компактный размер того же варианта: 39px против основных 48px. */
 .btn--sm {
-  min-height: 42px;
-  padding: 0.5rem 1.125rem;
+  min-height: var(--control-h-md);
+  padding: 8px var(--control-px-md);
+  border-radius: var(--radius-4xs);
+  font-size: var(--text-xs);
 }
 
 .btn--block {
   width: 100%;
+}
+
+.btn--danger {
+  background: var(--color-danger);
+  color: var(--color-text-on-accent);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: var(--clay-700);
+  color: var(--color-text-on-accent);
+  transform: translateY(-2px);
+}
+
+.btn--ghost {
+  background: var(--color-bg-surface);
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--color-bg-alt);
+  border-color: var(--ink-900);
+  color: var(--color-text);
+}
+
+/* Нажатие гасит подъём, но не меняет цвет: так состояние читается и у
+   основного, и у опасного, и у второстепенного варианта. */
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* «Идёт запрос»: вместо разнобоя `disabled` + «Удаляем…» кнопка получает
+   `aria-busy="true"` (или класс) и крутящийся индикатор. */
+.btn--loading,
+.btn[aria-busy='true'] {
+  cursor: progress;
+}
+
+.btn--loading::after,
+.btn[aria-busy='true']::after {
+  content: '';
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentcolor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 700ms linear infinite;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .link-button {
@@ -1015,6 +1112,11 @@ tbody tr:last-child td {
   color: #97431f;
 }
 
+.tag--neutral {
+  background: var(--color-bg-tint);
+  color: var(--color-text-body);
+}
+
 .person {
   display: flex;
   align-items: center;
@@ -1046,6 +1148,46 @@ tbody tr:last-child td {
 }
 
 .person span:first-child[data-tone='lilac'] {
+  background: var(--lilac-100);
+  color: var(--violet-600);
+}
+
+/* Аватар-инициалы: одна реализация на всё приложение, размер — модификатором.
+   26px нужен таблицам лендинга, 32px — таблицам кабинета. */
+.avatar {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  flex: none;
+  background: var(--sky-100);
+  color: var(--blue-600);
+  font-family: var(--font-display);
+  font-weight: 800;
+}
+
+.avatar--sm {
+  width: 26px;
+  height: 26px;
+  font-size: 0.6875rem;
+}
+
+.avatar--md {
+  width: 32px;
+  height: 32px;
+  font-size: 11px;
+}
+
+.avatar[data-tone='mint'] {
+  background: var(--mint-100);
+  color: var(--mint-700);
+}
+
+.avatar[data-tone='peach'] {
+  background: var(--peach-100);
+  color: #97431f;
+}
+
+.avatar[data-tone='lilac'] {
   background: var(--lilac-100);
   color: var(--violet-600);
 }
@@ -1471,6 +1613,89 @@ tbody tr:last-child td {
 .modal__body {
   display: grid;
   gap: var(--space-4);
+}
+
+/* Полоса кнопок диалога: единая замена локальным `.modalActions` и
+   `.dialogActions`. Кнопки внутри получают явный вариант `.btn--*`. */
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ==========================================================================
+   Каркас страниц кабинета
+   ========================================================================== */
+
+/* Шапка страницы: заголовок слева, действие справа. */
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+/* Полоса действий над таблицей — та же связка, но с табличным ритмом. */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Карточка-таблица кабинета. */
+.panel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-bg-surface);
+}
+
+/* Таблица кабинета: значения перенесены из `.shell table` без изменений. */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 17px 20px;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table th:first-child,
+.data-table td:first-child {
+  padding-left: 24px;
+}
+
+.data-table th:last-child,
+.data-table td:last-child {
+  padding-right: 24px;
+}
+
+.data-table th {
+  color: var(--color-text-body);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.065em;
+  font-weight: 700;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.data-table tbody tr:hover {
+  background: var(--color-bg-page);
 }
 
 /* ==========================================================================

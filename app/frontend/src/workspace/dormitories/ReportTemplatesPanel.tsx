@@ -71,8 +71,8 @@ function TemplatePreview({
           )}
         </>
       )}
-      <div className={styles.dialogActions}>
-        <button type="button" onClick={onClose}>
+      <div className="dialog-actions">
+        <button type="button" className="btn btn--ghost" onClick={onClose}>
           Закрыть
         </button>
       </div>
@@ -153,6 +153,7 @@ export function ReportTemplatesPanel(): JSX.Element {
                 <div className={styles.templateActions}>
                   <button
                     type="button"
+                    className="btn btn--ghost btn--sm"
                     onClick={() => setConfirmId(null)}
                     disabled={deletingId !== null}
                   >
@@ -160,16 +161,19 @@ export function ReportTemplatesPanel(): JSX.Element {
                   </button>
                   <button
                     type="button"
+                    className="btn btn--danger btn--sm"
                     onClick={() => void remove(template.id)}
+                    aria-busy={deletingId === template.id}
                     disabled={deletingId !== null}
                     aria-label={`Подтвердить удаление шаблона ${template.name}`}
                   >
-                    {deletingId === template.id ? 'Удаляем…' : 'Подтвердить удаление'}
+                    Подтвердить удаление
                   </button>
                 </div>
               ) : (
                 <button
                   type="button"
+                  className="btn btn--ghost btn--sm"
                   onClick={() => setConfirmId(template.id)}
                   aria-label={`Удалить шаблон ${template.name}`}
                   disabled={deletingId !== null}
