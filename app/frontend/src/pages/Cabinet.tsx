@@ -9,6 +9,7 @@ import styles from '../workspace/Workspace.module.css';
 const sectionTitles: Record<string, string> = {
   '/cabinet': 'Обзор',
   '/cabinet/dormitories': 'Общежития',
+  '/cabinet/organization': 'Организация',
   '/cabinet/profile': 'Личные данные',
 };
 
@@ -165,6 +166,15 @@ export function Cabinet(): JSX.Element {
         </nav>
         <div className={styles['sidebar-bottom']}>
           <nav className={styles['account-nav']} aria-label="Учётная запись">
+            <NavLink
+              className={styles['nav-link']}
+              to="/cabinet/organization"
+              onClick={closeMenu}
+              data-testid="workspace-nav-organization"
+            >
+              <WorkspaceIcon name="building" />
+              Организация
+            </NavLink>
             <NavLink
               className={styles['nav-link']}
               to="/cabinet/profile"

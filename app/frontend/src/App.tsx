@@ -8,6 +8,7 @@ import { Landing } from './pages/Landing';
 import { NotFound } from './pages/NotFound';
 import { Dormitories } from './workspace/Dormitories';
 import { DormitoryDetails } from './workspace/dormitories/DormitoryDetails';
+import { Organization } from './workspace/Organization';
 import { PersonalData } from './workspace/PersonalData';
 import { WorkspaceOverview } from './workspace/WorkspaceOverview';
 
@@ -39,6 +40,7 @@ export function App(): JSX.Element {
         <Route index element={<WorkspaceOverview />} />
         <Route path="dormitories" element={<Dormitories />} />
         <Route path="dormitories/:dormitoryId/*" element={<DormitoryDetails />} />
+        <Route path="organization" element={<Organization />} />
         <Route path="profile" element={<PersonalData />} />
       </Route>
       <Route path="*" element={<NotFound />} />

@@ -13,6 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Re
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.api.organization import create_organization_for_user
 from app.api.recovery import RECOVERY_LIMIT_LOG, identifier_hash, try_consume_request
 from app.db import get_db
 from app.mail import send_activation_email_task
@@ -113,6 +114,13 @@ def activate(payload: ActivateRequest, response: Response, db: DbSession) -> Use
     user.password_hash = hash_password(payload.password)
     user.is_active = True
     record.used_at = datetime.now(UTC)
+
+    # Момент «появления» аккаунта: пользователь впервые входит в кабинет, значит
+    # ему нужна своя организация. Проверка на `None` делает повторную активацию
+    # безопасной — второй организации у пользователя не появится.
+    if user.active_organization_id is None:
+        create_organization_for_user(db, user)
+
     db.commit()
     db.refresh(user)
 

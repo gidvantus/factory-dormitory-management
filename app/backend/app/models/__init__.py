@@ -6,6 +6,7 @@ from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel, HostelCell
 from app.models.inflow import PersonnelInflow
 from app.models.mail_template import MailTemplate
+from app.models.organization import Organization, OrganizationMember
 from app.models.outflow import PersonnelOutflow
 from app.models.payment import PaymentEntry
 from app.models.recovery_request import RecoveryRequest
@@ -21,6 +22,8 @@ __all__ = [
     "Hostel",
     "HostelCell",
     "MailTemplate",
+    "Organization",
+    "OrganizationMember",
     "PaymentEntry",
     "PersonnelInflow",
     "PersonnelOutflow",

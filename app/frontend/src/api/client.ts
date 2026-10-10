@@ -35,6 +35,19 @@ export interface CreateDormitoryInput {
   template_id?: number;
 }
 
+export interface Organization {
+  id: number;
+  /** null — организация ещё не заполнена: сразу после активации оба поля пустые. */
+  name: string | null;
+  inn: string | null;
+  created_at: string;
+}
+
+export interface UpdateOrganizationInput {
+  name: string;
+  inn: string;
+}
+
 export interface ReportTemplate {
   id: number;
   name: string;
@@ -255,6 +268,19 @@ export const api = {
 
   me(): Promise<UserProfile> {
     return request<UserProfile>('/me');
+  },
+
+  /** Организация пользователя. 404 приходит как ApiError: он не привязан к организации. */
+  organization(signal?: AbortSignal): Promise<Organization> {
+    return request<Organization>('/organization', { signal });
+  },
+
+  /** Правка организации. Пустая строка очищает поле; 409 — занятый ИНН. */
+  saveOrganization(input: UpdateOrganizationInput): Promise<Organization> {
+    return request<Organization>('/organization', {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
   },
 
   dormitories(signal?: AbortSignal): Promise<Dormitory[]> {

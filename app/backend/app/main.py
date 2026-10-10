@@ -10,6 +10,7 @@ from app.api import (
     health,
     hostels,
     inflow,
+    organization,
     outflow,
     payments,
     recovery,
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
     application.include_router(activation.router, prefix=API_PREFIX)
     application.include_router(recovery.router, prefix=API_PREFIX)
     application.include_router(users.router, prefix=API_PREFIX)
+    application.include_router(organization.router, prefix=API_PREFIX)
     application.include_router(dashboard.router, prefix=API_PREFIX)
     application.include_router(hostels.router, prefix=API_PREFIX)
     application.include_router(inflow.router, prefix=API_PREFIX)
