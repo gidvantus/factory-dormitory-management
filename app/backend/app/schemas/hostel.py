@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-PlaceField = Literal["residents_m", "residents_f", "free_m", "free_f", "paid_m", "paid_f"]
+PlaceField = Literal["residents_m", "residents_f", "paid_m", "paid_f"]
 
 
 def normalize_month(value: date) -> date:

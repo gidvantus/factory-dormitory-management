@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { InflowRow } from '../../api/client';
-import { mockFetch } from '../../test/mockFetch';
+import { mockTableFetch as mockFetch } from '../../test/tableColumns';
 import { InflowTable } from './InflowTable';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -25,9 +25,14 @@ describe('Приток', () => {
       if (url.includes('/api/dormitories/7/inflow?') && !init?.method) {
         return { status: 200, body: row ? [row] : [] };
       }
-      if (url.endsWith('/api/dormitories/7/inflow') && init?.method === 'POST') {
+      if (url.endsWith('/api/personnel/check'))
+        return { status: 200, body: { candidates: [], check_token: 'a'.repeat(64) } };
+      if (url.endsWith('/api/personnel/records') && init?.method === 'POST') {
         row = { ...blank };
-        return { status: 201, body: row };
+        return {
+          status: 201,
+          body: { row_id: 5, employee_id: '00000000-0000-4000-8000-000000000001' },
+        };
       }
       if (url.endsWith('/api/dormitories/7/inflow/5') && init?.method === 'PATCH') {
         row = { ...row!, ...(JSON.parse(String(init.body)) as Partial<InflowRow>) };
@@ -42,6 +47,11 @@ describe('Приток', () => {
     const user = userEvent.setup();
     render(<InflowTable dormitoryId="7" range={{ from: '2026-10-01', to: '2026-10-31' }} />);
     await user.click(await screen.findByRole('button', { name: /Добавить строку/ }));
+    const identity = await screen.findByRole('dialog');
+    await user.type(within(identity).getByLabelText('Табельный номер'), '123');
+    const saveIdentity = within(identity).getByRole('button', { name: 'Сохранить на проверку' });
+    await waitFor(() => expect(saveIdentity).toBeEnabled());
+    await user.click(saveIdentity);
     const tableRow = await screen.findByTestId('inflow-row-5');
     expect(within(screen.getByRole('table')).getAllByRole('columnheader')).toHaveLength(7);
     fireEvent.change(within(tableRow).getByLabelText('Дата заселения, строка 5'), {

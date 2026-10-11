@@ -4,7 +4,15 @@ import { api, ApiError } from '../../api/client';
 import type { InflowField, InflowRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
+import { IdentityDialog, PersonnelLink } from '../personnel/IdentityDialog';
 import styles from './InflowTable.module.css';
+import {
+  ColumnsControls,
+  ConfiguredCells,
+  ConfiguredHeaders,
+  ConfiguredTable,
+  TableColumnsProvider,
+} from './ConfigurableColumns';
 
 type FieldValue = string | number | null;
 
@@ -35,7 +43,11 @@ function InflowEntry({
     try {
       const updated = await api.updateInflowRow(dormitoryId, row.id, field, value);
       saved.current = { ...saved.current, [field]: updated[field] };
-      setDraft((current) => ({ ...current, [field]: updated[field] }));
+      setDraft((current) => ({
+        ...current,
+        [field]: updated[field],
+        employee_id: updated.employee_id,
+      }));
       if (field === 'shift_count') setShiftCountText(updated.shift_count?.toString() ?? '');
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось сохранить строку.');
@@ -65,60 +77,82 @@ function InflowEntry({
 
   return (
     <tr data-testid={`inflow-row-${row.id}`}>
-      <td>
-        <input
-          type="date"
-          aria-label={`Дата заселения, строка ${row.id}`}
-          value={draft.settlement_date ?? ''}
-          onChange={(event) => {
-            const value = event.target.value || null;
-            change('settlement_date', value);
-            void save('settlement_date', value);
-          }}
-        />
-      </td>
-      <td>{textField('personnel_number', 'Т/н')}</td>
-      <td>{textField('full_name', 'ФИО')}</td>
-      <td>{textField('citizenship', 'Гражданство')}</td>
-      <td>{textField('notes', 'Примечание')}</td>
-      <td>
-        <input
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          className={styles.numeric}
-          aria-label={`Кол-во смен, строка ${row.id}`}
-          value={shiftCountText}
-          onChange={(event) => {
-            if (/^\d*$/.test(event.target.value)) {
-              setShiftCountText(event.target.value);
-              setError('');
-            }
-          }}
-          onBlur={() => {
-            if (shiftCountText !== '' && Number(shiftCountText) > 1_000_000) {
-              setError('Количество смен должно быть не больше 1 000 000.');
-              return;
-            }
-            void save('shift_count', shiftCountText === '' ? null : Number(shiftCountText));
-          }}
-        />
-      </td>
-      <td className={styles.actionCell}>
-        <button type="button" disabled={saving} onClick={() => onDelete(draft)}>
-          Удалить
-        </button>
-        {(saving || error) && (
-          <span role={error ? 'alert' : 'status'} className={error ? styles.error : undefined}>
-            {error || 'Сохраняем…'}
-          </span>
-        )}
-      </td>
+      <ConfiguredCells
+        row={row}
+        fields={[
+          'settlement_date',
+          'personnel_number',
+          'full_name',
+          'citizenship',
+          'notes',
+          'shift_count',
+          'action_delete',
+        ]}
+      >
+        <td>
+          <input
+            type="date"
+            aria-label={`Дата заселения, строка ${row.id}`}
+            value={draft.settlement_date ?? ''}
+            onChange={(event) => {
+              const value = event.target.value || null;
+              change('settlement_date', value);
+              void save('settlement_date', value);
+            }}
+          />
+        </td>
+        <td>{textField('personnel_number', 'Т/н')}</td>
+        <td>
+          {textField('full_name', 'ФИО')}
+          <PersonnelLink
+            dormitoryId={dormitoryId}
+            tableKey="inflow"
+            rowId={row.id}
+            employeeId={draft.employee_id}
+            fields={draft}
+          />
+        </td>
+        <td>{textField('citizenship', 'Гражданство')}</td>
+        <td>{textField('notes', 'Примечание')}</td>
+        <td>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            className={styles.numeric}
+            aria-label={`Кол-во смен, строка ${row.id}`}
+            value={shiftCountText}
+            onChange={(event) => {
+              if (/^\d*$/.test(event.target.value)) {
+                setShiftCountText(event.target.value);
+                setError('');
+              }
+            }}
+            onBlur={() => {
+              if (shiftCountText !== '' && Number(shiftCountText) > 1_000_000) {
+                setError('Количество смен должно быть не больше 1 000 000.');
+                return;
+              }
+              void save('shift_count', shiftCountText === '' ? null : Number(shiftCountText));
+            }}
+          />
+        </td>
+        <td className={styles.actionCell}>
+          <button type="button" disabled={saving} onClick={() => onDelete(draft)}>
+            Удалить
+          </button>
+          {(saving || error) && (
+            <span role={error ? 'alert' : 'status'} className={error ? styles.error : undefined}>
+              {error || 'Сохраняем…'}
+            </span>
+          )}
+        </td>
+      </ConfiguredCells>
     </tr>
   );
 }
 
-export function InflowTable({
+function InflowContent({
   dormitoryId,
   range,
 }: {
@@ -154,17 +188,8 @@ export function InflowTable({
     return () => controller.abort();
   }, [dormitoryId, range.from, range.to, attempt]);
 
-  async function add(): Promise<void> {
+  function add(): void {
     setAdding(true);
-    setError('');
-    try {
-      const row = await api.createInflowRow(dormitoryId);
-      setRows((current) => [...current, row]);
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Не удалось добавить строку.');
-    } finally {
-      setAdding(false);
-    }
   }
 
   async function remove(): Promise<void> {
@@ -184,8 +209,20 @@ export function InflowTable({
 
   return (
     <section className={styles.page} data-testid="dormitory-inflow">
+      {adding && (
+        <IdentityDialog
+          dormitoryId={dormitoryId}
+          tableKey="inflow"
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            setAttempt((n) => n + 1);
+          }}
+        />
+      )}
       <div className={styles.heading}>
         <h2>Приток</h2>
+        <ColumnsControls />
         <button
           type="button"
           className={styles.addButton}
@@ -217,22 +254,10 @@ export function InflowTable({
       )}
       {status === 'ready' && (
         <div className={styles.tableScroll}>
-          <table className={styles.table}>
+          <ConfiguredTable className={styles.table}>
             <thead>
               <tr>
-                {[
-                  'Дата заселения',
-                  'Т/н',
-                  'ФИО',
-                  'Гражданство',
-                  'Примечание',
-                  'Кол-во смен',
-                  'Удалить',
-                ].map((label) => (
-                  <th key={label} scope="col">
-                    {label}
-                  </th>
-                ))}
+                <ConfiguredHeaders />
               </tr>
             </thead>
             <tbody>
@@ -245,7 +270,7 @@ export function InflowTable({
                 />
               ))}
             </tbody>
-          </table>
+          </ConfiguredTable>
           {rows.length === 0 && (
             <p className={styles.empty}>За выбранный период записей пока нет.</p>
           )}
@@ -283,5 +308,13 @@ export function InflowTable({
         </Modal>
       )}
     </section>
+  );
+}
+
+export function InflowTable(props: { dormitoryId: string; range: DateRange }): JSX.Element {
+  return (
+    <TableColumnsProvider key={props.dormitoryId} dormitoryId={props.dormitoryId} table="inflow">
+      <InflowContent {...props} />
+    </TableColumnsProvider>
   );
 }

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Dormitory } from '../api/client';
 import { CreateDormitoryDialog } from './dormitories/CreateDormitoryDialog';
+import { DormitoryActions } from './dormitories/DormitoryActions';
 import { ReportTemplatesPanel } from './dormitories/ReportTemplatesPanel';
 import { WorkspaceIcon } from './WorkspaceIcon';
 import styles from './Workspace.module.css';
@@ -16,6 +17,9 @@ export function Dormitories(): JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [createdNotice, setCreatedNotice] = useState('');
   const createRef = useRef<HTMLButtonElement>(null);
+  const orderedDormitories = [...dormitories].sort(
+    (left, right) => Number(left.is_archived) - Number(right.is_archived),
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -102,24 +106,41 @@ export function Dormitories(): JSX.Element {
       )}
       {status === 'ready' && dormitories.length > 0 && (
         <ul className={listStyles.grid} aria-label="Список общежитий">
-          {dormitories.map((dormitory) => (
-            <li key={dormitory.id}>
-              <Link
-                to={`/cabinet/dormitories/${dormitory.id}`}
+          {orderedDormitories.map((dormitory) => (
+            <li
+              key={dormitory.id}
+              className={listStyles.dormitoryItem}
+              data-testid={`dormitory-item-${dormitory.id}`}
+            >
+              <div
                 className={listStyles.dormitoryCard}
                 data-testid={`dormitory-card-${dormitory.id}`}
+                data-archived={dormitory.is_archived ? 'true' : 'false'}
               >
-                <span className={listStyles.cardIcon}>
-                  <WorkspaceIcon name="house" />
-                </span>
-                <div className={listStyles.cardCopy}>
-                  <h2 className={listStyles.clientName}>{dormitory.client_name}</h2>
-                  <p className={listStyles.dormitoryName}>{dormitory.name}</p>
-                </div>
-                <span className={listStyles.cardArrow}>
-                  <WorkspaceIcon name="chevron" />
-                </span>
-              </Link>
+                <Link to={`/cabinet/dormitories/${dormitory.id}`} className={listStyles.cardLink}>
+                  <span className={listStyles.cardIcon}>
+                    <WorkspaceIcon name="house" />
+                  </span>
+                  <div className={listStyles.cardCopy}>
+                    <h2 className={listStyles.clientName}>{dormitory.client_name}</h2>
+                    <p className={listStyles.dormitoryName}>{dormitory.name}</p>
+                    {dormitory.is_archived && (
+                      <span className={listStyles.archiveBadge}>Архив</span>
+                    )}
+                  </div>
+                  <span className={listStyles.cardArrow}>
+                    <WorkspaceIcon name="chevron" />
+                  </span>
+                </Link>
+                <DormitoryActions
+                  dormitory={dormitory}
+                  onUpdated={(updated) => {
+                    setDormitories((items) =>
+                      items.map((item) => (item.id === updated.id ? updated : item)),
+                    );
+                  }}
+                />
+              </div>
             </li>
           ))}
         </ul>

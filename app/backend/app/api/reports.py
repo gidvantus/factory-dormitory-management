@@ -22,8 +22,18 @@ from app.schemas.report import (
     SaveReportCellRequest,
     UpdateReportRowRequest,
 )
+from app.schemas.table_column import PlaceReportLink, report_link_adapter
 from app.schemas.user import ErrorResponse
+from app.section_state import require_section_writable
 from app.security import ACTIVE_USER_RESPONSES, ActiveUser
+from app.table_data import (
+    Record,
+    linked_counts,
+    linked_place_values,
+    lock_dormitory,
+    records_for,
+    validate_link,
+)
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/report",
@@ -90,7 +100,13 @@ def check_names_and_formulas(formulas: dict[str, str | None]) -> None:
 
 def row_response(row: ReportRow) -> ReportRowResponse:
     return ReportRowResponse(
-        id=row.id, name=row.name, position=row.position, formula=row.formula, values={}, errors={}
+        id=row.id,
+        name=row.name,
+        position=row.position,
+        formula=row.formula,
+        link=row.link,
+        values={},
+        errors={},
     )
 
 
@@ -119,6 +135,31 @@ def read_report(
     raw = {(cell.row_id, cell.report_date): cell.value for cell in cells}
     names = {row.name: row for row in rows}
     compiled = {row.id: compile_formula(row.formula)[0] for row in rows if row.formula}
+    linked_values: dict[int, dict[date, int]] = {}
+    link_errors: dict[int, str] = {}
+    source_records: dict[str, list[Record]] = {}
+    for row in rows:
+        if row.link:
+            try:
+                link = report_link_adapter.validate_python(row.link)
+                if isinstance(link, PlaceReportLink):
+                    linked_values[row.id] = linked_place_values(
+                        db, dormitory_id, link, from_date, to_date
+                    )
+                    continue
+                if link.table_key not in source_records:
+                    source_records[link.table_key] = records_for(db, dormitory_id, link.table_key)
+                linked_values[row.id] = linked_counts(
+                    db,
+                    dormitory_id,
+                    link,
+                    source_records[link.table_key],
+                    from_date,
+                    to_date,
+                )
+            except (HTTPException, ValueError) as exc:
+                detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+                link_errors[row.id] = f"Проверьте связь: {detail}"
     days = (from_date + timedelta(days=offset) for offset in range((to_date - from_date).days + 1))
 
     for day in days:
@@ -130,7 +171,11 @@ def read_report(
             row = names.get(name)
             if row is None:
                 raise FormulaError(f"Строка не найдена: {name}")
-            if row.formula:
+            if row.link:
+                if row.id in link_errors:
+                    raise FormulaError(link_errors[row.id])
+                value = Decimal(linked_values[row.id].get(day, 0))
+            elif row.formula:
                 value = calculate_formula(compiled[row.id], value_for)
             else:
                 text = raw.get((row.id, day))
@@ -147,7 +192,7 @@ def read_report(
             return value
 
         for row, output in zip(rows, result, strict=True):
-            if not row.formula:
+            if not row.formula and not row.link:
                 if (cell_value := raw.get((row.id, day))) is not None:
                     output.values[day.isoformat()] = cell_value
                 continue
@@ -171,7 +216,11 @@ def create_row(
     _user: ActiveUser,
     db: DbSession,
 ) -> ReportRowResponse:
-    require_dormitory(db, dormitory_id)
+    require_section_writable(db, dormitory_id, "report")
+    lock_dormitory(db, dormitory_id)
+    if payload.link and payload.formula:
+        raise HTTPException(422, "Выберите формулу или связь с таблицей")
+    link = validate_link(db, dormitory_id, payload.link) if payload.link else None
     rows = get_rows(db, dormitory_id)
     if any(row.name.casefold() == payload.name.casefold() for row in rows):
         raise HTTPException(status.HTTP_409_CONFLICT, "Строка с таким названием уже есть")
@@ -182,6 +231,7 @@ def create_row(
         dormitory_id=dormitory_id,
         name=payload.name,
         formula=payload.formula,
+        link=link.model_dump() if link else None,
         position=max((item.position for item in rows), default=0) + 1,
     )
     db.add(row)
@@ -202,7 +252,8 @@ def update_row(
     _user: ActiveUser,
     db: DbSession,
 ) -> ReportRowResponse:
-    require_dormitory(db, dormitory_id)
+    require_section_writable(db, dormitory_id, "report")
+    lock_dormitory(db, dormitory_id)
     row = get_row(db, dormitory_id, row_id)
     if not payload.model_fields_set:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите изменение")
@@ -228,14 +279,26 @@ def update_row(
     }
     if "formula" in payload.model_fields_set:
         replacements[row.id] = payload.formula
+    link = (
+        (payload.link.model_dump() if payload.link else None)
+        if "link" in payload.model_fields_set
+        else row.link
+    )
+    if link:
+        if replacements[row.id] or required_row_name(old_name):
+            raise HTTPException(422, "Выберите формулу или связь с таблицей")
+        link = validate_link(
+            db, dormitory_id, report_link_adapter.validate_python(link)
+        ).model_dump()
     check_names_and_formulas(
         {new_name if item.id == row.id else item.name: replacements[item.id] for item in rows}
     )
-    if row.formula is None and replacements[row.id] is not None:
+    if row.formula is None and row.link is None and (replacements[row.id] is not None or link):
         db.execute(delete(ReportCell).where(ReportCell.row_id == row.id))
     for item in rows:
         item.formula = replacements[item.id]
     row.name = new_name
+    row.link = link
     try:
         db.commit()
     except IntegrityError as exc:
@@ -253,6 +316,7 @@ def move_row(
     _user: ActiveUser,
     db: DbSession,
 ) -> ReportRowResponse:
+    require_section_writable(db, dormitory_id, "report")
     require_dormitory(db, dormitory_id)
     rows = get_rows(db, dormitory_id)
     index = next((index for index, row in enumerate(rows) if row.id == row_id), None)
@@ -271,6 +335,7 @@ def move_row(
 
 @router.delete("/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Удалить строку")
 def delete_row(dormitory_id: DormitoryId, row_id: RowId, _user: ActiveUser, db: DbSession) -> None:
+    require_section_writable(db, dormitory_id, "report")
     require_dormitory(db, dormitory_id)
     row = get_row(db, dormitory_id, row_id)
     if required_row_name(row.name):
@@ -296,10 +361,13 @@ def save_cell(
     _user: ActiveUser,
     db: DbSession,
 ) -> None:
-    require_dormitory(db, dormitory_id)
+    require_section_writable(db, dormitory_id, "report")
+    lock_dormitory(db, dormitory_id)
     row = get_row(db, dormitory_id, row_id)
     if row.formula:
         raise HTTPException(status.HTTP_409_CONFLICT, "Формульную строку нельзя заполнить вручную")
+    if row.link:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Связанную строку нельзя заполнить вручную")
     cell = db.scalar(
         select(ReportCell).where(ReportCell.row_id == row_id, ReportCell.report_date == report_date)
     )

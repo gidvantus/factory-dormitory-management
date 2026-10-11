@@ -13,6 +13,8 @@ const sectionTitles: Record<string, string> = {
   '/cabinet/tariffs/catalog': 'Прайс-лист',
   '/cabinet/organization': 'Организация',
   '/cabinet/organization/members': 'Сотрудники',
+  '/cabinet/personnel': 'Персонал',
+  '/cabinet/statistics': 'Статистика',
   '/cabinet/profile': 'Личные данные',
 };
 
@@ -177,6 +179,28 @@ export function Cabinet(): JSX.Element {
               >
                 <WorkspaceIcon name="chart" />
                 Тариф
+              </NavLink>
+            </li>
+            <li>
+              <NavLink
+                className={styles['nav-link']}
+                to="/cabinet/personnel"
+                onClick={closeMenu}
+                data-testid="workspace-nav-personnel"
+              >
+                <WorkspaceIcon name="people" />
+                Персонал
+              </NavLink>
+            </li>
+            <li>
+              <NavLink
+                className={styles['nav-link']}
+                to="/cabinet/statistics"
+                onClick={closeMenu}
+                data-testid="workspace-nav-statistics"
+              >
+                <WorkspaceIcon name="chart" />
+                Статистика
               </NavLink>
             </li>
           </ul>

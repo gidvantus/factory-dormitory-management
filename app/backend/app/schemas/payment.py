@@ -28,8 +28,17 @@ class UpdatePaymentRequest(BaseModel):
 class PaymentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    custom_values: dict[str, str | bool | int | float | None] = Field(default_factory=dict)
+
     id: int
     personnel_number: str | None
     full_name: str | None
     advance_amount: Decimal | None
     settlement_date: date | None
+
+
+class ResidentPaymentResponse(BaseModel):
+    payment: PaymentResponse
+    created: bool
+    copied_columns: list[str]
+    skipped_columns: list[str]

@@ -13,12 +13,22 @@ interface Props {
   onMonthChange: (month: string) => void;
 }
 
-const rows: { field: string; label: string; editable: boolean }[] = [
+const rows: { field: string; label: string; editable: boolean; formula?: string }[] = [
   { field: 'residents_m', label: 'Проживает М', editable: true },
   { field: 'residents_f', label: 'Проживает Ж', editable: true },
   { field: 'residents_total', label: 'Итого М+Ж', editable: false },
-  { field: 'free_m', label: 'Свободных мест М', editable: true },
-  { field: 'free_f', label: 'Свободных мест Ж', editable: true },
+  {
+    field: 'free_m',
+    label: 'Свободных мест М',
+    editable: false,
+    formula: 'Оплачено мест М − Проживает М',
+  },
+  {
+    field: 'free_f',
+    label: 'Свободных мест Ж',
+    editable: false,
+    formula: 'Оплачено мест Ж − Проживает Ж',
+  },
   { field: 'free_total', label: 'Итого М+Ж', editable: false },
   { field: 'paid_m', label: 'Оплачено мест М', editable: true },
   { field: 'paid_f', label: 'Оплачено мест Ж', editable: true },
@@ -334,6 +344,7 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
         <div>
           <h2>Места</h2>
           <p data-testid="places-month-applied">Все дни месяца · {monthTitle(month)}</p>
+          <p>Свободных мест = оплачено мест − проживает. Расчёт автоматический.</p>
         </div>
         <div className={styles.monthFilter} role="group" aria-label="Выбор месяца и года">
           <button
@@ -427,7 +438,9 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
                     <tbody>
                       {rows.map((row) => (
                         <tr key={row.field} className={row.editable ? undefined : styles.totalRow}>
-                          <th scope="row">{row.label}</th>
+                          <th scope="row" title={row.formula}>
+                            {row.label}
+                          </th>
                           {month.days.map((day) => (
                             <td key={day}>
                               {row.editable ? (
@@ -449,7 +462,7 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
                                   }}
                                 />
                               ) : (
-                                <output title="Сумма двух строк выше">
+                                <output title={row.formula ?? 'Сумма двух строк выше'}>
                                   {hostel.values[row.field]?.[day] ?? '—'}
                                 </output>
                               )}

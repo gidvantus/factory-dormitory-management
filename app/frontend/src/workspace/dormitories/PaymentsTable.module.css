@@ -28,6 +28,23 @@
   opacity: 0.6;
   cursor: wait;
 }
+.clearButton {
+  padding: 9px 13px;
+  border: 1px solid var(--color-danger);
+  border-radius: 9px;
+  background: white;
+  color: var(--color-danger);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.clearButton:hover:not(:disabled) {
+  background: var(--peach-100);
+}
+.clearButton:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 .tableScroll {
   max-width: 100%;
   overflow-x: auto;
@@ -37,7 +54,6 @@
 }
 .page .table {
   width: 100%;
-  min-width: 650px;
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
@@ -61,18 +77,6 @@
   letter-spacing: normal;
   text-transform: none;
   overflow-wrap: anywhere;
-}
-.table th:nth-child(1) {
-  width: 110px;
-}
-.table th:nth-child(2) {
-  width: 260px;
-}
-.table th:nth-child(3) {
-  width: 180px;
-}
-.table th:nth-child(4) {
-  width: 100px;
 }
 .table tr:last-child td {
   border-bottom: 0;

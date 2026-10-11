@@ -507,33 +507,37 @@
   white-space: nowrap;
 }
 .dashboard .reportsCard {
-  margin-top: 2px;
-}
-.dashboard .pendingBadge {
-  padding: 5px 10px;
-  background: var(--butter-100);
-  color: #7a5c0d;
-  border-radius: 7px;
-  font-size: 11px;
-  font-weight: 700;
-}
-.dashboard .reportLegend {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px 24px;
-  padding: 0 24px 20px;
-  font-size: 11px;
-  color: var(--color-text-muted);
+  flex-direction: column;
 }
-.dashboard .reportLegend span,
-.dashboard .pendingStatus {
+.dashboard .reportsCard .cardHead > div {
+  flex: 1;
+  min-width: 0;
+}
+.dashboard .reportsCard .metricList li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+.dashboard .reportStatus {
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
-.dashboard .pendingStatus {
+.dashboard .reportStatus {
   font-size: 11px;
   color: var(--color-text-muted);
+  white-space: nowrap;
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: var(--cream-100);
+}
+.dashboard .reportStatus[data-ready='true'] {
+  color: var(--mint-700);
+  background: var(--mint-100);
+}
+.dashboard .reportStatus[data-ready='true'] .statusDot {
+  background: var(--mint-600);
 }
 .dashboard .statusDot {
   width: 7px;
@@ -541,12 +545,6 @@
   border-radius: 50%;
   flex: none;
   background: #909ba4;
-}
-.dashboard .statusDot[data-status='saved'] {
-  background: #2f7d62;
-}
-.dashboard .statusDot[data-status='missing'] {
-  background: #c34d4d;
 }
 .dashboard .reportsEmpty {
   padding: 20px 24px;
@@ -556,17 +554,12 @@
   font-size: 12px;
 }
 .dashboard .reportNote {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 24px;
+  margin-top: auto;
+  padding: 12px 24px;
   border-top: 1px solid var(--color-border);
   font-size: 11px;
+  line-height: 1.5;
   color: var(--color-text-muted);
-}
-.dashboard .reportNote svg {
-  width: 15px;
-  height: 15px;
 }
 .dashboard .srOnly {
   position: absolute;
@@ -698,9 +691,6 @@
   .dashboard .blockEmpty {
     min-height: 135px;
   }
-  .dashboard .reportLegend {
-    padding-inline: 18px;
-  }
   .dashboard .reportsEmpty,
   .dashboard .reportNote {
     padding-inline: 18px;
@@ -708,8 +698,141 @@
   .dashboard .metricList {
     padding-inline: 18px;
   }
-  .dashboard .reportsCard .metricList li {
-    flex-wrap: wrap;
-    gap: 7px;
+}
+.metricList li[data-archived='true'] {
+  opacity: 0.65;
+}
+.dashboard .blocksHeading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.dashboard .blocksHeading h2 {
+  font: 800 19px var(--font-display);
+}
+.dashboard .blocksHeading p,
+.dashboard .blocksHint {
+  margin-top: 5px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.dashboard .blocksActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dashboard .blocksActions button,
+.dashboard .blockTools button,
+.dashboard .hiddenBlocks button {
+  padding: 8px 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: white;
+  color: var(--color-text);
+  font: 600 12px var(--font-body);
+  cursor: pointer;
+}
+.dashboard .blocksActions button:first-child {
+  color: var(--mint-700);
+  border-color: var(--mint-200);
+}
+.dashboard .blocksActions button[aria-pressed='true'] {
+  background: var(--mint-100);
+}
+.dashboard .blockTile {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dashboard .blockTile > section {
+  flex: 1;
+}
+.dashboard .blockTile[data-dragging='true'] {
+  opacity: 0.5;
+}
+.dashboard .blockTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--cream-50);
+  border-radius: 10px;
+}
+.dashboard .blockTools button {
+  font-size: 11px;
+  padding: 6px 8px;
+}
+.dashboard .blockTools .dragHandle {
+  display: grid;
+  place-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: white;
+  cursor: grab;
+  font-size: 17px;
+  line-height: 1;
+}
+.dashboard .blockTools button:disabled,
+.dashboard .blocksActions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.dashboard .hiddenBlocks {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+.dashboard .hiddenBlocks > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.dashboard .widgetCard {
+  display: flex;
+  flex-direction: column;
+}
+.dashboard .widgetNumber {
+  padding: 0 24px 24px;
+  font: 900 40px var(--font-display);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.dashboard .widgetHint {
+  padding: 0 24px 20px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.dashboard .widgetErrors {
+  padding: 0 24px 16px;
+  color: var(--color-danger);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.dashboard .widgetErrors summary {
+  cursor: pointer;
+}
+.dashboard .widgetErrors p {
+  margin-top: 8px;
+}
+@media (max-width: 760px) {
+  .dashboard .blocksActions {
+    width: 100%;
+  }
+  .dashboard .widgetNumber,
+  .dashboard .widgetHint,
+  .dashboard .widgetErrors {
+    padding-inline: 18px;
   }
 }

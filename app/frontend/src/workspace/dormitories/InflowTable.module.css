@@ -37,7 +37,6 @@
 }
 .page .table {
   width: 100%;
-  min-width: 1050px;
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
@@ -60,27 +59,6 @@
   letter-spacing: normal;
   text-transform: none;
   overflow-wrap: anywhere;
-}
-.table th:nth-child(1) {
-  width: 142px;
-}
-.table th:nth-child(2) {
-  width: 105px;
-}
-.table th:nth-child(3) {
-  width: 180px;
-}
-.table th:nth-child(4) {
-  width: 145px;
-}
-.table th:nth-child(5) {
-  width: 210px;
-}
-.table th:nth-child(6) {
-  width: 105px;
-}
-.table th:nth-child(7) {
-  width: 95px;
 }
 .table tr:last-child td {
   border-bottom: 0;

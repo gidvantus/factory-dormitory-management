@@ -28,6 +28,7 @@ class ReportTemplateResponse(BaseModel):
 
 
 class ReportTemplateRowResponse(BaseModel):
+    linked: bool = False
     name: str
     position: int
     formula: str | None

@@ -52,7 +52,6 @@
 .shell button {
   font: inherit;
 }
-.shell button,
 .shell a {
   color: inherit;
 }
@@ -289,8 +288,7 @@
 }
 .shell main {
   width: 100%;
-  max-width: 1600px;
-  margin-inline: auto;
+  min-width: 0;
   padding: 36px 40px 48px;
 }
 .shell .page-heading {
@@ -486,7 +484,7 @@
   height: 15px;
 }
 .shell .profile-card {
-  max-width: 780px;
+  width: 100%;
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);

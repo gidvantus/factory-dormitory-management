@@ -1,4 +1,6 @@
 import { api } from '../../api/client';
+import type { DailyReportReadiness } from '../../api/client';
+import type { DashboardLayout, WidgetResult } from '../../api/dashboardBlocks';
 import type { DateRange } from './dates';
 
 export type Metric = 'attendance' | 'residents' | 'turnover';
@@ -13,8 +15,10 @@ export interface DailyMetrics {
 }
 
 export interface DormitoryMetrics {
+  report_readiness?: DailyReportReadiness;
   id: string;
   name: string;
+  is_archived?: boolean;
   residents: number | null;
   attendance: number | null;
   /** Значение строки «Текучка Итого» на дату среза. */
@@ -23,6 +27,9 @@ export interface DormitoryMetrics {
 }
 
 export interface DashboardData {
+  layout?: DashboardLayout;
+  widgets?: WidgetResult[];
+  reportDate?: string;
   /** Дата среза численности и выхода; null, если среза ещё нет. */
   snapshotDate: string | null;
   totals: { attendance: number | null; residents: number | null };
@@ -48,6 +55,9 @@ export const EMPTY_DASHBOARD: DashboardData = {
 export const loadDashboard: DashboardLoader = async (range, signal, dormitoryId) => {
   const response = await api.dashboard(range.from, range.to, signal, dormitoryId);
   return {
+    layout: response.layout,
+    widgets: response.widgets,
+    reportDate: response.report_date,
     snapshotDate: response.snapshot_date,
     totals: response.totals,
     dormitories: response.dormitories,
