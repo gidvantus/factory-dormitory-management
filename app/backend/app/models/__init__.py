@@ -13,6 +13,7 @@ from app.models.recovery_request import RecoveryRequest
 from app.models.report import ReportCell, ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
 from app.models.resident import Resident
+from app.models.tariff import Tariff
 from app.models.user import User
 
 __all__ = [
@@ -33,5 +34,6 @@ __all__ = [
     "ReportTemplate",
     "ReportTemplateRow",
     "Resident",
+    "Tariff",
     "User",
 ]

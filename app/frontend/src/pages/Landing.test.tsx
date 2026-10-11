@@ -111,6 +111,17 @@ describe('контент лендинга на главной', () => {
     ).toBeGreaterThanOrEqual(4);
   });
 
+  it('ведёт на публичную страницу тарифов из меню и подвала', async () => {
+    anonymous();
+    renderApp('/');
+    await screen.findByTestId('landing');
+
+    // Ссылка есть дважды: пункт меню в шапке и колонка «Продукт» в подвале.
+    const links = screen.getAllByRole('link', { name: 'Тарифы' });
+    expect(links.length).toBeGreaterThanOrEqual(2);
+    expect(links.every((link) => link.getAttribute('href') === '/pricing')).toBe(true);
+  });
+
   it('открывает регистрацию из финального блока', async () => {
     anonymous();
     const user = userEvent.setup();

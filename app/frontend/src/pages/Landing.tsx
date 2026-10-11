@@ -15,12 +15,13 @@ import { StepsSection } from '../components/landing/StepsSection';
 import { useReveal } from '../components/landing/useReveal';
 import { useSession } from '../auth/SessionProvider';
 
-/** Разделы страницы для меню в шапке. */
+/** Разделы страницы для меню в шапке. «Тарифы» — отдельный адрес, не якорь. */
 const NAV = [
   { href: '#roles', label: 'Кому подходит' },
   { href: '#features', label: 'Возможности' },
   { href: '#how', label: 'Как работает' },
   { href: '#interface', label: 'Интерфейс' },
+  { href: '/pricing', label: 'Тарифы' },
   { href: '#faq', label: 'Вопросы' },
 ];
 
