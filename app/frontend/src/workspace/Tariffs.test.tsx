@@ -144,6 +144,38 @@ describe('раздел «Тариф» в кабинете', () => {
     expect(screen.getByTestId('tariff-choose')).toBeInTheDocument();
   });
 
+  it('ведёт на прайс-лист и без выбранного тарифа', async () => {
+    mockFetch(
+      tariffRoutes(chosen(null), (url) => {
+        if (url.endsWith('/api/tariffs')) return { status: 200, body: [] };
+        return null;
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp('/cabinet/tariffs');
+
+    expect(await screen.findByTestId('tariffs-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('tariff-catalog-link')).toHaveAttribute(
+      'href',
+      '/cabinet/tariffs/catalog',
+    );
+    // Прайс пуст: ссылка должна быть и там, где выбор нечего предложить.
+    await user.click(screen.getByTestId('tariff-choose'));
+    expect(await screen.findByTestId('tariff-choice-catalog-link')).toHaveAttribute(
+      'href',
+      '/cabinet/tariffs/catalog',
+    );
+  });
+
+  it('без права правки не показывает ссылку на прайс', async () => {
+    mockFetch(tariffRoutes(chosen(null, false)));
+    renderApp('/cabinet/tariffs');
+
+    expect(await screen.findByTestId('tariffs-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('tariff-catalog-link')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('tariff-choose')).not.toBeInTheDocument();
+  });
+
   it('при editable=false показывает тариф без кнопок правки', async () => {
     mockFetch(tariffRoutes(chosen(TARIFF, false)));
     renderApp('/cabinet/tariffs');

@@ -30,8 +30,10 @@ function actionErrorMessage(error: unknown, fallback: string): string {
  * Публичный прайс целиком — это рабочий инструмент, а не то, что нужно
  * организации каждый день: здесь показывается один выбранный тариф, и он же
  * виден в обзоре. Полный прайс живёт на отдельном адресе
- * `/cabinet/tariffs/catalog`, и ссылка на него есть только у тех, кому сервер
- * вернул `editable=true`.
+ * `/cabinet/tariffs/catalog`. Ссылка на прайс стоит в шапке раздела и видна
+ * всегда, когда сервер вернул `editable=true`: иначе владелец новой организации
+ * (тариф ещё не выбран, прайс пуст) не смог бы добраться до единственного экрана,
+ * где тариф создаётся, и критерий «владелец добавляет тариф» был бы недостижим.
  *
  * Роль решает сервер: клиент не выводит права из `role` и не показывает кнопки
  * тому, кому они не положены.
@@ -136,14 +138,23 @@ export function Tariffs(): JSX.Element {
           <p className={styles.subtitle}>Тариф вашей организации</p>
         </div>
         {status === 'ready' && editable && (
-          <button
-            className="btn btn--primary btn--sm"
-            type="button"
-            data-testid={tariff ? 'tariff-change' : 'tariff-choose'}
-            onClick={openChooser}
-          >
-            {tariff ? 'Сменить тариф' : 'Выбрать тариф'}
-          </button>
+          <div className={styles['page-actions']}>
+            <Link
+              className="btn btn--outline btn--sm"
+              to="/cabinet/tariffs/catalog"
+              data-testid="tariff-catalog-link"
+            >
+              Прайс-лист
+            </Link>
+            <button
+              className="btn btn--primary btn--sm"
+              type="button"
+              data-testid={tariff ? 'tariff-change' : 'tariff-choose'}
+              onClick={openChooser}
+            >
+              {tariff ? 'Сменить тариф' : 'Выбрать тариф'}
+            </button>
+          </div>
         )}
       </div>
 
@@ -203,13 +214,6 @@ export function Tariffs(): JSX.Element {
                 {tariff.unit_label}
               </p>
             )}
-            {editable && (
-              <p className={styles['muted-cell']}>
-                <Link to="/cabinet/tariffs/catalog" data-testid="tariff-catalog-link">
-                  Прайс-лист публичной страницы
-                </Link>
-              </p>
-            )}
           </div>
         </section>
       )}
@@ -252,9 +256,16 @@ export function Tariffs(): JSX.Element {
             )}
 
             {optionsStatus === 'ready' && options.length === 0 && (
-              <p className="field__hint" data-testid="tariff-choice-empty">
-                В прайсе нет опубликованных тарифов. Добавьте тариф в прайс-листе.
-              </p>
+              <div className="field__hint" data-testid="tariff-choice-empty">
+                <p>В прайсе нет опубликованных тарифов. Добавьте тариф в прайс-листе.</p>
+                {editable && (
+                  <p>
+                    <Link to="/cabinet/tariffs/catalog" data-testid="tariff-choice-catalog-link">
+                      Перейти в прайс-лист
+                    </Link>
+                  </p>
+                )}
+              </div>
             )}
 
             {optionsStatus === 'ready' && options.length > 0 && (
