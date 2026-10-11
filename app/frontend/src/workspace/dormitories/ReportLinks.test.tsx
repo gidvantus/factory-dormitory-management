@@ -37,6 +37,7 @@ it('создаёт связь через раздел и подвкладку, �
   let rows: ReportRow[] = [];
   let submitted: ReportLink | null = null;
   mockFetch((url, init) => {
+    if (url.endsWith('/tabs')) return { status: 200, body: [] };
     if (url.includes('/report?')) return { status: 200, body: { rows } };
     if (url.endsWith('/tables/outflow/columns')) return { status: 200, body: columns };
     if (url.endsWith('/report/rows') && init?.method === 'POST') {
@@ -97,6 +98,7 @@ it('по умолчанию считает любую заполненную д�
     builtin_key: null,
   };
   mockFetch((url, init) => {
+    if (url.endsWith('/tabs')) return { status: 200, body: [] };
     if (url.includes('/report?')) return { status: 200, body: { rows } };
     if (url.endsWith('/tables/inflow/columns')) return { status: 200, body: [arrival] };
     if (url.endsWith('/report/rows') && init?.method === 'POST') {
@@ -164,6 +166,7 @@ it('позволяет изменить старый фильтр конкрет
   ];
   let submitted: ReportLink | null = null;
   mockFetch((url, init) => {
+    if (url.endsWith('/tabs')) return { status: 200, body: [] };
     if (url.includes('/report?')) return { status: 200, body: { rows } };
     if (url.endsWith('/tables/inflow/columns')) return { status: 200, body: [arrival] };
     if (url.endsWith('/report/rows/6') && init?.method === 'PATCH') {

@@ -7,7 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.dormitory_structure import initialize_structure
+from app.dormitory_templates import apply_snapshot
 from app.models.dormitory import Dormitory
+from app.models.dormitory_template import DormitoryTemplate
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
 from app.report_defaults import DEFAULT_REPORT_FORMULA, REQUIRED_REPORT_ROW_NAMES, required_row_name
@@ -59,6 +62,28 @@ def create_dormitory(
     dormitory = Dormitory(created_by_id=user.id, name=payload.name, client_name=payload.client_name)
     db.add(dormitory)
     db.flush()
+    if payload.structure_template_id:
+        structure = db.get(DormitoryTemplate, payload.structure_template_id)
+        if structure is None:
+            db.rollback()
+            raise HTTPException(404, "Шаблон структуры не найден")
+        try:
+            apply_snapshot(db, dormitory, structure.snapshot, payload.structure_template_keys)
+        except HTTPException:
+            db.rollback()
+            raise
+        db.commit()
+        db.refresh(dormitory)
+        return DormitoryResponse.model_validate(dormitory)
+    if payload.tabs is not None:
+        try:
+            initialize_structure(db, dormitory, payload.tabs, template_rows)
+        except HTTPException:
+            db.rollback()
+            raise
+        db.commit()
+        db.refresh(dormitory)
+        return DormitoryResponse.model_validate(dormitory)
     aliases = {
         row.name: canonical
         for row in template_rows
@@ -67,6 +92,7 @@ def create_dormitory(
     copied_names: set[str] = set()
     next_position = 0
     mapped_columns: dict[int, int] = {}
+    mapped_sources: dict[str, int] = {}
     for row in template_rows:
         next_position += 1
         canonical = required_row_name(row.name)
@@ -82,7 +108,9 @@ def create_dormitory(
                 name=name,
                 formula=formula or DEFAULT_REPORT_FORMULA if canonical else formula,
                 position=next_position,
-                link=restore_link(db, dormitory.id, row.link_snapshot, mapped_columns)
+                link=restore_link(
+                    db, dormitory.id, row.link_snapshot, mapped_columns, mapped_sources
+                )
                 if not canonical
                 else None,
             )

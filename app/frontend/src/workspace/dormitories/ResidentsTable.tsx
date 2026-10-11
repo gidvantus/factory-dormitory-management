@@ -15,6 +15,7 @@ import {
 import { useTableSaves } from './tableColumnsContext';
 import { TransferResidentDialog } from './TransferResidentDialog';
 import { OutflowResidentDialog } from './OutflowResidentDialog';
+import { IdentityDialog, PersonnelLink } from '../personnel/IdentityDialog';
 
 type FieldValue = string | number | null;
 
@@ -101,11 +102,13 @@ function ResidentRow({
       );
       saved.current = {
         ...saved.current,
+        employee_id: updated.employee_id,
         [field]: updated[field],
         hostel_name: updated.hostel_name,
       };
       setDraft((current) => ({
         ...current,
+        employee_id: updated.employee_id,
         [field]: updated[field],
         hostel_name: updated.hostel_name,
       }));
@@ -265,7 +268,17 @@ function ResidentRow({
           </select>
         </td>
         <td>{textField('personnel_number', 'Т/н')}</td>
-        <td>{textField('full_name', 'ФИО')}</td>
+        <td>
+          {textField('full_name', 'ФИО')}
+          <PersonnelLink
+            dormitoryId={dormitoryId}
+            tableKey="residents"
+            rowId={resident.id}
+            employeeId={draft.employee_id}
+            fields={draft}
+            beforeOpen={() => waitForRowSaves(resident.id)}
+          />
+        </td>
         <td>
           <select
             aria-label={`Место проживания, ${rowLabel}`}
@@ -430,17 +443,8 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
     return () => controller.abort();
   }, [dormitoryId, month, attempt]);
 
-  async function add(): Promise<void> {
+  function add(): void {
     setAdding(true);
-    setError('');
-    try {
-      const resident = await api.createResident(dormitoryId);
-      setData((current) => ({ ...current, residents: [...current.residents, resident] }));
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Не удалось добавить строку.');
-    } finally {
-      setAdding(false);
-    }
   }
 
   async function remove(): Promise<void> {
@@ -499,6 +503,17 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
         </p>
       )}
       {transferNotice && <p role="status">{transferNotice}</p>}
+      {adding && (
+        <IdentityDialog
+          dormitoryId={dormitoryId}
+          tableKey="residents"
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            setAttempt((n) => n + 1);
+          }}
+        />
+      )}
       {status === 'ready' && (
         <div className={styles.tableScroll}>
           <ConfiguredTable className={styles.table}>

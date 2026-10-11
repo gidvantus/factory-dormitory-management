@@ -4,6 +4,7 @@ import { api, ApiError } from '../../api/client';
 import type { InflowField, InflowRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
+import { IdentityDialog, PersonnelLink } from '../personnel/IdentityDialog';
 import styles from './InflowTable.module.css';
 import {
   ColumnsControls,
@@ -42,7 +43,11 @@ function InflowEntry({
     try {
       const updated = await api.updateInflowRow(dormitoryId, row.id, field, value);
       saved.current = { ...saved.current, [field]: updated[field] };
-      setDraft((current) => ({ ...current, [field]: updated[field] }));
+      setDraft((current) => ({
+        ...current,
+        [field]: updated[field],
+        employee_id: updated.employee_id,
+      }));
       if (field === 'shift_count') setShiftCountText(updated.shift_count?.toString() ?? '');
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось сохранить строку.');
@@ -97,7 +102,16 @@ function InflowEntry({
           />
         </td>
         <td>{textField('personnel_number', 'Т/н')}</td>
-        <td>{textField('full_name', 'ФИО')}</td>
+        <td>
+          {textField('full_name', 'ФИО')}
+          <PersonnelLink
+            dormitoryId={dormitoryId}
+            tableKey="inflow"
+            rowId={row.id}
+            employeeId={draft.employee_id}
+            fields={draft}
+          />
+        </td>
         <td>{textField('citizenship', 'Гражданство')}</td>
         <td>{textField('notes', 'Примечание')}</td>
         <td>
@@ -174,17 +188,8 @@ function InflowContent({
     return () => controller.abort();
   }, [dormitoryId, range.from, range.to, attempt]);
 
-  async function add(): Promise<void> {
+  function add(): void {
     setAdding(true);
-    setError('');
-    try {
-      const row = await api.createInflowRow(dormitoryId);
-      setRows((current) => [...current, row]);
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Не удалось добавить строку.');
-    } finally {
-      setAdding(false);
-    }
   }
 
   async function remove(): Promise<void> {
@@ -204,6 +209,17 @@ function InflowContent({
 
   return (
     <section className={styles.page} data-testid="dormitory-inflow">
+      {adding && (
+        <IdentityDialog
+          dormitoryId={dormitoryId}
+          tableKey="inflow"
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            setAttempt((n) => n + 1);
+          }}
+        />
+      )}
       <div className={styles.heading}>
         <h2>Приток</h2>
         <ColumnsControls />

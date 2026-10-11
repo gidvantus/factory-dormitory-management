@@ -11,6 +11,7 @@ from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.payment import PaymentEntry
 from app.schemas.payment import PaymentKind, PaymentResponse, UpdatePaymentRequest
+from app.section_state import require_section_writable
 from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import lock_dormitory
 
@@ -72,6 +73,7 @@ def list_payments(
 def create_payment(
     dormitory_id: DormitoryId, kind: PaymentKind, _user: ActiveUser, db: DbSession
 ) -> PaymentEntry:
+    require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)
     row = PaymentEntry(dormitory_id=dormitory_id, kind=kind)
     db.add(row)
@@ -91,6 +93,7 @@ def update_payment(
     _user: ActiveUser,
     db: DbSession,
 ) -> PaymentEntry:
+    require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)
     row = get_payment(db, dormitory_id, kind, row_id)
     changes = payload.model_dump(exclude_unset=True)
@@ -120,6 +123,7 @@ def clear_payments(
     _user: ActiveUser,
     db: DbSession,
 ) -> None:
+    require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)
     db.execute(
         delete(PaymentEntry).where(
@@ -139,6 +143,7 @@ def delete_payment(
     _user: ActiveUser,
     db: DbSession,
 ) -> None:
+    require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)
     db.delete(get_payment(db, dormitory_id, kind, row_id))
     db.commit()

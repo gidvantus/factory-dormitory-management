@@ -46,6 +46,7 @@ class ResidentResponse(BaseModel):
     custom_values: dict[str, str | bool | int | float | None] = Field(default_factory=dict)
 
     id: int
+    employee_id: str | None = None
     gender: str | None
     personnel_number: str | None
     full_name: str | None

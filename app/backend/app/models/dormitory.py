@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, false, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, false, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -17,6 +17,12 @@ class Dormitory(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     client_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    section_states: Mapped[dict[str, str]] = mapped_column(
+        JSON, default=dict, server_default=text("'{}'")
+    )
+    section_parents: Mapped[dict[str, str | None]] = mapped_column(
+        JSON, default=dict, server_default=text("'{}'")
+    )
     is_archived: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )

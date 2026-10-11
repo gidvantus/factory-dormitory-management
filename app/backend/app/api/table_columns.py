@@ -11,7 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.models.custom_tab import CustomTabEntry
+from app.models.inflow import PersonnelInflow
+from app.models.outflow import PersonnelOutflow
+from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
+from app.personnel import record_changed
 from app.schemas.table_column import CellRequest, ColumnRequest, ColumnResponse, TableKey
 from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import (
@@ -21,6 +26,7 @@ from app.table_data import (
     get_record,
     lock_dormitory,
     normalize_value,
+    require_writable_table,
 )
 
 router = APIRouter(
@@ -82,6 +88,7 @@ def create_column(
     db: DbSession,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
+    require_writable_table(db, dormitory_id, table_key)
     if payload.kind in ("action", "hostel"):
         raise HTTPException(422, "Выберите тип данных нового столбца")
     check_name(columns, payload.name)
@@ -120,6 +127,7 @@ def update_column(
     db: DbSession,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
+    require_writable_table(db, dormitory_id, table_key)
     column = get_column(db, dormitory_id, table_key, column_id)
     if column.archived:
         raise HTTPException(409, "Сначала восстановите столбец")
@@ -148,6 +156,7 @@ def delete_column(
     db: DbSession,
 ) -> None:
     lock_dormitory(db, dormitory_id)
+    require_writable_table(db, dormitory_id, table_key)
     column = get_column(db, dormitory_id, table_key, column_id)
     if names := column_dependencies(db, column):
         raise HTTPException(
@@ -169,6 +178,7 @@ def restore_column(
     db: DbSession,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
+    require_writable_table(db, dormitory_id, table_key)
     column = get_column(db, dormitory_id, table_key, column_id)
     check_name(columns, column.name, column.id)
     column.archived = False
@@ -188,6 +198,7 @@ def save_custom_cell(
     db: DbSession,
 ) -> CellRequest:
     lock_dormitory(db, dormitory_id)
+    require_writable_table(db, dormitory_id, table_key)
     column = get_column(db, dormitory_id, table_key, column_id)
     if column.archived or column.builtin_key:
         raise HTTPException(409, "Этот столбец недоступен для записи")
@@ -195,6 +206,8 @@ def save_custom_cell(
     old = row.custom_values.get(str(column.id))
     value = normalize_value(column, payload.value, allow_archived=old == payload.value)
     row.custom_values = {**row.custom_values, str(column.id): value}
+    if isinstance(row, (Resident, PersonnelInflow, PersonnelOutflow, CustomTabEntry, ArchiveEntry)):
+        record_changed(db, row, _user.id)
     db.commit()
     return CellRequest(value=value)
 
@@ -202,6 +215,7 @@ def save_custom_cell(
 class ArchiveResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    employee_id: str | None = None
     created_at: datetime
     custom_values: dict[str, Any]
 
@@ -236,6 +250,7 @@ def list_archive(
 @router.post("/archive/rows", response_model=ArchiveResponse, status_code=201)
 def create_archive(dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession) -> ArchiveEntry:
     lock_dormitory(db, dormitory_id)
+    require_writable_table(db, dormitory_id, "archive")
     row = ArchiveEntry(dormitory_id=dormitory_id)
     db.add(row)
     db.commit()
@@ -248,5 +263,9 @@ def delete_archive(
     dormitory_id: DormitoryId, row_id: ColumnId, _user: ActiveUser, db: DbSession
 ) -> None:
     lock_dormitory(db, dormitory_id)
-    db.delete(get_record(db, dormitory_id, "archive", row_id))
+    require_writable_table(db, dormitory_id, "archive")
+    row = get_record(db, dormitory_id, "archive", row_id)
+    assert isinstance(row, ArchiveEntry)
+    record_changed(db, row, _user.id, kind="deleted", title="Удалена исходная запись архива")
+    db.delete(row)
     db.commit()

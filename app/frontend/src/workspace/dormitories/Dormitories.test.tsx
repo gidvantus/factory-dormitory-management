@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { api } from '../../api/client';
 import type { Dormitory } from '../../api/client';
-import { mockTableFetch as mockFetch } from '../../test/tableColumns';
+import { defaultTabChoices, mockTableFetch as mockFetch } from '../../test/tableColumns';
 import { renderApp } from '../../test/renderApp';
 import { currentMonth } from '../dashboard/dates';
 
@@ -64,6 +64,7 @@ describe('общежития', () => {
         expect(JSON.parse(String(init.body))).toEqual({
           name: DORMITORY.name,
           client_name: DORMITORY.client_name,
+          tabs: defaultTabChoices,
         });
         items = [DORMITORY];
         return { status: 201, body: DORMITORY };
@@ -212,6 +213,7 @@ describe('общежития', () => {
           name: 'Восточное',
           client_name: 'Стройкомплект',
           template_id: 4,
+          tabs: defaultTabChoices,
         });
         dormitories = [newDormitory, DORMITORY];
         return { status: 201, body: newDormitory };

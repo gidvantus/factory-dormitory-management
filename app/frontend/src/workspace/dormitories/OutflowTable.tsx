@@ -4,6 +4,7 @@ import { api, ApiError } from '../../api/client';
 import type { OutflowField, OutflowRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
+import { IdentityDialog, PersonnelLink } from '../personnel/IdentityDialog';
 import styles from './OutflowTable.module.css';
 import {
   ColumnsControls,
@@ -39,7 +40,11 @@ function OutflowEntry({
     try {
       const updated = await api.updateOutflowRow(dormitoryId, row.id, field, value);
       saved.current = { ...saved.current, [field]: updated[field] };
-      setDraft((current) => ({ ...current, [field]: updated[field] }));
+      setDraft((current) => ({
+        ...current,
+        [field]: updated[field],
+        employee_id: updated.employee_id,
+      }));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось сохранить строку.');
     } finally {
@@ -110,7 +115,16 @@ function OutflowEntry({
       >
         <td>{dateField('departure_date', 'Дата выезда')}</td>
         <td>{textField('personnel_number', 'Т/н')}</td>
-        <td>{textField('full_name', 'ФИО')}</td>
+        <td>
+          {textField('full_name', 'ФИО')}
+          <PersonnelLink
+            dormitoryId={dormitoryId}
+            tableKey="outflow"
+            rowId={row.id}
+            employeeId={draft.employee_id}
+            fields={draft}
+          />
+        </td>
         <td>{dateField('shift_start', 'Начало вахты')}</td>
         <td>{textField('reason', 'Причина')}</td>
         <td>{textField('notes', 'Примечание')}</td>
@@ -176,17 +190,8 @@ function OutflowContent({
     return () => controller.abort();
   }, [dormitoryId, range.from, range.to, attempt]);
 
-  async function add(): Promise<void> {
+  function add(): void {
     setAdding(true);
-    setError('');
-    try {
-      const row = await api.createOutflowRow(dormitoryId);
-      setRows((current) => [...current, row]);
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Не удалось добавить строку.');
-    } finally {
-      setAdding(false);
-    }
   }
 
   async function remove(): Promise<void> {
@@ -206,6 +211,17 @@ function OutflowContent({
 
   return (
     <section className={styles.page} data-testid="dormitory-outflow">
+      {adding && (
+        <IdentityDialog
+          dormitoryId={dormitoryId}
+          tableKey="outflow"
+          onClose={() => setAdding(false)}
+          onSaved={() => {
+            setAdding(false);
+            setAttempt((n) => n + 1);
+          }}
+        />
+      )}
       <div className={styles.heading}>
         <h2>Отток</h2>
         <ColumnsControls />

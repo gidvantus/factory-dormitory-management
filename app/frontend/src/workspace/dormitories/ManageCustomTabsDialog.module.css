@@ -1,0 +1,64 @@
+.content {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.help {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.list {
+  display: grid;
+  gap: 12px;
+  padding: 2px;
+  margin: 0;
+  list-style: none;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.item,
+.confirm {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+}
+.heading {
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.heading span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.content button {
+  padding: 8px 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: white;
+  color: var(--mint-700);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.content button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.content .danger,
+.error {
+  color: var(--color-danger);
+}
+.error {
+  font-size: 13px;
+}

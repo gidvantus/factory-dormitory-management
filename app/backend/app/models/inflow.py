@@ -13,6 +13,7 @@ class PersonnelInflow(CustomValuesMixin, Base):
     __tablename__ = "personnel_inflow"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employee_id: Mapped[str | None] = mapped_column(ForeignKey("employees.id"), index=True)
     dormitory_id: Mapped[int] = mapped_column(
         ForeignKey("dormitories.id", ondelete="CASCADE"), index=True
     )

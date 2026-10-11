@@ -13,6 +13,7 @@ from app.models.hostel import Hostel
 from app.models.outflow import PersonnelOutflow
 from app.models.payment import PaymentEntry
 from app.models.resident import Resident
+from app.personnel import close_residence, record_changed
 from app.resident_outflow import prepare_outflow
 from app.resident_payments import copy_payment_values, existing_payment
 from app.resident_transfer import prepare_transfer
@@ -30,6 +31,7 @@ from app.schemas.resident_transfer import (
     TransferPreviewResponse,
     TransferResidentRequest,
 )
+from app.section_state import require_section_writable
 from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import lock_dormitory
 
@@ -94,6 +96,7 @@ def list_residents(
 def create_resident(
     dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession
 ) -> ResidentResponse:
+    require_section_writable(db, dormitory_id, "residents")
     require_dormitory(db, dormitory_id)
     resident = Resident(dormitory_id=dormitory_id)
     db.add(resident)
@@ -118,6 +121,8 @@ def register_payment(
 ) -> ResidentPaymentResponse:
     # Один замок защищает сравнение и вставку от одновременных нажатий,
     # а также от изменения пользовательских столбцов и значений во время копирования.
+    require_section_writable(db, dormitory_id, "residents")
+    require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)
     resident = get_resident(db, dormitory_id, resident_id)
     fields, custom, copied, skipped = copy_payment_values(db, dormitory_id, resident, kind)
@@ -181,10 +186,14 @@ def transfer_resident(
         raise HTTPException(409, "Данные или столбцы изменились. Повторно проверьте перевод")
     if plan.preview.warnings and not payload.confirm_loss:
         raise HTTPException(409, "Подтвердите перевод без перечисленных полей")
+    record_changed(
+        db, plan.resident, _user.id, kind="transfer", title="Перевод · предыдущее проживание"
+    )
     for field in UpdateResidentRequest.model_fields:
         setattr(plan.resident, field, plan.fields.get(field))
     plan.resident.custom_values = plan.custom
     plan.resident.dormitory_id = payload.target_dormitory_id
+    record_changed(db, plan.resident, _user.id, kind="transfer", title="Перевод · новое проживание")
     db.commit()
     db.refresh(plan.resident)
     return resident_response(db, plan.resident)
@@ -197,6 +206,7 @@ def preview_outflow(
     _user: ActiveUser,
     db: DbSession,
 ) -> ResidentOutflowPreview:
+    require_section_writable(db, dormitory_id, "residents")
     plan = prepare_outflow(db, dormitory_id, resident_id)
     db.commit()
     return plan.preview
@@ -212,13 +222,25 @@ def move_to_outflow(
     _user: ActiveUser,
     db: DbSession,
 ) -> PersonnelOutflow:
+    require_section_writable(db, dormitory_id, "residents")
     plan = prepare_outflow(db, dormitory_id, resident_id)
     if payload.preview_token != plan.preview.preview_token:
         raise HTTPException(409, "Данные, столбцы или выплаты изменились. Повторно проверьте отток")
     if plan.preview.warnings and not payload.confirm_loss:
         raise HTTPException(409, "Подтвердите перенос в отток без перечисленных полей")
-    row = PersonnelOutflow(dormitory_id=dormitory_id, custom_values=plan.custom, **plan.fields)
+    record_changed(
+        db, plan.resident, _user.id, kind="outflow", title="Проживание завершено · перенос в отток"
+    )
+    row = PersonnelOutflow(
+        dormitory_id=dormitory_id,
+        employee_id=plan.resident.employee_id,
+        custom_values=plan.custom,
+        **plan.fields,
+    )
     db.add(row)
+    db.flush()
+    record_changed(db, row, _user.id)
+    close_residence(db, plan.resident, _user.id)
     for payment in plan.payments:
         db.delete(payment)
     db.delete(plan.resident)
@@ -238,6 +260,7 @@ def update_resident(
     db: DbSession,
     month: Annotated[date, Query()],
 ) -> ResidentResponse:
+    require_section_writable(db, dormitory_id, "residents")
     lock_dormitory(db, dormitory_id)
     resident = get_resident(db, dormitory_id, resident_id)
     if month.day != 1:
@@ -260,6 +283,7 @@ def update_resident(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Конец вахты раньше начала")
     for field, value in changes.items():
         setattr(resident, field, value)
+    record_changed(db, resident, _user.id)
     db.commit()
     db.refresh(resident)
     return resident_response(db, resident)
@@ -272,6 +296,12 @@ def delete_resident(
     _user: ActiveUser,
     db: DbSession,
 ) -> None:
+    require_section_writable(db, dormitory_id, "residents")
     lock_dormitory(db, dormitory_id)
-    db.delete(get_resident(db, dormitory_id, resident_id))
+    resident = get_resident(db, dormitory_id, resident_id)
+    record_changed(
+        db, resident, _user.id, kind="deleted", title="Удалена исходная запись проживания"
+    )
+    close_residence(db, resident, _user.id)
+    db.delete(resident)
     db.commit()

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.hostel import Hostel, HostelCell
+from app.place_values import active_in_month, place_day_values
 from app.schemas.hostel import (
     CreateHostelRequest,
     HostelMonthResponse,
@@ -18,6 +19,7 @@ from app.schemas.hostel import (
     PlacesResponse,
     SaveHostelCellRequest,
 )
+from app.section_state import require_section_writable
 from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
 router = APIRouter(
@@ -28,11 +30,6 @@ router = APIRouter(
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
 HostelId = Annotated[int, Path(ge=1, le=2147483647)]
-GROUPS = (
-    ("residents_m", "residents_f", "residents_total"),
-    ("free_m", "free_f", "free_total"),
-    ("paid_m", "paid_f", "paid_total"),
-)
 
 
 def next_month(month: date) -> date:
@@ -46,10 +43,17 @@ def get_hostel(db: Session, dormitory_id: int, hostel_id: int) -> Hostel:
     return hostel
 
 
-def active_in_month(hostel: Hostel, month: date) -> bool:
-    return hostel.active_from_month <= month and (
-        hostel.active_until_month is None or hostel.active_until_month > month
-    )
+@router.get("/sources", summary="Все хостелы для настройки связи отчёта")
+def list_sources(
+    dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession
+) -> list[dict[str, int | str]]:
+    require_dormitory(db, dormitory_id)
+    return [
+        {"id": hostel.id, "name": hostel.name}
+        for hostel in db.scalars(
+            select(Hostel).where(Hostel.dormitory_id == dormitory_id).order_by(Hostel.id)
+        )
+    ]
 
 
 @router.get("", response_model=PlacesResponse, summary="Таблицы мест за период")
@@ -108,22 +112,15 @@ def read_places(
                 field: {day: value for day, value in day_values.items() if day in day_keys}
                 for field, day_values in values[hostel.id].items()
             }
-            for gender in ("m", "f"):
-                paid = row_values.get(f"paid_{gender}", {})
-                residents = row_values.get(f"residents_{gender}", {})
-                row_values[f"free_{gender}"] = {
-                    day: paid.get(day, 0) - residents.get(day, 0)
-                    for day in paid.keys() | residents.keys()
-                }
-            for left, right, total in GROUPS:
-                calculated = {
-                    day.isoformat(): row_values.get(left, {}).get(day.isoformat(), 0)
-                    + row_values.get(right, {}).get(day.isoformat(), 0)
-                    for day in days
-                    if day.isoformat() in row_values.get(left, {})
-                    or day.isoformat() in row_values.get(right, {})
-                }
-                row_values[total] = calculated
+            for field in ("free_m", "free_f", "residents_total", "free_total", "paid_total"):
+                row_values[field] = {}
+            for day in days:
+                key = day.isoformat()
+                calculated = place_day_values(
+                    {field: entries[key] for field, entries in row_values.items() if key in entries}
+                )
+                for field, value in calculated.items():
+                    row_values.setdefault(field, {})[key] = value
             visible.append(HostelResponse(id=hostel.id, name=hostel.name, values=row_values))
         months.append(HostelMonthResponse(month=month, days=days, hostels=visible))
         month = next_month(month)
@@ -137,6 +134,7 @@ def create_hostel(
     _user: ActiveUser,
     db: DbSession,
 ) -> dict[str, int | str]:
+    require_section_writable(db, dormitory_id, "places")
     require_dormitory(db, dormitory_id)
     existing = db.scalars(select(Hostel).where(Hostel.dormitory_id == dormitory_id))
     if any(
@@ -164,6 +162,7 @@ def remove_hostel(
     db: DbSession,
     month: Annotated[date, Query()],
 ) -> None:
+    require_section_writable(db, dormitory_id, "places")
     require_dormitory(db, dormitory_id)
     if month.day != 1:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите первый день месяца")
@@ -192,6 +191,7 @@ def save_hostel_cell(
     _user: ActiveUser,
     db: DbSession,
 ) -> None:
+    require_section_writable(db, dormitory_id, "places")
     require_dormitory(db, dormitory_id)
     hostel = get_hostel(db, dormitory_id, hostel_id)
     if not active_in_month(hostel, report_date.replace(day=1)):

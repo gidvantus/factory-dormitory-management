@@ -12,6 +12,8 @@ import {
   TableColumnsProvider,
 } from './ConfigurableColumns';
 import styles from './OutflowTable.module.css';
+import { PersonnelLink } from '../personnel/IdentityDialog';
+import { PersonnelBindingButton } from '../personnel/BindingDialog';
 
 function ArchiveContent({
   dormitoryId,
@@ -77,6 +79,11 @@ function ArchiveContent({
       <div className={styles.heading}>
         <h2>Архив</h2>
         <ColumnsControls />
+        <PersonnelBindingButton
+          dormitoryId={dormitoryId}
+          tableKey="archive"
+          onSaved={() => setAttempt((n) => n + 1)}
+        />
         <button
           type="button"
           className={styles.addButton}
@@ -111,6 +118,13 @@ function ArchiveContent({
                 <tr key={row.id}>
                   <ConfiguredCells row={row} fields={['action_delete']}>
                     <td className={styles.actionCell}>
+                      <PersonnelLink
+                        dormitoryId={dormitoryId}
+                        tableKey="archive"
+                        rowId={row.id}
+                        employeeId={row.employee_id}
+                        onChanged={() => setAttempt((n) => n + 1)}
+                      />
                       <button type="button" disabled={busy} onClick={() => setDeleting(row)}>
                         Удалить
                       </button>

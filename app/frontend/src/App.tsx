@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Route, Routes } from 'react-router-dom';
 
 import { RequireAuth } from './auth/RequireAuth';
@@ -10,6 +11,24 @@ import { Dormitories } from './workspace/Dormitories';
 import { DormitoryDetails } from './workspace/dormitories/DormitoryDetails';
 import { PersonalData } from './workspace/PersonalData';
 import { WorkspaceOverview } from './workspace/WorkspaceOverview';
+import { DormitoryDesignPreview } from './pages/DormitoryDesignPreview';
+
+const StatisticsDesignPreview = lazy(() =>
+  import('./pages/StatisticsDesignPreview').then((module) => ({
+    default: module.StatisticsDesignPreview,
+  })),
+);
+const Statistics = lazy(() =>
+  import('./workspace/Statistics').then((module) => ({ default: module.Statistics })),
+);
+const PersonnelDesignPreview = lazy(() =>
+  import('./pages/personnel-preview/PersonnelDesignPreview').then((module) => ({
+    default: module.PersonnelDesignPreview,
+  })),
+);
+const Personnel = lazy(() =>
+  import('./workspace/Personnel').then((module) => ({ default: module.Personnel })),
+);
 
 /**
  * Главная — лендинг; вход и регистрация открываются на ней же модальным окном,
@@ -23,6 +42,23 @@ export function App(): JSX.Element {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      <Route path="/preview/dormitory-settings" element={<DormitoryDesignPreview />} />
+      <Route
+        path="/preview/personnel"
+        element={
+          <Suspense fallback={<p role="status">Загрузка макета…</p>}>
+            <PersonnelDesignPreview />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/preview/statistics"
+        element={
+          <Suspense fallback={<p role="status">Загрузка макета…</p>}>
+            <StatisticsDesignPreview />
+          </Suspense>
+        }
+      />
       <Route path="/login" element={<Landing />} />
       <Route path="/register" element={<Landing />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -39,6 +75,30 @@ export function App(): JSX.Element {
         <Route index element={<WorkspaceOverview />} />
         <Route path="dormitories" element={<Dormitories />} />
         <Route path="dormitories/:dormitoryId/*" element={<DormitoryDetails />} />
+        <Route
+          path="personnel"
+          element={
+            <Suspense fallback={<p role="status">Загружаем персонал…</p>}>
+              <Personnel />
+            </Suspense>
+          }
+        />
+        <Route
+          path="statistics"
+          element={
+            <Suspense fallback={<p>Загрузка статистики…</p>}>
+              <Statistics />
+            </Suspense>
+          }
+        />
+        <Route
+          path="statistics/:reportId"
+          element={
+            <Suspense fallback={<p>Загрузка отчёта…</p>}>
+              <Statistics />
+            </Suspense>
+          }
+        />
         <Route path="profile" element={<PersonalData />} />
       </Route>
       <Route path="*" element={<NotFound />} />

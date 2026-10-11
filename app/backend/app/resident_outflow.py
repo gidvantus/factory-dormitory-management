@@ -18,6 +18,7 @@ from app.schemas.resident import UpdateResidentRequest
 from app.schemas.resident_outflow import ResidentOutflowPreview
 from app.schemas.resident_transfer import TransferWarning
 from app.schemas.table_column import ColumnResponse
+from app.section_state import require_section_writable
 from app.table_data import ensure_columns, lock_dormitory
 
 
@@ -32,6 +33,7 @@ class OutflowPlan:
 
 def prepare_outflow(db: Session, dormitory_id: int, resident_id: int) -> OutflowPlan:
     lock_dormitory(db, dormitory_id)
+    require_section_writable(db, dormitory_id, "outflow")
     resident = db.scalar(
         select(Resident)
         .where(Resident.id == resident_id, Resident.dormitory_id == dormitory_id)
@@ -126,6 +128,8 @@ def prepare_outflow(db: Session, dormitory_id: int, resident_id: int) -> Outflow
             .execution_options(populate_existing=True)
         )
     )
+    for kind in {payment.kind for payment in payments}:
+        require_section_writable(db, dormitory_id, kind)
     snapshot = {
         "dormitory": dormitory_id,
         "resident_id": resident_id,

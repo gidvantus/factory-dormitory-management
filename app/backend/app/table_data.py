@@ -9,16 +9,26 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.dormitory import Dormitory
+from app.models.custom_tab import CustomTab, CustomTabEntry
+from app.models.hostel import Hostel, HostelCell
 from app.models.inflow import PersonnelInflow
 from app.models.outflow import PersonnelOutflow
 from app.models.payment import PaymentEntry
 from app.models.report import ReportRow
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
-from app.schemas.table_column import ReportLink
+from app.place_values import active_in_month, place_day_values
+from app.schemas.table_column import (
+    PlaceReportLink,
+    ReportLink,
+    ReportSourceLink,
+    report_link_adapter,
+)
+from app.section_state import locked_dormitory, require_section, require_section_writable
 
-Record = Resident | PersonnelInflow | PersonnelOutflow | PaymentEntry | ArchiveEntry
+Record = (
+    Resident | PersonnelInflow | PersonnelOutflow | PaymentEntry | ArchiveEntry | CustomTabEntry
+)
 TABLE_MODELS: dict[str, type[Record]] = {
     "residents": Resident,
     "inflow": PersonnelInflow,
@@ -84,8 +94,44 @@ DEFAULT_COLUMNS: dict[str, list[tuple[str, str, str]]] = {
 
 
 def lock_dormitory(db: Session, dormitory_id: int) -> None:
-    if db.scalar(select(Dormitory).where(Dormitory.id == dormitory_id).with_for_update()) is None:
-        raise HTTPException(404, "Общежитие не найдено")
+    locked_dormitory(db, dormitory_id)
+
+
+def get_custom_tab(
+    db: Session,
+    dormitory_id: int,
+    tab_id: int,
+    *,
+    require_table: bool = False,
+    require_active: bool = False,
+) -> CustomTab:
+    tab = db.scalar(
+        select(CustomTab)
+        .where(CustomTab.id == tab_id, CustomTab.dormitory_id == dormitory_id)
+        .execution_options(populate_existing=True)
+    )
+    if tab is None:
+        raise HTTPException(404, "Вкладка не найдена")
+    if require_active and not tab.is_active:
+        raise HTTPException(
+            409, "Вкладка скрыта и доступна только для просмотра. Сначала восстановите её."
+        )
+    if require_active and tab.parent_id:
+        get_custom_tab(db, dormitory_id, tab.parent_id, require_active=True)
+    if require_active and tab.parent_section:
+        require_section_writable(db, dormitory_id, tab.parent_section)
+    if require_table and not tab.table_created:
+        raise HTTPException(409, "Сначала создайте таблицу во вкладке")
+    return tab
+
+
+def require_writable_table(db: Session, dormitory_id: int, table_key: str) -> None:
+    if table_key.startswith("custom_"):
+        get_custom_tab(
+            db, dormitory_id, int(table_key.removeprefix("custom_")), require_active=True
+        )
+    else:
+        require_section_writable(db, dormitory_id, table_key)
 
 
 def columns_for(db: Session, dormitory_id: int, table_key: str) -> list[TableColumn]:
@@ -103,6 +149,10 @@ def columns_for(db: Session, dormitory_id: int, table_key: str) -> list[TableCol
 
 def ensure_columns(db: Session, dormitory_id: int, table_key: str) -> list[TableColumn]:
     lock_dormitory(db, dormitory_id)
+    if table_key.startswith("custom_"):
+        get_custom_tab(db, dormitory_id, int(table_key.removeprefix("custom_")), require_table=True)
+        return columns_for(db, dormitory_id, table_key)
+    require_section(db, dormitory_id, table_key)
     columns = columns_for(db, dormitory_id, table_key)
     if columns:
         if table_key == "residents" and not any(
@@ -172,20 +222,23 @@ def get_column(db: Session, dormitory_id: int, table_key: str, column_id: int) -
 
 
 def records_for(db: Session, dormitory_id: int, table_key: str) -> list[Record]:
-    model = TABLE_MODELS[table_key]
+    model = CustomTabEntry if table_key.startswith("custom_") else TABLE_MODELS[table_key]
     query = select(model).where(model.dormitory_id == dormitory_id)
+    if table_key.startswith("custom_"):
+        query = query.where(CustomTabEntry.tab_id == int(table_key.removeprefix("custom_")))
     if table_key in ("advance", "settlement"):
         query = query.where(PaymentEntry.kind == table_key)
     return list(db.scalars(query.order_by(model.id)))
 
 
 def get_record(db: Session, dormitory_id: int, table_key: str, row_id: int) -> Record:
-    model = TABLE_MODELS[table_key]
+    model = CustomTabEntry if table_key.startswith("custom_") else TABLE_MODELS[table_key]
     row = cast(Record | None, db.scalar(select(model).where(model.id == row_id).with_for_update()))
     if (
         row is None
         or row.dormitory_id != dormitory_id
         or (isinstance(row, PaymentEntry) and row.kind != table_key)
+        or (isinstance(row, CustomTabEntry) and table_key != f"custom_{row.tab_id}")
     ):
         raise HTTPException(404, "Запись не найдена")
     return row
@@ -251,7 +304,18 @@ def record_value(row: Record, column: TableColumn) -> Any:
     return value
 
 
-def validate_link(db: Session, dormitory_id: int, link: ReportLink) -> ReportLink:
+def validate_link(db: Session, dormitory_id: int, link: ReportSourceLink) -> ReportSourceLink:
+    if isinstance(link, PlaceReportLink):
+        require_section(db, dormitory_id, "places")
+        if link.hostel_id is not None:
+            hostel = db.get(Hostel, link.hostel_id)
+            if hostel is None or hostel.dormitory_id != dormitory_id:
+                raise HTTPException(404, "Хостел не найден")
+        return link
+    if link.table_key.startswith("custom_"):
+        get_custom_tab(
+            db, dormitory_id, int(link.table_key.removeprefix("custom_")), require_table=True
+        )
     column = get_column(db, dormitory_id, link.table_key, link.column_id)
     if column.archived:
         raise HTTPException(422, "Столбец удалён. Восстановите его или измените связь")
@@ -272,7 +336,9 @@ def validate_link(db: Session, dormitory_id: int, link: ReportLink) -> ReportLin
 def linked_counts(
     db: Session, dormitory_id: int, link: ReportLink, records: list[Record], start: date, end: date
 ) -> dict[date, int]:
-    link = validate_link(db, dormitory_id, link)
+    validated = validate_link(db, dormitory_id, link)
+    assert isinstance(validated, ReportLink)
+    link = validated
     column = get_column(db, dormitory_id, link.table_key, link.column_id)
     date_column = (
         get_column(db, dormitory_id, link.table_key, link.date_column_id)
@@ -302,6 +368,31 @@ def linked_counts(
     return counts
 
 
+def linked_place_values(
+    db: Session, dormitory_id: int, link: PlaceReportLink, start: date, end: date
+) -> dict[date, int]:
+    validate_link(db, dormitory_id, link)
+    query = select(Hostel).where(Hostel.dormitory_id == dormitory_id)
+    if link.hostel_id is not None:
+        query = query.where(Hostel.id == link.hostel_id)
+    hostels = {hostel.id: hostel for hostel in db.scalars(query)}
+    cells = db.scalars(
+        select(HostelCell).where(
+            HostelCell.hostel_id.in_(hostels),
+            HostelCell.report_date >= start,
+            HostelCell.report_date <= end,
+        )
+    )
+    raw: dict[tuple[int, date], dict[str, int]] = {}
+    for cell in cells:
+        if active_in_month(hostels[cell.hostel_id], cell.report_date.replace(day=1)):
+            raw.setdefault((cell.hostel_id, cell.report_date), {})[cell.field] = cell.value
+    result: dict[date, int] = {}
+    for (_, day), values in raw.items():
+        result[day] = result.get(day, 0) + place_day_values(values).get(link.metric, 0)
+    return result
+
+
 def column_dependencies(db: Session, column: TableColumn) -> list[str]:
     return [
         row.name
@@ -310,18 +401,32 @@ def column_dependencies(db: Session, column: TableColumn) -> list[str]:
                 ReportRow.dormitory_id == column.dormitory_id,
             )
         )
-        if row.link and column.id in (row.link["column_id"], row.link.get("date_column_id"))
+        if row.link and column.id in (row.link.get("column_id"), row.link.get("date_column_id"))
     ]
 
 
 def snapshot_link(db: Session, row: ReportRow) -> dict[str, Any] | None:
     if not row.link:
         return None
-    link = validate_link(db, row.dormitory_id, ReportLink.model_validate(row.link))
+    link = validate_link(db, row.dormitory_id, report_link_adapter.validate_python(row.link))
+    if isinstance(link, PlaceReportLink):
+        hostel = db.get(Hostel, link.hostel_id) if link.hostel_id is not None else None
+        return {
+            "rule": link.model_dump(),
+            "hostel": {
+                "name": hostel.name,
+                "active_from_month": hostel.active_from_month.isoformat(),
+                "active_until_month": hostel.active_until_month.isoformat()
+                if hostel.active_until_month
+                else None,
+            }
+            if hostel
+            else None,
+        }
     # Preserve the full source schema, including removed built-ins. Otherwise a custom
     # replacement named "Причина" would collide with the default field in a new dormitory.
     columns = columns_for(db, row.dormitory_id, link.table_key)
-    return {
+    snapshot: dict[str, Any] = {
         "rule": link.model_dump(),
         "columns": [
             {
@@ -336,14 +441,86 @@ def snapshot_link(db: Session, row: ReportRow) -> dict[str, Any] | None:
             for col in columns
         ],
     }
+    if link.table_key.startswith("custom_"):
+        tab = get_custom_tab(
+            db, row.dormitory_id, int(link.table_key.removeprefix("custom_")), require_table=True
+        )
+        snapshot["tab_name"] = tab.name
+        parents: list[dict[str, Any]] = []
+        current = tab
+        while current.parent_id:
+            current = get_custom_tab(db, row.dormitory_id, current.parent_id)
+            parents.insert(0, {"id": current.id, "name": current.name})
+        snapshot["parent_tabs"] = parents
+        snapshot["parent_section"] = current.parent_section
+    return snapshot
 
 
 def restore_link(
-    db: Session, dormitory_id: int, snapshot: dict[str, Any] | None, mapped: dict[int, int]
+    db: Session,
+    dormitory_id: int,
+    snapshot: dict[str, Any] | None,
+    mapped: dict[int, int],
+    sources: dict[str, int],
 ) -> dict[str, Any] | None:
     if snapshot is None:
         return None
     rule = dict(snapshot["rule"])
+    if rule["table_key"] == "places":
+        if rule.get("hostel_id") is not None:
+            key = f"hostel_{rule['hostel_id']}"
+            if key not in sources:
+                source = snapshot["hostel"]
+                hostel = Hostel(
+                    dormitory_id=dormitory_id,
+                    name=source["name"],
+                    active_from_month=date.fromisoformat(source["active_from_month"]),
+                    active_until_month=date.fromisoformat(source["active_until_month"])
+                    if source["active_until_month"]
+                    else None,
+                )
+                db.add(hostel)
+                db.flush()
+                sources[key] = hostel.id
+            rule["hostel_id"] = sources[key]
+        return rule
+    if rule["table_key"].startswith("custom_"):
+        key = rule["table_key"]
+        if key not in sources:
+            parent_id = None
+            parent_section = snapshot.get("parent_section")
+            parents = snapshot.get(
+                "parent_tabs", [snapshot["parent_tab"]] if snapshot.get("parent_tab") else []
+            )
+            for parent in parents:
+                parent_key = f"custom_{parent['id']}"
+                if parent_key not in sources:
+                    group = CustomTab(
+                        dormitory_id=dormitory_id,
+                        name=parent["name"],
+                        is_group=True,
+                        parent_id=parent_id,
+                        parent_section=parent_section if not parent_id else None,
+                    )
+                    db.add(group)
+                    db.flush()
+                    sources[parent_key] = group.id
+                parent_id = sources[parent_key]
+            tab = CustomTab(
+                dormitory_id=dormitory_id,
+                name=snapshot["tab_name"],
+                table_created=True,
+                parent_id=parent_id,
+                parent_section=parent_section if not parent_id else None,
+            )
+            db.add(tab)
+            db.flush()
+            sources[key] = tab.id
+        else:
+            existing = db.get(CustomTab, sources[key])
+            assert existing is not None
+            existing.table_created = True
+        rule["table_key"] = f"custom_{sources[key]}"
     columns = columns_for(db, dormitory_id, rule["table_key"])
     for source in snapshot["columns"]:
         if source["id"] in mapped:

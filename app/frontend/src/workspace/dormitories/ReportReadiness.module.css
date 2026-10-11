@@ -1,0 +1,53 @@
+.readiness {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin: -6px 0 20px;
+}
+.readiness .toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--cream-50);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.readiness .toggle[data-ready='true'] {
+  background: var(--mint-100);
+  border-color: var(--mint-200);
+  color: var(--mint-700);
+}
+.readiness .toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--mint-600);
+  cursor: pointer;
+}
+.readiness .toggle:has(input:disabled) {
+  opacity: 0.7;
+  cursor: wait;
+}
+.readiness .date {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+.readiness .error {
+  width: 100%;
+  color: var(--color-danger);
+  font-size: 12px;
+}
+.readiness .error button {
+  margin-left: 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

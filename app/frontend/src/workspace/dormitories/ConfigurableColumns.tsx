@@ -1,22 +1,30 @@
-import { Children, Fragment, useEffect, useRef, useState } from 'react';
+import {
+  Children,
+  Fragment,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import type { FormEvent, ReactNode } from 'react';
 
 import { api, ApiError } from '../../api/client';
-import type { CellValue, ColumnKind, ColumnOption, TableColumn, TableKey } from '../../api/client';
+import type {
+  CellValue,
+  ColumnInput,
+  ColumnKind,
+  ColumnOption,
+  TableColumn,
+  TableKey,
+} from '../../api/client';
 import { Modal } from '../../components/Modal';
 import styles from './ConfigurableColumns.module.css';
 import { ColumnsContext, useColumns } from './tableColumnsContext';
 import type { ColumnsDialog, TableColumnsContext } from './tableColumnsContext';
+import { columnKinds as kinds } from './columnKinds';
+import { useSettingsNavigation } from './settingsContext';
 
-const kinds: Record<ColumnKind, string> = {
-  text: 'Текст',
-  number: 'Число',
-  date: 'Дата',
-  checkbox: 'Чекбокс',
-  select: 'Выпадающий список',
-  action: 'Действие',
-  hostel: 'Место проживания',
-};
 export function TableColumnsProvider({
   dormitoryId,
   table,
@@ -27,6 +35,8 @@ export function TableColumnsProvider({
   children: ReactNode;
 }): JSX.Element {
   const [columns, setColumns] = useState<TableColumn[]>([]);
+  const settings = useSettingsNavigation();
+  const revision = settings?.revision;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -88,7 +98,7 @@ export function TableColumnsProvider({
         }
       });
     return () => controller.abort();
-  }, [dormitoryId, table, attempt]);
+  }, [dormitoryId, table, attempt, revision]);
   const context: TableColumnsContext = {
     dormitoryId,
     table,
@@ -99,7 +109,11 @@ export function TableColumnsProvider({
     trackSave,
     waitForRowSaves,
     reload: () => setAttempt((n) => n + 1),
-    edit: setDialog,
+    edit: settings
+      ? (value) => {
+          if (value) settings.open(table);
+        }
+      : setDialog,
     saved: (key, value) => setValues((current) => ({ ...current, [key]: value })),
   };
   return (
@@ -118,14 +132,19 @@ export function TableColumnsProvider({
 
 export function ColumnsControls(): JSX.Element {
   const { edit, error, reload, loading } = useColumns();
+  const settings = useSettingsNavigation();
   return (
     <div className={styles.controls}>
-      <button type="button" disabled={loading || !!error} onClick={() => edit('new')}>
-        + Добавить столбец
-      </button>
-      <button type="button" disabled={loading || !!error} onClick={() => edit('manage')}>
-        Настроить столбцы
-      </button>
+      {!settings && (
+        <>
+          <button type="button" disabled={loading || !!error} onClick={() => edit('new')}>
+            + Добавить столбец
+          </button>
+          <button type="button" disabled={loading || !!error} onClick={() => edit('manage')}>
+            Настроить столбцы
+          </button>
+        </>
+      )}
       {loading && <span role="status">Загружаем столбцы…</span>}
       {error && (
         <span role="alert" className={styles.error}>
@@ -219,6 +238,34 @@ function ManageColumns(): JSX.Element {
 
 function ColumnEditor({ column }: { column: TableColumn | null }): JSX.Element {
   const { dormitoryId, table, reload, edit } = useColumns();
+  return (
+    <ColumnForm
+      column={column}
+      onClose={() => edit(null)}
+      onSave={async (input) => {
+        if (column) await api.updateColumn(dormitoryId, table, column.id, input);
+        else await api.createColumn(dormitoryId, table, input);
+        reload();
+      }}
+    />
+  );
+}
+
+export function ColumnForm({
+  column = null,
+  onClose,
+  onSave,
+  title,
+  submitLabel,
+  description,
+}: {
+  column?: TableColumn | null;
+  onClose: () => void;
+  onSave: (input: ColumnInput) => Promise<void>;
+  title?: string;
+  submitLabel?: string;
+  description?: string;
+}): JSX.Element {
   const [name, setName] = useState(column?.name ?? '');
   const [kind, setKind] = useState<ColumnKind>(column?.kind ?? 'text');
   const [options, setOptions] = useState<ColumnOption[]>(
@@ -245,10 +292,8 @@ function ColumnEditor({ column }: { column: TableColumn | null }): JSX.Element {
     setSaving(true);
     setError('');
     try {
-      if (column) await api.updateColumn(dormitoryId, table, column.id, input);
-      else await api.createColumn(dormitoryId, table, input);
-      reload();
-      edit(null);
+      await onSave(input);
+      onClose();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось сохранить столбец.');
     } finally {
@@ -257,12 +302,13 @@ function ColumnEditor({ column }: { column: TableColumn | null }): JSX.Element {
   }
   return (
     <Modal
-      title={column ? 'Изменить столбец' : 'Добавить столбец'}
-      onClose={() => edit(null)}
+      title={title ?? (column ? 'Изменить столбец' : 'Добавить столбец')}
+      onClose={onClose}
       closeDisabled={saving}
       testId="column-editor-modal"
     >
       <form className={styles.form} onSubmit={(event) => void submit(event)}>
+        {description && <p className={styles.help}>{description}</p>}
         <label>
           Название столбца
           <input
@@ -350,11 +396,11 @@ function ColumnEditor({ column }: { column: TableColumn | null }): JSX.Element {
           </p>
         )}
         <div className={styles.actions}>
-          <button type="button" disabled={saving} onClick={() => edit(null)}>
+          <button type="button" disabled={saving} onClick={onClose}>
             Отмена
           </button>
           <button type="submit" disabled={saving}>
-            {saving ? 'Сохраняем…' : 'Сохранить столбец'}
+            {saving ? 'Сохраняем…' : (submitLabel ?? 'Сохранить столбец')}
           </button>
         </div>
       </form>
@@ -362,14 +408,54 @@ function ColumnEditor({ column }: { column: TableColumn | null }): JSX.Element {
   );
 }
 
+function isRowAction(column: TableColumn): boolean {
+  return column.kind === 'action' && !!column.builtin_key?.startsWith('action_');
+}
+
 function columnWidth(column: TableColumn): number {
-  return column.kind === 'checkbox'
-    ? 100
-    : column.kind === 'action'
-      ? 110
-      : column.kind === 'date'
-        ? 160
-        : 190;
+  const builtinWidths: Record<string, number> = {
+    row_number: 48,
+    gender: 68,
+    personnel_number: 104,
+    full_name: 280,
+    hostel_id: 210,
+    shift_count: 96,
+    phone: 168,
+    medical_book: 116,
+    citizenship: 160,
+    reason: 210,
+    notes: 260,
+    additional_info: 260,
+    advance_amount: 148,
+    action_advance: 112,
+    action_settlement: 112,
+    action_transfer: 100,
+    action_outflow: 88,
+    action_evict: 108,
+    action_delete: 88,
+  };
+  if (column.builtin_key && builtinWidths[column.builtin_key]) {
+    return builtinWidths[column.builtin_key];
+  }
+  if (column.kind === 'checkbox') return 80;
+  if (column.kind === 'action') return 104;
+  if (column.kind === 'date') return 152;
+  if (column.kind === 'number') return 128;
+  if (column.kind === 'hostel') return 210;
+
+  const name = column.name.toLocaleLowerCase('ru').replace(/[\s./№_-]+/g, '');
+  if (name === 'пол') return 68;
+  if (name === 'фио' || name.includes('фамилия')) return 280;
+  if (name === 'тн' || name.includes('табельн')) return 104;
+  if (name.includes('телефон')) return 168;
+  if (name.includes('примечан') || name.includes('коммент') || name.includes('информац')) {
+    return 260;
+  }
+  if (column.kind === 'select') {
+    const longestOption = Math.max(0, ...column.options.map((option) => option.label.length));
+    return Math.min(260, Math.max(128, longestOption * 7 + 48));
+  }
+  return 200;
 }
 
 export function ConfiguredTable({
@@ -380,15 +466,50 @@ export function ConfiguredTable({
   children: ReactNode;
 }): JSX.Element {
   const { columns } = useColumns();
+  const tableRef = useRef<HTMLTableElement>(null);
+  const [availableWidth, setAvailableWidth] = useState(0);
+  useEffect(() => {
+    const container = tableRef.current?.parentElement;
+    if (!container) return;
+    const measure = (): void => setAvailableWidth(container.clientWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+  const settings = useSettingsNavigation();
+  const visibleColumns = columns.filter(
+    (column) => !column.archived && (!settings || !isRowAction(column)),
+  );
+  const actions = !!settings && columns.some((column) => !column.archived && isRowAction(column));
+  const baseWidth = visibleColumns.reduce(
+    (sum, column) => sum + columnWidth(column),
+    actions ? 150 : 0,
+  );
+  const flexibleColumns = visibleColumns.filter(
+    (column) => column.kind === 'text' && columnWidth(column) >= 200,
+  );
+  const extraWidth = flexibleColumns.length
+    ? Math.max(0, availableWidth - baseWidth) / flexibleColumns.length
+    : 0;
   return (
     <table
+      ref={tableRef}
       className={className}
-      style={{
-        minWidth: columns
-          .filter((column) => !column.archived)
-          .reduce((sum, col) => sum + columnWidth(col), 0),
-      }}
+      style={{ width: baseWidth + extraWidth * flexibleColumns.length, minWidth: baseWidth }}
     >
+      <colgroup>
+        {visibleColumns.map((column) => (
+          <col
+            key={column.id}
+            style={{
+              width: columnWidth(column) + (flexibleColumns.includes(column) ? extraWidth : 0),
+            }}
+          />
+        ))}
+        {actions && <col style={{ width: 150 }} />}
+      </colgroup>
       {children}
     </table>
   );
@@ -396,15 +517,19 @@ export function ConfiguredTable({
 
 export function ConfiguredHeaders(): JSX.Element {
   const { columns } = useColumns();
+  const settings = useSettingsNavigation();
   return (
     <>
       {columns
-        .filter((column) => !column.archived)
+        .filter((column) => !column.archived && (!settings || !isRowAction(column)))
         .map((column) => (
-          <th scope="col" key={column.id} style={{ width: columnWidth(column) }}>
+          <th scope="col" key={column.id} data-column-key={column.builtin_key ?? undefined}>
             {column.name}
           </th>
         ))}
+      {settings && columns.some((column) => !column.archived && isRowAction(column)) && (
+        <th scope="col">Действия</th>
+      )}
     </>
   );
 }
@@ -413,36 +538,110 @@ export function ConfiguredCells({
   fields,
   row,
   children,
+  readOnly = false,
 }: {
   fields: string[];
   row: { id: number; custom_values?: Record<string, CellValue> };
   children: ReactNode;
+  readOnly?: boolean;
 }): JSX.Element {
   const { columns } = useColumns();
+  const settings = useSettingsNavigation();
   const cells = Children.toArray(children);
   return (
     <>
       {columns
-        .filter((column) => !column.archived)
+        .filter((column) => !column.archived && (!settings || !isRowAction(column)))
         .map((column) =>
           column.builtin_key ? (
             <Fragment key={column.id}>{cells[fields.indexOf(column.builtin_key)]}</Fragment>
           ) : (
             <td key={column.id} className={styles.customCell}>
-              <CustomCell column={column} row={row} />
+              <CustomCell column={column} row={row} readOnly={readOnly} />
             </td>
           ),
         )}
+      {settings && columns.some((column) => !column.archived && isRowAction(column)) && (
+        <td className={styles.rowActions}>
+          <details
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') event.currentTarget.open = false;
+            }}
+          >
+            <summary
+              aria-label={`Действия, строка ${row.id}`}
+              aria-disabled={readOnly || settings.readOnly}
+            >
+              Действия <span>⌄</span>
+            </summary>
+            <div className={styles.rowActionList}>
+              {columns
+                .filter((column) => !column.archived && isRowAction(column))
+                .map((column) => (
+                  <Fragment key={column.id}>
+                    {actionParts(
+                      cells[fields.indexOf(column.builtin_key ?? '')],
+                      column,
+                      readOnly || settings.readOnly,
+                      true,
+                    )}
+                  </Fragment>
+                ))}
+            </div>
+          </details>
+          {columns
+            .filter((column) => !column.archived && isRowAction(column))
+            .map((column) => (
+              <Fragment key={column.id}>
+                {actionParts(
+                  cells[fields.indexOf(column.builtin_key ?? '')],
+                  column,
+                  readOnly || settings.readOnly,
+                  false,
+                )}
+              </Fragment>
+            ))}
+        </td>
+      )}
     </>
   );
+}
+
+function actionParts(
+  node: ReactNode,
+  column: TableColumn,
+  disabled: boolean,
+  buttons: boolean,
+): ReactNode {
+  return Children.map(node, (child) => {
+    if (!isValidElement<{ children?: ReactNode; disabled?: boolean }>(child))
+      return buttons ? null : child;
+    if (child.type === 'button')
+      return buttons
+        ? cloneElement(
+            child,
+            { disabled: disabled || child.props.disabled },
+            column.builtin_key === 'action_advance'
+              ? 'Записать на аванс'
+              : column.builtin_key === 'action_settlement'
+                ? 'Записать на расчёт'
+                : child.props.children,
+          )
+        : null;
+    if (child.type === 'td' || child.type === Fragment)
+      return actionParts(child.props.children, column, disabled, buttons);
+    return buttons ? null : child;
+  });
 }
 
 function CustomCell({
   column,
   row,
+  readOnly,
 }: {
   column: TableColumn;
   row: { id: number; custom_values?: Record<string, CellValue> };
+  readOnly: boolean;
 }): JSX.Element {
   const { dormitoryId, table, values, saved, trackSave } = useColumns();
   const key = `${row.id}:${column.id}`;
@@ -452,7 +651,7 @@ function CustomCell({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   async function save(value: CellValue): Promise<void> {
-    if (saving) return;
+    if (saving || readOnly) return;
     if (value === committed) {
       await trackSave(key, Promise.resolve());
       setError('');
@@ -481,7 +680,7 @@ function CustomCell({
         <select
           aria-label={label}
           value={String(draft ?? '')}
-          disabled={saving}
+          disabled={saving || readOnly}
           onChange={(event) => {
             const value = event.target.value || null;
             setDraft(value);
@@ -503,7 +702,7 @@ function CustomCell({
           type="checkbox"
           aria-label={label}
           checked={draft === true}
-          disabled={saving}
+          disabled={saving || readOnly}
           onChange={(event) => {
             setDraft(event.target.checked);
             void save(event.target.checked);
@@ -516,7 +715,7 @@ function CustomCell({
           step={column.kind === 'number' ? 'any' : undefined}
           value={String(draft ?? '')}
           maxLength={5000}
-          disabled={saving}
+          disabled={saving || readOnly}
           onChange={(event) => {
             const value = event.target.value || null;
             setDraft(value);
@@ -530,7 +729,7 @@ function CustomCell({
       {error && (
         <span role="alert" className={styles.error}>
           {error}{' '}
-          <button type="button" onClick={() => void save(draft)}>
+          <button type="button" disabled={readOnly} onClick={() => void save(draft)}>
             Повторить
           </button>
         </span>

@@ -42,7 +42,6 @@
 }
 .page .table {
   width: 100%;
-  min-width: 1700px;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -67,46 +66,15 @@
   overflow-wrap: anywhere;
   vertical-align: middle;
 }
-.table th:first-child {
+.table th[data-column-key='row_number'],
+.table tbody th {
   position: sticky;
   left: 0;
   z-index: 2;
-  width: 38px;
   text-align: center;
 }
-.table tbody th:first-child {
+.table tbody th {
   background: white;
-}
-.table th:nth-child(2) {
-  width: 51px;
-}
-.table th:nth-child(3) {
-  width: 80px;
-}
-.table th:nth-child(4) {
-  width: 160px;
-}
-.table th:nth-child(5) {
-  width: 145px;
-}
-.table th:nth-child(6),
-.table th:nth-child(8) {
-  width: 125px;
-}
-.table th:nth-child(7) {
-  width: 75px;
-}
-.table th:nth-child(9) {
-  width: 160px;
-}
-.table th:nth-child(10) {
-  width: 96px;
-}
-.table th:nth-child(11) {
-  width: 175px;
-}
-.table th:nth-child(n + 12) {
-  width: 90px;
 }
 .table tr:last-child th,
 .table tr:last-child td {

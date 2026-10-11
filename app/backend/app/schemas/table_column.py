@@ -1,10 +1,11 @@
 """Проверяемые настройки столбцов и связей отчёта."""
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
-TableKey = Literal["residents", "inflow", "outflow", "advance", "settlement", "archive"]
+BuiltinTableKey = Literal["residents", "inflow", "outflow", "advance", "settlement", "archive"]
+TableKey = BuiltinTableKey | Annotated[str, Field(pattern=r"^custom_[1-9][0-9]{0,9}$")]
 ColumnKind = Literal["text", "number", "date", "checkbox", "select", "action", "hostel"]
 
 
@@ -62,3 +63,27 @@ class ReportLink(BaseModel):
     operator: Literal["equals", "not_empty"] = "equals"
     value: str | bool | int | float | None = None
     date_column_id: int | None = Field(default=None, ge=1)
+
+
+PlaceMetric = Literal[
+    "residents_m",
+    "residents_f",
+    "residents_total",
+    "paid_m",
+    "paid_f",
+    "paid_total",
+    "free_m",
+    "free_f",
+    "free_total",
+]
+
+
+class PlaceReportLink(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    table_key: Literal["places"]
+    hostel_id: int | None = Field(default=None, ge=1)
+    metric: PlaceMetric
+
+
+ReportSourceLink = ReportLink | PlaceReportLink
+report_link_adapter: TypeAdapter[ReportSourceLink] = TypeAdapter(cast(Any, ReportSourceLink))

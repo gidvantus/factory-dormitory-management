@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 
 import { api, ApiError } from '../../api/client';
 import type { OutflowRow, Resident, ResidentOutflowPreview } from '../../api/client';
-import { mockTableFetch } from '../../test/tableColumns';
+import { defaultColumns, mockTableFetch } from '../../test/tableColumns';
 import { ResidentsTable } from './ResidentsTable';
 
 afterEach(() => {
@@ -191,4 +191,68 @@ it('дожидается сохранения изменённой ячейки 
   await act(async () => finish({ ...resident, full_name: 'Новое имя' }));
   expect(await screen.findByRole('dialog')).toHaveTextContent('Новое имя');
   expect(preview).toHaveBeenCalledTimes(1);
+});
+
+it.each(['отсутствует', 'удалён', 'пустой'])(
+  'задаёт общий вопрос, когда столбец ФИО %s',
+  async (state) => {
+    setup();
+    const columns = defaultColumns('residents');
+    const nameColumn = columns.find((column) => column.builtin_key === 'full_name')!;
+    if (state === 'удалён') nameColumn.archived = true;
+    vi.spyOn(api, 'tableColumns').mockResolvedValue(
+      state === 'отсутствует' ? columns.filter((column) => column !== nameColumn) : columns,
+    );
+    vi.spyOn(api, 'residents').mockResolvedValue({
+      residents: [{ ...resident, full_name: state === 'пустой' ? '   ' : resident.full_name }],
+      hostels: [],
+    });
+    const user = userEvent.setup();
+    render(<ResidentsTable dormitoryId="7" />);
+    await user.click(
+      within(await screen.findByTestId('resident-3')).getByRole('button', { name: 'Отток' }),
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Вы уверены, что хотите отправить этого человека в «Отток»?');
+    expect(dialog).not.toHaveTextContent('строку №');
+    expect(dialog).not.toHaveTextContent('Иванов Иван');
+  },
+);
+
+it('показывает ФИО из пользовательского столбца после сохранения последнего изменения', async () => {
+  const { preview } = setup();
+  const columns = defaultColumns('residents');
+  columns.find((column) => column.builtin_key === 'full_name')!.archived = true;
+  columns.push({
+    id: 50,
+    table_key: 'residents',
+    builtin_key: null,
+    name: 'ФИО',
+    kind: 'text',
+    position: 50,
+    options: [],
+    archived: false,
+  });
+  vi.spyOn(api, 'tableColumns').mockResolvedValue(columns);
+  vi.spyOn(api, 'residents').mockResolvedValue({
+    residents: [{ ...resident, custom_values: { '50': 'Петров Пётр' } }],
+    hostels: [],
+  });
+  let finish!: (value: { value: string }) => void;
+  vi.spyOn(api, 'saveCustomCell').mockImplementation(
+    () => new Promise((resolve) => (finish = resolve)),
+  );
+  const user = userEvent.setup();
+  render(<ResidentsTable dormitoryId="7" />);
+  const row = await screen.findByTestId('resident-3');
+  const input = within(row).getByRole('textbox', { name: 'ФИО, строка 3' });
+  await user.clear(input);
+  await user.type(input, 'Сидоров Сергей');
+  await user.click(within(row).getByRole('button', { name: 'Отток' }));
+  expect(preview).not.toHaveBeenCalled();
+  await act(async () => finish({ value: 'Сидоров Сергей' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(dialog).toHaveTextContent('Перенести «Сидоров Сергей» в «Отток»?');
+  expect(dialog).not.toHaveTextContent('Иванов Иван');
+  expect(dialog).not.toHaveTextContent('Петров Пётр');
 });

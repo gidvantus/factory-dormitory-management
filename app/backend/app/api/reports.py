@@ -22,10 +22,18 @@ from app.schemas.report import (
     SaveReportCellRequest,
     UpdateReportRowRequest,
 )
-from app.schemas.table_column import ReportLink
+from app.schemas.table_column import PlaceReportLink, report_link_adapter
 from app.schemas.user import ErrorResponse
+from app.section_state import require_section_writable
 from app.security import ACTIVE_USER_RESPONSES, ActiveUser
-from app.table_data import Record, linked_counts, lock_dormitory, records_for, validate_link
+from app.table_data import (
+    Record,
+    linked_counts,
+    linked_place_values,
+    lock_dormitory,
+    records_for,
+    validate_link,
+)
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/report",
@@ -133,7 +141,12 @@ def read_report(
     for row in rows:
         if row.link:
             try:
-                link = ReportLink.model_validate(row.link)
+                link = report_link_adapter.validate_python(row.link)
+                if isinstance(link, PlaceReportLink):
+                    linked_values[row.id] = linked_place_values(
+                        db, dormitory_id, link, from_date, to_date
+                    )
+                    continue
                 if link.table_key not in source_records:
                     source_records[link.table_key] = records_for(db, dormitory_id, link.table_key)
                 linked_values[row.id] = linked_counts(
@@ -203,6 +216,7 @@ def create_row(
     _user: ActiveUser,
     db: DbSession,
 ) -> ReportRowResponse:
+    require_section_writable(db, dormitory_id, "report")
     lock_dormitory(db, dormitory_id)
     if payload.link and payload.formula:
         raise HTTPException(422, "Выберите формулу или связь с таблицей")
@@ -238,6 +252,7 @@ def update_row(
     _user: ActiveUser,
     db: DbSession,
 ) -> ReportRowResponse:
+    require_section_writable(db, dormitory_id, "report")
     lock_dormitory(db, dormitory_id)
     row = get_row(db, dormitory_id, row_id)
     if not payload.model_fields_set:
@@ -272,7 +287,9 @@ def update_row(
     if link:
         if replacements[row.id] or required_row_name(old_name):
             raise HTTPException(422, "Выберите формулу или связь с таблицей")
-        link = validate_link(db, dormitory_id, ReportLink.model_validate(link)).model_dump()
+        link = validate_link(
+            db, dormitory_id, report_link_adapter.validate_python(link)
+        ).model_dump()
     check_names_and_formulas(
         {new_name if item.id == row.id else item.name: replacements[item.id] for item in rows}
     )
@@ -299,6 +316,7 @@ def move_row(
     _user: ActiveUser,
     db: DbSession,
 ) -> ReportRowResponse:
+    require_section_writable(db, dormitory_id, "report")
     require_dormitory(db, dormitory_id)
     rows = get_rows(db, dormitory_id)
     index = next((index for index, row in enumerate(rows) if row.id == row_id), None)
@@ -317,6 +335,7 @@ def move_row(
 
 @router.delete("/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Удалить строку")
 def delete_row(dormitory_id: DormitoryId, row_id: RowId, _user: ActiveUser, db: DbSession) -> None:
+    require_section_writable(db, dormitory_id, "report")
     require_dormitory(db, dormitory_id)
     row = get_row(db, dormitory_id, row_id)
     if required_row_name(row.name):
@@ -342,6 +361,7 @@ def save_cell(
     _user: ActiveUser,
     db: DbSession,
 ) -> None:
+    require_section_writable(db, dormitory_id, "report")
     lock_dormitory(db, dormitory_id)
     row = get_row(db, dormitory_id, row_id)
     if row.formula:

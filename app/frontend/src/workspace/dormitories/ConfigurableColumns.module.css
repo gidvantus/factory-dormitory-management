@@ -7,6 +7,8 @@
   align-items: center;
 }
 .controls button,
+.subtabFields button,
+.subtabAdd,
 .actions button,
 .option button,
 .columnList button,
@@ -45,6 +47,31 @@
   background: white;
   color: var(--color-text);
   font: inherit;
+}
+.form .subtabToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.form .subtabToggle input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  flex: 0 0 18px;
+  accent-color: var(--mint-600);
+}
+.subtabFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+.subtabFields label {
+  min-width: 0;
+}
+.subtabAdd {
+  justify-self: start;
 }
 .options {
   display: grid;
@@ -101,16 +128,17 @@
   margin-top: 4px;
 }
 .customCell {
-  min-width: 170px;
+  min-width: 0;
 }
 .cell {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 .cell input:not([type='checkbox']),
 .cell select {
   width: 100%;
-  min-width: 140px;
+  min-width: 0;
   min-height: 34px;
   padding: 5px;
   border: 1px solid var(--color-border);
@@ -128,4 +156,41 @@
 }
 .cell small {
   color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.rowActions {
+  vertical-align: top;
+  padding: 10px !important;
+}
+.rowActions summary {
+  cursor: pointer;
+  list-style: none;
+  border: 1px solid #d6ded6;
+  border-radius: 7px;
+  background: #f5f8f2;
+  padding: 9px;
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rowActions summary::-webkit-details-marker {
+  display: none;
+}
+.rowActionList {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.rowActionList button {
+  width: 100%;
+  text-align: left;
+  font-size: 12px;
+  padding: 8px !important;
+  white-space: normal;
+}
+.rowActions > span {
+  display: block;
+  margin-top: 8px;
+  white-space: normal;
 }

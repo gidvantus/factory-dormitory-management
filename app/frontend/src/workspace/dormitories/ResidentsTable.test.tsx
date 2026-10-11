@@ -37,9 +37,14 @@ describe('Проживающие', () => {
           body: { residents: resident ? [resident] : [], hostels: [{ id: 9, name: 'Хостел 1' }] },
         };
       }
-      if (url.endsWith('/api/dormitories/7/residents') && init?.method === 'POST') {
+      if (url.endsWith('/api/personnel/check'))
+        return { status: 200, body: { candidates: [], check_token: 'a'.repeat(64) } };
+      if (url.endsWith('/api/personnel/records') && init?.method === 'POST') {
         resident = { ...blank };
-        return { status: 201, body: resident };
+        return {
+          status: 201,
+          body: { row_id: 3, employee_id: '00000000-0000-4000-8000-000000000001' },
+        };
       }
       if (url.includes('/api/dormitories/7/residents/3?') && init?.method === 'PATCH') {
         const change = JSON.parse(String(init.body)) as Partial<Resident>;
@@ -59,6 +64,11 @@ describe('Проживающие', () => {
     const user = userEvent.setup();
     render(<ResidentsTable dormitoryId="7" />);
     await user.click(await screen.findByRole('button', { name: /Добавить строку/ }));
+    const identity = await screen.findByRole('dialog');
+    await user.type(within(identity).getByLabelText('Табельный номер'), '123');
+    const saveIdentity = within(identity).getByRole('button', { name: 'Сохранить на проверку' });
+    await waitFor(() => expect(saveIdentity).toBeEnabled());
+    await user.click(saveIdentity);
     const row = await screen.findByTestId('resident-3');
     expect(within(row).getByRole('rowheader')).toHaveTextContent('1');
     await user.selectOptions(within(row).getByRole('combobox', { name: 'Пол, строка 1' }), 'Ж');

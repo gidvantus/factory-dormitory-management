@@ -9,9 +9,11 @@ import type { DashboardData, DashboardLoader, DormitoryMetrics, Metric } from '.
 import { currentMonth, formatDate, rangeError, todayDate } from './dates';
 import type { DateRange } from './dates';
 import styles from './Dashboard.module.css';
+import { usePageRefresh } from '../usePageRefresh';
+import { DashboardBlocks } from './DashboardBlocks';
 
 const breakdowns: {
-  key: keyof Pick<DormitoryMetrics, 'residents' | 'attendance' | 'turnover' | 'vacancies'>;
+  key: keyof Pick<DormitoryMetrics, 'residents' | 'attendance' | 'turnover'>;
   title: string;
   icon: WorkspaceIconName;
   tone: string;
@@ -38,13 +40,6 @@ const breakdowns: {
     tone: 'sky',
     description: 'По каждому клиенту · человек',
   },
-  {
-    key: 'vacancies',
-    title: 'Свободные места',
-    icon: 'bed',
-    tone: 'lilac',
-    description: 'По каждому общежитию · мест',
-  },
 ];
 
 export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader }): JSX.Element {
@@ -54,6 +49,7 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
   const [selected, setSelected] = useState<Metric[]>(METRICS.map((metric) => metric.key));
   const [chartDormitoryId, setChartDormitoryId] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const revision = usePageRefresh();
   const [result, setResult] = useState<{
     range: DateRange;
     data: DashboardData;
@@ -65,7 +61,7 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
     setResult((current) => ({
       range,
       data: current.range === range ? current.data : EMPTY_DASHBOARD,
-      status: 'loading',
+      status: current.range === range && current.status === 'ready' ? 'ready' : 'loading',
     }));
     void loader(range, controller.signal, chartDormitoryId || null)
       .then((data) => {
@@ -76,7 +72,7 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
           setResult({ range, data: EMPTY_DASHBOARD, status: 'error' });
       });
     return () => controller.abort();
-  }, [range, chartDormitoryId, loader, attempt]);
+  }, [range, chartDormitoryId, loader, attempt, revision]);
 
   const data = result.range === range ? result.data : EMPTY_DASHBOARD;
   const loading = result.range !== range || result.status === 'loading';
@@ -180,9 +176,7 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
         )}
       </form>
 
-      <p className={styles.snapshotNote}>
-        {snapshotLabel}: проживающие, выход и текучка. Свободные места подключим позже.
-      </p>
+      <p className={styles.snapshotNote}>{snapshotLabel}: проживающие, выход и текучка.</p>
       {loading && (
         <p className={styles.loading} role="status">
           Загружаем показатели…
@@ -236,42 +230,88 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
         onDormitoryChange={setChartDormitoryId}
       />
 
-      <div className={styles.sectionHeading}>
-        <h2>По общежитиям</h2>
-        <span>
-          {data.dormitories.length
-            ? `${data.dormitories.length} общежитий`
-            : 'Список пока не заполнен'}
-        </span>
-      </div>
-      <div className={styles.breakdownGrid} aria-busy={loading}>
-        {breakdowns.map((block) => (
-          <section
-            key={block.key}
-            className={styles.card}
-            aria-labelledby={`breakdown-${block.key}`}
-          >
-            <div className={styles.cardHead}>
-              <div>
-                <h3 className={styles.cardTitle} id={`breakdown-${block.key}`}>
-                  {block.title}
-                </h3>
-                <p className={styles.cardSubtitle}>{block.description}</p>
-              </div>
-              <span className={styles.blockIcon} data-tone={block.tone}>
-                <WorkspaceIcon name={block.icon} />
-              </span>
-            </div>
-            {(block.key === 'attendance' ? data.clients.length : data.dormitories.length) ? (
-              <ul className={styles.metricList}>
-                {block.key === 'attendance'
-                  ? data.clients.map((client) => (
-                      <li key={client.name}>
-                        <span>{client.name}</span>
-                        <strong>{formatCount(client.attendance)}</strong>
-                      </li>
-                    ))
-                  : data.dormitories.map((dormitory) => (
+      <DashboardBlocks
+        data={data}
+        range={range}
+        loading={loading}
+        onChange={() => setAttempt((value) => value + 1)}
+        cards={[
+          ...breakdowns.map((block) => ({
+            key: block.key,
+            name: block.title,
+            content: (
+              <section
+                key={block.key}
+                className={styles.card}
+                aria-labelledby={`breakdown-${block.key}`}
+              >
+                <div className={styles.cardHead}>
+                  <div>
+                    <h3 className={styles.cardTitle} id={`breakdown-${block.key}`}>
+                      {block.title}
+                    </h3>
+                    <p className={styles.cardSubtitle}>{block.description}</p>
+                  </div>
+                  <span className={styles.blockIcon} data-tone={block.tone}>
+                    <WorkspaceIcon name={block.icon} />
+                  </span>
+                </div>
+                {(block.key === 'attendance' ? data.clients.length : data.dormitories.length) ? (
+                  <ul className={styles.metricList}>
+                    {block.key === 'attendance'
+                      ? data.clients.map((client) => (
+                          <li key={client.name}>
+                            <span>{client.name}</span>
+                            <strong>{formatCount(client.attendance)}</strong>
+                          </li>
+                        ))
+                      : data.dormitories.map((dormitory) => (
+                          <li
+                            key={dormitory.id}
+                            data-archived={dormitory.is_archived ? 'true' : 'false'}
+                          >
+                            <span>
+                              {dormitory.name}
+                              {dormitory.is_archived ? ' (Архив)' : ''}
+                            </span>
+                            <strong>{formatCount(dormitory[block.key])}</strong>
+                          </li>
+                        ))}
+                  </ul>
+                ) : (
+                  <div className={styles.blockEmpty}>
+                    <WorkspaceIcon name="house" />
+                    <p>Пока нет данных по общежитиям</p>
+                    <span>Здесь появится разбивка после заполнения отчётов.</span>
+                  </div>
+                )}
+              </section>
+            ),
+          })),
+          {
+            key: 'reports',
+            name: 'Сохранение отчётов сегодня',
+            content: (
+              <section
+                className={`${styles.card} ${styles.reportsCard}`}
+                aria-labelledby="reports-status-title"
+              >
+                <div className={styles.cardHead}>
+                  <div>
+                    <h3 className={styles.cardTitle} id="reports-status-title">
+                      Сохранение отчётов сегодня
+                    </h3>
+                    <p className={styles.cardSubtitle}>
+                      Все общежития · {formatDate(data.reportDate ?? todayDate())}
+                    </p>
+                  </div>
+                  <span className={styles.blockIcon} data-tone="lilac">
+                    <WorkspaceIcon name="info" />
+                  </span>
+                </div>
+                {data.dormitories.length ? (
+                  <ul className={styles.metricList}>
+                    {data.dormitories.map((dormitory) => (
                       <li
                         key={dormitory.id}
                         data-archived={dormitory.is_archived ? 'true' : 'false'}
@@ -280,73 +320,46 @@ export function Dashboard({ loader = loadDashboard }: { loader?: DashboardLoader
                           {dormitory.name}
                           {dormitory.is_archived ? ' (Архив)' : ''}
                         </span>
-                        <strong>{formatCount(dormitory[block.key])}</strong>
+                        <span
+                          className={styles.reportStatus}
+                          data-ready={dormitory.report_readiness?.is_ready ? 'true' : 'false'}
+                          title={
+                            dormitory.report_readiness?.is_ready
+                              ? [
+                                  dormitory.report_readiness.confirmed_by,
+                                  dormitory.report_readiness.confirmed_at &&
+                                    new Intl.DateTimeFormat('ru-RU', {
+                                      timeZone: 'Europe/Moscow',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    }).format(new Date(dormitory.report_readiness.confirmed_at)),
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')
+                              : undefined
+                          }
+                        >
+                          <i className={styles.statusDot} aria-hidden="true" />
+                          {dormitory.report_readiness
+                            ? dormitory.report_readiness.is_ready
+                              ? 'Отчёт готов'
+                              : 'Отчёт не готов'
+                            : 'Статус недоступен'}
+                        </span>
                       </li>
                     ))}
-              </ul>
-            ) : (
-              <div className={styles.blockEmpty}>
-                <WorkspaceIcon name="house" />
-                <p>Пока нет данных по общежитиям</p>
-                <span>Здесь появится разбивка после заполнения отчётов.</span>
-              </div>
-            )}
-          </section>
-        ))}
-      </div>
-
-      <section
-        className={`${styles.card} ${styles.reportsCard}`}
-        aria-labelledby="reports-status-title"
-      >
-        <div className={styles.cardHead}>
-          <div>
-            <h2 className={styles.cardTitle} id="reports-status-title">
-              Сохранение отчётов сегодня
-            </h2>
-            <p className={styles.cardSubtitle}>Все общежития · {formatDate(todayDate())}</p>
-          </div>
-          <span className={styles.pendingBadge}>Доработать после готовности отчётов</span>
-        </div>
-        <div className={styles.reportLegend}>
-          <span>
-            <i className={styles.statusDot} data-status="saved" aria-hidden="true" />
-            Сохраняли сегодня
-          </span>
-          <span>
-            <i className={styles.statusDot} data-status="missing" aria-hidden="true" />
-            Сегодня не сохраняли
-          </span>
-          <span>
-            <i className={styles.statusDot} aria-hidden="true" />
-            Статус пока недоступен
-          </span>
-        </div>
-        {data.dormitories.length ? (
-          <ul className={styles.metricList}>
-            {data.dormitories.map((dormitory) => (
-              <li key={dormitory.id} data-archived={dormitory.is_archived ? 'true' : 'false'}>
-                <span>
-                  {dormitory.name}
-                  {dormitory.is_archived ? ' (Архив)' : ''}
-                </span>
-                <span className={styles.pendingStatus}>
-                  <i className={styles.statusDot} aria-hidden="true" />
-                  Ожидает подключения отчётов
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className={styles.reportsEmpty}>
-            Здесь будет список всех общежитий и отметка сохранения отчёта за текущий день.
-          </p>
-        )}
-        <p className={styles.reportNote}>
-          <WorkspaceIcon name="info" />
-          Проверку сохранения подключим, когда будет готов раздел отчётов.
-        </p>
-      </section>
+                  </ul>
+                ) : (
+                  <p className={styles.reportsEmpty}>Пока нет общежитий</p>
+                )}
+                <p className={styles.reportNote}>
+                  Готовность за сегодня отмечается галочкой в общежитии.
+                </p>
+              </section>
+            ),
+          },
+        ]}
+      />
     </section>
   );
 }

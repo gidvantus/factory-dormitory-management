@@ -36,6 +36,7 @@ class TableColumn(Base):
 class ArchiveEntry(CustomValuesMixin, Base):
     __tablename__ = "archive_entries"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employee_id: Mapped[str | None] = mapped_column(ForeignKey("employees.id"), index=True)
     dormitory_id: Mapped[int] = mapped_column(
         ForeignKey("dormitories.id", ondelete="CASCADE"), index=True
     )

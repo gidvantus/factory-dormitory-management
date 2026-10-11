@@ -1,6 +1,28 @@
-import type { TableColumn, TableKey } from '../api/client';
+import type { TableColumn, BuiltinTableKey as TableKey } from '../api/client';
 import { mockFetch } from './mockFetch';
 import type { MockHandler } from './mockFetch';
+import { standardTabs } from '../workspace/dormitories/tabStructure';
+import { todayDate } from '../workspace/dashboard/dates';
+
+export const defaultTabChoices = standardTabs.map((tab) => ({
+  source_id: `standard:0:${tab.path}`,
+}));
+
+export const defaultTabCatalog = standardTabs.map((tab) => ({
+  id: tab.label.toLocaleLowerCase('ru').replaceAll('ё', 'е'),
+  name: tab.label,
+  variants: [
+    {
+      id: `standard:0:${tab.path}`,
+      name: tab.label,
+      kind: 'standard',
+      section_key: tab.path,
+      dormitory_name: 'Стандартная структура',
+      client_name: '',
+      path: [tab.label],
+    },
+  ],
+}));
 
 const fields: Record<TableKey, string[]> = {
   residents: [
@@ -72,6 +94,19 @@ export function defaultColumns(table: TableKey): TableColumn[] {
 /** Existing row editor tests supply the table schema explicitly through this fixture. */
 export function mockTableFetch(handler: MockHandler): ReturnType<typeof mockFetch> {
   return mockFetch((url, init) => {
+    if (/\/dormitories\/\d+\/report-readiness$/.test(url) && !init?.method)
+      return {
+        status: 200,
+        body: {
+          report_date: todayDate(),
+          is_ready: false,
+          confirmed_at: null,
+          confirmed_by: null,
+        },
+      };
+    if (url.endsWith('/api/dormitory-tab-catalog') && !init?.method)
+      return { status: 200, body: defaultTabCatalog };
+    if (/\/dormitories\/\d+\/tabs$/.test(url) && !init?.method) return { status: 200, body: [] };
     const match = /\/tables\/(residents|inflow|outflow|advance|settlement|archive)\/columns$/.exec(
       url,
     );

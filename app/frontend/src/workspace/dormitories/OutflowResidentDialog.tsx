@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { api, ApiError } from '../../api/client';
 import type { Resident } from '../../api/client';
 import { Modal } from '../../components/Modal';
+import { useColumns } from './tableColumnsContext';
 import styles from './TransferResidentDialog.module.css';
 
 export function OutflowResidentDialog({
@@ -20,6 +21,21 @@ export function OutflowResidentDialog({
   onClose: () => void;
   onMoved: (residentId: number) => void;
 }): JSX.Element {
+  const { columns, values } = useColumns();
+  const nameColumn =
+    columns.find(
+      (column) =>
+        !column.archived && column.kind === 'text' && column.name.trim().toLowerCase() === 'фио',
+    ) ?? columns.find((column) => !column.archived && column.builtin_key === 'full_name');
+  const nameKey = nameColumn ? `${resident.id}:${nameColumn.id}` : '';
+  const nameValue = !nameColumn
+    ? null
+    : nameColumn.builtin_key
+      ? resident[nameColumn.builtin_key as keyof Resident]
+      : nameKey in values
+        ? values[nameKey]
+        : resident.custom_values?.[nameColumn.id];
+  const fullName = typeof nameValue === 'string' ? nameValue.trim() : '';
   const [previewToken, setPreviewToken] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
   const [attempt, setAttempt] = useState(0);
@@ -87,9 +103,10 @@ export function OutflowResidentDialog({
     >
       <form className={styles.form} onSubmit={(event) => void submit(event)} aria-busy={saving}>
         <p>
-          Перенести {resident.full_name ? `«${resident.full_name}»` : `строку № ${resident.id}`} в
-          «Отток»? Проживающий будет удалён из «Проживающих» и списков аванса и расчёта этого
-          общежития.
+          {fullName
+            ? `Перенести «${fullName}» в «Отток»?`
+            : 'Вы уверены, что хотите отправить этого человека в «Отток»?'}{' '}
+          Проживающий будет удалён из «Проживающих» и списков аванса и расчёта этого общежития.
         </p>
         {checking && <p role="status">Подготавливаем перенос…</p>}
         {error && (

@@ -18,6 +18,7 @@ from app.resident_payments import matching_value, normalized_name
 from app.schemas.resident import UpdateResidentRequest
 from app.schemas.resident_transfer import TransferPreviewResponse, TransferWarning
 from app.schemas.table_column import ColumnResponse
+from app.section_state import require_section_writable
 from app.table_data import ensure_columns, lock_dormitory
 
 
@@ -60,6 +61,7 @@ def prepare_transfer(
     # Единый порядок замков исключает взаимную блокировку встречных переводов.
     for dormitory_id in sorted((source_id, target_id)):
         lock_dormitory(db, dormitory_id)
+        require_section_writable(db, dormitory_id, "residents")
     target_dormitory = db.get(Dormitory, target_id)
     assert target_dormitory is not None
     if target_dormitory.is_archived:
