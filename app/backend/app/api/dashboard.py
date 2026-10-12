@@ -1,16 +1,17 @@
 """Сводные показатели по всем общежитиям из формульных строк большого отчёта."""
 
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import report_readiness as readiness
 from app.api.reports import read_report
+from app.dashboard_blocks import calculate_widget, layout_response
 from app.db import get_db
 from app.models.dormitory import Dormitory
 from app.report_defaults import REQUIRED_REPORT_ROW_NAMES
@@ -21,7 +22,8 @@ from app.schemas.dashboard import (
     DashboardResponse,
     DashboardTotals,
 )
-from app.schemas.report import ReportRowResponse
+from app.schemas.report import ReportResponse, ReportRowResponse
+from app.schemas.report_readiness import ReportReadinessResponse
 from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"], responses={**ACTIVE_USER_RESPONSES})
@@ -59,7 +61,8 @@ def read_dashboard(
     if from_date > to_date or (to_date - from_date).days > 365:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Выберите период не длиннее года")
 
-    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    today = readiness.today_moscow()
+    report_statuses = readiness.readiness_for_day(db, today)
     snapshot_date = min(to_date, today) if from_date <= today else None
     days = (
         [
@@ -82,6 +85,7 @@ def read_dashboard(
     }
     by_client: dict[str, list[Decimal | None]] = defaultdict(list)
     dormitory_results: list[DashboardDormitory] = []
+    reports: dict[int, ReportResponse] = {}
 
     for dormitory in dormitories:
         report = (
@@ -90,6 +94,8 @@ def read_dashboard(
             else None
         )
         rows = {row.name: row for row in report.rows} if report else {}
+        if report:
+            reports[dormitory.id] = report
 
         for day in days:
             for name in REQUIRED_REPORT_ROW_NAMES:
@@ -107,6 +113,10 @@ def read_dashboard(
             DashboardDormitory(
                 id=str(dormitory.id),
                 name=dormitory.name,
+                is_archived=dormitory.is_archived,
+                report_readiness=report_statuses.get(
+                    dormitory.id, ReportReadinessResponse(report_date=today, is_ready=False)
+                ),
                 residents=as_float(snapshot[RESIDENTS]),
                 attendance=as_float(snapshot[ATTENDANCE]),
                 turnover=as_float(snapshot[TURNOVER]),
@@ -123,7 +133,15 @@ def read_dashboard(
         for day in days
     ]
     snapshot_totals = by_day[snapshot_date] if snapshot_date is not None else None
+    layout = layout_response(db)
     return DashboardResponse(
+        layout=layout,
+        widgets=[
+            calculate_widget(db, _user, block, dormitories, from_date, snapshot_date, reports)
+            for block in layout.blocks
+            if f"custom:{block.id}" not in layout.hidden
+        ],
+        report_date=today,
         snapshot_date=snapshot_date,
         totals=DashboardTotals(
             attendance=sum_complete(snapshot_totals[ATTENDANCE]) if snapshot_totals else None,

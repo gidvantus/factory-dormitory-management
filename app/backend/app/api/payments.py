@@ -4,14 +4,16 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.payment import PaymentEntry
 from app.schemas.payment import PaymentKind, PaymentResponse, UpdatePaymentRequest
+from app.section_state import require_section_writable
 from app.security import ACTIVE_USER_RESPONSES, ActiveUser
+from app.table_data import lock_dormitory
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/payments",
@@ -71,7 +73,8 @@ def list_payments(
 def create_payment(
     dormitory_id: DormitoryId, kind: PaymentKind, _user: ActiveUser, db: DbSession
 ) -> PaymentEntry:
-    require_dormitory(db, dormitory_id)
+    require_section_writable(db, dormitory_id, kind)
+    lock_dormitory(db, dormitory_id)
     row = PaymentEntry(dormitory_id=dormitory_id, kind=kind)
     db.add(row)
     db.commit()
@@ -90,7 +93,8 @@ def update_payment(
     _user: ActiveUser,
     db: DbSession,
 ) -> PaymentEntry:
-    require_dormitory(db, dormitory_id)
+    require_section_writable(db, dormitory_id, kind)
+    lock_dormitory(db, dormitory_id)
     row = get_payment(db, dormitory_id, kind, row_id)
     changes = payload.model_dump(exclude_unset=True)
     if kind == "advance" and "settlement_date" in changes:
@@ -109,6 +113,27 @@ def update_payment(
 
 
 @router.delete(
+    "/{kind}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Очистить весь список аванса или расчёта",
+)
+def clear_payments(
+    dormitory_id: DormitoryId,
+    kind: PaymentKind,
+    _user: ActiveUser,
+    db: DbSession,
+) -> None:
+    require_section_writable(db, dormitory_id, kind)
+    lock_dormitory(db, dormitory_id)
+    db.execute(
+        delete(PaymentEntry).where(
+            PaymentEntry.dormitory_id == dormitory_id, PaymentEntry.kind == kind
+        )
+    )
+    db.commit()
+
+
+@router.delete(
     "/{kind}/{row_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Удалить строку выплаты"
 )
 def delete_payment(
@@ -118,6 +143,7 @@ def delete_payment(
     _user: ActiveUser,
     db: DbSession,
 ) -> None:
-    require_dormitory(db, dormitory_id)
+    require_section_writable(db, dormitory_id, kind)
+    lock_dormitory(db, dormitory_id)
     db.delete(get_payment(db, dormitory_id, kind, row_id))
     db.commit()

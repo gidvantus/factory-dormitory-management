@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { OutflowRow } from '../../api/client';
-import { mockFetch } from '../../test/mockFetch';
+import { mockTableFetch as mockFetch } from '../../test/tableColumns';
 import { OutflowTable } from './OutflowTable';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -25,9 +25,14 @@ describe('Отток', () => {
     const fetchMock = mockFetch((url, init) => {
       if (url.includes('/api/dormitories/7/outflow?') && !init?.method)
         return { status: 200, body: row ? [row] : [] };
-      if (url.endsWith('/api/dormitories/7/outflow') && init?.method === 'POST') {
+      if (url.endsWith('/api/personnel/check'))
+        return { status: 200, body: { candidates: [], check_token: 'a'.repeat(64) } };
+      if (url.endsWith('/api/personnel/records') && init?.method === 'POST') {
         row = { ...blank };
-        return { status: 201, body: row };
+        return {
+          status: 201,
+          body: { row_id: 8, employee_id: '00000000-0000-4000-8000-000000000001' },
+        };
       }
       if (url.endsWith('/api/dormitories/7/outflow/8') && init?.method === 'PATCH') {
         row = { ...row!, ...(JSON.parse(String(init.body)) as Partial<OutflowRow>) };
@@ -42,6 +47,11 @@ describe('Отток', () => {
     const user = userEvent.setup();
     render(<OutflowTable dormitoryId="7" range={{ from: '2026-10-01', to: '2026-10-31' }} />);
     await user.click(await screen.findByRole('button', { name: /Добавить строку/ }));
+    const identity = await screen.findByRole('dialog');
+    await user.type(within(identity).getByLabelText('Табельный номер'), '123');
+    const saveIdentity = within(identity).getByRole('button', { name: 'Сохранить на проверку' });
+    await waitFor(() => expect(saveIdentity).toBeEnabled());
+    await user.click(saveIdentity);
     const tableRow = await screen.findByTestId('outflow-row-8');
     expect(within(screen.getByRole('table')).getAllByRole('columnheader')).toHaveLength(9);
     fireEvent.change(within(tableRow).getByLabelText('Дата выезда, строка 8'), {

@@ -4,6 +4,9 @@ from datetime import date
 
 from pydantic import BaseModel
 
+from app.schemas.dashboard_block import LayoutResponse, WidgetResult
+from app.schemas.report_readiness import ReportReadinessResponse
+
 
 class DashboardTotals(BaseModel):
     attendance: float | None
@@ -13,10 +16,12 @@ class DashboardTotals(BaseModel):
 class DashboardDormitory(BaseModel):
     id: str
     name: str
+    is_archived: bool = False
     residents: float | None
     attendance: float | None
     turnover: float | None
     vacancies: float | None = None
+    report_readiness: ReportReadinessResponse
 
 
 class DashboardClient(BaseModel):
@@ -32,6 +37,9 @@ class DashboardDay(BaseModel):
 
 
 class DashboardResponse(BaseModel):
+    layout: LayoutResponse
+    widgets: list[WidgetResult]
+    report_date: date
     snapshot_date: date | None
     totals: DashboardTotals
     dormitories: list[DashboardDormitory]

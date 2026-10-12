@@ -10,9 +10,10 @@ from sqlalchemy.orm import Session
 from app.security import ACTIVATION_REQUIRED_DETAIL, issue_activation_token
 from tests.conftest import create_user, login
 
-# Свободные от guard адреса: вход, регистрация, активация, здоровье и /api/me.
+# Свободные от guard адреса: вход, регистрация, активация, здоровье, /api/me и
+# публичный прайс (`GET /api/tariffs` открыт анониму, как и страница `/pricing`).
 EXEMPT_PREFIXES = ("/api/auth", "/api/health")
-EXEMPT_PATHS = frozenset({"/api/me"})
+EXEMPT_PATHS = frozenset({"/api/me", "/api/tariffs"})
 
 NEW_PASSWORD = "new-password-123"
 

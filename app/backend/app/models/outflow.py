@@ -6,12 +6,14 @@ from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.models.table_column import CustomValuesMixin
 
 
-class PersonnelOutflow(Base):
+class PersonnelOutflow(CustomValuesMixin, Base):
     __tablename__ = "personnel_outflow"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    employee_id: Mapped[str | None] = mapped_column(ForeignKey("employees.id"), index=True)
     dormitory_id: Mapped[int] = mapped_column(
         ForeignKey("dormitories.id", ondelete="CASCADE"), index=True
     )

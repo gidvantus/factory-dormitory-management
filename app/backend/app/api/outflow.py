@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.outflow import PersonnelOutflow
+from app.personnel import record_changed
 from app.schemas.outflow import OutflowResponse, UpdateOutflowRequest
+from app.section_state import require_section_writable
 from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
 router = APIRouter(
@@ -63,6 +65,7 @@ def list_outflow(
     summary="Добавить строку оттока",
 )
 def create_outflow(dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession) -> PersonnelOutflow:
+    require_section_writable(db, dormitory_id, "outflow")
     require_dormitory(db, dormitory_id)
     row = PersonnelOutflow(dormitory_id=dormitory_id)
     db.add(row)
@@ -79,10 +82,12 @@ def update_outflow(
     _user: ActiveUser,
     db: DbSession,
 ) -> PersonnelOutflow:
+    require_section_writable(db, dormitory_id, "outflow")
     require_dormitory(db, dormitory_id)
     row = get_outflow(db, dormitory_id, row_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(row, field, value)
+    record_changed(db, row, _user.id)
     db.commit()
     db.refresh(row)
     return row
@@ -95,6 +100,9 @@ def delete_outflow(
     _user: ActiveUser,
     db: DbSession,
 ) -> None:
+    require_section_writable(db, dormitory_id, "outflow")
     require_dormitory(db, dormitory_id)
-    db.delete(get_outflow(db, dormitory_id, row_id))
+    row = get_outflow(db, dormitory_id, row_id)
+    record_changed(db, row, _user.id, kind="deleted", title="Удалена исходная запись оттока")
+    db.delete(row)
     db.commit()

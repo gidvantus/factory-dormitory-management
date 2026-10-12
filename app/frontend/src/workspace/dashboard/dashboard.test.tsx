@@ -9,11 +9,38 @@ import type { DashboardData, DashboardLoader } from './data';
 import { currentMonth } from './dates';
 
 const DATA: DashboardData = {
+  reportDate: '2026-10-04',
   snapshotDate: '2026-10-04',
   totals: { residents: 35, attendance: 23 },
   dormitories: [
-    { id: 'one', name: 'Северное', residents: 20, attendance: 15, turnover: 2, vacancies: 10 },
-    { id: 'two', name: 'Южное', residents: 15, attendance: 8, turnover: 0, vacancies: null },
+    {
+      id: 'one',
+      name: 'Северное',
+      residents: 20,
+      attendance: 15,
+      turnover: 2,
+      vacancies: 10,
+      report_readiness: {
+        report_date: '2026-10-04',
+        is_ready: true,
+        confirmed_by: 'Анна',
+        confirmed_at: '2026-10-04T15:42:00Z',
+      },
+    },
+    {
+      id: 'two',
+      name: 'Южное',
+      residents: 15,
+      attendance: 8,
+      turnover: 0,
+      vacancies: null,
+      report_readiness: {
+        report_date: '2026-10-04',
+        is_ready: false,
+        confirmed_by: null,
+        confirmed_at: null,
+      },
+    },
   ],
   clients: [
     { name: 'Клиент А', attendance: 15 },
@@ -86,12 +113,13 @@ describe('дашборд', () => {
       'Вахтовики по общежитиям',
       'Текучка по общежитиям',
       'Выход на работу',
-      'Свободные места',
       'Сохранение отчётов сегодня',
     ]) {
       expect(screen.getByRole('heading', { name: title })).toBeInTheDocument();
     }
-    expect(screen.getByText('Доработать после готовности отчётов')).toBeInTheDocument();
+    expect(
+      screen.getByText('Готовность за сегодня отмечается галочкой в общежитии.'),
+    ).toBeInTheDocument();
     expect(screen.queryByText('Общежитие №3')).not.toBeInTheDocument();
   });
 
@@ -198,7 +226,7 @@ describe('дашборд', () => {
     );
   });
 
-  it('отличает нулевой показатель от отсутствующего и оставляет статусы отчётов неподключёнными', async () => {
+  it('отличает нулевой показатель от отсутствующего и показывает сегодняшнюю готовность отчётов', async () => {
     render(<Dashboard loader={() => Promise.resolve(DATA)} />);
     const turnover = screen.getByRole('region', { name: 'Текучка по общежитиям' });
     await waitFor(() => expect(within(turnover).getByText('Южное')).toBeInTheDocument());
@@ -207,10 +235,10 @@ describe('дашборд', () => {
     expect(within(attendance).getByText('Клиент А')).toBeInTheDocument();
     expect(within(attendance).getByText('15')).toBeInTheDocument();
     expect(within(attendance).queryByText('Северное')).not.toBeInTheDocument();
-    expect(
-      within(screen.getByRole('region', { name: 'Свободные места' })).getByText('—'),
-    ).toBeInTheDocument();
-    expect(screen.getAllByText('Ожидает подключения отчётов')).toHaveLength(2);
+    const reports = screen.getByRole('region', { name: 'Сохранение отчётов сегодня' });
+    expect(within(reports).getByText('Отчёт готов')).toHaveAttribute('data-ready', 'true');
+    expect(within(reports).getByText('Отчёт готов')).toHaveAttribute('title', 'Анна · 18:42');
+    expect(within(reports).getByText('Отчёт не готов')).toHaveAttribute('data-ready', 'false');
   });
 
   it('позволяет повторить загрузку после ошибки', async () => {

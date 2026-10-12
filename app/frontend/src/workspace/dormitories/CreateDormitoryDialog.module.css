@@ -1,0 +1,118 @@
+.overlay:global(.modal) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.panel:global(.modal__panel) {
+  width: min(1000px, 100%);
+  max-width: 1000px;
+  background: #fafbf8;
+}
+.form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+}
+.fields {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.modes {
+  display: flex;
+  gap: 8px;
+}
+.modes button {
+  flex: 1;
+  border: 1px solid #d5dfd8;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff;
+  color: #57705d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.modes button[aria-pressed='true'] {
+  background: #e4eee5;
+  color: #245a44;
+  border-color: #5b8267;
+}
+.preview {
+  border: 1px solid #dce4d9;
+  background: #f0f4ed;
+  border-radius: 12px;
+  padding: 20px;
+  align-self: start;
+  position: sticky;
+  top: 0;
+  overflow-wrap: anywhere;
+}
+.eyebrow {
+  font-size: 10px !important;
+  letter-spacing: 1.5px;
+  color: #71836c;
+}
+.preview h3 {
+  font-size: 22px;
+  margin: 16px 0 8px;
+  color: #2c4835;
+}
+.preview p {
+  font-size: 13px;
+  color: #7b8777;
+  line-height: 1.6;
+}
+.previewTree {
+  border-block: 1px solid #dce4d9;
+  padding-block: 14px;
+  margin-top: 22px;
+}
+.previewTree > div {
+  padding-block: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: #3e5a43;
+}
+.previewTree small {
+  font-size: 10px;
+  white-space: nowrap;
+  color: #80917b;
+}
+.preview .note {
+  font-size: 12px;
+}
+.actions,
+.form > :global(.alert) {
+  grid-column: 1 / -1;
+}
+.snapshotPicker {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #dce4d9;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.snapshotPicker p {
+  color: #788471;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.snapshotPicker label {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+@media (max-width: 700px) {
+  .form {
+    grid-template-columns: 1fr;
+  }
+  .preview {
+    position: static;
+  }
+  .panel:global(.modal__panel) {
+    width: 100%;
+  }
+}

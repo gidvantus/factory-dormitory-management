@@ -13,6 +13,8 @@ interface ModalProps {
   /** Во время сохранения нельзя закрыть окно и потерять результат запроса. */
   closeDisabled?: boolean;
   children: ReactNode;
+  panelClassName?: string;
+  containerClassName?: string;
 }
 
 /**
@@ -26,11 +28,14 @@ export function Modal({
   onClose,
   closeDisabled = false,
   children,
+  panelClassName = '',
+  containerClassName = '',
 }: ModalProps): JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = `${testId}-title`;
 
   useEffect(() => {
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const panel = panelRef.current;
     if (panel === null) {
       return;
@@ -40,6 +45,9 @@ export function Modal({
     );
     const firstFocusable = panel.querySelector<HTMLElement>(FOCUSABLE);
     (firstInput ?? firstFocusable ?? panel).focus();
+    return () => {
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+    };
   }, []);
 
   const handleKeyDown = useCallback(
@@ -80,7 +88,7 @@ export function Modal({
   }, [handleKeyDown]);
 
   return (
-    <div className="modal">
+    <div className={`modal ${containerClassName}`}>
       <div
         className="modal__backdrop"
         aria-hidden="true"
@@ -88,7 +96,7 @@ export function Modal({
         onClick={closeDisabled ? undefined : onClose}
       />
       <div
-        className="modal__panel"
+        className={`modal__panel ${panelClassName}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

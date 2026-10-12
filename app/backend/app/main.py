@@ -5,18 +5,29 @@ from fastapi import FastAPI
 from app.api import (
     activation,
     auth,
+    custom_tabs,
     dashboard,
+    dashboard_blocks,
     dormitories,
+    dormitory_settings,
+    dormitory_templates,
     health,
     hostels,
     inflow,
     organization,
     outflow,
     payments,
+    personnel,
     recovery,
+    report_readiness,
     report_templates,
     reports,
     residents,
+    sections,
+    statistics_reports,
+    tab_catalog,
+    table_columns,
+    tariffs,
     users,
 )
 
@@ -37,14 +48,25 @@ def create_app() -> FastAPI:
     application.include_router(users.router, prefix=API_PREFIX)
     application.include_router(organization.router, prefix=API_PREFIX)
     application.include_router(dashboard.router, prefix=API_PREFIX)
+    application.include_router(dashboard_blocks.router, prefix=API_PREFIX)
+    application.include_router(report_readiness.router, prefix=API_PREFIX)
     application.include_router(hostels.router, prefix=API_PREFIX)
     application.include_router(inflow.router, prefix=API_PREFIX)
     application.include_router(outflow.router, prefix=API_PREFIX)
     application.include_router(payments.router, prefix=API_PREFIX)
+    application.include_router(personnel.router, prefix=API_PREFIX)
     application.include_router(residents.router, prefix=API_PREFIX)
     application.include_router(dormitories.router, prefix=API_PREFIX)
     application.include_router(reports.router, prefix=API_PREFIX)
     application.include_router(report_templates.router, prefix=API_PREFIX)
+    application.include_router(table_columns.router, prefix=API_PREFIX)
+    application.include_router(custom_tabs.router, prefix=API_PREFIX)
+    application.include_router(sections.router, prefix=API_PREFIX)
+    application.include_router(statistics_reports.router, prefix=API_PREFIX)
+    application.include_router(tab_catalog.router, prefix=API_PREFIX)
+    application.include_router(dormitory_settings.router, prefix=API_PREFIX)
+    application.include_router(dormitory_templates.router, prefix=API_PREFIX)
+    application.include_router(tariffs.router, prefix=API_PREFIX)
     return application
 
 

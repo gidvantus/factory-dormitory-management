@@ -13,6 +13,7 @@ const COLUMNS: FooterColumn[] = [
       { label: 'Интерфейс', href: '#interface' },
       { label: 'Отчётность', href: '#reports' },
       { label: 'Внедрение', href: '#how' },
+      { label: 'Тарифы', href: '/pricing' },
     ],
   },
   {

@@ -12,9 +12,59 @@
 .page .grid > li {
   min-width: 0;
 }
+.dormitoryItem {
+  display: flex;
+  flex-direction: column;
+}
+.page .dormitoryCard[data-archived='true'] {
+  background: var(--cream-50);
+  opacity: 0.65;
+}
+.archiveBadge {
+  display: inline-block;
+  width: fit-content;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  background: var(--cream-100);
+  color: var(--color-text-body);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.dormitoryActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.dormitoryActions button {
+  padding: 7px 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: white;
+  color: var(--color-text-body);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.dormitoryActions button:hover:not(:disabled) {
+  border-color: var(--mint-600);
+  color: var(--mint-700);
+}
+.dormitoryActions button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.actionError {
+  color: var(--color-danger);
+  font-size: 12px;
+}
 .page .dormitoryCard {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: stretch;
   gap: 16px;
   height: 100%;
   min-height: 142px;
@@ -27,6 +77,20 @@
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
+}
+.cardLink {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.dormitoryCard .dormitoryActions {
+  margin-top: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
 }
 .page .dormitoryCard:hover {
   border-color: var(--mint-200);
@@ -213,6 +277,23 @@
   color: var(--mint-700);
   font-weight: 800;
 }
+.addTab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--mint-700);
+  cursor: pointer;
+  font-family: inherit;
+}
+.addTab:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.tabsError {
+  margin-top: 12px;
+  color: var(--color-danger);
+  font-size: 13px;
+}
 .subtabs {
   display: flex;
   flex-wrap: wrap;
@@ -225,6 +306,10 @@
   background: var(--cream-100);
 }
 .subtab {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
   padding: 8px 14px;
   border-radius: 8px;
   color: var(--color-text-body);
@@ -403,4 +488,17 @@
   .page .dormitoryCard {
     transition: none;
   }
+}
+.sectionContent {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.sectionContent:disabled input,
+.sectionContent:disabled select,
+.sectionContent:disabled textarea {
+  color: var(--text-primary, #263547);
+  opacity: 1;
 }

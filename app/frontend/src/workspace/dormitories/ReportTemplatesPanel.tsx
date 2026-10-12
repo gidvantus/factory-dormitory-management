@@ -61,7 +61,11 @@ function TemplatePreview({
                   <span className={styles.previewNumber}>{index + 1}</span>
                   <div>
                     <strong>{row.name}</strong>
-                    {row.formula ? <code>{row.formula}</code> : <span>Вручную</span>}
+                    {row.formula ? (
+                      <code>{row.formula}</code>
+                    ) : (
+                      <span>{row.linked ? 'Связь с таблицей' : 'Вручную'}</span>
+                    )}
                   </div>
                 </li>
               ))}
