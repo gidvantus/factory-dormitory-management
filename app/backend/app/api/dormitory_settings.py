@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.custom_tabs import RESERVED_NAMES, tab_responses
 from app.api.sections import metadata, section_keys
 from app.api.table_columns import prepare_options
@@ -25,7 +26,6 @@ from app.section_state import (
     section_parents,
     section_status,
 )
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.tab_catalog import normalized_name
 from app.tab_tree import all_tabs, delete_tabs, descendants
 from app.table_data import (
@@ -39,7 +39,7 @@ from app.table_data import (
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/settings",
     tags=["dormitory-settings"],
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={**SUBSCRIBED_USER_RESPONSES},
 )
 DbSession = Annotated[Session, Depends(get_db)]
 EntityId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -142,7 +142,7 @@ def settings_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
 
 
 @router.get("")
-def read_settings(dormitory_id: EntityId, _user: ActiveUser, db: DbSession) -> dict[str, Any]:
+def read_settings(dormitory_id: EntityId, _user: SubscribedUser, db: DbSession) -> dict[str, Any]:
     result = settings_snapshot(db, dormitory_id)
     db.commit()
     return result
@@ -211,7 +211,7 @@ def save_table(db: Session, dormitory_id: int, key: str, payload: TableSetting) 
 
 @router.put("")
 def write_settings(
-    dormitory_id: EntityId, payload: SaveSettings, _user: ActiveUser, db: DbSession
+    dormitory_id: EntityId, payload: SaveSettings, _user: SubscribedUser, db: DbSession
 ) -> dict[str, Any]:
     dorm = locked_dormitory(db, dormitory_id)
     try:

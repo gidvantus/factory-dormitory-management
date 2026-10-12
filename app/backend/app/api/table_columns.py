@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.db import get_db
 from app.models.custom_tab import CustomTabEntry
 from app.models.inflow import PersonnelInflow
@@ -18,7 +19,6 @@ from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
 from app.personnel import record_changed
 from app.schemas.table_column import CellRequest, ColumnRequest, ColumnResponse, TableKey
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import (
     column_dependencies,
     ensure_columns,
@@ -32,7 +32,7 @@ from app.table_data import (
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/tables",
     tags=["table-columns"],
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={**SUBSCRIBED_USER_RESPONSES},
 )
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -72,7 +72,7 @@ def check_name(columns: list[TableColumn], name: str, column_id: int | None = No
 
 @router.get("/{table_key}/columns", response_model=list[ColumnResponse])
 def list_columns(
-    dormitory_id: DormitoryId, table_key: TableKey, _user: ActiveUser, db: DbSession
+    dormitory_id: DormitoryId, table_key: TableKey, _user: SubscribedUser, db: DbSession
 ) -> list[TableColumn]:
     columns = ensure_columns(db, dormitory_id, table_key)
     db.commit()
@@ -84,7 +84,7 @@ def create_column(
     dormitory_id: DormitoryId,
     table_key: TableKey,
     payload: ColumnRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
@@ -123,7 +123,7 @@ def update_column(
     table_key: TableKey,
     column_id: ColumnId,
     payload: ColumnRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
@@ -152,7 +152,7 @@ def delete_column(
     dormitory_id: DormitoryId,
     table_key: TableKey,
     column_id: ColumnId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> None:
     lock_dormitory(db, dormitory_id)
@@ -174,7 +174,7 @@ def restore_column(
     dormitory_id: DormitoryId,
     table_key: TableKey,
     column_id: ColumnId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
@@ -194,7 +194,7 @@ def save_custom_cell(
     row_id: ColumnId,
     column_id: ColumnId,
     payload: CellRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> CellRequest:
     lock_dormitory(db, dormitory_id)
@@ -223,7 +223,7 @@ class ArchiveResponse(BaseModel):
 @router.get("/archive/rows", response_model=list[ArchiveResponse])
 def list_archive(
     dormitory_id: DormitoryId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -248,7 +248,7 @@ def list_archive(
 
 
 @router.post("/archive/rows", response_model=ArchiveResponse, status_code=201)
-def create_archive(dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession) -> ArchiveEntry:
+def create_archive(dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession) -> ArchiveEntry:
     lock_dormitory(db, dormitory_id)
     require_writable_table(db, dormitory_id, "archive")
     row = ArchiveEntry(dormitory_id=dormitory_id)
@@ -260,7 +260,7 @@ def create_archive(dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession) 
 
 @router.delete("/archive/rows/{row_id}", status_code=204)
 def delete_archive(
-    dormitory_id: DormitoryId, row_id: ColumnId, _user: ActiveUser, db: DbSession
+    dormitory_id: DormitoryId, row_id: ColumnId, _user: SubscribedUser, db: DbSession
 ) -> None:
     lock_dormitory(db, dormitory_id)
     require_writable_table(db, dormitory_id, "archive")

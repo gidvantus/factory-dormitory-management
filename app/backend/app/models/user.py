@@ -32,6 +32,9 @@ class User(Base):
     active_organization_id: Mapped[int | None] = mapped_column(
         ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Конец пробного периода: заполняется активацией кабинета. NULL или прошлое
+    # при отсутствии тарифа = пробный период истёк (см. `app.trial`).
+    trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -3,6 +3,8 @@ import { vi } from 'vitest';
 export interface MockResponse {
   status: number;
   body?: unknown;
+  /** Дополнительные заголовки ответа: по ним клиент различает отказы одного кода. */
+  headers?: Record<string, string>;
 }
 
 export type MockHandler = (url: string, init?: RequestInit) => MockResponse;
@@ -14,10 +16,10 @@ export type MockHandler = (url: string, init?: RequestInit) => MockResponse;
 export function mockFetch(handler: MockHandler): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
-    const { status, body } = handler(url, init);
+    const { status, body, headers } = handler(url, init);
     return new Response(body === undefined ? null : JSON.stringify(body), {
       status,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
     });
   });
   vi.stubGlobal('fetch', fetchMock);

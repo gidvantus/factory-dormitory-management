@@ -7,18 +7,18 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.outflow import PersonnelOutflow
 from app.personnel import record_changed
 from app.schemas.outflow import OutflowResponse, UpdateOutflowRequest
 from app.section_state import require_section_writable
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/outflow",
     tags=["outflow"],
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={**SUBSCRIBED_USER_RESPONSES},
 )
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -35,7 +35,7 @@ def get_outflow(db: Session, dormitory_id: int, row_id: int) -> PersonnelOutflow
 @router.get("", response_model=list[OutflowResponse], summary="Отток персонала за период")
 def list_outflow(
     dormitory_id: DormitoryId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -64,7 +64,9 @@ def list_outflow(
     status_code=status.HTTP_201_CREATED,
     summary="Добавить строку оттока",
 )
-def create_outflow(dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession) -> PersonnelOutflow:
+def create_outflow(
+    dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession
+) -> PersonnelOutflow:
     require_section_writable(db, dormitory_id, "outflow")
     require_dormitory(db, dormitory_id)
     row = PersonnelOutflow(dormitory_id=dormitory_id)
@@ -79,7 +81,7 @@ def update_outflow(
     dormitory_id: DormitoryId,
     row_id: OutflowId,
     payload: UpdateOutflowRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> PersonnelOutflow:
     require_section_writable(db, dormitory_id, "outflow")
@@ -97,7 +99,7 @@ def update_outflow(
 def delete_outflow(
     dormitory_id: DormitoryId,
     row_id: OutflowId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> None:
     require_section_writable(db, dormitory_id, "outflow")

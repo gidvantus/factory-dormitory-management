@@ -7,6 +7,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.db import get_db
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
@@ -17,19 +18,18 @@ from app.schemas.report_template import (
     ReportTemplateRowResponse,
 )
 from app.schemas.user import ErrorResponse
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import lock_dormitory, snapshot_link
 
 router = APIRouter(
     prefix="/report-templates",
     tags=["report-templates"],
-    responses={401: {"model": ErrorResponse}, **ACTIVE_USER_RESPONSES},
+    responses={401: {"model": ErrorResponse}, **SUBSCRIBED_USER_RESPONSES},
 )
 DbSession = Annotated[Session, Depends(get_db)]
 
 
 @router.get("", response_model=list[ReportTemplateResponse], summary="Список шаблонов отчёта")
-def list_templates(_user: ActiveUser, db: DbSession) -> list[ReportTemplateResponse]:
+def list_templates(_user: SubscribedUser, db: DbSession) -> list[ReportTemplateResponse]:
     result = db.execute(
         select(ReportTemplate, func.count(ReportTemplateRow.id))
         .outerjoin(ReportTemplateRow, ReportTemplateRow.template_id == ReportTemplate.id)
@@ -52,7 +52,7 @@ def list_templates(_user: ActiveUser, db: DbSession) -> list[ReportTemplateRespo
 )
 def read_template(
     template_id: Annotated[int, Path(ge=1, le=2147483647)],
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> ReportTemplateDetailResponse:
     template = db.get(ReportTemplate, template_id)
@@ -89,7 +89,7 @@ def read_template(
     summary="Сохранить структуру отчёта как шаблон",
 )
 def create_template(
-    payload: CreateReportTemplateRequest, user: ActiveUser, db: DbSession
+    payload: CreateReportTemplateRequest, user: SubscribedUser, db: DbSession
 ) -> ReportTemplateResponse:
     lock_dormitory(db, payload.dormitory_id)
     rows = list(
@@ -136,7 +136,7 @@ def create_template(
 @router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Удалить шаблон")
 def delete_template(
     template_id: Annotated[int, Path(ge=1, le=2147483647)],
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> None:
     template = db.get(ReportTemplate, template_id)

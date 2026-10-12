@@ -34,6 +34,7 @@ from app.security import (
     issue_activation_token,
     session_cookie,
 )
+from app.trial import trial_ends_at_for
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,10 @@ def activate(payload: ActivateRequest, response: Response, db: DbSession) -> Use
 
     user.password_hash = hash_password(payload.password)
     user.is_active = True
+    # Активация — начало пробного периода: месяц отсчитывается отсюда, а не от
+    # регистрации. Повторная активация невозможна (токен одноразовый), поэтому
+    # перезапись даты безопасна: второй раз она не произойдёт.
+    user.trial_ends_at = trial_ends_at_for()
     record.used_at = datetime.now(UTC)
 
     # Момент «появления» аккаунта: пользователь впервые входит в кабинет, значит

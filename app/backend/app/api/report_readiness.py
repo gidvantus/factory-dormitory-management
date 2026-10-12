@@ -8,16 +8,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import report_readiness as readiness
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.db import get_db
 from app.models.dormitory import Dormitory
 from app.models.report_readiness import ReportReadiness
 from app.schemas.report_readiness import ReportReadinessRequest, ReportReadinessResponse
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/report-readiness",
     tags=["report-readiness"],
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={**SUBSCRIBED_USER_RESPONSES},
 )
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -25,7 +25,7 @@ DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
 
 @router.get("", response_model=ReportReadinessResponse)
 def read_readiness(
-    dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession
+    dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession
 ) -> ReportReadinessResponse:
     if db.get(Dormitory, dormitory_id) is None:
         raise HTTPException(404, "Общежитие не найдено")
@@ -39,7 +39,7 @@ def read_readiness(
 def update_readiness(
     dormitory_id: DormitoryId,
     payload: ReportReadinessRequest,
-    user: ActiveUser,
+    user: SubscribedUser,
     db: DbSession,
 ) -> ReportReadinessResponse:
     dormitory = db.scalar(select(Dormitory).where(Dormitory.id == dormitory_id).with_for_update())

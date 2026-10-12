@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.dashboard_blocks import source_catalog, validate_config
 from app.db import get_db
 from app.models.dormitory import Dormitory
@@ -23,10 +24,9 @@ from app.schemas.statistics_report import (
     StatisticsResult,
     UpdateStatisticsReport,
 )
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.statistics_reports import calculate_block, resolved_query
 
-router = APIRouter(prefix="/statistics", tags=["statistics"], responses=ACTIVE_USER_RESPONSES)
+router = APIRouter(prefix="/statistics", tags=["statistics"], responses=SUBSCRIBED_USER_RESPONSES)
 DbSession = Annotated[Session, Depends(get_db)]
 ReportId = Annotated[int, Path(ge=1)]
 
@@ -99,14 +99,14 @@ def period_end(start: date, end: date) -> date | None:
 
 
 @router.get("/sources", response_model=list[CatalogDormitory])
-def read_sources(_user: ActiveUser, db: DbSession) -> list[CatalogDormitory]:
+def read_sources(_user: SubscribedUser, db: DbSession) -> list[CatalogDormitory]:
     catalog = source_catalog(db)
     db.commit()
     return catalog
 
 
 @router.get("/reports", response_model=list[StatisticsReportResponse])
-def list_reports(user: ActiveUser, db: DbSession) -> list[StatisticsReportResponse]:
+def list_reports(user: SubscribedUser, db: DbSession) -> list[StatisticsReportResponse]:
     reports = db.scalars(
         select(StatisticsReport)
         .where(
@@ -122,7 +122,7 @@ def list_reports(user: ActiveUser, db: DbSession) -> list[StatisticsReportRespon
 
 @router.post("/reports", response_model=StatisticsReportResponse, status_code=201)
 def create_report(
-    payload: CreateStatisticsReport, user: ActiveUser, db: DbSession
+    payload: CreateStatisticsReport, user: SubscribedUser, db: DbSession
 ) -> StatisticsReportResponse:
     validate_blocks(db, payload.blocks)
     report = StatisticsReport(
@@ -139,13 +139,15 @@ def create_report(
 
 
 @router.get("/reports/{report_id}", response_model=StatisticsReportResponse)
-def read_report(report_id: ReportId, user: ActiveUser, db: DbSession) -> StatisticsReportResponse:
+def read_report(
+    report_id: ReportId, user: SubscribedUser, db: DbSession
+) -> StatisticsReportResponse:
     return response_for(report_row(db, report_id, user), user, db)
 
 
 @router.put("/reports/{report_id}", response_model=StatisticsReportResponse)
 def update_report(
-    report_id: ReportId, payload: UpdateStatisticsReport, user: ActiveUser, db: DbSession
+    report_id: ReportId, payload: UpdateStatisticsReport, user: SubscribedUser, db: DbSession
 ) -> StatisticsReportResponse:
     report = report_row(db, report_id, user, lock=True)
     check_revision(report, payload.revision)
@@ -166,7 +168,7 @@ def update_report(
 
 @router.delete("/reports/{report_id}", status_code=204)
 def delete_report(
-    report_id: ReportId, revision: Annotated[int, Query(ge=0)], user: ActiveUser, db: DbSession
+    report_id: ReportId, revision: Annotated[int, Query(ge=0)], user: SubscribedUser, db: DbSession
 ) -> Response:
     report = report_row(db, report_id, user, lock=True)
     if report.created_by_id != user.id:
@@ -180,7 +182,7 @@ def delete_report(
 @router.post("/preview", response_model=StatisticsResult)
 def preview_block(
     payload: StatisticsBlock,
-    user: ActiveUser,
+    user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -196,7 +198,7 @@ def preview_block(
 @router.get("/reports/{report_id}/data", response_model=StatisticsData)
 def read_data(
     report_id: ReportId,
-    user: ActiveUser,
+    user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],

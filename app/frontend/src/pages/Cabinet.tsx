@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useSession } from '../auth/SessionProvider';
+import { TrialProvider, useTrial } from '../auth/TrialProvider';
+import { subscribeToTrialExpired } from '../auth/trial';
 import { userInitials } from '../workspace/userInitials';
 import { WorkspaceIcon } from '../workspace/WorkspaceIcon';
 import styles from '../workspace/Workspace.module.css';
@@ -17,9 +19,36 @@ const sectionTitles: Record<string, string> = {
   '/cabinet/profile': 'Личные данные',
 };
 
-/** Общая оболочка рабочего пространства и вложенных страниц. */
+/**
+ * Разделы, закрытые после окончания пробного периода.
+ *
+ * Список ведётся явно, а не «всё, кроме перечисленного»: открытыми остаются
+ * «Обзор», «Тариф», «Прайс-лист», «Организация» и «Личные данные», и новый
+ * рабочий раздел должен появиться здесь осознанно, а не закрыться случайно.
+ */
+const CLOSED_SECTIONS = [
+  '/cabinet/dormitories',
+  '/cabinet/personnel',
+  '/cabinet/statistics',
+  '/cabinet/organization/members',
+];
+
+function isClosedSection(path: string): boolean {
+  return CLOSED_SECTIONS.some((section) => path === section || path.startsWith(`${section}/`));
+}
+
+/** Оболочка кабинета вместе с состоянием пробного периода. */
 export function Cabinet(): JSX.Element {
+  return (
+    <TrialProvider>
+      <CabinetShell />
+    </TrialProvider>
+  );
+}
+
+function CabinetShell(): JSX.Element {
   const { user, logout } = useSession();
+  const { locked } = useTrial();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const trimmedPath = pathname.replace(/\/$/, '');
@@ -52,6 +81,16 @@ export function Cabinet(): JSX.Element {
     desktop.addEventListener('change', closeMenu);
     return () => desktop.removeEventListener('change', closeMenu);
   }, []);
+
+  useEffect(
+    // 403 «пробный период закончился» с рабочей ручки: раздел закрылся, пока
+    // пользователь в нём находился. Уводим на обзор — там ссылка на тарифы.
+    () =>
+      subscribeToTrialExpired(() => {
+        if (isClosedSection(trimmedPath)) navigate('/cabinet', { replace: true });
+      }),
+    [trimmedPath, navigate],
+  );
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -162,7 +201,12 @@ export function Cabinet(): JSX.Element {
               <NavLink
                 className={styles['nav-link']}
                 to="/cabinet/dormitories"
-                onClick={closeMenu}
+                aria-disabled={locked || undefined}
+                tabIndex={locked ? -1 : undefined}
+                onClick={(event) => {
+                  if (locked) event.preventDefault();
+                  closeMenu();
+                }}
                 data-testid="workspace-nav-dormitories"
               >
                 <WorkspaceIcon name="house" />
@@ -184,7 +228,12 @@ export function Cabinet(): JSX.Element {
               <NavLink
                 className={styles['nav-link']}
                 to="/cabinet/personnel"
-                onClick={closeMenu}
+                aria-disabled={locked || undefined}
+                tabIndex={locked ? -1 : undefined}
+                onClick={(event) => {
+                  if (locked) event.preventDefault();
+                  closeMenu();
+                }}
                 data-testid="workspace-nav-personnel"
               >
                 <WorkspaceIcon name="people" />
@@ -195,7 +244,12 @@ export function Cabinet(): JSX.Element {
               <NavLink
                 className={styles['nav-link']}
                 to="/cabinet/statistics"
-                onClick={closeMenu}
+                aria-disabled={locked || undefined}
+                tabIndex={locked ? -1 : undefined}
+                onClick={(event) => {
+                  if (locked) event.preventDefault();
+                  closeMenu();
+                }}
                 data-testid="workspace-nav-statistics"
               >
                 <WorkspaceIcon name="chart" />
@@ -219,7 +273,12 @@ export function Cabinet(): JSX.Element {
             <NavLink
               className={styles['nav-link']}
               to="/cabinet/organization/members"
-              onClick={closeMenu}
+              aria-disabled={locked || undefined}
+              tabIndex={locked ? -1 : undefined}
+              onClick={(event) => {
+                if (locked) event.preventDefault();
+                closeMenu();
+              }}
               data-testid="workspace-nav-members"
             >
               <WorkspaceIcon name="people" />
@@ -293,7 +352,7 @@ export function Cabinet(): JSX.Element {
               {logoutError}
             </p>
           )}
-          <Outlet />
+          {locked && isClosedSection(trimmedPath) ? <Navigate to="/cabinet" replace /> : <Outlet />}
         </main>
       </div>
     </div>

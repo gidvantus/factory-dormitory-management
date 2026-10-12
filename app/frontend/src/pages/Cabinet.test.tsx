@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+﻿import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -141,5 +141,101 @@ describe('пункты меню учётной записи', () => {
     const members = await screen.findByTestId('workspace-nav-members');
     expect(members).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('workspace-nav-organization')).not.toHaveAttribute('aria-current');
+  });
+});
+
+describe('закрытый кабинет и пробный период', () => {
+  const ACTIVE = { ...INACTIVE, is_active: true };
+
+  const LOCKED_TRIAL = {
+    ends_at: '2026-10-01T00:00:00Z',
+    days_left: 0,
+    is_active: false,
+    locked: true,
+    member_limit: 3,
+  };
+
+  /** Закрытый кабинет: `/api/trial` сообщает `locked: true`. */
+  function renderLocked(route: string): ReturnType<typeof render> {
+    mockFetch((url) => {
+      if (url.endsWith('/api/me')) return { status: 200, body: ACTIVE };
+      if (url.endsWith('/api/trial')) return { status: 200, body: LOCKED_TRIAL };
+      return { status: 404, body: { detail: 'Не найдено' } };
+    });
+    return render(
+      <MemoryRouter initialEntries={[route]}>
+        <SessionProvider>
+          <Routes>
+            <Route path="/cabinet" element={<Cabinet />}>
+              <Route index element={<p>Обзор кабинета</p>} />
+              <Route path="dormitories" element={<p>Страница общежитий</p>} />
+              <Route path="organization" element={<p>Страница организации</p>} />
+              <Route path="organization/members" element={<p>Страница сотрудников</p>} />
+              <Route path="tariffs" element={<p>Страница тарифа</p>} />
+            </Route>
+          </Routes>
+        </SessionProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it('помечает рабочие пункты меню недоступными, а разделы аккаунта оставляет', async () => {
+    renderLocked('/cabinet');
+
+    for (const testId of [
+      'workspace-nav-dormitories',
+      'workspace-nav-personnel',
+      'workspace-nav-statistics',
+      'workspace-nav-members',
+    ]) {
+      const link = await screen.findByTestId(testId);
+      expect(link).toHaveAttribute('aria-disabled', 'true');
+      expect(link).toHaveAttribute('tabindex', '-1');
+    }
+
+    for (const testId of [
+      'workspace-nav-overview',
+      'workspace-nav-tariffs',
+      'workspace-nav-organization',
+      'workspace-nav-profile',
+    ]) {
+      expect(screen.getByTestId(testId)).not.toHaveAttribute('aria-disabled');
+    }
+  });
+
+  it('не уводит с обзора по клику на закрытый раздел', async () => {
+    const user = userEvent.setup();
+    renderLocked('/cabinet');
+
+    const dormitories = await screen.findByTestId('workspace-nav-dormitories');
+    await user.click(dormitories);
+
+    expect(screen.getByText('Обзор кабинета')).toBeInTheDocument();
+    expect(screen.queryByText('Страница общежитий')).not.toBeInTheDocument();
+  });
+
+  it('возвращает на обзор при прямом заходе на закрытый адрес', async () => {
+    renderLocked('/cabinet/dormitories');
+
+    expect(await screen.findByText('Обзор кабинета')).toBeInTheDocument();
+    expect(screen.queryByText('Страница общежитий')).not.toBeInTheDocument();
+  });
+
+  it('возвращает на обзор и со страницы сотрудников', async () => {
+    renderLocked('/cabinet/organization/members');
+
+    expect(await screen.findByText('Обзор кабинета')).toBeInTheDocument();
+    expect(screen.queryByText('Страница сотрудников')).not.toBeInTheDocument();
+  });
+
+  it('оставляет открытыми тариф и организацию', async () => {
+    const user = userEvent.setup();
+    renderLocked('/cabinet');
+
+    await user.click(await screen.findByTestId('workspace-nav-tariffs'));
+    expect(await screen.findByText('Страница тарифа')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('workspace-nav-organization'));
+    expect(await screen.findByText('Страница организации')).toBeInTheDocument();
   });
 });

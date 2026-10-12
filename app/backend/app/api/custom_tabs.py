@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.table_columns import prepare_options
 from app.db import get_db
 from app.models.custom_tab import CustomTab, CustomTabEntry
@@ -22,12 +23,11 @@ from app.schemas.custom_tab import (
     UpdateTabRequest,
 )
 from app.section_state import SECTIONS, require_section_writable, section_parents, section_status
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.tab_catalog import normalized_name
 from app.tab_tree import all_tabs, copy_columns, delete_tabs, descendants
 from app.table_data import get_custom_tab, get_record, lock_dormitory
 
-router = APIRouter(tags=["custom-tabs"], responses={**ACTIVE_USER_RESPONSES})
+router = APIRouter(tags=["custom-tabs"], responses={**SUBSCRIBED_USER_RESPONSES})
 DbSession = Annotated[Session, Depends(get_db)]
 EntityId = Annotated[int, Path(ge=1, le=2147483647)]
 TAB_PATH = "/dormitories/{dormitory_id}/tabs"
@@ -73,7 +73,7 @@ def tab_responses(db: Session, dormitory_id: int, tabs: list[CustomTab]) -> list
 
 
 @router.get("/custom-tab-templates", response_model=list[TabTemplateResponse])
-def list_templates(_user: ActiveUser, db: DbSession) -> list[TabTemplateResponse]:
+def list_templates(_user: SubscribedUser, db: DbSession) -> list[TabTemplateResponse]:
     pairs = list(
         db.execute(
             select(CustomTab, Dormitory)
@@ -104,7 +104,7 @@ def list_templates(_user: ActiveUser, db: DbSession) -> list[TabTemplateResponse
 
 
 @router.get(TAB_PATH, response_model=list[TabResponse])
-def list_tabs(dormitory_id: EntityId, _user: ActiveUser, db: DbSession) -> list[TabResponse]:
+def list_tabs(dormitory_id: EntityId, _user: SubscribedUser, db: DbSession) -> list[TabResponse]:
     lock_dormitory(db, dormitory_id)
     tabs = list(
         db.scalars(
@@ -119,7 +119,7 @@ def update_tab(
     dormitory_id: EntityId,
     tab_id: EntityId,
     payload: UpdateTabRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> TabResponse:
     lock_dormitory(db, dormitory_id)
@@ -134,7 +134,9 @@ def update_tab(
 
 
 @router.delete(TAB_PATH + "/{tab_id}", status_code=204)
-def delete_tab(dormitory_id: EntityId, tab_id: EntityId, _user: ActiveUser, db: DbSession) -> None:
+def delete_tab(
+    dormitory_id: EntityId, tab_id: EntityId, _user: SubscribedUser, db: DbSession
+) -> None:
     lock_dormitory(db, dormitory_id)
     tab = get_custom_tab(db, dormitory_id, tab_id)
     if reason := tab_responses(db, dormitory_id, [tab])[0].delete_block_reason:
@@ -145,7 +147,7 @@ def delete_tab(dormitory_id: EntityId, tab_id: EntityId, _user: ActiveUser, db: 
 
 @router.post(TAB_PATH, response_model=TabResponse, status_code=201)
 def create_tab(
-    dormitory_id: EntityId, payload: CreateTabRequest, _user: ActiveUser, db: DbSession
+    dormitory_id: EntityId, payload: CreateTabRequest, _user: SubscribedUser, db: DbSession
 ) -> CustomTab:
     source = db.get(CustomTab, payload.source_tab_id) if payload.source_tab_id else None
     if payload.source_tab_id is not None and source is None:
@@ -234,7 +236,7 @@ def create_table(
     dormitory_id: EntityId,
     tab_id: EntityId,
     payload: CreateTabTableRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> CustomTab:
     lock_dormitory(db, dormitory_id)
@@ -281,7 +283,7 @@ def create_table(
 
 @router.get(TAB_PATH + "/{tab_id}/rows", response_model=list[TabEntryResponse])
 def list_rows(
-    dormitory_id: EntityId, tab_id: EntityId, _user: ActiveUser, db: DbSession
+    dormitory_id: EntityId, tab_id: EntityId, _user: SubscribedUser, db: DbSession
 ) -> list[CustomTabEntry]:
     lock_dormitory(db, dormitory_id)
     get_custom_tab(db, dormitory_id, tab_id, require_table=True)
@@ -299,7 +301,7 @@ def list_rows(
 
 @router.post(TAB_PATH + "/{tab_id}/rows", response_model=TabEntryResponse, status_code=201)
 def create_row(
-    dormitory_id: EntityId, tab_id: EntityId, _user: ActiveUser, db: DbSession
+    dormitory_id: EntityId, tab_id: EntityId, _user: SubscribedUser, db: DbSession
 ) -> CustomTabEntry:
     lock_dormitory(db, dormitory_id)
     get_custom_tab(db, dormitory_id, tab_id, require_table=True, require_active=True)
@@ -312,7 +314,7 @@ def create_row(
 
 @router.delete(TAB_PATH + "/{tab_id}/rows/{row_id}", status_code=204)
 def delete_row(
-    dormitory_id: EntityId, tab_id: EntityId, row_id: EntityId, _user: ActiveUser, db: DbSession
+    dormitory_id: EntityId, tab_id: EntityId, row_id: EntityId, _user: SubscribedUser, db: DbSession
 ) -> None:
     lock_dormitory(db, dormitory_id)
     tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True, require_active=True)
