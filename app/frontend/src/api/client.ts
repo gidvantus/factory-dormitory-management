@@ -52,12 +52,40 @@ export interface Organization {
   /** null — организация ещё не заполнена: сразу после активации оба поля пустые. */
   name: string | null;
   inn: string | null;
+  /** Реквизиты из DaData. У индивидуального предпринимателя `kpp` всегда null. */
+  kpp: string | null;
+  ogrn: string | null;
+  address: string | null;
   created_at: string;
 }
 
 export interface UpdateOrganizationInput {
   name: string;
   inn: string;
+  kpp: string;
+  ogrn: string;
+  address: string;
+}
+
+/** Реквизиты, найденные в DaData по ИНН. Пустое поле приходит как null. */
+export interface OrganizationLookupDetails {
+  name: string | null;
+  kpp: string | null;
+  ogrn: string | null;
+  address: string | null;
+}
+
+/**
+ * Результат поиска организации по ИНН.
+ *
+ * `found: false` — не ошибка запроса: форма остаётся рабочей. `reason`
+ * различает «по этому ИНН ничего не найдено» и «сервис проверки недоступен»,
+ * чтобы пользователь видел разные тексты.
+ */
+export interface OrganizationLookup {
+  found: boolean;
+  reason: 'not_found' | 'unavailable' | null;
+  details: OrganizationLookupDetails | null;
 }
 
 /** Период списания тарифа: код в базе, «в месяц»/«в год»/«разово» собирает сервер. */
@@ -745,6 +773,18 @@ export const api = {
     return request<Organization>('/organization', {
       method: 'PATCH',
       body: JSON.stringify(input),
+    });
+  },
+
+  /**
+   * Реквизиты организации по ИНН в DaData.
+   *
+   * Неудачный поиск — это 200 с `found: false`, а не ошибка: 422 приходит
+   * только на ИНН не по формату.
+   */
+  lookupOrganization(inn: string, signal?: AbortSignal): Promise<OrganizationLookup> {
+    return request<OrganizationLookup>(`/organization/lookup?${new URLSearchParams({ inn })}`, {
+      signal,
     });
   },
 
