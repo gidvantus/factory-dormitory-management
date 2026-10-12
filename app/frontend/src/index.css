@@ -1918,6 +1918,48 @@ tbody tr:last-child td {
 }
 
 /* ==========================================================================
+   Плашка согласия на cookie
+
+   Немодальное предупреждение внизу экрана: z-index выше шапки (50) и ниже
+   окон кабинета (60), чтобы открытое окно всегда рисовалось поверх плашки.
+   ========================================================================== */
+
+.cookie-consent {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 55;
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: var(--space-4) var(--gutter);
+  background: var(--color-bg-surface);
+  border-top: 1px solid var(--color-border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.cookie-consent__text {
+  margin: 0;
+  max-width: 60ch;
+  font-size: var(--text-sm);
+  color: var(--color-text-body);
+}
+
+.cookie-consent__actions {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.cookie-consent__link {
+  color: var(--color-accent);
+}
+
+/* ==========================================================================
    Адаптив
    ========================================================================== */
 
@@ -2023,6 +2065,15 @@ tbody tr:last-child td {
 
   .modal__panel {
     padding: var(--space-5) var(--space-4);
+  }
+
+  .cookie-consent {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cookie-consent__actions {
+    justify-content: space-between;
   }
 }
 
