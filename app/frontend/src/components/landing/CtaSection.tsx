@@ -7,13 +7,22 @@ interface CtaSectionProps {
   onRegister: () => void;
   /** Вход для тех, кто уже завёл аккаунт. */
   onLogin: () => void;
+  /** Есть действующая сессия: вместо пары кнопок показываем вход в кабинет. */
+  authenticated: boolean;
+  /** Перейти в личный кабинет. */
+  onCabinet: () => void;
 }
 
 /**
  * Финальный призыв: вместо формы-заглушки из прототипа здесь настоящая
  * регистрация — она открывается в том же окне, что и по кнопке в шапке.
  */
-export function CtaSection({ onRegister, onLogin }: CtaSectionProps): JSX.Element {
+export function CtaSection({
+  onRegister,
+  onLogin,
+  authenticated,
+  onCabinet,
+}: CtaSectionProps): JSX.Element {
   return (
     <section className="section" id="demo">
       <div className="container">
@@ -27,22 +36,35 @@ export function CtaSection({ onRegister, onLogin }: CtaSectionProps): JSX.Elemen
             </p>
 
             <div className="cta-actions">
-              <button
-                className="btn btn--ink"
-                type="button"
-                data-testid="cta-register"
-                onClick={onRegister}
-              >
-                Зарегистрироваться
-              </button>
-              <button
-                className="btn btn--outline"
-                type="button"
-                data-testid="cta-login"
-                onClick={onLogin}
-              >
-                Войти
-              </button>
+              {authenticated ? (
+                <button
+                  className="btn btn--ink"
+                  type="button"
+                  data-testid="cta-cabinet"
+                  onClick={onCabinet}
+                >
+                  Перейти в личный кабинет
+                </button>
+              ) : (
+                <>
+                  <button
+                    className="btn btn--ink"
+                    type="button"
+                    data-testid="cta-register"
+                    onClick={onRegister}
+                  >
+                    Зарегистрироваться
+                  </button>
+                  <button
+                    className="btn btn--outline"
+                    type="button"
+                    data-testid="cta-login"
+                    onClick={onLogin}
+                  >
+                    Войти
+                  </button>
+                </>
+              )}
             </div>
 
             <p className="note">

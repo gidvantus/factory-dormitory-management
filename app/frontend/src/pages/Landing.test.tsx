@@ -10,6 +10,22 @@ function anonymous(): void {
   mockFetch(() => ({ status: 401, body: { detail: 'Требуется авторизация' } }));
 }
 
+const PROFILE = {
+  email: 'worker@example.com',
+  full_name: 'Иванов Иван Иванович',
+  created_at: '2026-01-01T00:00:00Z',
+  is_active: true,
+};
+
+/** Главная с действующей сессией: `GET /api/me` отвечает профилем. */
+function authenticated(): void {
+  mockFetch((url) =>
+    url.endsWith('/api/me')
+      ? { status: 200, body: PROFILE }
+      : { status: 404, body: { detail: 'Не найдено' } },
+  );
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -132,6 +148,53 @@ describe('контент лендинга на главной', () => {
 
     expect(await screen.findByTestId('register-submit')).toBeInTheDocument();
     expect(screen.getByTestId('auth-modal-title')).toHaveTextContent('Регистрация');
+  });
+
+  it('без сессии оставляет в герое и финальном блоке пару «Регистрация» и «Войти»', async () => {
+    anonymous();
+    renderApp('/');
+    await screen.findByTestId('landing');
+
+    for (const testId of ['hero-register', 'hero-login', 'cta-register', 'cta-login']) {
+      expect(await screen.findByTestId(testId)).toBeInTheDocument();
+    }
+    expect(screen.queryByTestId('hero-cabinet')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cta-cabinet')).not.toBeInTheDocument();
+  });
+});
+
+describe('главная с действующей сессией', () => {
+  it('показывает в герое и финальном блоке кнопку кабинета вместо входа и регистрации', async () => {
+    authenticated();
+    renderApp('/');
+
+    expect(await screen.findByTestId('hero-cabinet')).toHaveTextContent('Перейти в личный кабинет');
+    expect(screen.getByTestId('cta-cabinet')).toHaveTextContent('Перейти в личный кабинет');
+
+    for (const testId of ['hero-register', 'hero-login', 'cta-register', 'cta-login']) {
+      expect(screen.queryByTestId(testId)).not.toBeInTheDocument();
+    }
+    expect(screen.queryByTestId('auth-modal')).not.toBeInTheDocument();
+  });
+
+  it('ведёт в кабинет по кнопке героя', async () => {
+    authenticated();
+    const user = userEvent.setup();
+    renderApp('/');
+
+    await user.click(await screen.findByTestId('hero-cabinet'));
+
+    expect(await screen.findByTestId('workspace-overview')).toBeInTheDocument();
+  });
+
+  it('ведёт в кабинет по кнопке финального блока', async () => {
+    authenticated();
+    const user = userEvent.setup();
+    renderApp('/');
+
+    await user.click(await screen.findByTestId('cta-cabinet'));
+
+    expect(await screen.findByTestId('workspace-overview')).toBeInTheDocument();
   });
 });
 

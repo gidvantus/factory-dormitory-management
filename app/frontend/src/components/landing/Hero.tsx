@@ -6,10 +6,14 @@ interface HeroProps {
   onRegister: () => void;
   /** Открыть окно входа для тех, у кого уже есть доступ. */
   onLogin: () => void;
+  /** Есть действующая сессия: вместо пары кнопок показываем вход в кабинет. */
+  authenticated: boolean;
+  /** Перейти в личный кабинет. */
+  onCabinet: () => void;
 }
 
 /** Герой: заголовок и иллюстрация с плашками занятости. */
-export function Hero({ onRegister, onLogin }: HeroProps): JSX.Element {
+export function Hero({ onRegister, onLogin, authenticated, onCabinet }: HeroProps): JSX.Element {
   return (
     <section className="hero" id="hero">
       <div className="container hero__grid">
@@ -28,22 +32,35 @@ export function Hero({ onRegister, onLogin }: HeroProps): JSX.Element {
           </p>
 
           <div className="hero__actions">
-            <button
-              className="btn btn--primary"
-              type="button"
-              data-testid="hero-register"
-              onClick={onRegister}
-            >
-              Зарегистрироваться
-            </button>
-            <button
-              className="btn btn--outline"
-              type="button"
-              data-testid="hero-login"
-              onClick={onLogin}
-            >
-              Войти
-            </button>
+            {authenticated ? (
+              <button
+                className="btn btn--primary"
+                type="button"
+                data-testid="hero-cabinet"
+                onClick={onCabinet}
+              >
+                Перейти в личный кабинет
+              </button>
+            ) : (
+              <>
+                <button
+                  className="btn btn--primary"
+                  type="button"
+                  data-testid="hero-register"
+                  onClick={onRegister}
+                >
+                  Зарегистрироваться
+                </button>
+                <button
+                  className="btn btn--outline"
+                  type="button"
+                  data-testid="hero-login"
+                  onClick={onLogin}
+                >
+                  Войти
+                </button>
+              </>
+            )}
           </div>
         </div>
 
