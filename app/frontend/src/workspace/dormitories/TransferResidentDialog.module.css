@@ -47,7 +47,7 @@
   padding: 8px 12px;
   border: 1px solid var(--color-border-strong);
   border-radius: 8px;
-  background: white;
+  background: var(--color-bg-surface);
   cursor: pointer;
 }
 .form button[type='submit'] {

@@ -1,7 +1,7 @@
 .board {
   border: 1px solid #e0e6d8;
   border-radius: 14px;
-  background: white;
+  background: var(--color-bg-surface);
   padding: 24px;
   min-width: 0;
 }
@@ -50,7 +50,7 @@
   padding: 10px 11px;
   border: 1px solid #dce4d4;
   border-radius: 7px;
-  background: #fff;
+  background: var(--color-bg-surface);
   color: #43573a;
   resize: vertical;
   font-size: 12px;
@@ -294,7 +294,7 @@
   gap: 5px;
   border: 0;
   border-right: 1px solid #e9efdf;
-  background: #fff;
+  background: var(--color-bg-surface);
   text-align: left;
   padding: 15px 13px;
   color: #667a58;
@@ -357,7 +357,7 @@
   border: 1px solid #dce5d2;
   padding: 9px 10px;
   border-radius: 7px;
-  background: white;
+  background: var(--color-bg-surface);
   font: inherit;
   font-size: 12px;
   color: #536e44;
@@ -550,7 +550,7 @@
   align-items: center;
   border: 1px solid #dce6d1;
   border-radius: 7px;
-  background: #fff;
+  background: var(--color-bg-surface);
   overflow: hidden;
 }
 .savedLists > div button {

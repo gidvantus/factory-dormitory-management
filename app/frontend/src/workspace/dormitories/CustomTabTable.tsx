@@ -97,7 +97,7 @@ function CustomTableContent({
   }
   return (
     <section className={styles.page} data-testid="custom-tab-table">
-      <div className={styles.heading}>
+      <div className="toolbar">
         <h2>{tab.name}</h2>
         {tab.is_active && <ColumnsControls />}
         {tab.is_active && (
@@ -109,7 +109,8 @@ function CustomTableContent({
         )}
         <button
           type="button"
-          className={styles.addButton}
+          className="btn btn--primary btn--sm"
+          aria-busy={busy}
           disabled={!tab.is_active || !loaded || columnsLoading || !!columnsError || busy}
           onClick={() => void add()}
         >
@@ -157,7 +158,8 @@ function CustomTableContent({
                       <button
                         type="button"
                         disabled={busy || !tab.is_active}
-                        className={styles.deleteButton}
+                        className="btn btn--ghost btn--sm"
+                        aria-busy={busy}
                         onClick={() => {
                           setError('');
                           setDeleting(row);
@@ -183,14 +185,20 @@ function CustomTableContent({
         >
           <p>Запись будет удалена вместе со значениями всех её столбцов.</p>
           {error && <p role="alert">{error}</p>}
-          <div className={styles.modalActions}>
-            <button type="button" disabled={busy} onClick={() => setDeleting(null)}>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={() => setDeleting(null)}
+            >
               Отмена
             </button>
             <button
               type="button"
               disabled={busy}
-              className={styles.deleteButton}
+              className="btn btn--danger"
+              aria-busy={busy}
               onClick={() => void remove()}
             >
               Удалить
@@ -227,11 +235,11 @@ export function CustomTabTable({
     );
   return (
     <section className={styles.page} data-testid="custom-tab-empty">
-      <div className={styles.heading}>
+      <div className="toolbar">
         <h2>{tab.name}</h2>
         <button
           type="button"
-          className={styles.addButton}
+          className="btn btn--primary btn--sm"
           disabled
           title="Сначала создайте таблицу"
         >
@@ -242,7 +250,7 @@ export function CustomTabTable({
       <div>
         <button
           type="button"
-          className={styles.addButton}
+          className="btn btn--primary btn--sm"
           disabled={!tab.is_active}
           onClick={() => (settings ? settings.open(tab.table_key) : setCreating(true))}
         >

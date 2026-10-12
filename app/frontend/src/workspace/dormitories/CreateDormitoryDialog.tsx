@@ -443,7 +443,11 @@ export function CreateDormitoryDialog({ onClose, onCreated, triggerRef }: Props)
               {templatesStatus === 'error' && (
                 <p className={styles.templateHint}>
                   Не удалось загрузить шаблоны.{' '}
-                  <button type="button" onClick={() => setTemplatesAttempt((value) => value + 1)}>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => setTemplatesAttempt((value) => value + 1)}
+                  >
                     Повторить
                   </button>
                 </p>
@@ -533,13 +537,14 @@ export function CreateDormitoryDialog({ onClose, onCreated, triggerRef }: Props)
             {requestError}
           </p>
         )}
-        <div className={`${styles.dialogActions} ${creationStyles.actions}`}>
-          <button type="button" className="btn btn--outline" disabled={saving} onClick={onClose}>
+        <div className={`dialog-actions ${creationStyles.actions}`}>
+          <button type="button" className="btn btn--ghost" disabled={saving} onClick={onClose}>
             Отмена
           </button>
           <button
             type="submit"
             className="btn btn--primary"
+            aria-busy={saving}
             disabled={
               saving ||
               catalogStatus !== 'ready' ||
@@ -548,7 +553,7 @@ export function CreateDormitoryDialog({ onClose, onCreated, triggerRef }: Props)
             }
             data-testid="create-dormitory-submit"
           >
-            {saving ? 'Создаём…' : 'Создать'}
+            Создать
           </button>
         </div>
       </form>

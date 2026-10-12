@@ -158,7 +158,7 @@ export function DormitoryActions({
                     {error}
                   </p>
                 )}
-                <div className={styles.dialogActions}>
+                <div className="dialog-actions">
                   <button
                     type="button"
                     className="btn btn--outline"
@@ -183,7 +183,7 @@ export function DormitoryActions({
                     {error}
                   </p>
                 )}
-                <div className={styles.dialogActions}>
+                <div className="dialog-actions">
                   <button
                     type="button"
                     className="btn btn--outline"

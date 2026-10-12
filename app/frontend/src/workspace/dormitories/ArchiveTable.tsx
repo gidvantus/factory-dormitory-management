@@ -76,7 +76,7 @@ function ArchiveContent({
   }
   return (
     <section className={styles.page} data-testid="dormitory-archive">
-      <div className={styles.heading}>
+      <div className="toolbar">
         <h2>Архив</h2>
         <ColumnsControls />
         <PersonnelBindingButton
@@ -86,7 +86,8 @@ function ArchiveContent({
         />
         <button
           type="button"
-          className={styles.addButton}
+          className="btn btn--primary btn--sm"
+          aria-busy={busy}
           disabled={loading || busy}
           onClick={() => void add()}
         >
@@ -125,7 +126,13 @@ function ArchiveContent({
                         employeeId={row.employee_id}
                         onChanged={() => setAttempt((n) => n + 1)}
                       />
-                      <button type="button" disabled={busy} onClick={() => setDeleting(row)}>
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        aria-busy={busy}
+                        disabled={busy}
+                        onClick={() => setDeleting(row)}
+                      >
                         Удалить
                       </button>
                     </td>
@@ -148,11 +155,22 @@ function ArchiveContent({
         >
           <p>Запись будет удалена вместе со значениями всех её столбцов.</p>
           {error && <p role="alert">{error}</p>}
-          <div className={styles.modalActions}>
-            <button type="button" disabled={busy} onClick={() => setDeleting(null)}>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={() => setDeleting(null)}
+            >
               Отмена
             </button>
-            <button type="button" disabled={busy} onClick={() => void remove()}>
+            <button
+              type="button"
+              className="btn btn--danger"
+              aria-busy={busy}
+              disabled={busy}
+              onClick={() => void remove()}
+            >
               Удалить строку
             </button>
           </div>

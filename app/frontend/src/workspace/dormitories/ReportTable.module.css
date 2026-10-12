@@ -56,8 +56,11 @@
 .empty p {
   font-size: 13px;
 }
+/* Значение цвета — из прежнего локального правила `.loadError button`
+   (`--mint-700`), а не из глобального `.link-button` (`--mint-600`). */
 .loadError .link-button {
   margin-top: 9px;
+  color: var(--mint-700);
 }
 .saveError {
   margin-bottom: 12px;

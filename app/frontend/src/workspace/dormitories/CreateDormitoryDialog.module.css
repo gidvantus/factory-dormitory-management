@@ -26,7 +26,7 @@
   border: 1px solid #d5dfd8;
   padding: 12px;
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-bg-surface);
   color: #57705d;
   cursor: pointer;
   font: inherit;
