@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { mockFetch } from '../../test/mockFetch';
@@ -37,7 +37,6 @@ const TARIFF = {
   position: 1,
   is_visible: true,
   price_label: '5 000 ₽ за одно место в месяц',
-  editable: true,
 };
 
 /** Обзор грузит и показатели, и тариф организации — маршруты нужны оба. */
@@ -55,8 +54,8 @@ afterEach(() => {
 });
 
 describe('тариф организации в обзоре', () => {
-  it('показывает купленный тариф рядом с показателями', async () => {
-    mockFetch(overviewRoutes({ status: 200, body: { tariff: TARIFF, editable: true } }));
+  it('показывает назначенный тариф рядом с показателями', async () => {
+    mockFetch(overviewRoutes({ status: 200, body: { tariff: TARIFF } }));
     renderApp('/cabinet');
 
     expect(await screen.findByTestId('dashboard-tariff-price')).toHaveTextContent(
@@ -68,14 +67,15 @@ describe('тариф организации в обзоре', () => {
     expect(screen.getByTestId('workspace-overview')).toBeInTheDocument();
   });
 
-  it('без выбранного тарифа предлагает перейти в раздел «Тариф»', async () => {
-    mockFetch(overviewRoutes({ status: 200, body: { tariff: null, editable: true } }));
+  it('без тарифа объясняет его отсутствие без кнопок и ссылок', async () => {
+    mockFetch(overviewRoutes({ status: 200, body: { tariff: null } }));
     renderApp('/cabinet');
 
-    expect(await screen.findByTestId('dashboard-tariff-empty')).toHaveTextContent(
-      'Тариф не выбран',
-    );
-    expect(screen.getByTestId('dashboard-tariff-link')).toHaveAttribute('href', '/cabinet/tariffs');
+    const empty = await screen.findByTestId('dashboard-tariff-empty');
+
+    expect(empty).toHaveTextContent('Тариф не выбран');
+    expect(within(empty).queryByRole('link')).not.toBeInTheDocument();
+    expect(within(empty).queryByRole('button')).not.toBeInTheDocument();
     expect(screen.getByTestId('workspace-overview')).toBeInTheDocument();
   });
 

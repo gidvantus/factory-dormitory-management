@@ -10,7 +10,6 @@ const sectionTitles: Record<string, string> = {
   '/cabinet': 'Обзор',
   '/cabinet/dormitories': 'Общежития',
   '/cabinet/tariffs': 'Тариф',
-  '/cabinet/tariffs/catalog': 'Прайс-лист',
   '/cabinet/organization': 'Организация',
   '/cabinet/organization/members': 'Сотрудники',
   '/cabinet/personnel': 'Персонал',

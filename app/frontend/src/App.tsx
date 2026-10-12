@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { RequireAuth } from './auth/RequireAuth';
 import { Activate } from './pages/Activate';
@@ -14,7 +14,6 @@ import { DormitoryDetails } from './workspace/dormitories/DormitoryDetails';
 import { Members } from './workspace/Members';
 import { Organization } from './workspace/Organization';
 import { PersonalData } from './workspace/PersonalData';
-import { TariffCatalog } from './workspace/TariffCatalog';
 import { Tariffs } from './workspace/Tariffs';
 import { WorkspaceOverview } from './workspace/WorkspaceOverview';
 import { DormitoryDesignPreview } from './pages/DormitoryDesignPreview';
@@ -44,8 +43,7 @@ const Personnel = lazy(() =>
  * тоже отдельный адрес `/forgot-password`: на него ссылаются из формы входа и
  * из письма, и он доступен без сессии, как и `/activate`. Страница тарифов
  * `/pricing` тоже вне `RequireAuth`: прайс публичный, а в кабинете живёт раздел
- * «Тариф» с тарифом самой организации (`/cabinet/tariffs`) и отдельный
- * прайс-лист для владельца и администратора (`/cabinet/tariffs/catalog`).
+ * «Тариф» с тарифом самой организации (`/cabinet/tariffs`).
  * Публичные документы `/documents/:code` — там же, вне `RequireAuth`: на них
  * ведут ссылки из подвала, и открывать их обязан анонимный посетитель.
  */
@@ -91,7 +89,9 @@ export function App(): JSX.Element {
         <Route path="organization" element={<Organization />} />
         <Route path="organization/members" element={<Members />} />
         <Route path="tariffs" element={<Tariffs />} />
-        <Route path="tariffs/catalog" element={<TariffCatalog />} />
+        {/* Старая ссылка на прайс-лист: редактора больше нет, но закладка не должна
+            давать 404 — редирект приводит в раздел «Тариф». */}
+        <Route path="tariffs/catalog" element={<Navigate to="/cabinet/tariffs" replace />} />
         <Route
           path="personnel"
           element={
