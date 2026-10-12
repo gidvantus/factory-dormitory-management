@@ -364,7 +364,7 @@ export function RowDialog({
           ))}
         <button
           type="button"
-          className="btn btn--ghost"
+          className="btn btn--ghost btn--compact"
           onClick={onClose}
           disabled={saving || deleting}
         >
@@ -464,7 +464,12 @@ function SaveTemplateDialog({
           </p>
         )}
         <div className="dialog-actions">
-          <button type="button" className="btn btn--ghost" onClick={onClose} disabled={saving}>
+          <button
+            type="button"
+            className="btn btn--ghost btn--compact"
+            onClick={onClose}
+            disabled={saving}
+          >
             Отмена
           </button>
           <button type="submit" className="btn btn--primary" aria-busy={saving} disabled={saving}>
@@ -553,7 +558,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
         </div>
         <div className={styles.headingActions}>
           <button
-            className="btn btn--ghost btn--sm"
+            className="btn btn--ghost btn--compact"
             type="button"
             onClick={() => setTemplateDialogOpen(true)}
             disabled={status !== 'ready' || rows.length === 0}
@@ -562,7 +567,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
             Сохранить как шаблон
           </button>
           <button
-            className="btn btn--primary btn--sm"
+            className="btn btn--primary btn--compact"
             type="button"
             onClick={() => setEditing('new')}
             data-testid="report-add-row"

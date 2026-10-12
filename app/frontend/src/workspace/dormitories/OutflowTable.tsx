@@ -132,7 +132,7 @@ function OutflowEntry({
         <td className={styles.actionCell}>
           <button
             type="button"
-            className="btn btn--ghost btn--sm"
+            className="btn btn--ghost btn--compact"
             disabled
             title="Функция появится позже"
           >
@@ -142,7 +142,7 @@ function OutflowEntry({
         <td className={styles.actionCell}>
           <button
             type="button"
-            className="btn btn--ghost btn--sm"
+            className="btn btn--ghost btn--compact"
             aria-busy={saving}
             disabled={saving}
             onClick={() => onDelete(draft)}
@@ -233,7 +233,7 @@ function OutflowContent({
         <ColumnsControls />
         <button
           type="button"
-          className="btn btn--primary btn--sm"
+          className="btn btn--primary btn--compact"
           aria-busy={adding}
           disabled={adding || status !== 'ready'}
           onClick={() => void add()}
@@ -304,7 +304,7 @@ function OutflowContent({
           <div className="dialog-actions">
             <button
               type="button"
-              className="btn btn--ghost"
+              className="btn btn--ghost btn--compact"
               disabled={removing}
               onClick={() => setDeleting(null)}
             >
@@ -312,7 +312,7 @@ function OutflowContent({
             </button>
             <button
               type="button"
-              className="btn btn--danger"
+              className="btn btn--danger btn--compact"
               aria-busy={removing}
               disabled={removing}
               onClick={() => void remove()}

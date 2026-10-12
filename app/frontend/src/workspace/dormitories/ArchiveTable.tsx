@@ -86,7 +86,7 @@ function ArchiveContent({
         />
         <button
           type="button"
-          className="btn btn--primary btn--sm"
+          className="btn btn--primary btn--compact"
           aria-busy={busy}
           disabled={loading || busy}
           onClick={() => void add()}
@@ -128,7 +128,7 @@ function ArchiveContent({
                       />
                       <button
                         type="button"
-                        className="btn btn--ghost btn--sm"
+                        className="btn btn--ghost btn--compact"
                         aria-busy={busy}
                         disabled={busy}
                         onClick={() => setDeleting(row)}
@@ -158,7 +158,7 @@ function ArchiveContent({
           <div className="dialog-actions">
             <button
               type="button"
-              className="btn btn--ghost"
+              className="btn btn--ghost btn--compact"
               disabled={busy}
               onClick={() => setDeleting(null)}
             >
@@ -166,7 +166,7 @@ function ArchiveContent({
             </button>
             <button
               type="button"
-              className="btn btn--danger"
+              className="btn btn--danger btn--compact"
               aria-busy={busy}
               disabled={busy}
               onClick={() => void remove()}

@@ -171,10 +171,10 @@ export function Dashboard({
               aria-describedby={error ? 'dashboard-period-error' : undefined}
             />
           </label>
-          <button className="btn btn--primary btn--sm" type="submit">
+          <button className="btn btn--primary btn--compact" type="submit">
             Применить
           </button>
-          <button className="btn btn--ghost btn--sm" type="button" onClick={resetPeriod}>
+          <button className="btn btn--ghost btn--compact" type="button" onClick={resetPeriod}>
             Текущий месяц
           </button>
         </div>

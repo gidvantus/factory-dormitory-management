@@ -171,7 +171,7 @@ function ResidentRow({
       <>
         <button
           type="button"
-          className="btn btn--ghost btn--sm"
+          className="btn btn--ghost btn--compact"
           aria-label={`Записать на ${kind === 'advance' ? 'аванс' : 'расчёт'}, ${rowLabel}`}
           aria-busy={registering === kind}
           disabled={registering !== null || preparingTransfer}
@@ -358,7 +358,7 @@ function ResidentRow({
         <td>
           <button
             type="button"
-            className="btn btn--ghost btn--sm"
+            className="btn btn--ghost btn--compact"
             aria-busy={preparingTransfer && !outflowAction}
             disabled={registering !== null || preparingTransfer}
             onClick={(event) => void openTransfer(event.currentTarget)}
@@ -374,7 +374,7 @@ function ResidentRow({
         <td>
           <button
             type="button"
-            className="btn btn--ghost btn--sm"
+            className="btn btn--ghost btn--compact"
             aria-busy={preparingTransfer && outflowAction}
             disabled={registering !== null || preparingTransfer}
             onClick={(event) => void openTransfer(event.currentTarget, true)}
@@ -390,7 +390,7 @@ function ResidentRow({
         <td>
           <button
             type="button"
-            className="btn btn--ghost btn--sm"
+            className="btn btn--ghost btn--compact"
             disabled={registering !== null || preparingTransfer}
             onClick={() => onDelete(draft)}
           >
@@ -481,7 +481,7 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
         <ColumnsControls />
         <button
           type="button"
-          className="btn btn--primary btn--sm"
+          className="btn btn--primary btn--compact"
           aria-busy={adding}
           disabled={adding || status !== 'ready'}
           onClick={() => void add()}
@@ -607,7 +607,7 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
           <div className="dialog-actions">
             <button
               type="button"
-              className="btn btn--ghost"
+              className="btn btn--ghost btn--compact"
               disabled={removing}
               onClick={() => setDeleting(null)}
             >
@@ -615,7 +615,7 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
             </button>
             <button
               type="button"
-              className="btn btn--danger"
+              className="btn btn--danger btn--compact"
               aria-busy={removing}
               disabled={removing}
               onClick={() => void remove()}

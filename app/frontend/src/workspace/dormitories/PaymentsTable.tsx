@@ -117,7 +117,7 @@ function PaymentEntry({
         <td className={styles.actionCell}>
           <button
             type="button"
-            className="btn btn--ghost btn--sm"
+            className="btn btn--ghost btn--compact"
             aria-busy={saving}
             disabled={saving}
             onClick={() => onDelete(draft)}
@@ -227,7 +227,7 @@ function PaymentsContent({
         <ColumnsControls />
         <button
           type="button"
-          className="btn btn--primary btn--sm"
+          className="btn btn--primary btn--compact"
           aria-busy={adding}
           disabled={adding || clearing || status !== 'ready'}
           onClick={() => void add()}
@@ -309,7 +309,7 @@ function PaymentsContent({
           <div className="dialog-actions">
             <button
               type="button"
-              className="btn btn--ghost"
+              className="btn btn--ghost btn--compact"
               disabled={clearing}
               onClick={() => setConfirmClear(false)}
             >
@@ -317,7 +317,7 @@ function PaymentsContent({
             </button>
             <button
               type="button"
-              className="btn btn--danger"
+              className="btn btn--danger btn--compact"
               aria-busy={clearing}
               disabled={clearing}
               onClick={() => void clear()}
@@ -346,7 +346,7 @@ function PaymentsContent({
           <div className="dialog-actions">
             <button
               type="button"
-              className="btn btn--ghost"
+              className="btn btn--ghost btn--compact"
               disabled={removing}
               onClick={() => setDeleting(null)}
             >
@@ -354,7 +354,7 @@ function PaymentsContent({
             </button>
             <button
               type="button"
-              className="btn btn--danger"
+              className="btn btn--danger btn--compact"
               aria-busy={removing}
               disabled={removing}
               onClick={() => void remove()}

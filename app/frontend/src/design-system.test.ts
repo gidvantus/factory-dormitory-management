@@ -27,6 +27,19 @@ const FILES = moduleCssFiles(SRC).map((path) => ({
   css: readFileSync(path, 'utf8'),
 }));
 
+/** Глобальный слой без комментариев: правила кнопок ищутся по точному селектору. */
+const INDEX_CSS = readFileSync(join(SRC, 'index.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+
+/** Тело правила по точному селектору; пустая строка, если правила нет. */
+function ruleBody(css: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`(?:^|[};])\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm').exec(css);
+  return match ? match[1] : '';
+}
+
+/** Экраны лендинга: компактный размер кабинета сюда не протекает. */
+const LANDING_SCREENS = ['pages/Landing.tsx', 'pages/Pricing.tsx'];
+
 interface Rule {
   selector: string;
   body: string;
@@ -258,5 +271,32 @@ describe('контракт дизайн-системы', () => {
       }
     }
     expect(offenders, `Фоны и границы берутся из токенов:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('держит компактный размер лендинга замороженным', () => {
+    const body = ruleBody(INDEX_CSS, '.btn--sm');
+    expect(body, '.btn--sm должен существовать в index.css').not.toBe('');
+    expect(body).toContain('min-height: 42px');
+    expect(body).toContain('padding: 0.5rem 1.125rem');
+    expect(body).not.toMatch(/border-radius\s*:/);
+    expect(body).not.toMatch(/font-size\s*:/);
+  });
+
+  it('держит компактный размер кабинета на 39px и радиусе 9px', () => {
+    const body = ruleBody(INDEX_CSS, '.btn--compact');
+    expect(body, '.btn--compact должен существовать в index.css').not.toBe('');
+    expect(body).toContain('min-height: var(--control-h-md)');
+    expect(body).toContain('border-radius: var(--radius-4xs)');
+    expect(body).toContain('font-size: var(--text-xs)');
+  });
+
+  it('не пускает компактный размер кабинета на лендинг', () => {
+    const offenders = LANDING_SCREENS.filter((path) =>
+      readFileSync(join(SRC, path), 'utf8').includes('btn--compact'),
+    );
+    expect(
+      offenders,
+      `Лендинг и публичный прайс живут на .btn--sm, а не на размере кабинета:\n${offenders.join('\n')}`,
+    ).toEqual([]);
   });
 });

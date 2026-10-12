@@ -109,7 +109,7 @@ function CustomTableContent({
         )}
         <button
           type="button"
-          className="btn btn--primary btn--sm"
+          className="btn btn--primary btn--compact"
           aria-busy={busy}
           disabled={!tab.is_active || !loaded || columnsLoading || !!columnsError || busy}
           onClick={() => void add()}
@@ -158,7 +158,7 @@ function CustomTableContent({
                       <button
                         type="button"
                         disabled={busy || !tab.is_active}
-                        className="btn btn--ghost btn--sm"
+                        className="btn btn--ghost btn--compact"
                         aria-busy={busy}
                         onClick={() => {
                           setError('');
@@ -188,7 +188,7 @@ function CustomTableContent({
           <div className="dialog-actions">
             <button
               type="button"
-              className="btn btn--ghost"
+              className="btn btn--ghost btn--compact"
               disabled={busy}
               onClick={() => setDeleting(null)}
             >
@@ -197,7 +197,7 @@ function CustomTableContent({
             <button
               type="button"
               disabled={busy}
-              className="btn btn--danger"
+              className="btn btn--danger btn--compact"
               aria-busy={busy}
               onClick={() => void remove()}
             >
@@ -239,7 +239,7 @@ export function CustomTabTable({
         <h2>{tab.name}</h2>
         <button
           type="button"
-          className="btn btn--primary btn--sm"
+          className="btn btn--primary btn--compact"
           disabled
           title="Сначала создайте таблицу"
         >
@@ -250,7 +250,7 @@ export function CustomTabTable({
       <div>
         <button
           type="button"
-          className="btn btn--primary btn--sm"
+          className="btn btn--primary btn--compact"
           disabled={!tab.is_active}
           onClick={() => (settings ? settings.open(tab.table_key) : setCreating(true))}
         >
