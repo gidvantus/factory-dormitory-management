@@ -29,6 +29,12 @@
   color: var(--color-text-muted);
   font-size: 12px;
 }
+.monthActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 .month {
   display: grid;
   gap: 14px;

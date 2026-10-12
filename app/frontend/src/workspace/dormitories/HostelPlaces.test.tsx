@@ -132,6 +132,46 @@ describe('Места', () => {
     ).toHaveLength(30);
   });
 
+  it('даёт скачать шаблон импорта за показанный месяц прямо на вкладке', async () => {
+    mockFetch((url) => {
+      const query = new URL(url, 'http://localhost').searchParams;
+      const from = query.get('from')!;
+      const to = query.get('to')!;
+      const days: string[] = [];
+      for (
+        let day = from;
+        day <= to;
+        day = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+      ) {
+        days.push(day);
+      }
+      return {
+        status: 200,
+        body: { months: [{ month: from, days, hostels: [{ id: 1, name: 'Хостел', values: {} }] }] },
+      };
+    });
+    const user = userEvent.setup();
+    function Example(): JSX.Element {
+      const [month, setMonth] = useState('2025-10');
+      return <HostelPlaces dormitoryId="7" month={month} onMonthChange={setMonth} />;
+    }
+    render(<Example />);
+    await screen.findByTestId('hostel-1-2025-10-01');
+
+    expect(screen.getByTestId('places-template-download')).toHaveAttribute(
+      'href',
+      '/api/dormitories/7/hostels/import/template?month=2025-10-01',
+    );
+    expect(screen.getByTestId('places-template-download')).toHaveAttribute('download');
+
+    await user.click(screen.getByRole('button', { name: 'Следующий месяц' }));
+    await screen.findByTestId('hostel-1-2025-11-01');
+    expect(screen.getByTestId('places-template-download')).toHaveAttribute(
+      'href',
+      '/api/dormitories/7/hostels/import/template?month=2025-11-01',
+    );
+  });
+
   it('добавляет хостел, сохраняет дневную ячейку и убирает его с выбранного месяца', async () => {
     let exists = false;
     let value: number | null = null;
