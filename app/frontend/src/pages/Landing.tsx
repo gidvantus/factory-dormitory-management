@@ -2,6 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { AuthDialog } from '../components/AuthDialog';
 import type { AuthMode } from '../components/AuthDialog';
+import { SiteActions } from '../components/SiteActions';
 import { SiteHeader } from '../components/SiteHeader';
 import { CtaSection } from '../components/landing/CtaSection';
 import { FaqSection } from '../components/landing/FaqSection';
@@ -12,18 +13,12 @@ import { ReportsSection } from '../components/landing/ReportsSection';
 import { RolesSection } from '../components/landing/RolesSection';
 import { SiteFooter } from '../components/landing/SiteFooter';
 import { StepsSection } from '../components/landing/StepsSection';
+import { useHashScroll } from '../components/landing/useHashScroll';
 import { useReveal } from '../components/landing/useReveal';
-import { useSession } from '../auth/SessionProvider';
+import { siteNav } from '../components/siteNav';
 
-/** Разделы страницы для меню в шапке. «Тарифы» — отдельный адрес, не якорь. */
-const NAV = [
-  { href: '#roles', label: 'Кому подходит' },
-  { href: '#features', label: 'Возможности' },
-  { href: '#how', label: 'Как работает' },
-  { href: '#interface', label: 'Интерфейс' },
-  { href: '/pricing', label: 'Тарифы' },
-  { href: '#faq', label: 'Вопросы' },
-];
+/** Меню главной: якоря её разделов плюс отдельный адрес тарифов. */
+const NAV = siteNav({ onHome: true, withPricing: true });
 
 /** Маршрут открывает окно входа или регистрации: так форма доступна по прямой ссылке. */
 function dialogFromPath(pathname: string): AuthMode | null {
@@ -39,14 +34,16 @@ function dialogFromPath(pathname: string): AuthMode | null {
 /**
  * Главная страница: весь контент лендинга плюс рабочая регистрация и вход.
  * Формы живут в модальном окне, чтобы не дублировать разметку в каждом блоке.
+ * Приход по адресу с якорем (`/#features`) открывает нужный раздел: разметку
+ * главной рисует именно эта страница, и только она знает про её разделы.
  */
 export function Landing(): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
-  const { status } = useSession();
   const dialog = dialogFromPath(location.pathname);
 
   useReveal();
+  useHashScroll(location.hash);
 
   return (
     <div className="app" data-testid="landing">
@@ -54,40 +51,7 @@ export function Landing(): JSX.Element {
         К основному содержанию
       </a>
 
-      <SiteHeader
-        nav={NAV}
-        actions={
-          status === 'authenticated' ? (
-            <button
-              className="btn btn--ink btn--sm"
-              type="button"
-              data-testid="nav-cabinet"
-              onClick={() => navigate('/cabinet')}
-            >
-              Личный кабинет
-            </button>
-          ) : (
-            <>
-              <button
-                className="btn btn--outline btn--sm"
-                type="button"
-                data-testid="nav-login"
-                onClick={() => navigate('/login')}
-              >
-                Войти
-              </button>
-              <button
-                className="btn btn--primary btn--sm"
-                type="button"
-                data-testid="nav-register"
-                onClick={() => navigate('/register')}
-              >
-                Регистрация
-              </button>
-            </>
-          )
-        }
-      />
+      <SiteHeader nav={NAV} actions={<SiteActions />} />
 
       <main id="main">
         <Hero onRegister={() => navigate('/register')} onLogin={() => navigate('/login')} />

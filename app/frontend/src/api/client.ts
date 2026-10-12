@@ -74,29 +74,13 @@ export interface Tariff {
   /** «За что» именно эти деньги: «за одно место». */
   unit_label: string | null;
   position: number;
-  is_visible: boolean;
   /** Готовая цена от сервера: «5 000 ₽ за одно место в месяц». */
   price_label: string;
-  /** false — роль не `owner`/`admin`: список виден, правка нет. */
-  editable: boolean;
 }
 
-/** Тело запроса на создание и правку. Сумма уходит числом, приходит строкой. */
-export interface TariffInput {
-  name?: string;
-  description?: string | null;
-  amount?: number;
-  currency?: string;
-  period?: TariffPeriod;
-  unit_label?: string | null;
-  is_visible?: boolean;
-}
-
-/** Тариф организации: `tariff` = null, пока тариф не выбран. */
+/** Тариф организации: `tariff` = null, пока тариф не назначен. */
 export interface OrganizationTariff {
   tariff: Tariff | null;
-  /** false — роль не `owner`/`admin`: тариф видно, менять нельзя. */
-  editable: boolean;
 }
 
 /** Строка списка документов: подвал и оглавление обходятся без текста. */
@@ -786,35 +770,9 @@ export const api = {
     return request<Tariff[]>('/tariffs', { signal });
   },
 
-  /** Полный прайс для кабинета: включает скрытые тарифы. 403 — роль без права правки. */
-  manageTariffs(signal?: AbortSignal): Promise<Tariff[]> {
-    return request<Tariff[]>('/tariffs/manage', { signal });
-  },
-
-  /** Новый тариф. 409 — название занято, 422 — поля не подходят. */
-  createTariff(input: TariffInput): Promise<Tariff> {
-    return request<Tariff>('/tariffs', { method: 'POST', body: JSON.stringify(input) });
-  },
-
-  updateTariff(id: number, input: TariffInput): Promise<Tariff> {
-    return request<Tariff>(`/tariffs/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
-  },
-
-  deleteTariff(id: number): Promise<void> {
-    return request<void>(`/tariffs/${id}`, { method: 'DELETE' });
-  },
-
-  /** Тариф, выбранный организацией. 404 — у пользователя нет организации. */
+  /** Тариф организации: только чтение. 404 — у пользователя нет организации. */
   currentTariff(signal?: AbortSignal): Promise<OrganizationTariff> {
     return request<OrganizationTariff>('/tariffs/current', { signal });
-  },
-
-  /** Выбрать или сменить тариф организации. 404 — такого опубликованного тарифа нет. */
-  setCurrentTariff(tariffId: number): Promise<OrganizationTariff> {
-    return request<OrganizationTariff>('/tariffs/current', {
-      method: 'PUT',
-      body: JSON.stringify({ tariff_id: tariffId }),
-    });
   },
 
   /** Публичный список документов: страница `/documents/<код>` ходит сюда без сессии. */

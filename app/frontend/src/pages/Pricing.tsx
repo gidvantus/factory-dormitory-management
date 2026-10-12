@@ -3,10 +3,20 @@ import { Link } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import type { Tariff } from '../api/client';
+import { AuthDialog } from '../components/AuthDialog';
+import type { AuthMode } from '../components/AuthDialog';
+import { SiteActions } from '../components/SiteActions';
 import { SiteHeader } from '../components/SiteHeader';
 import { SiteFooter } from '../components/landing/SiteFooter';
+import { siteNav } from '../components/siteNav';
 
 const GENERIC_ERROR = 'Не удалось загрузить тарифы. Проверьте соединение и попробуйте ещё раз.';
+
+/**
+ * Меню шапки страницы тарифов: те же разделы, что на главной, но «Тарифы» здесь
+ * лишние — пользователь уже на прайсе.
+ */
+const NAV = siteNav({ onHome: false });
 
 /** Текст ошибки: сервер объясняет причину точнее общего «не получилось». */
 function errorMessage(error: unknown): string {
@@ -20,6 +30,10 @@ function errorMessage(error: unknown): string {
  * сходит на `/api/me` и получит 401: для анонима это нормальное состояние, а не
  * ошибка страницы. Скрытые тарифы сюда не приходят вовсе: их отсекает серверная
  * ручка, а не проверка на клиенте.
+ *
+ * Шапка и подвал — те же, что на главной, чтобы переход на прайс не выглядел
+ * уходом с сайта. Вход и регистрация открываются окном на самой странице: уводить
+ * человека на главную ради формы незачем.
  */
 export function Pricing(): JSX.Element {
   const [tariffs, setTariffs] = useState<Tariff[]>([]);
@@ -27,6 +41,7 @@ export function Pricing(): JSX.Element {
   const [error, setError] = useState('');
   // Счётчик повторов: изменение значения перезапускает загрузку.
   const [attempt, setAttempt] = useState(0);
+  const [dialog, setDialog] = useState<AuthMode | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -53,10 +68,12 @@ export function Pricing(): JSX.Element {
       </a>
 
       <SiteHeader
+        nav={NAV}
         actions={
-          <Link className="btn btn--outline btn--sm" to="/login" data-testid="pricing-login">
-            Войти
-          </Link>
+          <SiteActions
+            onLogin={() => setDialog('login')}
+            onRegister={() => setDialog('register')}
+          />
         }
       />
 
@@ -122,6 +139,8 @@ export function Pricing(): JSX.Element {
       </main>
 
       <SiteFooter />
+
+      {dialog ? <AuthDialog mode={dialog} onClose={() => setDialog(null)} /> : null}
     </div>
   );
 }
