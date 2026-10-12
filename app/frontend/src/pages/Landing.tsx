@@ -16,6 +16,7 @@ import { StepsSection } from '../components/landing/StepsSection';
 import { useHashScroll } from '../components/landing/useHashScroll';
 import { useReveal } from '../components/landing/useReveal';
 import { siteNav } from '../components/siteNav';
+import { useSession } from '../auth/SessionProvider';
 
 /** Меню главной: якоря её разделов плюс отдельный адрес тарифов. */
 const NAV = siteNav({ onHome: true, withPricing: true });
@@ -40,6 +41,7 @@ function dialogFromPath(pathname: string): AuthMode | null {
 export function Landing(): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
+  const { status } = useSession();
   const dialog = dialogFromPath(location.pathname);
 
   useReveal();
@@ -54,14 +56,24 @@ export function Landing(): JSX.Element {
       <SiteHeader nav={NAV} actions={<SiteActions />} />
 
       <main id="main">
-        <Hero onRegister={() => navigate('/register')} onLogin={() => navigate('/login')} />
+        <Hero
+          onRegister={() => navigate('/register')}
+          onLogin={() => navigate('/login')}
+          authenticated={status === 'authenticated'}
+          onCabinet={() => navigate('/cabinet')}
+        />
         <RolesSection />
         <FeaturesSection />
         <StepsSection />
         <InterfaceSection />
         <ReportsSection />
         <FaqSection />
-        <CtaSection onRegister={() => navigate('/register')} onLogin={() => navigate('/login')} />
+        <CtaSection
+          onRegister={() => navigate('/register')}
+          onLogin={() => navigate('/login')}
+          authenticated={status === 'authenticated'}
+          onCabinet={() => navigate('/cabinet')}
+        />
       </main>
 
       <SiteFooter />
