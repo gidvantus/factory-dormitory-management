@@ -1,16 +1,43 @@
 """Помесячные хостелы и таблицы мест в общежитии."""
 
-from datetime import date, timedelta
-from typing import Annotated
+from datetime import UTC, date, datetime, timedelta
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from sqlalchemy import func, or_, select
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Path,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
+from fastapi.responses import JSONResponse
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.hostel import Hostel, HostelCell
+from app.models.import_job import (
+    IMPORT_STATUS_APPLIED,
+    IMPORT_STATUS_FAILED,
+    IMPORT_STATUS_READY,
+    IMPORT_TABLE_PLACES,
+    ImportJob,
+)
 from app.place_values import active_in_month, place_day_values
+from app.places_import import (
+    ImportIssue,
+    ParsedImport,
+    TemplateError,
+    build_template,
+    normalize_name,
+    normalize_text,
+    parse_places_workbook,
+)
 from app.schemas.hostel import (
     CreateHostelRequest,
     HostelMonthResponse,
@@ -19,17 +46,53 @@ from app.schemas.hostel import (
     PlacesResponse,
     SaveHostelCellRequest,
 )
+from app.schemas.places_import import (
+    PlacesImportApplied,
+    PlacesImportCounts,
+    PlacesImportIssue,
+    PlacesImportResult,
+    PlacesImportRow,
+)
+from app.schemas.user import ErrorResponse
 from app.section_state import require_section_writable
 from app.security import ACTIVE_USER_RESPONSES, ActiveUser
+from app.table_data import lock_dormitory
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/hostels",
     tags=["hostels"],
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {
+            "model": ErrorResponse,
+            "description": "Нет валидной cookie сессии",
+        },
+        **ACTIVE_USER_RESPONSES,
+    },
 )
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
 HostelId = Annotated[int, Path(ge=1, le=2147483647)]
+ImportId = Annotated[int, Path(ge=1, le=2147483647)]
+
+# Шаблон импорта и результат разбора — документы, а не JSON.
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# Тот же лимит стоит в nginx (`client_max_body_size 20m`): сюда больше не дойдёт.
+MAX_IMPORT_BYTES = 20 * 1024 * 1024
+IMPORT_FILE_TYPE_DETAIL = "Загрузите файл .xlsx"
+IMPORT_FILE_TOO_BIG_DETAIL = "Файл больше 20 МБ — уменьшите его и попробуйте снова"
+IMPORT_NOT_FOUND_DETAIL = "Импорт не найден"
+IMPORT_NOT_READY_DETAIL = "Этот импорт уже применён или не готов"
+NOT_FIRST_DAY_DETAIL = "Укажите первый день месяца"
+
+NOT_FOUND_RESPONSE: dict[int | str, dict[str, Any]] = {
+    status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "Общежитие не найдено"},
+}
+SECTION_HIDDEN_RESPONSE: dict[int | str, dict[str, Any]] = {
+    status.HTTP_409_CONFLICT: {
+        "model": ErrorResponse,
+        "description": "Вкладка скрыта, удалена или хостел не действует в этом месяце",
+    },
+}
 
 
 def next_month(month: date) -> date:
@@ -216,3 +279,287 @@ def save_hostel_cell(
         cell.value = payload.value
         cell.updated_at = func.now()
     db.commit()
+
+
+def import_issue(issue: ImportIssue) -> PlacesImportIssue:
+    """Ошибка разбора в виде ответа: та же строка и колонка файла."""
+    return PlacesImportIssue(row=issue.row, column=issue.column, message=issue.message)
+
+
+def count_deleted_cells(db: Session, dormitory_id: int, parsed: ParsedImport) -> int:
+    """Сколько сохранённых значений исчезнет после полной замены месяца.
+
+    Считаем по разнице с текущими данными, а не по числу пустых ячеек файла:
+    пользователю важно, сколько значений он потеряет.
+    """
+    planned = {
+        (normalize_name(row.hostel), day, row.field) for row in parsed.rows for day in row.values
+    }
+    stored = db.execute(
+        select(Hostel.name, HostelCell.report_date, HostelCell.field)
+        .join(HostelCell, HostelCell.hostel_id == Hostel.id)
+        .where(
+            Hostel.dormitory_id == dormitory_id,
+            HostelCell.report_date >= parsed.month,
+            HostelCell.report_date < next_month(parsed.month),
+        )
+    )
+    return sum(
+        1 for name, day, field in stored if (normalize_name(name), day, field) not in planned
+    )
+
+
+@router.get(
+    "/import/template",
+    summary="Скачать шаблон импорта мест за месяц",
+    response_class=Response,
+    responses={
+        status.HTTP_200_OK: {
+            "content": {XLSX_MEDIA_TYPE: {}},
+            "description": "Шаблон .xlsx за выбранный месяц",
+        },
+        **NOT_FOUND_RESPONSE,
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "model": ErrorResponse,
+            "description": NOT_FIRST_DAY_DETAIL,
+        },
+    },
+)
+def download_places_import_template(
+    dormitory_id: DormitoryId,
+    _user: ActiveUser,
+    db: DbSession,
+    month: Annotated[date, Query()],
+) -> Response:
+    """Шаблон за месяц: строка на каждое поле каждого действующего хостела."""
+    require_dormitory(db, dormitory_id)
+    if month.day != 1:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NOT_FIRST_DAY_DETAIL)
+    hostels = list(
+        db.scalars(
+            select(Hostel)
+            .where(
+                Hostel.dormitory_id == dormitory_id,
+                Hostel.active_from_month <= month,
+                or_(Hostel.active_until_month.is_(None), Hostel.active_until_month > month),
+            )
+            .order_by(Hostel.active_from_month, Hostel.id)
+        )
+    )
+    values: dict[int, dict[date, dict[str, int]]] = {hostel.id: {} for hostel in hostels}
+    if hostels:
+        cells = db.scalars(
+            select(HostelCell).where(
+                HostelCell.hostel_id.in_([hostel.id for hostel in hostels]),
+                HostelCell.report_date >= month,
+                HostelCell.report_date < next_month(month),
+            )
+        )
+        for cell in cells:
+            values[cell.hostel_id].setdefault(cell.report_date, {})[cell.field] = cell.value
+    content = build_template(month, [(hostel.name, values[hostel.id]) for hostel in hostels])
+    filename = f"mesta-{month:%Y-%m}.xlsx"
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post(
+    "/import",
+    summary="Загрузить файл импорта мест",
+    response_model=PlacesImportResult,
+    responses={
+        status.HTTP_200_OK: {"model": PlacesImportResult, "description": "Разбор без ошибок"},
+        **NOT_FOUND_RESPONSE,
+        **SECTION_HIDDEN_RESPONSE,
+        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: {
+            "model": ErrorResponse,
+            "description": IMPORT_FILE_TOO_BIG_DETAIL,
+        },
+        status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: {
+            "model": ErrorResponse,
+            "description": IMPORT_FILE_TYPE_DETAIL,
+        },
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "model": PlacesImportResult,
+            "description": "Ошибки разбора или файл не похож на шаблон",
+        },
+    },
+)
+async def upload_places_import(
+    dormitory_id: DormitoryId,
+    user: ActiveUser,
+    db: DbSession,
+    file: Annotated[UploadFile, File()],
+) -> Response:
+    """Разобрать файл прямо в запросе и сохранить результат в журнал импортов.
+
+    Ответ 422 приходит с полным результатом разбора: по нему экран показывает
+    ошибки и номер задания. Ячейки «Мест» при ошибках не меняются вовсе.
+    """
+    require_section_writable(db, dormitory_id, "places")
+    require_dormitory(db, dormitory_id)
+    filename = file.filename or ""
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, IMPORT_FILE_TYPE_DETAIL)
+    content = await file.read()
+    if len(content) > MAX_IMPORT_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, IMPORT_FILE_TOO_BIG_DETAIL)
+    try:
+        parsed = parse_places_workbook(content)
+    except TemplateError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error
+
+    ready = not parsed.errors
+    job = ImportJob(
+        dormitory_id=dormitory_id,
+        table_key=IMPORT_TABLE_PLACES,
+        status=IMPORT_STATUS_READY if ready else IMPORT_STATUS_FAILED,
+        filename=filename[:255],
+        size_bytes=len(content),
+        created_by=user.id,
+        result={},
+    )
+    db.add(job)
+    db.flush()
+    result = PlacesImportResult(
+        import_id=job.id,
+        status="ready" if ready else "failed",
+        months=[parsed.month],
+        counts=PlacesImportCounts(
+            hostels=len(parsed.hostels),
+            cells=parsed.cells,
+            deleted=count_deleted_cells(db, dormitory_id, parsed),
+        ),
+        rows=[
+            PlacesImportRow(row=row.row, hostel=row.hostel, field=row.field, values=row.values)
+            for row in parsed.rows
+        ],
+        errors=[import_issue(issue) for issue in parsed.errors],
+        warnings=[import_issue(issue) for issue in parsed.warnings],
+    )
+    job.result = result.model_dump(mode="json")
+    db.commit()
+    return JSONResponse(
+        content=result.model_dump(mode="json"),
+        status_code=status.HTTP_200_OK if ready else status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+
+
+def apply_import(db: Session, dormitory_id: int, job: ImportJob) -> PlacesImportApplied:
+    """Полная замена месяца из файла: удалить ячейки месяца и записать непустые."""
+    stored = job.result or {}
+    months = stored.get("months") or []
+    if not months:
+        raise HTTPException(status.HTTP_409_CONFLICT, IMPORT_NOT_READY_DETAIL)
+    month = date.fromisoformat(str(months[0]))
+    rows: list[dict[str, Any]] = list(stored.get("rows") or [])
+
+    known: dict[str, Hostel] = {}
+    for existing in db.scalars(select(Hostel).where(Hostel.dormitory_id == dormitory_id)):
+        known.setdefault(normalize_name(existing.name), existing)
+
+    touched: dict[str, Hostel] = {}
+    for row in rows:
+        name = normalize_text(row.get("hostel"))
+        key = normalize_name(name)
+        if not name or key in touched:
+            continue
+        hostel = known.get(key)
+        if hostel is None:
+            hostel = Hostel(dormitory_id=dormitory_id, name=name, active_from_month=month)
+            db.add(hostel)
+            db.flush()
+            known[key] = hostel
+        elif not active_in_month(hostel, month):
+            # Продлеваем период по тем же правилам, что у POST /hostels: хостел,
+            # созданный позже или убранный раньше, снова действует в этом месяце.
+            if hostel.active_from_month > month:
+                hostel.active_from_month = month
+            if hostel.active_until_month is not None and hostel.active_until_month <= month:
+                hostel.active_until_month = None
+        touched[key] = hostel
+
+    hostel_ids = list(db.scalars(select(Hostel.id).where(Hostel.dormitory_id == dormitory_id)))
+    if hostel_ids:
+        # Месяцы, которых нет в файле, не трогаем: замена идёт только по месяцу файла.
+        db.execute(
+            delete(HostelCell).where(
+                HostelCell.hostel_id.in_(hostel_ids),
+                HostelCell.report_date >= month,
+                HostelCell.report_date < next_month(month),
+            )
+        )
+
+    cells = 0
+    for row in rows:
+        hostel = touched.get(normalize_name(normalize_text(row.get("hostel"))))
+        if hostel is None:
+            continue
+        for day_text, value in (row.get("values") or {}).items():
+            db.add(
+                HostelCell(
+                    hostel_id=hostel.id,
+                    report_date=date.fromisoformat(str(day_text)),
+                    field=str(row.get("field")),
+                    value=int(value),
+                )
+            )
+            cells += 1
+
+    job.status = IMPORT_STATUS_APPLIED
+    job.applied_at = datetime.now(UTC)
+    db.commit()
+    return PlacesImportApplied(import_id=job.id, month=month, hostels=len(touched), cells=cells)
+
+
+@router.post(
+    "/import/{import_id}/confirm",
+    response_model=PlacesImportApplied,
+    summary="Применить импорт мест",
+    responses={
+        **NOT_FOUND_RESPONSE,
+        **SECTION_HIDDEN_RESPONSE,
+        status.HTTP_409_CONFLICT: {
+            "model": ErrorResponse,
+            "description": IMPORT_NOT_READY_DETAIL,
+        },
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "model": ErrorResponse,
+            "description": "В задании нет месяца импорта",
+        },
+    },
+)
+def confirm_places_import(
+    dormitory_id: DormitoryId,
+    import_id: ImportId,
+    _user: ActiveUser,
+    db: DbSession,
+) -> PlacesImportApplied:
+    """Применить задание: блокировка строки задания исключает двойное применение."""
+    require_section_writable(db, dormitory_id, "places")
+    lock_dormitory(db, dormitory_id)
+    job = db.scalar(
+        select(ImportJob)
+        .where(
+            ImportJob.id == import_id,
+            ImportJob.dormitory_id == dormitory_id,
+            ImportJob.table_key == IMPORT_TABLE_PLACES,
+        )
+        .with_for_update()
+    )
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, IMPORT_NOT_FOUND_DETAIL)
+    if job.status != IMPORT_STATUS_READY:
+        raise HTTPException(status.HTTP_409_CONFLICT, IMPORT_NOT_READY_DETAIL)
+    try:
+        return apply_import(db, dormitory_id, job)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        # Любая ошибка записи — месяц остаётся в прежнем виде.
+        db.rollback()
+        raise
