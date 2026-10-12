@@ -8,6 +8,7 @@ from app.api import (
     custom_tabs,
     dashboard,
     dashboard_blocks,
+    documents,
     dormitories,
     dormitory_settings,
     dormitory_templates,
@@ -67,6 +68,7 @@ def create_app() -> FastAPI:
     application.include_router(dormitory_settings.router, prefix=API_PREFIX)
     application.include_router(dormitory_templates.router, prefix=API_PREFIX)
     application.include_router(tariffs.router, prefix=API_PREFIX)
+    application.include_router(documents.router, prefix=API_PREFIX)
     return application
 
 
