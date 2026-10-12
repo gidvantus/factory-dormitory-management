@@ -135,6 +135,35 @@ describe('контент лендинга на главной', () => {
   });
 });
 
+describe('якоря разделов в адресе', () => {
+  // Прокрутку делает страница-получатель: react-router меняет адрес через History
+  // API, и нативный переход по якорю с другой страницы не срабатывает.
+  function spyOnScroll(): ReturnType<typeof vi.spyOn> {
+    return vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => undefined);
+  }
+
+  it('открывает раздел, к которому ведёт якорь в адресе', async () => {
+    anonymous();
+    const scrollIntoView = spyOnScroll();
+    renderApp('/#features');
+    await screen.findByTestId('landing');
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.instances[0]).toHaveAttribute('id', 'features');
+    scrollIntoView.mockRestore();
+  });
+
+  it('без якоря в адресе ничего не прокручивает', async () => {
+    anonymous();
+    const scrollIntoView = spyOnScroll();
+    renderApp('/');
+    await screen.findByTestId('landing');
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    scrollIntoView.mockRestore();
+  });
+});
+
 describe('адреса /login и /register', () => {
   it('/login сразу открывает окно входа', async () => {
     anonymous();

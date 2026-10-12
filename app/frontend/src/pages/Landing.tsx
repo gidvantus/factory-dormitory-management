@@ -13,6 +13,7 @@ import { ReportsSection } from '../components/landing/ReportsSection';
 import { RolesSection } from '../components/landing/RolesSection';
 import { SiteFooter } from '../components/landing/SiteFooter';
 import { StepsSection } from '../components/landing/StepsSection';
+import { useHashScroll } from '../components/landing/useHashScroll';
 import { useReveal } from '../components/landing/useReveal';
 import { siteNav } from '../components/siteNav';
 
@@ -33,6 +34,8 @@ function dialogFromPath(pathname: string): AuthMode | null {
 /**
  * Главная страница: весь контент лендинга плюс рабочая регистрация и вход.
  * Формы живут в модальном окне, чтобы не дублировать разметку в каждом блоке.
+ * Приход по адресу с якорем (`/#features`) открывает нужный раздел: разметку
+ * главной рисует именно эта страница, и только она знает про её разделы.
  */
 export function Landing(): JSX.Element {
   const location = useLocation();
@@ -40,6 +43,7 @@ export function Landing(): JSX.Element {
   const dialog = dialogFromPath(location.pathname);
 
   useReveal();
+  useHashScroll(location.hash);
 
   return (
     <div className="app" data-testid="landing">

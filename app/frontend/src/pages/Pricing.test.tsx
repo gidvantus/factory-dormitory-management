@@ -280,4 +280,25 @@ describe('шапка и подвал страницы тарифов', () => {
       '/#roles',
     );
   });
+
+  it('открывает раздел главной по якорю, а не только её верх', async () => {
+    // Адрес `/#features` сам по себе раздел не открывает: react-router меняет
+    // историю без нативного перехода по якорю, поэтому прокручивает главная.
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, 'scrollIntoView')
+      .mockImplementation(() => undefined);
+    mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await user.click(
+      within(await screen.findByTestId('site-header')).getByRole('link', { name: 'Возможности' }),
+    );
+
+    expect(await screen.findByTestId('landing')).toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.instances[0]).toHaveAttribute('id', 'features');
+
+    scrollIntoView.mockRestore();
+  });
 });
