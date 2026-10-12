@@ -4,6 +4,7 @@ from app.models.activation import ActivationToken
 from app.models.base import Base
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dashboard_block import DashboardBlock, DashboardLayout
+from app.models.document import Document
 from app.models.dormitory import Dormitory
 from app.models.dormitory_template import DormitoryTemplate
 from app.models.hostel import Hostel, HostelCell
@@ -43,6 +44,7 @@ __all__ = [
     "CustomTabEntry",
     "DashboardBlock",
     "DashboardLayout",
+    "Document",
     "Dormitory",
     "DormitoryTemplate",
     "Employee",
