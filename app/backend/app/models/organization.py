@@ -48,6 +48,11 @@ class Organization(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     inn: Mapped[str | None] = mapped_column(String(12), nullable=True, unique=True)
+    # Реквизиты, заполняемые из DaData по ИНН. `kpp` у индивидуального
+    # предпринимателя пустой — это нормальное состояние, а не пропуск.
+    kpp: Mapped[str | None] = mapped_column(String(9), nullable=True)
+    ogrn: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Выбранный организации тариф. Пока `NULL` — организация без тарифа.
     tariff_id: Mapped[int | None] = mapped_column(
         ForeignKey("tariffs.id", ondelete="SET NULL"), nullable=True, index=True

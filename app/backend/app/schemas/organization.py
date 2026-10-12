@@ -11,6 +11,9 @@
 * `inn` необязателен, и пустое значение здесь означает очистку поля (`NULL`).
   Непустое — ровно 10 или 12 цифр: 10 у организации, 12 у индивидуального
   предпринимателя. Буквы и другая длина — 422.
+* `kpp`, `ogrn` и `address` заполняются из DaData по ИНН, но приходят и в теле
+  правки: пустое значение — очистка поля, как у `inn`. Длины ограничены
+  колонками `organizations`.
 """
 
 import re
@@ -25,6 +28,7 @@ from app.schemas.user import normalize_full_name
 INN_PATTERN = re.compile(r"^\d{10}$|^\d{12}$")
 
 INN_FORMAT_MESSAGE = "ИНН должен состоять из 10 или 12 цифр"
+REQUISITE_FORMAT_MESSAGE = "Реквизит должен быть строкой"
 NAME_REQUIRED_MESSAGE = "Название не может быть пустым"
 NAME_TOO_LONG_MESSAGE = "Название не длиннее 255 символов"
 NAME_INVALID_MESSAGE = "Название содержит недопустимый символ"
@@ -57,6 +61,21 @@ def normalize_inn(value: Any) -> str | None:
     return stripped
 
 
+def normalize_requisite(value: Any) -> str | None:
+    """Реквизит из DaData: пробелы по краям отбрасываются, пустое — очистка.
+
+    Пустое значение здесь означает очистку поля, как у `inn`: реквизиты
+    необязательны, а у индивидуального предпринимателя КПП не бывает вовсе.
+    Длину проверяет `Field(max_length=…)` уже по схлопнутому значению.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(REQUISITE_FORMAT_MESSAGE)
+    stripped = value.strip()
+    return stripped or None
+
+
 class UpdateOrganizationRequest(BaseModel):
     """Правка организации. Пустой `inn` очищает поле, пустой `name` — ошибка."""
 
@@ -64,6 +83,10 @@ class UpdateOrganizationRequest(BaseModel):
 
     name: str | None = Field(default=None, max_length=255)
     inn: str | None = Field(default=None, max_length=RAW_MAX_LENGTH)
+    # Реквизиты, заполняемые из DaData. Пустое значение — очистка поля.
+    kpp: str | None = Field(default=None, max_length=9)
+    ogrn: str | None = Field(default=None, max_length=15)
+    address: str | None = Field(default=None, max_length=500)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -78,6 +101,11 @@ class UpdateOrganizationRequest(BaseModel):
     def validate_inn(cls, value: Any) -> str | None:
         return normalize_inn(value)
 
+    @field_validator("kpp", "ogrn", "address", mode="before")
+    @classmethod
+    def validate_requisite(cls, value: Any) -> str | None:
+        return normalize_requisite(value)
+
 
 class OrganizationResponse(BaseModel):
     """Организация пользователя. Пустые поля приходят как `null`."""
@@ -87,7 +115,32 @@ class OrganizationResponse(BaseModel):
     id: int
     name: str | None
     inn: str | None
+    kpp: str | None
+    ogrn: str | None
+    address: str | None
     created_at: datetime
+
+
+class OrganizationLookupDetails(BaseModel):
+    """Реквизиты, найденные в DaData по ИНН. Пустое поле — `null`."""
+
+    name: str | None
+    kpp: str | None
+    ogrn: str | None
+    address: str | None
+
+
+class OrganizationLookupResponse(BaseModel):
+    """Результат поиска организации по ИНН.
+
+    `found: false` — не ошибка: форма не блокируется. `reason` различает
+    «по этому ИНН ничего не найдено» (`not_found`) и «сервис проверки
+    недоступен» (`unavailable`), чтобы пользователь видел разные тексты.
+    """
+
+    found: bool
+    reason: Literal["not_found", "unavailable"] | None
+    details: OrganizationLookupDetails | None
 
 
 # Роли, которые выдаёт приглашение. `owner` сюда не входит — он у организации

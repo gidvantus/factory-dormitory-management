@@ -6,10 +6,12 @@
 404 «не привязан», 403 «роль без права правки», 403 «кабинет не активирован».
 """
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import dadata
 from app.models.organization import Organization, OrganizationMember
 from app.models.user import User
 from app.security import issue_activation_token
@@ -21,6 +23,33 @@ NEW_PASSWORD = "new-password-123"
 # в пределах одной базы, а она у каждого теста своя.
 INN_A = "7701234567"
 INN_B = "770123456789"
+
+# Реквизиты, которые «нашла» DaData в тестах поиска.
+LOOKUP_REQUISITES = dadata.OrganizationRequisites(
+    name="ПАО СБЕРБАНК",
+    kpp="773601001",
+    ogrn="1027700132195",
+    address="117312, г Москва, ул Вавилова, д 19",
+)
+
+
+def stub_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    result: dadata.OrganizationRequisites | None = None,
+    fail: bool = False,
+) -> list[str]:
+    """Подменить поход в DaData. Возвращает список ИНН, с которыми искали."""
+    calls: list[str] = []
+
+    def fake(inn: str, **_kwargs: object) -> dadata.OrganizationRequisites | None:
+        calls.append(inn)
+        if fail:
+            raise dadata.DadataUnavailable("сервис недоступен")
+        return result
+
+    monkeypatch.setattr(dadata, "lookup_organization", fake)
+    return calls
 
 
 def activate(
@@ -399,3 +428,242 @@ def test_inactive_user_gets_403_on_both_organization_endpoints(
     assert patch.status_code == 403, patch.text
     assert get.json()["detail"] == "Активируйте личный кабинет"
     assert patch.json()["detail"] == "Активируйте личный кабинет"
+
+
+# --- 8. Реквизиты организации: КПП, ОГРН, адрес -------------------------------
+
+
+def test_update_organization_saves_requisites(client: TestClient, db_session: Session) -> None:
+    """КПП, ОГРН и адрес сохраняются наравне с названием и ИНН."""
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    response = client.patch(
+        "/api/organization",
+        json={
+            "name": "ПАО СБЕРБАНК",
+            "inn": INN_A,
+            "kpp": "773601001",
+            "ogrn": "1027700132195",
+            "address": "117312, г Москва, ул Вавилова, д 19",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["kpp"] == "773601001"
+    assert body["ogrn"] == "1027700132195"
+    assert body["address"] == "117312, г Москва, ул Вавилова, д 19"
+
+    db_session.expire_all()
+    stored = db_session.get(Organization, body["id"])
+    assert stored is not None
+    assert stored.kpp == "773601001"
+    assert stored.ogrn == "1027700132195"
+    assert stored.address == "117312, г Москва, ул Вавилова, д 19"
+
+    # Реквизиты приходят и с сервера после перезагрузки страницы.
+    again = client.get("/api/organization")
+    assert again.status_code == 200
+    assert again.json() == body
+
+
+def test_read_organization_returns_null_requisites_for_a_blank(
+    client: TestClient, db_session: Session
+) -> None:
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    body = client.get("/api/organization").json()
+
+    assert body["kpp"] is None
+    assert body["ogrn"] is None
+    assert body["address"] is None
+
+
+def test_update_organization_clears_requisites_on_empty_values(
+    client: TestClient, db_session: Session
+) -> None:
+    """Пустое значение очищает реквизит, как и `inn`: у ИП КПП не бывает вовсе."""
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+    client.patch(
+        "/api/organization",
+        json={"name": "ПАО СБЕРБАНК", "inn": INN_A, "kpp": "773601001", "ogrn": "1027700132195"},
+    )
+
+    response = client.patch(
+        "/api/organization",
+        json={"name": "ИП Иванов", "inn": INN_B, "kpp": "", "ogrn": "   ", "address": ""},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["kpp"] is None
+    assert response.json()["ogrn"] is None
+    assert response.json()["address"] is None
+
+
+def test_update_organization_rejects_a_too_long_requisite(
+    client: TestClient, db_session: Session
+) -> None:
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    for field, value in (("kpp", "1" * 10), ("ogrn", "1" * 16), ("address", "А" * 501)):
+        response = client.patch("/api/organization", json={"name": "ООО Ромашка", field: value})
+        assert response.status_code == 422, f"{field}: {response.status_code}"
+
+
+# --- 9. Поиск организации по ИНН ---------------------------------------------
+
+
+def test_lookup_returns_details_found_by_a_ten_digit_inn(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+    calls = stub_lookup(monkeypatch, result=LOOKUP_REQUISITES)
+
+    response = client.get("/api/organization/lookup", params={"inn": "7707083893"})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "found": True,
+        "reason": None,
+        "details": {
+            "name": "ПАО СБЕРБАНК",
+            "kpp": "773601001",
+            "ogrn": "1027700132195",
+            "address": "117312, г Москва, ул Вавилова, д 19",
+        },
+    }
+    assert calls == ["7707083893"]
+
+
+def test_lookup_accepts_a_twelve_digit_inn_of_an_entrepreneur(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ИП: КПП пустой, но это не ошибка — `details.kpp` приходит `null`."""
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+    stub_lookup(
+        monkeypatch,
+        result=dadata.OrganizationRequisites(
+            name="ИП Иванов И.И.", kpp=None, ogrn="304500116000157", address="г Люберцы"
+        ),
+    )
+
+    response = client.get("/api/organization/lookup", params={"inn": "500100732259"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["found"] is True
+    assert response.json()["details"]["kpp"] is None
+    assert response.json()["details"]["name"] == "ИП Иванов И.И."
+
+
+def test_lookup_of_an_unknown_inn_is_not_found(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Не нашли — это 200, а не 404: форма остаётся рабочей."""
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+    stub_lookup(monkeypatch, result=None)
+
+    response = client.get("/api/organization/lookup", params={"inn": "7707083890"})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"found": False, "reason": "not_found", "details": None}
+
+
+def test_lookup_reports_unavailable_service(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+    stub_lookup(monkeypatch, fail=True)
+
+    response = client.get("/api/organization/lookup", params={"inn": "7707083893"})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"found": False, "reason": "unavailable", "details": None}
+
+
+def test_lookup_without_a_key_reports_unavailable_without_network(
+    client: TestClient, db_session: Session
+) -> None:
+    """Пустой ключ — штатное «сервис недоступен», а не 500 и не поход в сеть.
+
+    Клиент DaData здесь настоящий: тест держит и связку ручки с модулем, и
+    поведение при незаданном ключе. Ключ пуст потому, что так его выставил
+    `conftest` — на стенде он приходит из compose.
+    """
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    response = client.get("/api/organization/lookup", params={"inn": "7707083893"})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"found": False, "reason": "unavailable", "details": None}
+
+
+def test_lookup_rejects_a_bad_inn(client: TestClient, db_session: Session) -> None:
+    """ИНН не по формату — единственный 422 у поиска: это ошибка ввода."""
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    for bad_inn in ("", "12345", "770708389", "77070838930", "abcdefghij"):
+        response = client.get("/api/organization/lookup", params={"inn": bad_inn})
+        assert response.status_code == 422, f"{bad_inn!r}: {response.status_code}"
+        assert response.json()["detail"] == "ИНН должен состоять из 10 или 12 цифр"
+
+
+def test_lookup_is_allowed_for_a_member_without_edit_rights(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Поиск — чтение: роли без права правки он доступен, в отличие от PATCH."""
+    user = create_user(db_session, email="member@example.com")
+    organizations_for(db_session, user, role="member")
+    assert login(client, user.email).status_code == 200
+    stub_lookup(monkeypatch, result=LOOKUP_REQUISITES)
+
+    response = client.get("/api/organization/lookup", params={"inn": "7707083893"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["found"] is True
+
+
+def test_lookup_requires_a_session(client: TestClient) -> None:
+    assert client.get("/api/organization/lookup", params={"inn": "7707083893"}).status_code == 401
+
+
+def test_lookup_returns_404_without_an_organization(
+    client: TestClient, db_session: Session
+) -> None:
+    user = create_user(db_session, email="lonely@example.com")
+    assert login(client, user.email).status_code == 200
+
+    response = client.get("/api/organization/lookup", params={"inn": "7707083893"})
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == "Организация не найдена"
+
+
+def test_lookup_on_an_inactive_cabinet_returns_403(client: TestClient, db_session: Session) -> None:
+    user = create_user(db_session, email="inactive@example.com", is_active=False)
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    response = client.get("/api/organization/lookup", params={"inn": "7707083893"})
+
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"] == "Активируйте личный кабинет"
