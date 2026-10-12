@@ -8,13 +8,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.db import get_db
 from app.dormitory_templates import take_snapshot
 from app.models.dormitory_template import DormitoryTemplate
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
 router = APIRouter(
-    prefix="/dormitory-templates", tags=["dormitory-templates"], responses={**ACTIVE_USER_RESPONSES}
+    prefix="/dormitory-templates",
+    tags=["dormitory-templates"],
+    responses={**SUBSCRIBED_USER_RESPONSES},
 )
 DbSession = Annotated[Session, Depends(get_db)]
 
@@ -47,7 +49,7 @@ def response(template: DormitoryTemplate, detail: bool = False) -> dict[str, Any
 
 
 @router.get("")
-def listing(_user: ActiveUser, db: DbSession) -> list[dict[str, Any]]:
+def listing(_user: SubscribedUser, db: DbSession) -> list[dict[str, Any]]:
     return [
         response(item)
         for item in db.scalars(
@@ -57,7 +59,7 @@ def listing(_user: ActiveUser, db: DbSession) -> list[dict[str, Any]]:
 
 
 @router.get("/{template_id}")
-def read(template_id: int, _user: ActiveUser, db: DbSession) -> dict[str, Any]:
+def read(template_id: int, _user: SubscribedUser, db: DbSession) -> dict[str, Any]:
     template = db.get(DormitoryTemplate, template_id)
     if template is None:
         raise HTTPException(404, "Шаблон не найден")
@@ -65,7 +67,7 @@ def read(template_id: int, _user: ActiveUser, db: DbSession) -> dict[str, Any]:
 
 
 @router.post("", status_code=201)
-def create(payload: SaveTemplate, user: ActiveUser, db: DbSession) -> dict[str, Any]:
+def create(payload: SaveTemplate, user: SubscribedUser, db: DbSession) -> dict[str, Any]:
     template = DormitoryTemplate(
         name=payload.name, created_by_id=user.id, snapshot=take_snapshot(db, payload.dormitory_id)
     )
@@ -80,7 +82,7 @@ def create(payload: SaveTemplate, user: ActiveUser, db: DbSession) -> dict[str, 
 
 
 @router.delete("/{template_id}", status_code=204)
-def remove(template_id: int, _user: ActiveUser, db: DbSession) -> None:
+def remove(template_id: int, _user: SubscribedUser, db: DbSession) -> None:
     template = db.get(DormitoryTemplate, template_id)
     if template is None:
         raise HTTPException(404, "Шаблон не найден")

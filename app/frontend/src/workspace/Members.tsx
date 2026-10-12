@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 
 import { api, ApiError } from '../api/client';
 import type { InviteRole, OrganizationMember } from '../api/client';
+import { useTrial } from '../auth/TrialProvider';
 import styles from './Workspace.module.css';
 
 /** Роль в базе хранится кодом, а человеку показывается словом. */
@@ -43,6 +44,7 @@ function statusLabel(member: OrganizationMember): string {
  * по той же причине, что и на странице организации.
  */
 export function Members(): JSX.Element {
+  const { state: trial } = useTrial();
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'not-linked' | 'error'>('loading');
   const [attempt, setAttempt] = useState(0);
@@ -52,6 +54,9 @@ export function Members(): JSX.Element {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState('');
   const [sendError, setSendError] = useState('');
+  // 409 по лимиту пробного периода сервер помечает заголовком: текст показывает
+  // та же плашка, а признак отличает этот отказ от конфликта по email.
+  const [limitError, setLimitError] = useState(false);
   const inFlight = useRef(false);
   const emailRef = useRef<HTMLInputElement>(null);
   const fullNameRef = useRef<HTMLInputElement>(null);
@@ -85,6 +90,7 @@ export function Members(): JSX.Element {
     setSending(true);
     setSent('');
     setSendError('');
+    setLimitError(false);
     try {
       const created = await api.inviteMember({ email, full_name: fullName, role });
       setMembers((current) => [...current, created]);
@@ -95,6 +101,7 @@ export function Members(): JSX.Element {
       focusAfterSend.current = 'email';
     } catch (error) {
       setSendError(inviteErrorMessage(error));
+      setLimitError(error instanceof ApiError && error.trialLimit);
       focusAfterSend.current = fieldForError(error);
     } finally {
       inFlight.current = false;
@@ -216,6 +223,11 @@ export function Members(): JSX.Element {
                   Мы отправим письмо со ссылкой: по ней сотрудник задаст пароль и войдёт в вашу
                   организацию.
                 </p>
+                {trial?.is_active && (
+                  <p className={styles['organization-hint']} data-testid="trial-member-limit">
+                    На пробном периоде — не больше {trial.member_limit} сотрудников.
+                  </p>
+                )}
               </div>
             </div>
             <form
@@ -292,7 +304,12 @@ export function Members(): JSX.Element {
                 </p>
               )}
               {sendError && (
-                <p className="alert alert--error" role="alert" data-testid="invite-error">
+                <p
+                  className="alert alert--error"
+                  role="alert"
+                  data-testid="invite-error"
+                  data-trial-limit={limitError ? 'true' : undefined}
+                >
                   {sendError}
                 </p>
               )}

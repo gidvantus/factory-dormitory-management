@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     session_cookie_name: str = "crm_session"
     session_cookie_secure: bool = False
 
+    # Длительность пробного периода в сутках: он начинается активацией кабинета
+    # и не продлевается правкой данных — только выбором тарифа.
+    trial_days: int = 30
+
     # Срок жизни ссылки активации в часах.
     activation_token_ttl_hours: int = 24
     # Абсолютный адрес фронта: из него собирается ссылка в письме.

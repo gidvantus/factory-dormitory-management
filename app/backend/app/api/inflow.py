@@ -7,18 +7,18 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.inflow import PersonnelInflow
 from app.personnel import record_changed
 from app.schemas.inflow import InflowResponse, UpdateInflowRequest
 from app.section_state import require_section_writable
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/inflow",
     tags=["inflow"],
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={**SUBSCRIBED_USER_RESPONSES},
 )
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -35,7 +35,7 @@ def get_inflow(db: Session, dormitory_id: int, row_id: int) -> PersonnelInflow:
 @router.get("", response_model=list[InflowResponse], summary="Приток персонала за период")
 def list_inflow(
     dormitory_id: DormitoryId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -64,7 +64,9 @@ def list_inflow(
     status_code=status.HTTP_201_CREATED,
     summary="Добавить строку притока",
 )
-def create_inflow(dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession) -> PersonnelInflow:
+def create_inflow(
+    dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession
+) -> PersonnelInflow:
     require_section_writable(db, dormitory_id, "inflow")
     require_dormitory(db, dormitory_id)
     row = PersonnelInflow(dormitory_id=dormitory_id)
@@ -79,7 +81,7 @@ def update_inflow(
     dormitory_id: DormitoryId,
     row_id: InflowId,
     payload: UpdateInflowRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> PersonnelInflow:
     require_section_writable(db, dormitory_id, "inflow")
@@ -99,7 +101,7 @@ def update_inflow(
 def delete_inflow(
     dormitory_id: DormitoryId,
     row_id: InflowId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> None:
     require_section_writable(db, dormitory_id, "inflow")

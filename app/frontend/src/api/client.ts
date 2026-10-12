@@ -1,4 +1,5 @@
 import { ACTIVATION_REQUIRED_DETAIL, notifyActivationRequired } from '../auth/activation';
+import { notifyTrialExpired } from '../auth/trial';
 import type {
   CatalogDormitory,
   DashboardLayout,
@@ -6,12 +7,38 @@ import type {
   WidgetResult,
 } from './dashboardBlocks';
 
+/** Текст 403 с рабочих ручек на закрытом кабинете: он же — сигнал «нужен тариф». */
+export const TRIAL_EXPIRED_DETAIL =
+  'Пробный период закончился. Выберите тариф, чтобы продолжить работу';
+
+/** Заголовок 409 «на пробном периоде больше нельзя приглашать». */
+export const TRIAL_LIMIT_HEADER = 'X-Trial-Limit';
+
+/** Значение этого заголовка: отказ именно по лимиту сотрудников. */
+export const TRIAL_LIMIT_HEADER_VALUE = 'members';
+
 export interface UserProfile {
   email: string;
   full_name: string;
   created_at: string;
   /** false — кабинет ещё не активирован по ссылке из письма. */
   is_active: boolean;
+}
+
+/**
+ * Состояние пробного периода.
+ *
+ * `ends_at: null` — пробного периода нет вовсе, а не «он ещё не начался».
+ * `locked` — кабинет закрыт: рабочие разделы недоступны. `is_active` — доступ
+ * определяет именно пробный период, поэтому только тогда действует
+ * `member_limit`.
+ */
+export interface TrialState {
+  ends_at: string | null;
+  days_left: number;
+  is_active: boolean;
+  locked: boolean;
+  member_limit: number;
 }
 
 export interface RegisterResult {
@@ -358,11 +385,14 @@ export interface DashboardResponse {
 
 export class ApiError extends Error {
   readonly status: number;
+  /** 409 по лимиту пробного периода: сервер помечает его заголовком `X-Trial-Limit`. */
+  readonly trialLimit: boolean;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, trialLimit = false) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.trialLimit = trialLimit;
   }
 }
 
@@ -414,7 +444,16 @@ async function sendRequest<T>(path: string, init: RequestInit = {}): Promise<T> 
     if (response.status === 403 && message === ACTIVATION_REQUIRED_DETAIL) {
       notifyActivationRequired();
     }
-    throw new ApiError(response.status, message);
+    // Второй смысл того же 403 — «пробный период закончился». Обработку
+    // активации он не подменяет: тексты у отказов разные.
+    if (response.status === 403 && message === TRIAL_EXPIRED_DETAIL) {
+      notifyTrialExpired();
+    }
+    throw new ApiError(
+      response.status,
+      message,
+      response.headers.get(TRIAL_LIMIT_HEADER) === TRIAL_LIMIT_HEADER_VALUE,
+    );
   }
   if (response.status === 204) {
     return undefined as T;
@@ -813,6 +852,17 @@ export const api = {
 
   me(): Promise<UserProfile> {
     return request<UserProfile>('/me');
+  },
+
+  /**
+   * Пробный период кабинета.
+   *
+   * Отдельная ручка, а не поле в `/api/me`: у профиля общий контракт входа и
+   * активации, а это данные одного экрана. Ручка отвечает и на закрытом
+   * кабинете — иначе фронт не узнал бы, что разделы пора закрыть.
+   */
+  trial(signal?: AbortSignal): Promise<TrialState> {
+    return request<TrialState>('/trial', { signal });
   },
 
   /** Организация пользователя. 404 приходит как ApiError: он не привязан к организации. */
@@ -1345,6 +1395,11 @@ export function uploadPlacesImport(
       const message = errorText(xhr.status, body);
       if (xhr.status === 403 && message === ACTIVATION_REQUIRED_DETAIL) {
         notifyActivationRequired();
+      }
+      // Тот же 403 у закрытого кабинета: разбор отказов здесь свой, потому что
+      // `uploadPlacesImport` идёт мимо `request()`.
+      if (xhr.status === 403 && message === TRIAL_EXPIRED_DETAIL) {
+        notifyTrialExpired();
       }
       reject(new ApiError(xhr.status, message));
     };

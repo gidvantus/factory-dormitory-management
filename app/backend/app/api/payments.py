@@ -7,18 +7,18 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.payment import PaymentEntry
 from app.schemas.payment import PaymentKind, PaymentResponse, UpdatePaymentRequest
 from app.section_state import require_section_writable
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import lock_dormitory
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/payments",
     tags=["payments"],
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={**SUBSCRIBED_USER_RESPONSES},
 )
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -36,7 +36,7 @@ def get_payment(db: Session, dormitory_id: int, kind: PaymentKind, row_id: int) 
 def list_payments(
     dormitory_id: DormitoryId,
     kind: PaymentKind,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date | None, Query(alias="from")] = None,
     to_date: Annotated[date | None, Query(alias="to")] = None,
@@ -71,7 +71,7 @@ def list_payments(
     summary="Добавить строку выплаты",
 )
 def create_payment(
-    dormitory_id: DormitoryId, kind: PaymentKind, _user: ActiveUser, db: DbSession
+    dormitory_id: DormitoryId, kind: PaymentKind, _user: SubscribedUser, db: DbSession
 ) -> PaymentEntry:
     require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)
@@ -90,7 +90,7 @@ def update_payment(
     kind: PaymentKind,
     row_id: PaymentId,
     payload: UpdatePaymentRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> PaymentEntry:
     require_section_writable(db, dormitory_id, kind)
@@ -120,7 +120,7 @@ def update_payment(
 def clear_payments(
     dormitory_id: DormitoryId,
     kind: PaymentKind,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> None:
     require_section_writable(db, dormitory_id, kind)
@@ -140,7 +140,7 @@ def delete_payment(
     dormitory_id: DormitoryId,
     kind: PaymentKind,
     row_id: PaymentId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> None:
     require_section_writable(db, dormitory_id, kind)

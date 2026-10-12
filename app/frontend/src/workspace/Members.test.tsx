@@ -16,6 +16,21 @@ const USER = {
 
 const SESSION: MockResponse = { status: 200, body: USER };
 
+/** Идущий пробный период: на нём в организации не больше трёх сотрудников. */
+const TRIAL_ACTIVE: MockResponse = {
+  status: 200,
+  body: {
+    ends_at: '2026-11-01T00:00:00Z',
+    days_left: 12,
+    is_active: true,
+    locked: false,
+    member_limit: 3,
+  },
+};
+
+const TRIAL_MEMBER_LIMIT_DETAIL =
+  'На пробном периоде в организации не может быть больше 3 сотрудников';
+
 const OWNER: OrganizationMember = {
   id: 1,
   email: 'owner@example.com',
@@ -41,14 +56,17 @@ afterEach(() => {
 
 /**
  * `SessionProvider` при монтировании сам ходит в `/api/me`, поэтому заглушка
- * отвечает на все три маршрута: профиль, список участников и приглашение.
+ * отвечает на все маршруты экрана: профиль, пробный период, список участников
+ * и приглашение.
  */
 function mountMembers(
   membersResponse: MockResponse,
   extra?: (url: string, init?: RequestInit) => MockResponse | null,
+  trial: MockResponse = TRIAL_ACTIVE,
 ): ReturnType<typeof vi.fn> {
   return mockFetch((url, init) => {
     if (url.endsWith('/api/me')) return SESSION;
+    if (url.endsWith('/api/trial')) return trial;
     if (url.endsWith('/api/organization/invitations')) {
       return extra?.(url, init) ?? { status: 201, body: INVITED };
     }
@@ -274,5 +292,67 @@ describe('экран сотрудников', () => {
 
     resolveInvite({ ...INVITED, email: 'novyi@example.com' });
     expect(await screen.findByTestId('invite-success')).toBeInTheDocument();
+  });
+});
+
+describe('лимит сотрудников на пробном периоде', () => {
+  it('показывает подсказку о лимите рядом с формой приглашения', async () => {
+    mountMembers({ status: 200, body: [OWNER] });
+    renderApp('/cabinet/organization/members');
+
+    const hint = await screen.findByTestId('trial-member-limit');
+    expect(hint).toHaveTextContent('На пробном периоде — не больше 3 сотрудников');
+  });
+
+  it('не показывает подсказку, когда лимита нет', async () => {
+    mountMembers({ status: 200, body: [OWNER] }, undefined, {
+      status: 200,
+      body: { ends_at: null, days_left: 0, is_active: false, locked: false, member_limit: 3 },
+    });
+    renderApp('/cabinet/organization/members');
+
+    expect(await screen.findByTestId('members-table')).toBeInTheDocument();
+    expect(screen.queryByTestId('trial-member-limit')).not.toBeInTheDocument();
+  });
+
+  it('показывает 409 по лимиту текстом сервера и помечает его заголовком', async () => {
+    mountMembers({ status: 200, body: [OWNER] }, (_url, init) =>
+      init?.method === 'POST'
+        ? {
+            status: 409,
+            body: { detail: TRIAL_MEMBER_LIMIT_DETAIL },
+            headers: { 'X-Trial-Limit': 'members' },
+          }
+        : null,
+    );
+    const user = userEvent.setup();
+    renderApp('/cabinet/organization/members');
+
+    await user.type(await screen.findByTestId('invite-email'), 'chetvertyi@example.com');
+    await user.type(screen.getByTestId('invite-full-name'), 'Петров Пётр');
+    await user.click(screen.getByTestId('invite-submit'));
+
+    const error = await screen.findByTestId('invite-error');
+    expect(error).toHaveTextContent(TRIAL_MEMBER_LIMIT_DETAIL);
+    expect(error).toHaveAttribute('data-trial-limit', 'true');
+    expect(screen.queryByTestId('invite-success')).not.toBeInTheDocument();
+  });
+
+  it('отличает конфликт по email от отказа по лимиту', async () => {
+    mountMembers({ status: 200, body: [OWNER] }, (_url, init) =>
+      init?.method === 'POST'
+        ? { status: 409, body: { detail: 'Пользователь с таким email уже зарегистрирован' } }
+        : null,
+    );
+    const user = userEvent.setup();
+    renderApp('/cabinet/organization/members');
+
+    await user.type(await screen.findByTestId('invite-email'), 'zanyat@example.com');
+    await user.type(screen.getByTestId('invite-full-name'), 'Занятый Адрес');
+    await user.click(screen.getByTestId('invite-submit'));
+
+    const error = await screen.findByTestId('invite-error');
+    expect(error).toHaveTextContent('Пользователь с таким email уже зарегистрирован');
+    expect(error).not.toHaveAttribute('data-trial-limit');
   });
 });

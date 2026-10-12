@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import report_readiness as readiness
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.reports import read_report
 from app.dashboard_blocks import calculate_widget, layout_response
 from app.db import get_db
@@ -24,9 +25,8 @@ from app.schemas.dashboard import (
 )
 from app.schemas.report import ReportResponse, ReportRowResponse
 from app.schemas.report_readiness import ReportReadinessResponse
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 
-router = APIRouter(prefix="/dashboard", tags=["dashboard"], responses={**ACTIVE_USER_RESPONSES})
+router = APIRouter(prefix="/dashboard", tags=["dashboard"], responses={**SUBSCRIBED_USER_RESPONSES})
 DbSession = Annotated[Session, Depends(get_db)]
 ATTENDANCE, RESIDENTS, TURNOVER = REQUIRED_REPORT_ROW_NAMES
 
@@ -52,7 +52,7 @@ def as_float(value: Decimal | None) -> float | None:
 
 @router.get("", response_model=DashboardResponse, summary="Обзор по всем общежитиям")
 def read_dashboard(
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],

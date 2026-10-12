@@ -9,6 +9,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.db import get_db
 from app.models.dormitory import Dormitory
 from app.models.report import ReportCell, ReportRow
@@ -25,7 +26,6 @@ from app.schemas.report import (
 from app.schemas.table_column import PlaceReportLink, report_link_adapter
 from app.schemas.user import ErrorResponse
 from app.section_state import require_section_writable
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import (
     Record,
     linked_counts,
@@ -41,7 +41,7 @@ router = APIRouter(
     responses={
         401: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
-        **ACTIVE_USER_RESPONSES,
+        **SUBSCRIBED_USER_RESPONSES,
     },
 )
 DbSession = Annotated[Session, Depends(get_db)]
@@ -113,7 +113,7 @@ def row_response(row: ReportRow) -> ReportRowResponse:
 @router.get("", response_model=ReportResponse, summary="Большой отчёт за период")
 def read_report(
     dormitory_id: DormitoryId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -213,7 +213,7 @@ def read_report(
 def create_row(
     dormitory_id: DormitoryId,
     payload: CreateReportRowRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> ReportRowResponse:
     require_section_writable(db, dormitory_id, "report")
@@ -249,7 +249,7 @@ def update_row(
     dormitory_id: DormitoryId,
     row_id: RowId,
     payload: UpdateReportRowRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> ReportRowResponse:
     require_section_writable(db, dormitory_id, "report")
@@ -313,7 +313,7 @@ def move_row(
     dormitory_id: DormitoryId,
     row_id: RowId,
     payload: MoveReportRowRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> ReportRowResponse:
     require_section_writable(db, dormitory_id, "report")
@@ -334,7 +334,9 @@ def move_row(
 
 
 @router.delete("/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Удалить строку")
-def delete_row(dormitory_id: DormitoryId, row_id: RowId, _user: ActiveUser, db: DbSession) -> None:
+def delete_row(
+    dormitory_id: DormitoryId, row_id: RowId, _user: SubscribedUser, db: DbSession
+) -> None:
     require_section_writable(db, dormitory_id, "report")
     require_dormitory(db, dormitory_id)
     row = get_row(db, dormitory_id, row_id)
@@ -358,7 +360,7 @@ def save_cell(
     row_id: RowId,
     report_date: date,
     payload: SaveReportCellRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> None:
     require_section_writable(db, dormitory_id, "report")

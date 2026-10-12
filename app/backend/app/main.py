@@ -29,6 +29,7 @@ from app.api import (
     tab_catalog,
     table_columns,
     tariffs,
+    trial,
     users,
 )
 
@@ -68,6 +69,7 @@ def create_app() -> FastAPI:
     application.include_router(dormitory_settings.router, prefix=API_PREFIX)
     application.include_router(dormitory_templates.router, prefix=API_PREFIX)
     application.include_router(tariffs.router, prefix=API_PREFIX)
+    application.include_router(trial.router, prefix=API_PREFIX)
     application.include_router(documents.router, prefix=API_PREFIX)
     return application
 

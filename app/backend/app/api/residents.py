@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, st
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.hostel import Hostel
@@ -32,13 +33,12 @@ from app.schemas.resident_transfer import (
     TransferResidentRequest,
 )
 from app.section_state import require_section_writable
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import lock_dormitory
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/residents",
     tags=["residents"],
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={**SUBSCRIBED_USER_RESPONSES},
 )
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -62,7 +62,7 @@ def resident_response(db: Session, resident: Resident) -> ResidentResponse:
 @router.get("", response_model=ResidentsResponse, summary="Проживающие и действующие хостелы")
 def list_residents(
     dormitory_id: DormitoryId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
     month: Annotated[date, Query()],
 ) -> ResidentsResponse:
@@ -94,7 +94,7 @@ def list_residents(
     summary="Добавить строку",
 )
 def create_resident(
-    dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession
+    dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession
 ) -> ResidentResponse:
     require_section_writable(db, dormitory_id, "residents")
     require_dormitory(db, dormitory_id)
@@ -116,7 +116,7 @@ def register_payment(
     resident_id: ResidentId,
     kind: PaymentKind,
     response: Response,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> ResidentPaymentResponse:
     # Один замок защищает сравнение и вставку от одновременных нажатий,
@@ -161,7 +161,7 @@ def preview_transfer(
     dormitory_id: DormitoryId,
     resident_id: ResidentId,
     payload: TransferPreviewRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> TransferPreviewResponse:
     plan = prepare_transfer(
@@ -176,7 +176,7 @@ def transfer_resident(
     dormitory_id: DormitoryId,
     resident_id: ResidentId,
     payload: TransferResidentRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> ResidentResponse:
     plan = prepare_transfer(
@@ -203,7 +203,7 @@ def transfer_resident(
 def preview_outflow(
     dormitory_id: DormitoryId,
     resident_id: ResidentId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> ResidentOutflowPreview:
     require_section_writable(db, dormitory_id, "residents")
@@ -219,7 +219,7 @@ def move_to_outflow(
     dormitory_id: DormitoryId,
     resident_id: ResidentId,
     payload: ResidentOutflowRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> PersonnelOutflow:
     require_section_writable(db, dormitory_id, "residents")
@@ -256,7 +256,7 @@ def update_resident(
     dormitory_id: DormitoryId,
     resident_id: ResidentId,
     payload: UpdateResidentRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
     month: Annotated[date, Query()],
 ) -> ResidentResponse:
@@ -293,7 +293,7 @@ def update_resident(
 def delete_resident(
     dormitory_id: DormitoryId,
     resident_id: ResidentId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> None:
     require_section_writable(db, dormitory_id, "residents")

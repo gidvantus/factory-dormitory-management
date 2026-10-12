@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -48,6 +48,13 @@ from app.security import (
     ActiveUser,
     hash_password,
     issue_activation_token,
+)
+from app.trial import (
+    TRIAL_LIMIT_HEADER,
+    TRIAL_LIMIT_HEADER_VALUE,
+    TRIAL_MEMBER_LIMIT,
+    TRIAL_MEMBER_LIMIT_DETAIL,
+    trial_state,
 )
 
 router = APIRouter(
@@ -75,6 +82,14 @@ INVITATION_TOKEN_KIND = "invitation"
 
 # Роли, которым разрешена правка. Остальные роли читают организацию, но не меняют.
 EDIT_ROLES = frozenset({"owner", "admin"})
+
+# Роль владельца: она не считается сотрудником в лимите пробного периода.
+OWNER_ROLE = "owner"
+
+# Описание заголовка отказа по лимиту для опубликованной схемы.
+TRIAL_LIMIT_HEADER_DESCRIPTION = (
+    f"{TRIAL_MEMBER_LIMIT_DETAIL} (значение: {TRIAL_LIMIT_HEADER_VALUE})"
+)
 
 NOT_FOUND_RESPONSES: dict[int | str, dict[str, object]] = {
     status.HTTP_404_NOT_FOUND: {
@@ -155,6 +170,52 @@ def _load_organization(db: Session, organization_id: int) -> Organization:
     if organization is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, ORGANIZATION_NOT_FOUND_DETAIL)
     return organization
+
+
+def _lock_organization(db: Session, organization_id: int) -> Organization:
+    """Заблокировать строку организации на время транзакции.
+
+    Два одновременных приглашения иначе посчитали бы сотрудников по одному и
+    тому же состоянию и вместе проскочили бы лимит пробного периода.
+    """
+    organization = db.scalar(
+        select(Organization).where(Organization.id == organization_id).with_for_update()
+    )
+    if organization is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, ORGANIZATION_NOT_FOUND_DETAIL)
+    return organization
+
+
+def _employee_count(db: Session, organization_id: int) -> int:
+    """Сколько сотрудников в организации, не считая владельца."""
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(OrganizationMember)
+            .where(
+                OrganizationMember.organization_id == organization_id,
+                OrganizationMember.role != OWNER_ROLE,
+            )
+        )
+        or 0
+    )
+
+
+def _ensure_trial_member_limit(db: Session, user: User, organization_id: int) -> None:
+    """Отказать, когда пробный период исчерпал лимит сотрудников.
+
+    Лимит действует только пока доступ определяет пробный период: с выбранным
+    тарифом ограничения нет (`trial_state(...).is_active` это и означает).
+    """
+    if not trial_state(db, user).is_active:
+        return
+    _lock_organization(db, organization_id)
+    if _employee_count(db, organization_id) >= TRIAL_MEMBER_LIMIT:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            TRIAL_MEMBER_LIMIT_DETAIL,
+            headers={TRIAL_LIMIT_HEADER: TRIAL_LIMIT_HEADER_VALUE},
+        )
 
 
 @router.get(
@@ -325,7 +386,13 @@ def read_members(membership: Membership, db: DbSession) -> list[OrganizationMemb
         },
         status.HTTP_409_CONFLICT: {
             "model": ErrorResponse,
-            "description": EMAIL_TAKEN_DETAIL,
+            "description": f"{EMAIL_TAKEN_DETAIL} или {TRIAL_MEMBER_LIMIT_DETAIL}",
+            "headers": {
+                TRIAL_LIMIT_HEADER: {
+                    "description": TRIAL_LIMIT_HEADER_DESCRIPTION,
+                    "schema": {"type": "string"},
+                }
+            },
         },
         status.HTTP_422_UNPROCESSABLE_ENTITY: {
             "model": ErrorResponse,
@@ -348,8 +415,17 @@ def invite_member(
 
     Роль проверяется только схемой (`admin`, `manager`, `commandant`): прав по
     ней в этой задаче нет, она хранится и показывается.
+
+    На пробном периоде число сотрудников ограничено (`TRIAL_MEMBER_LIMIT`):
+    отказ приходит как `409` с заголовком `X-Trial-Limit`, чтобы фронт отличил
+    его от конфликта по занятому email.
     """
     email = normalize_email(payload.email)
+
+    caller = db.get(User, membership.user_id)
+    if caller is None:  # pragma: no cover - строка членства без пользователя невозможна
+        raise HTTPException(status.HTTP_404_NOT_FOUND, ORGANIZATION_NOT_FOUND_DETAIL)
+    _ensure_trial_member_limit(db, caller, membership.organization_id)
 
     # Занятый email — 409 до любых вставок: ничего не создаём и письма не шлём.
     if db.scalar(select(User.id).where(User.email == email)) is not None:

@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.hostel import Hostel, HostelCell
@@ -55,7 +56,6 @@ from app.schemas.places_import import (
 )
 from app.schemas.user import ErrorResponse
 from app.section_state import require_section_writable
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import lock_dormitory
 
 router = APIRouter(
@@ -66,7 +66,7 @@ router = APIRouter(
             "model": ErrorResponse,
             "description": "Нет валидной cookie сессии",
         },
-        **ACTIVE_USER_RESPONSES,
+        **SUBSCRIBED_USER_RESPONSES,
     },
 )
 DbSession = Annotated[Session, Depends(get_db)]
@@ -108,7 +108,7 @@ def get_hostel(db: Session, dormitory_id: int, hostel_id: int) -> Hostel:
 
 @router.get("/sources", summary="Все хостелы для настройки связи отчёта")
 def list_sources(
-    dormitory_id: DormitoryId, _user: ActiveUser, db: DbSession
+    dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession
 ) -> list[dict[str, int | str]]:
     require_dormitory(db, dormitory_id)
     return [
@@ -122,7 +122,7 @@ def list_sources(
 @router.get("", response_model=PlacesResponse, summary="Таблицы мест за период")
 def read_places(
     dormitory_id: DormitoryId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -194,7 +194,7 @@ def read_places(
 def create_hostel(
     dormitory_id: DormitoryId,
     payload: CreateHostelRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> dict[str, int | str]:
     require_section_writable(db, dormitory_id, "places")
@@ -221,7 +221,7 @@ def create_hostel(
 def remove_hostel(
     dormitory_id: DormitoryId,
     hostel_id: HostelId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
     month: Annotated[date, Query()],
 ) -> None:
@@ -251,7 +251,7 @@ def save_hostel_cell(
     report_date: date,
     field: PlaceField,
     payload: SaveHostelCellRequest,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> None:
     require_section_writable(db, dormitory_id, "places")
@@ -327,7 +327,7 @@ def count_deleted_cells(db: Session, dormitory_id: int, parsed: ParsedImport) ->
 )
 def download_places_import_template(
     dormitory_id: DormitoryId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
     month: Annotated[date, Query()],
 ) -> Response:
@@ -390,7 +390,7 @@ def download_places_import_template(
 )
 async def upload_places_import(
     dormitory_id: DormitoryId,
-    user: ActiveUser,
+    user: SubscribedUser,
     db: DbSession,
     file: Annotated[UploadFile, File()],
 ) -> Response:
@@ -535,7 +535,7 @@ def apply_import(db: Session, dormitory_id: int, job: ImportJob) -> PlacesImport
 def confirm_places_import(
     dormitory_id: DormitoryId,
     import_id: ImportId,
-    _user: ActiveUser,
+    _user: SubscribedUser,
     db: DbSession,
 ) -> PlacesImportApplied:
     """Применить задание: блокировка строки задания исключает двойное применение."""

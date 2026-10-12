@@ -778,3 +778,28 @@
   font: 800 22px/1.3 var(--font-display);
   letter-spacing: -0.2px;
 }
+/* Пробный период закончился: заметный блок на обзоре. Он сообщает не об
+   ошибке, а о состоянии кабинета, поэтому цвет — «внимание», а не «опасность». */
+.shell .trial-expired {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  border: 1px solid var(--butter-200);
+  border-radius: 14px;
+  background: var(--butter-100);
+  color: var(--ink-900);
+}
+.shell .trial-expired-title {
+  font-size: 18px;
+}
+.shell .trial-expired p {
+  margin: 0;
+}
+/* Остаток дней — сдержанная строка: она не должна спорить с карточкой тарифа. */
+.shell .trial-note {
+  margin: 0 0 14px;
+  color: var(--color-text-body);
+  font-size: 14px;
+}

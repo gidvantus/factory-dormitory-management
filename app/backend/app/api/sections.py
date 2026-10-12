@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.db import get_db
 from app.models.custom_tab import CustomTabEntry
 from app.models.hostel import Hostel
@@ -18,14 +19,13 @@ from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
 from app.report_defaults import DEFAULT_REPORT_FORMULA, required_row_name
 from app.section_state import SECTIONS, locked_dormitory, section_parents, section_status
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.tab_catalog import normalized_name
 from app.tab_tree import all_tabs, delete_tabs, descendants
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/sections",
     tags=["sections"],
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={**SUBSCRIBED_USER_RESPONSES},
 )
 DbSession = Annotated[Session, Depends(get_db)]
 EntityId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -128,14 +128,14 @@ def metadata(db: Session, dormitory_id: int) -> list[SectionResponse]:
 
 @router.get("", response_model=list[SectionResponse])
 def list_sections(
-    dormitory_id: EntityId, _user: ActiveUser, db: DbSession
+    dormitory_id: EntityId, _user: SubscribedUser, db: DbSession
 ) -> list[SectionResponse]:
     return metadata(db, dormitory_id)
 
 
 @router.patch("/{key}", response_model=list[SectionResponse])
 def update_section(
-    dormitory_id: EntityId, key: str, payload: SectionUpdate, _user: ActiveUser, db: DbSession
+    dormitory_id: EntityId, key: str, payload: SectionUpdate, _user: SubscribedUser, db: DbSession
 ) -> list[SectionResponse]:
     if key not in SECTIONS:
         raise HTTPException(404, "Вкладка не найдена")
@@ -176,7 +176,7 @@ def update_section(
 
 @router.delete("/{key}", response_model=list[SectionResponse])
 def delete_section(
-    dormitory_id: EntityId, key: str, _user: ActiveUser, db: DbSession
+    dormitory_id: EntityId, key: str, _user: SubscribedUser, db: DbSession
 ) -> list[SectionResponse]:
     if key not in SECTIONS:
         raise HTTPException(404, "Вкладка не найдена")

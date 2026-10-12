@@ -21,6 +21,7 @@ os.environ["SMTP_PASSWORD"] = ""
 os.environ["DADATA_API_KEY"] = ""
 
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,6 +30,7 @@ from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.config import get_settings
 from app.db import get_db
 from app.main import app
 from app.models import Base
@@ -99,19 +101,34 @@ def register_user(
     return response.json()
 
 
+def active_trial_ends_at() -> datetime:
+    """Конец пробного периода, который ещё идёт: так выглядит рабочий кабинет."""
+    return datetime.now(UTC) + timedelta(days=get_settings().trial_days)
+
+
 def create_user(
     db_session: Session,
     email: str = "worker@example.com",
     full_name: str = "Иванов Иван Иванович",
     password: str = TEST_PASSWORD,
     is_active: bool = True,
+    trial_ends_at: datetime | None = None,
+    trial_active: bool = True,
 ) -> User:
-    """Пользователь с известным паролем: тест может войти, не зная служебный."""
+    """Пользователь с известным паролем: тест может войти, не зная служебный.
+
+    `trial_active=True` (по умолчанию) ставит пользователю идущий пробный
+    период: иначе каждая существующая ручка отвечала бы 403 закрытого кабинета
+    и все прежние тесты упирались бы в новую проверку. Закрытый кабинет
+    собирается явно: `trial_active=False` оставляет дату как передали — `None`
+    («пробного периода нет») или прошлое («период истёк»).
+    """
     user = User(
         email=email.strip().lower(),
         full_name=full_name,
         password_hash=hash_password(password),
         is_active=is_active,
+        trial_ends_at=active_trial_ends_at() if trial_active else trial_ends_at,
     )
     db_session.add(user)
     db_session.commit()
@@ -129,9 +146,17 @@ def sign_in(
     db_session: Session,
     email: str = "worker@example.com",
     is_active: bool = True,
+    trial_ends_at: datetime | None = None,
+    trial_active: bool = True,
 ) -> User:
     """Создать пользователя и войти им. Возвращает строку пользователя в базе."""
-    user = create_user(db_session, email=email, is_active=is_active)
+    user = create_user(
+        db_session,
+        email=email,
+        is_active=is_active,
+        trial_ends_at=trial_ends_at,
+        trial_active=trial_active,
+    )
     response = login(client, email)
     assert response.status_code == 200, response.text
     return user

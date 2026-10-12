@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.db import get_db
 from app.models.custom_tab import CustomTabEntry
 from app.models.dormitory import Dormitory
@@ -65,7 +66,6 @@ from app.schemas.personnel import (
 )
 from app.schemas.resident import UpdateResidentRequest
 from app.schemas.table_column import TableKey
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser
 from app.table_data import (
     ensure_columns,
     get_record,
@@ -74,22 +74,22 @@ from app.table_data import (
     require_writable_table,
 )
 
-router = APIRouter(prefix="/personnel", tags=["personnel"], responses=ACTIVE_USER_RESPONSES)
+router = APIRouter(prefix="/personnel", tags=["personnel"], responses=SUBSCRIBED_USER_RESPONSES)
 DbSession = Annotated[Session, Depends(get_db)]
 
 
 @router.get("")
-def get_workspace(user: ActiveUser, db: DbSession) -> dict[str, Any]:
+def get_workspace(user: SubscribedUser, db: DbSession) -> dict[str, Any]:
     return workspace(db, user)
 
 
 @router.post("/check")
-def check(payload: IdentityFields, _user: ActiveUser, db: DbSession) -> dict[str, Any]:
+def check(payload: IdentityFields, _user: SubscribedUser, db: DbSession) -> dict[str, Any]:
     return check_identity(db, payload)
 
 
 @router.post("/records", status_code=201)
-def create_record(payload: RecordCreate, user: ActiveUser, db: DbSession) -> dict[str, Any]:
+def create_record(payload: RecordCreate, user: SubscribedUser, db: DbSession) -> dict[str, Any]:
     lock_dormitory(db, payload.dormitory_id)
     require_writable_table(db, payload.dormitory_id, payload.table_key)
     columns = ensure_columns(db, payload.dormitory_id, payload.table_key)
@@ -181,7 +181,7 @@ def create_record(payload: RecordCreate, user: ActiveUser, db: DbSession) -> dic
 
 
 @router.post("/link")
-def link_record(payload: RecordLink, user: ActiveUser, db: DbSession) -> dict[str, Any]:
+def link_record(payload: RecordLink, user: SubscribedUser, db: DbSession) -> dict[str, Any]:
     lock_dormitory(db, payload.dormitory_id)
     require_writable_table(db, payload.dormitory_id, payload.table_key)
     identity_lock(db)
@@ -233,13 +233,13 @@ def link_record(payload: RecordLink, user: ActiveUser, db: DbSession) -> dict[st
 
 
 @router.get("/employees/{employee_id}")
-def detail(employee_id: UUID, _user: ActiveUser, db: DbSession) -> dict[str, Any]:
+def detail(employee_id: UUID, _user: SubscribedUser, db: DbSession) -> dict[str, Any]:
     return employee_detail(db, str(employee_id))
 
 
 @router.patch("/employees/{employee_id}")
 def update_employee(
-    employee_id: UUID, payload: EmployeeUpdate, user: ActiveUser, db: DbSession
+    employee_id: UUID, payload: EmployeeUpdate, user: SubscribedUser, db: DbSession
 ) -> dict[str, bool]:
     identity_lock(db)
     item = get_employee(db, str(employee_id))
@@ -261,7 +261,7 @@ def update_employee(
 
 @router.post("/employees/{employee_id}/tasks", status_code=201)
 def add_task(
-    employee_id: UUID, payload: TaskInput, user: ActiveUser, db: DbSession
+    employee_id: UUID, payload: TaskInput, user: SubscribedUser, db: DbSession
 ) -> dict[str, bool]:
     identity_lock(db)
     employee = get_employee(db, str(employee_id))
@@ -284,7 +284,7 @@ def add_task(
 
 @router.patch("/tasks/{task_id}")
 def update_task(
-    task_id: UUID, payload: TaskUpdate, user: ActiveUser, db: DbSession
+    task_id: UUID, payload: TaskUpdate, user: SubscribedUser, db: DbSession
 ) -> dict[str, bool]:
     identity_lock(db)
     task = db.get(EmployeeTask, str(task_id))
@@ -305,7 +305,7 @@ def update_task(
 
 @router.post("/employees/{employee_id}/notes", status_code=201)
 def add_note(
-    employee_id: UUID, payload: NoteInput, user: ActiveUser, db: DbSession
+    employee_id: UUID, payload: NoteInput, user: SubscribedUser, db: DbSession
 ) -> dict[str, bool]:
     identity_lock(db)
     employee = get_employee(db, str(employee_id))
@@ -317,7 +317,7 @@ def add_note(
 
 @router.put("/employees/{employee_id}/next-shift")
 def save_next_shift(
-    employee_id: UUID, payload: PlanInput, user: ActiveUser, db: DbSession
+    employee_id: UUID, payload: PlanInput, user: SubscribedUser, db: DbSession
 ) -> dict[str, bool]:
     lock_dormitory(db, payload.dormitory_id)
     identity_lock(db)
@@ -372,7 +372,7 @@ def save_next_shift(
 
 @router.patch("/plans/{plan_id}")
 def confirm_plan(
-    plan_id: UUID, payload: PlanUpdate, user: ActiveUser, db: DbSession
+    plan_id: UUID, payload: PlanUpdate, user: SubscribedUser, db: DbSession
 ) -> dict[str, bool]:
     identity_lock(db)
     plan = db.get(EmployeePlan, str(plan_id))
@@ -393,7 +393,7 @@ def confirm_plan(
 
 
 @router.delete("/plans/{plan_id}", status_code=204)
-def cancel_plan(plan_id: UUID, user: ActiveUser, db: DbSession) -> None:
+def cancel_plan(plan_id: UUID, user: SubscribedUser, db: DbSession) -> None:
     identity_lock(db)
     plan = db.get(EmployeePlan, str(plan_id))
     if plan is None:
@@ -415,7 +415,7 @@ def cancel_plan(plan_id: UUID, user: ActiveUser, db: DbSession) -> None:
 
 @router.put("/employees/{employee_id}/decision")
 def save_decision(
-    employee_id: UUID, payload: DecisionInput, user: ActiveUser, db: DbSession
+    employee_id: UUID, payload: DecisionInput, user: SubscribedUser, db: DbSession
 ) -> dict[str, bool]:
     resident = db.get(Resident, payload.resident_id)
     if resident is None:
@@ -516,7 +516,7 @@ def validate_pair(db: Session, payload: MergeInput) -> tuple[Employee, Employee]
 
 
 @router.post("/merge")
-def merge(payload: MergeInput, user: ActiveUser, db: DbSession) -> dict[str, Any]:
+def merge(payload: MergeInput, user: SubscribedUser, db: DbSession) -> dict[str, Any]:
     source, target = validate_pair(db, payload)
     source.merged_into_id = target.id
     target.identity_status = "confirmed"
@@ -543,7 +543,7 @@ def merge(payload: MergeInput, user: ActiveUser, db: DbSession) -> dict[str, Any
 
 
 @router.post("/separate")
-def separate(payload: MergeInput, user: ActiveUser, db: DbSession) -> dict[str, bool]:
+def separate(payload: MergeInput, user: SubscribedUser, db: DbSession) -> dict[str, bool]:
     source, target = validate_pair(db, payload)
     pair = ":".join(sorted((source.id, target.id)))
     separation = db.get(EmployeeSeparation, pair) or EmployeeSeparation(pair=pair)
@@ -567,7 +567,7 @@ def separate(payload: MergeInput, user: ActiveUser, db: DbSession) -> dict[str, 
 
 
 @router.post("/merges/{merge_id}/undo")
-def undo_merge(merge_id: UUID, user: ActiveUser, db: DbSession) -> dict[str, bool]:
+def undo_merge(merge_id: UUID, user: SubscribedUser, db: DbSession) -> dict[str, bool]:
     identity_lock(db)
     operation = db.get(EmployeeMerge, str(merge_id))
     if operation is None:
@@ -593,7 +593,7 @@ def undo_merge(merge_id: UUID, user: ActiveUser, db: DbSession) -> dict[str, boo
 
 
 @router.put("/preferences")
-def preferences(payload: PreferencesInput, user: ActiveUser, db: DbSession) -> dict[str, Any]:
+def preferences(payload: PreferencesInput, user: SubscribedUser, db: DbSession) -> dict[str, Any]:
     db.scalar(select(User).where(User.id == user.id).with_for_update())
     item = db.get(PersonnelPreferences, user.id)
     if (item.revision if item else 0) != payload.revision:
@@ -611,7 +611,7 @@ def preferences(payload: PreferencesInput, user: ActiveUser, db: DbSession) -> d
 
 @router.get("/bindings/{dormitory_id}/{table_key}")
 def get_binding(
-    dormitory_id: int, table_key: TableKey, _user: ActiveUser, db: DbSession
+    dormitory_id: int, table_key: TableKey, _user: SubscribedUser, db: DbSession
 ) -> dict[str, Any]:
     columns = ensure_columns(db, dormitory_id, table_key)
     item = db.scalar(
@@ -632,7 +632,11 @@ def get_binding(
 
 @router.put("/bindings/{dormitory_id}/{table_key}")
 def save_binding(
-    dormitory_id: int, table_key: TableKey, payload: BindingInput, user: ActiveUser, db: DbSession
+    dormitory_id: int,
+    table_key: TableKey,
+    payload: BindingInput,
+    user: SubscribedUser,
+    db: DbSession,
 ) -> dict[str, bool]:
     if not (table_key.startswith("custom_") or table_key == "archive"):
         raise HTTPException(422, "Основные таблицы уже связаны по встроенным полям")
