@@ -170,3 +170,33 @@ def test_tariffs_current_read_documents_every_status_it_returns(client: TestClie
     documented = documented_statuses(client, "/api/tariffs/current", "get")
 
     assert {"200", "401", "403", "404"} <= documented
+
+
+# --- Импорт вкладки «Места» (issue #38) ---------------------------------------
+
+
+def test_places_import_template_documents_every_status_it_returns(client: TestClient) -> None:
+    """Шаблон .xlsx: 200, 401 без cookie, 403 у неактивного, 404 и 422 по месяцу."""
+    documented = documented_statuses(
+        client, "/api/dormitories/{dormitory_id}/hostels/import/template", "get"
+    )
+
+    assert {"200", "401", "403", "404", "422"} <= documented
+
+
+def test_places_import_upload_documents_every_status_it_returns(client: TestClient) -> None:
+    """Загрузка файла: 200 у разбора без ошибок, 422 у разбора с ошибками."""
+    documented = documented_statuses(
+        client, "/api/dormitories/{dormitory_id}/hostels/import", "post"
+    )
+
+    assert {"200", "401", "403", "404", "409", "413", "415", "422"} <= documented
+
+
+def test_places_import_confirm_documents_every_status_it_returns(client: TestClient) -> None:
+    """Применение: 200, 401, 403, 404 у чужого задания и 409 у уже применённого."""
+    documented = documented_statuses(
+        client, "/api/dormitories/{dormitory_id}/hostels/import/{import_id}/confirm", "post"
+    )
+
+    assert {"200", "401", "403", "404", "409"} <= documented

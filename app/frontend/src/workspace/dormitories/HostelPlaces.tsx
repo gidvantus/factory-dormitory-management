@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
-import { api, ApiError } from '../../api/client';
+import { api, ApiError, placesImportTemplateUrl } from '../../api/client';
 import type { HostelPlaces, PlaceField } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { formatDate } from '../dashboard/dates';
+import { ImportPlacesDialog } from './ImportPlacesDialog';
 import styles from './HostelPlaces.module.css';
 
 interface Props {
@@ -316,6 +317,7 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
   const [saveError, setSaveError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [addingMonth, setAddingMonth] = useState<string | null>(null);
+  const [importingMonth, setImportingMonth] = useState<string | null>(null);
   const [removing, setRemoving] = useState<{
     hostel: { id: number; name: string };
     month: string;
@@ -414,13 +416,35 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
                 <h3>{monthTitle(month.month)}</h3>
                 <p>{month.hostels.length} хостелов</p>
               </div>
-              <button
-                type="button"
-                className="btn btn--primary btn--compact"
-                onClick={() => setAddingMonth(month.month)}
-              >
-                + Добавить хостел
-              </button>
+              <div className={styles.monthActions}>
+                {/* Шаблон доступен прямо на вкладке: скачать его можно и не
+                    открывая окно импорта. */}
+                <a
+                  className="btn btn--ghost btn--compact"
+                  data-testid="places-template-download"
+                  href={placesImportTemplateUrl(dormitoryId, month.month.slice(0, 7))}
+                  download
+                  aria-label={`Скачать шаблон «Места» за ${monthTitle(month.month)}`}
+                  title={`Шаблон «Места» за ${monthTitle(month.month)}`}
+                >
+                  Скачать шаблон
+                </a>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--compact"
+                  data-testid="places-import-open"
+                  onClick={() => setImportingMonth(month.month)}
+                >
+                  Импорт из Excel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--primary btn--compact"
+                  onClick={() => setAddingMonth(month.month)}
+                >
+                  + Добавить хостел
+                </button>
+              </div>
             </div>
             {month.hostels.length === 0 && (
               <p className={styles.empty}>В этом месяце хостелов пока нет.</p>
@@ -511,6 +535,14 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
           month={removing.month}
           onClose={() => setRemoving(null)}
           onRemoved={refresh}
+        />
+      )}
+      {importingMonth && (
+        <ImportPlacesDialog
+          dormitoryId={dormitoryId}
+          month={importingMonth.slice(0, 7)}
+          onClose={() => setImportingMonth(null)}
+          onImported={refresh}
         />
       )}
     </section>

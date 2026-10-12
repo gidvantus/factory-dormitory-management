@@ -211,6 +211,53 @@ export interface HostelPlaces {
   }[];
 }
 
+/** Разбор файла импорта: `failed` приходит с ответом 422 и полным списком ошибок. */
+export type PlacesImportStatus = 'ready' | 'failed';
+
+export interface PlacesImportIssue {
+  row: number | null;
+  column: string | null;
+  message: string;
+}
+
+export interface PlacesImportCounts {
+  hostels: number;
+  cells: number;
+  /** Сколько сохранённых значений исчезнет: полная замена месяца. */
+  deleted: number;
+}
+
+export interface PlacesImportRow {
+  row: number;
+  hostel: string;
+  field: PlaceField;
+  /** Значения по дням месяца с ключом `ГГГГ-ММ-ДД`; пустые в файл не попадают. */
+  values: Record<string, number>;
+}
+
+export interface PlacesImportResult {
+  import_id: number;
+  status: PlacesImportStatus;
+  months: string[];
+  counts: PlacesImportCounts;
+  rows: PlacesImportRow[];
+  errors: PlacesImportIssue[];
+  warnings: PlacesImportIssue[];
+}
+
+export interface PlacesImportApplied {
+  import_id: number;
+  month: string;
+  hostels: number;
+  cells: number;
+}
+
+/**
+ * Предельный размер файла импорта. Тот же лимит стоит в nginx
+ * (`client_max_body_size 20m`) и в API: проверять его до отправки дешевле.
+ */
+export const PLACES_IMPORT_MAX_BYTES = 20 * 1024 * 1024;
+
 export interface Resident {
   employee_id?: string | null;
   custom_values?: Record<string, CellValue>;
@@ -426,21 +473,26 @@ async function sendRequest<T>(path: string, init: RequestInit = {}): Promise<T> 
  */
 async function readErrorMessage(response: Response): Promise<string> {
   try {
-    const body: unknown = await response.json();
-    if (body && typeof body === 'object' && 'detail' in body) {
-      const detail = (body as { detail: unknown }).detail;
-      if (typeof detail === 'string') {
-        return detail;
-      }
-      const validation = validationErrorsText(detail);
-      if (validation) {
-        return validation;
-      }
-    }
+    return errorText(response.status, await response.json());
   } catch {
     // Тело не JSON — показываем общий текст ниже.
+    return `Запрос не удался (${response.status})`;
   }
-  return `Запрос не удался (${response.status})`;
+}
+
+/** Текст ошибки по уже разобранному телу ответа. */
+function errorText(status: number, body: unknown): string {
+  if (body && typeof body === 'object' && 'detail' in body) {
+    const detail = (body as { detail: unknown }).detail;
+    if (typeof detail === 'string') {
+      return detail;
+    }
+    const validation = validationErrorsText(detail);
+    if (validation) {
+      return validation;
+    }
+  }
+  return `Запрос не удался (${status})`;
 }
 
 /** `loc` вида `['body', 'inn']` → «inn»: путь поля в теле запроса. */
@@ -1283,3 +1335,84 @@ export const api = {
     );
   },
 };
+
+/** Адрес шаблона импорта: скачивание идёт навигацией браузера, без `fetch`. */
+export function placesImportTemplateUrl(id: string, month: string): string {
+  const query = new URLSearchParams({ month: `${month}-01` });
+  return `/api/dormitories/${encodeURIComponent(id)}/hostels/import/template?${query}`;
+}
+
+/** Тело ответа разбора: по нему экран отличает результат от обычной ошибки. */
+function isPlacesImportResult(body: unknown): body is PlacesImportResult {
+  return (
+    !!body &&
+    typeof body === 'object' &&
+    'import_id' in body &&
+    'status' in body &&
+    'errors' in body
+  );
+}
+
+/**
+ * Загрузка файла импорта «Мест».
+ *
+ * Отдельная функция на `XMLHttpRequest`, а не `request()`: тот жёстко ставит
+ * `Content-Type: application/json` и не умеет показывать прогресс выгрузки.
+ * Ответ 422 с телом разбора — не ошибка запроса, а результат: экран берёт из
+ * него список ошибок, поэтому такое тело возвращается как обычный результат,
+ * а `ApiError` летит только на настоящие отказы (размер, тип, доступ).
+ */
+export function uploadPlacesImport(
+  id: string,
+  file: File,
+  onProgress: (percent: number) => void,
+  onUploaded?: () => void,
+): Promise<PlacesImportResult> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/dormitories/${encodeURIComponent(id)}/hostels/import`);
+    // Cookie сессии — единственное хранилище токена, как и в `request()`.
+    xhr.withCredentials = true;
+    xhr.responseType = 'json';
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+    // Файл ушёл: сервер ещё разбирает его, и это уже неопределённый этап.
+    xhr.upload.onload = () => {
+      onProgress(100);
+      onUploaded?.();
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'Не удалось отправить файл. Проверьте соединение.'));
+    xhr.onabort = () => reject(new ApiError(0, 'Загрузка файла отменена.'));
+    xhr.onload = () => {
+      const body: unknown = xhr.response;
+      if ((xhr.status === 200 || xhr.status === 422) && isPlacesImportResult(body)) {
+        resolve(body);
+        return;
+      }
+      const message = errorText(xhr.status, body);
+      if (xhr.status === 403 && message === ACTIVATION_REQUIRED_DETAIL) {
+        notifyActivationRequired();
+      }
+      // Тот же 403 у закрытого кабинета: разбор отказов здесь свой, потому что
+      // `uploadPlacesImport` идёт мимо `request()`.
+      if (xhr.status === 403 && message === TRIAL_EXPIRED_DETAIL) {
+        notifyTrialExpired();
+      }
+      reject(new ApiError(xhr.status, message));
+    };
+    const form = new FormData();
+    form.append('file', file);
+    xhr.send(form);
+  });
+}
+
+/** Применить разобранное задание: месяц из файла заменяется целиком. */
+export function confirmPlacesImport(id: string, importId: number): Promise<PlacesImportApplied> {
+  return request<PlacesImportApplied>(
+    `/dormitories/${encodeURIComponent(id)}/hostels/import/${importId}/confirm`,
+    { method: 'POST' },
+  );
+}
