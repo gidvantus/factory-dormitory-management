@@ -15,6 +15,10 @@ os.environ.setdefault("JWT_SECRET", "unit-test-secret-value-0123456789")
 # не должны из-за этого стучаться в настоящий smtp.timeweb.ru.
 os.environ["SMTP_HOST"] = ""
 os.environ["SMTP_PASSWORD"] = ""
+# По той же причине пуст ключ DaData: на стенде он приходит из compose, а тесты
+# не должны ходить в настоящий suggestions.dadata.ru. Подменённый HTTP-клиент
+# для разбора ответа живёт в tests/test_dadata.py.
+os.environ["DADATA_API_KEY"] = ""
 
 from collections.abc import Iterator
 

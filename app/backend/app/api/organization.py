@@ -26,16 +26,21 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import dadata
 from app.db import get_db
 from app.mail import send_invitation_email_task
 from app.models.activation import ActivationToken
 from app.models.organization import Organization, OrganizationMember
 from app.models.user import User
 from app.schemas.organization import (
+    INN_FORMAT_MESSAGE,
     InviteMemberRequest,
+    OrganizationLookupDetails,
+    OrganizationLookupResponse,
     OrganizationMemberResponse,
     OrganizationResponse,
     UpdateOrganizationRequest,
+    normalize_inn,
 )
 from app.schemas.user import ErrorResponse, normalize_email
 from app.security import (
@@ -163,10 +168,61 @@ def read_organization(membership: Membership, db: DbSession) -> OrganizationResp
     return OrganizationResponse.model_validate(_load_organization(db, membership.organization_id))
 
 
+@router.get(
+    "/lookup",
+    response_model=OrganizationLookupResponse,
+    summary="Найти организацию по ИНН в DaData",
+    responses={
+        **NOT_FOUND_RESPONSES,
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "model": ErrorResponse,
+            "description": INN_FORMAT_MESSAGE,
+        },
+    },
+)
+def lookup_organization(inn: str, membership: Membership) -> OrganizationLookupResponse:
+    """Подсказать реквизиты организации по ИНН.
+
+    Доступ как у чтения организации (`Membership`), а не `EditableMembership`:
+    поиск ничего не меняет, и роль без права правки им тоже пользуется.
+
+    Неудачный поиск — это `200` с `found: false`, а не ошибка: форма остаётся
+    рабочей, а пользователь видит разный текст для «не найдено» и «сервис
+    недоступен». `422` остаётся только за ИНН не по формату — это ошибка ввода.
+    """
+    try:
+        normalized = normalize_inn(inn)
+    except ValueError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, INN_FORMAT_MESSAGE) from None
+    if normalized is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, INN_FORMAT_MESSAGE)
+
+    try:
+        found = dadata.lookup_organization(normalized)
+    except dadata.DadataUnavailable:
+        # Недоступность внешнего сервиса не блокирует сохранение: пользователь
+        # проверяет ИНН сам, а причина ответа различима на форме.
+        return OrganizationLookupResponse(found=False, reason="unavailable", details=None)
+
+    if found is None:
+        return OrganizationLookupResponse(found=False, reason="not_found", details=None)
+
+    return OrganizationLookupResponse(
+        found=True,
+        reason=None,
+        details=OrganizationLookupDetails(
+            name=found.name,
+            kpp=found.kpp,
+            ogrn=found.ogrn,
+            address=found.address,
+        ),
+    )
+
+
 @router.patch(
     "",
     response_model=OrganizationResponse,
-    summary="Изменить название и ИНН организации",
+    summary="Изменить название, ИНН и реквизиты организации",
     responses={
         **NOT_FOUND_RESPONSES,
         # Тело, которое не декодируется как UTF-8, FastAPI превращает в 400
@@ -197,6 +253,9 @@ def update_organization(
 
     organization.name = payload.name
     organization.inn = payload.inn
+    organization.kpp = payload.kpp
+    organization.ogrn = payload.ogrn
+    organization.address = payload.address
     try:
         db.commit()
     except IntegrityError:

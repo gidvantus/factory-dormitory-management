@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     smtp_use_tls: bool = True
 
+    # --- DaData ---
+    # Токен подстановки (suggestions). Пустая строка — нормальное состояние:
+    # приложение импортируется и работает, а поиск организации отвечает
+    # «сервис недоступен». Токен берётся как есть: в переменной окружения
+    # лежит только сам токен, без имени переменной из личного кабинета.
+    dadata_api_key: str = ""
+    dadata_url: str = "https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party"
+    dadata_timeout_seconds: float = 5.0
+
 
 @lru_cache
 def get_settings() -> Settings:
