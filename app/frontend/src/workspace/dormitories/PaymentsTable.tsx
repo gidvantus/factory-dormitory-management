@@ -115,7 +115,13 @@ function PaymentEntry({
           )}
         </td>
         <td className={styles.actionCell}>
-          <button type="button" disabled={saving} onClick={() => onDelete(draft)}>
+          <button
+            type="button"
+            className="btn btn--ghost btn--compact"
+            aria-busy={saving}
+            disabled={saving}
+            onClick={() => onDelete(draft)}
+          >
             Удалить
           </button>
           {(saving || error) && (
@@ -216,12 +222,13 @@ function PaymentsContent({
 
   return (
     <section className={styles.page} data-testid={`dormitory-payments-${kind}`}>
-      <div className={styles.heading}>
+      <div className="toolbar">
         <h2>{title}</h2>
         <ColumnsControls />
         <button
           type="button"
-          className={styles.addButton}
+          className="btn btn--primary btn--compact"
+          aria-busy={adding}
           disabled={adding || clearing || status !== 'ready'}
           onClick={() => void add()}
         >
@@ -230,6 +237,7 @@ function PaymentsContent({
         <button
           type="button"
           className={styles.clearButton}
+          aria-busy={clearing}
           disabled={adding || removing || clearing || status !== 'ready'}
           onClick={() => {
             setError('');
@@ -298,17 +306,23 @@ function PaymentsContent({
               {error}
             </p>
           )}
-          <div className={styles.modalActions}>
-            <button type="button" disabled={clearing} onClick={() => setConfirmClear(false)}>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="btn btn--ghost btn--compact"
+              disabled={clearing}
+              onClick={() => setConfirmClear(false)}
+            >
               Отмена
             </button>
             <button
               type="button"
-              className={styles.deleteButton}
+              className="btn btn--danger btn--compact"
+              aria-busy={clearing}
               disabled={clearing}
               onClick={() => void clear()}
             >
-              {clearing ? 'Очищаем…' : 'Удалить все строки'}
+              Удалить все строки
             </button>
           </div>
         </Modal>
@@ -329,17 +343,23 @@ function PaymentsContent({
               {error}
             </p>
           )}
-          <div className={styles.modalActions}>
-            <button type="button" disabled={removing} onClick={() => setDeleting(null)}>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="btn btn--ghost btn--compact"
+              disabled={removing}
+              onClick={() => setDeleting(null)}
+            >
               Отмена
             </button>
             <button
               type="button"
-              className={styles.deleteButton}
+              className="btn btn--danger btn--compact"
+              aria-busy={removing}
               disabled={removing}
               onClick={() => void remove()}
             >
-              {removing ? 'Удаляем…' : 'Удалить строку'}
+              Удалить строку
             </button>
           </div>
         </Modal>

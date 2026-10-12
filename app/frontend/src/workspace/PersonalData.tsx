@@ -8,7 +8,7 @@ export function PersonalData(): JSX.Element {
 
   return (
     <section aria-labelledby="profile-title" data-testid="personal-data-page">
-      <div className={styles['page-heading']}>
+      <div className="page-head">
         <div>
           <p className={styles.eyebrow}>Учётная запись</p>
           <h1 id="profile-title" tabIndex={-1}>

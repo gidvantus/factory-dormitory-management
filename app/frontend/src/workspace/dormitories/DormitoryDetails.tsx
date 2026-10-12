@@ -208,7 +208,7 @@ export function DormitoryDetails(): JSX.Element {
             </div>
             <button
               type="button"
-              className={styles.periodApply}
+              className="btn btn--primary btn--compact"
               onClick={() =>
                 setSettings({ key: selectedCustomTab?.table_key ?? standardKey ?? 'residents' })
               }
@@ -253,10 +253,14 @@ export function DormitoryDetails(): JSX.Element {
                       aria-describedby={periodError ? 'dormitory-period-error' : undefined}
                     />
                   </label>
-                  <button className={styles.periodApply} type="submit">
+                  <button className="btn btn--primary btn--compact" type="submit">
                     Применить
                   </button>
-                  <button className={styles.periodReset} type="button" onClick={resetPeriod}>
+                  <button
+                    className="btn btn--ghost btn--compact"
+                    type="button"
+                    onClick={resetPeriod}
+                  >
                     Текущий месяц
                   </button>
                 </div>

@@ -1,28 +1,6 @@
 .page {
   min-width: 0;
 }
-.page .createButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  flex: none;
-  padding: 11px 17px;
-  border: 1px solid var(--mint-600);
-  border-radius: 12px;
-  background: var(--mint-600);
-  color: white;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
-}
-.page .createButton:hover:not(:disabled) {
-  background: var(--mint-700);
-}
-.page .createButton:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
 .page .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 285px), 1fr));
@@ -65,7 +43,7 @@
   padding: 7px 11px;
   border: 1px solid var(--color-border-strong);
   border-radius: 8px;
-  background: white;
+  background: var(--color-bg-surface);
   color: var(--color-text-body);
   cursor: pointer;
   font-size: 12px;
@@ -191,7 +169,7 @@
   padding: 10px 15px;
   border: 1px solid var(--color-border-strong);
   border-radius: 11px;
-  background: white;
+  background: var(--color-bg-surface);
   color: var(--color-text);
   font-size: 13px;
   font-weight: 700;
@@ -254,35 +232,12 @@
   padding: 7px 9px;
   border: 1px solid var(--color-border-strong);
   border-radius: 9px;
-  background: white;
+  background: var(--color-bg-surface);
   color: var(--color-text);
   font: 600 12px var(--font-body);
 }
 .periodField input[aria-invalid='true'] {
   border-color: var(--color-danger);
-}
-.periodApply,
-.periodReset {
-  min-height: 37px;
-  padding: 8px 11px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 9px;
-  background: white;
-  color: var(--color-text-body);
-  font-size: 12px;
-  font-weight: 700;
-}
-.periodApply {
-  border-color: var(--mint-600);
-  background: var(--mint-600);
-  color: white;
-}
-.periodApply:hover {
-  background: var(--mint-700);
-}
-.periodReset:hover {
-  border-color: var(--mint-200);
-  color: var(--mint-700);
 }
 .periodError {
   color: var(--color-danger);
@@ -366,7 +321,7 @@
   color: var(--mint-700);
 }
 .subtab[aria-current='page'] {
-  background: white;
+  background: var(--color-bg-surface);
   color: var(--mint-700);
   box-shadow: var(--shadow-sm);
 }
@@ -388,13 +343,6 @@
   color: var(--color-text-muted);
   font-size: 13px;
 }
-.dialogActions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 8px;
-}
 .optional {
   color: var(--color-text-muted);
   font-size: 11px;
@@ -404,12 +352,8 @@
   color: var(--color-text-muted);
   font-size: 12px;
 }
-.templateHint button {
-  padding: 0;
-  border: 0;
-  background: transparent;
+.templateHint .link-button {
   color: var(--mint-700);
-  text-decoration: underline;
 }
 .templateSection {
   margin-top: 32px;
@@ -441,7 +385,7 @@
   padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: white;
+  background: var(--color-bg-surface);
 }
 .templateList strong {
   font-size: 13px;
@@ -449,18 +393,6 @@
 .templateList span {
   color: var(--color-text-muted);
   font-size: 12px;
-}
-.templateList button {
-  padding: 7px 9px;
-  border: 1px solid var(--color-border);
-  border-radius: 7px;
-  background: white;
-  color: var(--color-danger);
-  font-size: 12px;
-  font-weight: 700;
-}
-.templateList button:disabled {
-  opacity: 0.5;
 }
 .templateList .templateOpen {
   flex: 1;
@@ -538,13 +470,6 @@
   .periodField input {
     width: 100%;
   }
-  .periodApply,
-  .periodReset {
-    flex: 1 1 120px;
-  }
-  .page .createButton {
-    width: 100%;
-  }
   .page .grid {
     gap: 16px;
   }
@@ -555,9 +480,8 @@
   .page .clientName {
     font-size: 17px;
   }
-  .dialogActions > button {
+  :global(.dialog-actions) > * {
     flex: 1;
-    padding-inline: 16px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

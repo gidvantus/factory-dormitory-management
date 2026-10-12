@@ -41,7 +41,7 @@
   padding: 10px;
   border: 1px solid var(--color-border-strong);
   border-radius: 9px;
-  background: white;
+  background: var(--color-bg-surface);
   color: var(--color-text);
   font: 400 13px var(--font-body);
 }
@@ -65,7 +65,7 @@
   padding: 9px 12px;
   border: 1px solid var(--color-border-strong);
   border-radius: 9px;
-  background: white;
+  background: var(--color-bg-surface);
   color: var(--color-text);
   font: 600 12px var(--font-body);
   cursor: pointer;

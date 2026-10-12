@@ -130,7 +130,7 @@
   background: #ffffff80;
 }
 .sidebar nav button[aria-current] {
-  background: #fff;
+  background: var(--color-bg-surface);
   color: #2d7257;
   border-color: #e9e7df;
   box-shadow: 0 2px 3px #263b2e03;
@@ -225,7 +225,7 @@
   min-height: 66px;
   padding: 15px 35px;
   border-bottom: 1px solid #eae7df;
-  background: #fffdf9;
+  background: var(--cream-50);
   color: #64715d;
   font-size: 12px;
 }
@@ -326,7 +326,7 @@
   background: #285f48;
 }
 .secondary {
-  background: #fff;
+  background: var(--color-bg-surface);
   border: 1px solid #e2e4db;
   color: #536052;
 }
@@ -407,7 +407,7 @@
   padding: 0 10px;
   height: 37px;
   border: 1px solid #e1e4da;
-  background: #fff;
+  background: var(--color-bg-surface);
   border-radius: 7px;
   color: #64715d;
 }
@@ -572,7 +572,7 @@
 }
 .block {
   border: 1px solid #e2e5db;
-  background: #fff;
+  background: var(--color-bg-surface);
   border-radius: 13px;
   box-shadow: 0 2px 3px #25321902;
   overflow: hidden;
@@ -1008,7 +1008,7 @@
   color: #64715d;
 }
 .roster {
-  background: #fff;
+  background: var(--color-bg-surface);
   border: 1px solid #e1e6d8;
   border-radius: 13px;
   overflow: hidden;
@@ -1064,7 +1064,7 @@
 }
 .filterChips button {
   padding: 5px 10px;
-  background: #fff;
+  background: var(--color-bg-surface);
   border: 1px solid #e1e6d9;
   border-radius: 6px;
   font-size: 11px;
@@ -1211,7 +1211,7 @@
   padding: 10px 11px;
   border: 1px solid #dce4d4;
   border-radius: 7px;
-  background: #fff;
+  background: var(--color-bg-surface);
   font-size: 13px;
   font-weight: 400;
   color: #4d6342;
@@ -1264,7 +1264,7 @@
 .editorPreview article {
   border: 1px solid #e0e8d6;
   border-radius: 10px;
-  background: white;
+  background: var(--color-bg-surface);
   margin-top: 15px;
   padding: 21px;
 }
@@ -1844,7 +1844,7 @@
     height: 29px;
     border: 1px solid #e0e7d5;
     border-radius: 6px;
-    background: #fff;
+    background: var(--color-bg-surface);
   }
   .topbar {
     padding: 13px 18px;

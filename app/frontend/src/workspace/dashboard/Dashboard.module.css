@@ -78,38 +78,13 @@
   padding: 7px 10px;
   border: 1px solid var(--color-border-strong);
   border-radius: 9px;
-  background: white;
+  background: var(--color-bg-surface);
   color: var(--ink-900);
   font: 600 13px var(--font-body);
   color-scheme: light;
 }
 .dashboard .dateField input[aria-invalid='true'] {
   border-color: var(--color-danger);
-}
-.dashboard .applyButton,
-.dashboard .resetButton {
-  min-height: 39px;
-  padding: 8px 15px;
-  border-radius: 9px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.dashboard .applyButton {
-  border: 1px solid var(--mint-600);
-  background: var(--mint-600);
-  color: white;
-}
-.dashboard .applyButton:hover {
-  background: var(--mint-700);
-}
-.dashboard .resetButton {
-  border: 1px solid var(--color-border-strong);
-  background: white;
-  color: var(--color-text-body);
-}
-.dashboard .resetButton:hover {
-  background: var(--cream-100);
 }
 .dashboard .formError {
   width: 100%;
@@ -135,11 +110,8 @@
   border-radius: 12px;
   color: var(--color-danger);
 }
-.dashboard .loadError button {
-  border: 0;
-  background: transparent;
-  text-decoration: underline;
-  cursor: pointer;
+.dashboard .loadError .link-button {
+  color: inherit;
 }
 .dashboard .summary {
   display: grid;
@@ -195,7 +167,7 @@
 }
 .dashboard .card {
   min-width: 0;
-  background: white;
+  background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: 18px;
   overflow: hidden;
@@ -204,7 +176,7 @@
 .dashboard .tariffCard {
   min-width: 0;
   padding: 18px 24px 20px;
-  background: white;
+  background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: 18px;
 }
@@ -289,7 +261,7 @@
   padding: 7px 10px;
   border: 1px solid var(--color-border-strong);
   border-radius: 9px;
-  background: #fff;
+  background: var(--color-bg-surface);
   color: var(--color-text);
   font: inherit;
 }
@@ -622,11 +594,6 @@
     width: 100%;
     padding-inline: 6px;
   }
-  .dashboard .applyButton,
-  .dashboard .resetButton {
-    padding-inline: 8px;
-    font-size: 11px;
-  }
   .dashboard .snapshotNote {
     margin-top: -8px;
     line-height: 1.6;
@@ -731,7 +698,7 @@
   padding: 8px 11px;
   border: 1px solid var(--color-border-strong);
   border-radius: 8px;
-  background: white;
+  background: var(--color-bg-surface);
   color: var(--color-text);
   font: 600 12px var(--font-body);
   cursor: pointer;
@@ -774,7 +741,7 @@
   padding: 6px 8px;
   border: 1px solid var(--color-border-strong);
   border-radius: 8px;
-  background: white;
+  background: var(--color-bg-surface);
   cursor: grab;
   font-size: 17px;
   line-height: 1;

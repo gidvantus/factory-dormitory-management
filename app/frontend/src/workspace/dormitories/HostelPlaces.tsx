@@ -217,12 +217,22 @@ function AddHostelDialog({
             {error}
           </p>
         )}
-        <div className={styles.dialogActions}>
-          <button type="button" onClick={onClose} disabled={saving}>
+        <div className="dialog-actions">
+          <button
+            type="button"
+            className="btn btn--ghost btn--compact"
+            onClick={onClose}
+            disabled={saving}
+          >
             Отмена
           </button>
-          <button type="submit" disabled={saving}>
-            {saving ? 'Добавляем…' : 'Добавить хостел'}
+          <button
+            type="submit"
+            className="btn btn--primary btn--compact"
+            aria-busy={saving}
+            disabled={saving}
+          >
+            Добавить хостел
           </button>
         </div>
       </form>
@@ -276,17 +286,23 @@ function RemoveHostelDialog({
           {error}
         </p>
       )}
-      <div className={styles.dialogActions}>
-        <button type="button" onClick={onClose} disabled={saving}>
+      <div className="dialog-actions">
+        <button
+          type="button"
+          className="btn btn--ghost btn--compact"
+          onClick={onClose}
+          disabled={saving}
+        >
           Отмена
         </button>
         <button
           type="button"
+          className="btn btn--danger btn--compact"
           onClick={() => void remove()}
+          aria-busy={saving}
           disabled={saving}
-          className={styles.removeConfirm}
         >
-          {saving ? 'Убираем…' : 'Убрать хостел'}
+          Убрать хостел
         </button>
       </div>
     </Modal>
@@ -340,7 +356,7 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
 
   return (
     <section className={styles.page} data-testid="dormitory-places">
-      <div className={styles.heading}>
+      <div className="toolbar">
         <div>
           <h2>Места</h2>
           <p data-testid="places-month-applied">Все дни месяца · {monthTitle(month)}</p>
@@ -349,6 +365,7 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
         <div className={styles.monthFilter} role="group" aria-label="Выбор месяца и года">
           <button
             type="button"
+            className="btn btn--ghost btn--compact"
             onClick={() => onMonthChange(shiftMonth(month, -1))}
             aria-label="Предыдущий месяц"
           >
@@ -367,6 +384,7 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
           </label>
           <button
             type="button"
+            className="btn btn--ghost btn--compact"
             onClick={() => onMonthChange(shiftMonth(month, 1))}
             aria-label="Следующий месяц"
           >
@@ -398,7 +416,7 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
               </div>
               <button
                 type="button"
-                className={styles.addButton}
+                className="btn btn--primary btn--compact"
                 onClick={() => setAddingMonth(month.month)}
               >
                 + Добавить хостел
@@ -417,6 +435,7 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
                   <h4>{hostel.name}</h4>
                   <button
                     type="button"
+                    className="btn btn--ghost btn--compact"
                     onClick={() => setRemoving({ hostel, month: month.month })}
                     aria-label={`Убрать хостел ${hostel.name} с ${monthTitle(month.month)}`}
                   >

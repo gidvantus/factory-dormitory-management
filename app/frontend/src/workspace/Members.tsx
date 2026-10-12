@@ -112,7 +112,7 @@ export function Members(): JSX.Element {
 
   return (
     <section aria-labelledby="members-title" data-testid="members-page">
-      <div className={styles['page-heading']}>
+      <div className="page-head">
         <div>
           <p className={styles.eyebrow}>Рабочее пространство</p>
           <h1 id="members-title" tabIndex={-1}>
@@ -157,7 +157,7 @@ export function Members(): JSX.Element {
       {status === 'ready' && (
         <>
           <section
-            className={styles['table-card']}
+            className="panel"
             aria-labelledby="members-table-title"
             data-testid="members-table"
           >
@@ -168,7 +168,7 @@ export function Members(): JSX.Element {
               </p>
             </div>
             <div className={styles['table-scroll']}>
-              <table className={styles['members-table']}>
+              <table className={`${styles['members-table']} data-table`}>
                 <caption className="visually-hidden">Участники организации</caption>
                 <thead>
                   <tr>
@@ -190,9 +190,7 @@ export function Members(): JSX.Element {
                       <td data-testid="member-role">{roleLabel(member.role)}</td>
                       <td>
                         <span
-                          className={`${styles.tag} ${
-                            member.is_active ? styles['tag--ok'] : styles['tag--wait']
-                          }`}
+                          className={`tag ${member.is_active ? 'tag--ok' : 'tag--wait'}`}
                           data-testid="member-status"
                           data-active={String(member.is_active)}
                         >

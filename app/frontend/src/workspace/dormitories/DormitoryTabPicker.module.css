@@ -30,7 +30,7 @@
 .controls button {
   padding: 8px 10px;
   border: 1px solid var(--color-border-strong);
-  background: white;
+  background: var(--color-bg-surface);
   border-radius: 7px;
   font: inherit;
   font-size: 12px;
@@ -81,7 +81,7 @@
   padding: 7px;
   border: 1px solid var(--color-border-strong);
   border-radius: 7px;
-  background: white;
+  background: var(--color-bg-surface);
   font: inherit;
   color: var(--color-text);
 }

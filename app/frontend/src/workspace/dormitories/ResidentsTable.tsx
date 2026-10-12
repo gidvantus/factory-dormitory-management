@@ -171,7 +171,9 @@ function ResidentRow({
       <>
         <button
           type="button"
+          className="btn btn--ghost btn--compact"
           aria-label={`Записать на ${kind === 'advance' ? 'аванс' : 'расчёт'}, ${rowLabel}`}
+          aria-busy={registering === kind}
           disabled={registering !== null || preparingTransfer}
           onClick={() => void registerPayment(kind)}
         >
@@ -356,6 +358,8 @@ function ResidentRow({
         <td>
           <button
             type="button"
+            className="btn btn--ghost btn--compact"
+            aria-busy={preparingTransfer && !outflowAction}
             disabled={registering !== null || preparingTransfer}
             onClick={(event) => void openTransfer(event.currentTarget)}
           >
@@ -370,6 +374,8 @@ function ResidentRow({
         <td>
           <button
             type="button"
+            className="btn btn--ghost btn--compact"
+            aria-busy={preparingTransfer && outflowAction}
             disabled={registering !== null || preparingTransfer}
             onClick={(event) => void openTransfer(event.currentTarget, true)}
           >
@@ -384,7 +390,7 @@ function ResidentRow({
         <td>
           <button
             type="button"
-            className={styles.deleteButton}
+            className="btn btn--ghost btn--compact"
             disabled={registering !== null || preparingTransfer}
             onClick={() => onDelete(draft)}
           >
@@ -475,7 +481,8 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
         <ColumnsControls />
         <button
           type="button"
-          className={styles.addButton}
+          className="btn btn--primary btn--compact"
+          aria-busy={adding}
           disabled={adding || status !== 'ready'}
           onClick={() => void add()}
         >
@@ -597,17 +604,23 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
               {error}
             </p>
           )}
-          <div className={styles.modalActions}>
-            <button type="button" disabled={removing} onClick={() => setDeleting(null)}>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="btn btn--ghost btn--compact"
+              disabled={removing}
+              onClick={() => setDeleting(null)}
+            >
               Отмена
             </button>
             <button
               type="button"
-              className={styles.deleteButton}
+              className="btn btn--danger btn--compact"
+              aria-busy={removing}
               disabled={removing}
               onClick={() => void remove()}
             >
-              {removing ? 'Удаляем…' : 'Удалить строку'}
+              Удалить строку
             </button>
           </div>
         </Modal>
