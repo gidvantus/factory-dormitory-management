@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { RequireAuth } from './auth/RequireAuth';
+import { CookieConsent } from './components/CookieConsent';
 import { Activate } from './pages/Activate';
 import { Cabinet } from './pages/Cabinet';
 import { Document } from './pages/Document';
@@ -46,79 +47,85 @@ const Personnel = lazy(() =>
  * «Тариф» с тарифом самой организации (`/cabinet/tariffs`).
  * Публичные документы `/documents/:code` — там же, вне `RequireAuth`: на них
  * ведут ссылки из подвала, и открывать их обязан анонимный посетитель.
+ * Плашка согласия на cookie смонтирована рядом с маршрутами, а не внутри них:
+ * так она видна и на публичных экранах, и во всём кабинете, и при этом не
+ * перемонтируется при переходах — согласие не сбрасывается навигацией.
  */
 export function App(): JSX.Element {
   return (
-    <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route path="/preview/dormitory-settings" element={<DormitoryDesignPreview />} />
-      <Route
-        path="/preview/personnel"
-        element={
-          <Suspense fallback={<p role="status">Загрузка макета…</p>}>
-            <PersonnelDesignPreview />
-          </Suspense>
-        }
-      />
-      <Route
-        path="/preview/statistics"
-        element={
-          <Suspense fallback={<p role="status">Загрузка макета…</p>}>
-            <StatisticsDesignPreview />
-          </Suspense>
-        }
-      />
-      <Route path="/login" element={<Landing />} />
-      <Route path="/register" element={<Landing />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/pricing" element={<Pricing />} />
-      <Route path="/documents/:code" element={<Document />} />
-      <Route path="/activate" element={<Activate />} />
-      <Route path="/activate/:token" element={<Activate />} />
-      <Route
-        path="/cabinet"
-        element={
-          <RequireAuth>
-            <Cabinet />
-          </RequireAuth>
-        }
-      >
-        <Route index element={<WorkspaceOverview />} />
-        <Route path="dormitories" element={<Dormitories />} />
-        <Route path="dormitories/:dormitoryId/*" element={<DormitoryDetails />} />
-        <Route path="organization" element={<Organization />} />
-        <Route path="organization/members" element={<Members />} />
-        <Route path="tariffs" element={<Tariffs />} />
-        {/* Старая ссылка на прайс-лист: редактора больше нет, но закладка не должна
-            давать 404 — редирект приводит в раздел «Тариф». */}
-        <Route path="tariffs/catalog" element={<Navigate to="/cabinet/tariffs" replace />} />
+    <>
+      <CookieConsent />
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/preview/dormitory-settings" element={<DormitoryDesignPreview />} />
         <Route
-          path="personnel"
+          path="/preview/personnel"
           element={
-            <Suspense fallback={<p role="status">Загружаем персонал…</p>}>
-              <Personnel />
+            <Suspense fallback={<p role="status">Загрузка макета…</p>}>
+              <PersonnelDesignPreview />
             </Suspense>
           }
         />
         <Route
-          path="statistics"
+          path="/preview/statistics"
           element={
-            <Suspense fallback={<p>Загрузка статистики…</p>}>
-              <Statistics />
+            <Suspense fallback={<p role="status">Загрузка макета…</p>}>
+              <StatisticsDesignPreview />
             </Suspense>
           }
         />
+        <Route path="/login" element={<Landing />} />
+        <Route path="/register" element={<Landing />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/pricing" element={<Pricing />} />
+        <Route path="/documents/:code" element={<Document />} />
+        <Route path="/activate" element={<Activate />} />
+        <Route path="/activate/:token" element={<Activate />} />
         <Route
-          path="statistics/:reportId"
+          path="/cabinet"
           element={
-            <Suspense fallback={<p>Загрузка отчёта…</p>}>
-              <Statistics />
-            </Suspense>
+            <RequireAuth>
+              <Cabinet />
+            </RequireAuth>
           }
-        />
-        <Route path="profile" element={<PersonalData />} />
-      </Route>
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+        >
+          <Route index element={<WorkspaceOverview />} />
+          <Route path="dormitories" element={<Dormitories />} />
+          <Route path="dormitories/:dormitoryId/*" element={<DormitoryDetails />} />
+          <Route path="organization" element={<Organization />} />
+          <Route path="organization/members" element={<Members />} />
+          <Route path="tariffs" element={<Tariffs />} />
+          {/* Старая ссылка на прайс-лист: редактора больше нет, но закладка не должна
+              давать 404 — редирект приводит в раздел «Тариф». */}
+          <Route path="tariffs/catalog" element={<Navigate to="/cabinet/tariffs" replace />} />
+          <Route
+            path="personnel"
+            element={
+              <Suspense fallback={<p role="status">Загружаем персонал…</p>}>
+                <Personnel />
+              </Suspense>
+            }
+          />
+          <Route
+            path="statistics"
+            element={
+              <Suspense fallback={<p>Загрузка статистики…</p>}>
+                <Statistics />
+              </Suspense>
+            }
+          />
+          <Route
+            path="statistics/:reportId"
+            element={
+              <Suspense fallback={<p>Загрузка отчёта…</p>}>
+                <Statistics />
+              </Suspense>
+            }
+          />
+          <Route path="profile" element={<PersonalData />} />
+        </Route>
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </>
   );
 }

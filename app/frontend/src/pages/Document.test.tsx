@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { mockFetch } from '../test/mockFetch';
@@ -126,9 +126,17 @@ describe('публичная страница документа', () => {
 describe('колонка «Документы» в подвале', () => {
   it('ведёт на три документа сервиса', async () => {
     mockFetch(() => ANONYMOUS);
-    renderApp('/');
+    const { container } = renderApp('/');
 
     await screen.findByTestId('landing');
+
+    // Ссылка «Политика конфиденциальности» есть ещё и в плашке согласия на
+    // cookie, поэтому проверяем колонку подвала: по всей странице таких ссылок
+    // законно две, а внутри подвала на каждый документ должна быть ровно одна.
+    const footer = container.querySelector<HTMLElement>('.footer__grid');
+    if (footer === null) {
+      throw new Error('Не найден подвал страницы');
+    }
 
     const links: Array<[string, string]> = [
       ['Политика конфиденциальности', '/documents/privacy-policy'],
@@ -136,7 +144,7 @@ describe('колонка «Документы» в подвале', () => {
       ['Оферта для организации', '/documents/offer'],
     ];
     for (const [label, href] of links) {
-      const found = screen.getAllByRole('link', { name: label });
+      const found = within(footer).getAllByRole('link', { name: label });
       expect(found).toHaveLength(1);
       expect(found[0]).toHaveAttribute('href', href);
     }
