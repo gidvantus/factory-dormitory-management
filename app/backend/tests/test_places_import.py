@@ -225,6 +225,39 @@ def test_text_in_numeric_column_fails_and_writes_nothing(
     assert november_values(client, base)["Хостел 1"]["residents_m"] == {"2025-11-05": 4}
 
 
+def test_negative_value_is_an_error_and_writes_nothing(
+    client: TestClient, db_session: Session
+) -> None:
+    """Минус в ячейке — ошибка разбора, а не отказ подтверждения на проверке базы.
+
+    Раньше `-5` проходило разбор как `ready`, а `confirm` падал 500 на
+    `ck_hostel_cell_nonnegative`: файл, который заведомо нельзя применить,
+    нельзя и показывать готовым.
+    """
+    sign_in(client, db_session, email=PLACES_EMAIL)
+    base = places_base(create_dormitory(client))
+    hostel_id = client.post(base, json={"name": "Хостел 1", "month": "2025-11-01"}).json()["id"]
+    saved = client.put(f"{base}/{hostel_id}/cells/2025-11-05/residents_m", json={"value": 4})
+    assert saved.status_code == 204
+    workbook = load_workbook(BytesIO(download_template(client, base)))
+    workbook[SHEET_TITLE].cell(2, 7, -5)
+    workbook[SHEET_TITLE].cell(3, 8, "-5,0")
+
+    response = upload(client, base, book_content(workbook))
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["status"] == "failed"
+    assert {(error["row"], error["column"]) for error in body["errors"]} == {
+        (2, "05.11.2025"),
+        (3, "06.11.2025"),
+    }
+    assert all("0 до 1 000 000 000" in error["message"] for error in body["errors"])
+    # Ячейки месяца не тронуты, и применить такое задание нельзя.
+    assert november_values(client, base)["Хостел 1"]["residents_m"] == {"2025-11-05": 4}
+    assert client.post(f"{base}/import/{body['import_id']}/confirm").status_code == 409
+
+
 def test_missing_day_column_is_an_error(client: TestClient, db_session: Session) -> None:
     sign_in(client, db_session, email=PLACES_EMAIL)
     base = places_base(create_dormitory(client))

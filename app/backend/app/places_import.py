@@ -131,7 +131,12 @@ def day_title(day: date) -> str:
 
 
 def _numeric_value(raw: object) -> int | None:
-    """Целое из ячейки. `None` — пусто («значение удаляется»), `ValueError` — не число.
+    """Неотрицательное целое из ячейки. `None` — пусто («значение удаляется»).
+
+    `ValueError` — не число, дробь или отрицательное значение: шаблон принимает
+    только целые от 0 до `MAX_VALUE` — тот же контракт, что у ручного ввода ячейки
+    (`Field(ge=0)`). Без этой проверки минус доходил бы до базы и падал там на
+    `ck_hostel_cell_nonnegative` пятисоткой вместо ошибки разбора.
 
     Принимается и `1 234`, и `1 234,00`, и `1234.00`: шаблон заполняют в Excel,
     где разделитель разрядов и запятая как десятичный знак — обычное дело.
@@ -141,9 +146,11 @@ def _numeric_value(raw: object) -> int | None:
     if isinstance(raw, bool):
         raise ValueError
     if isinstance(raw, int):
+        if raw < 0:
+            raise ValueError
         return raw
     if isinstance(raw, float):
-        if not raw.is_integer():
+        if not raw.is_integer() or raw < 0:
             raise ValueError
         return int(raw)
     text = normalize_text(raw).replace(" ", "")
@@ -153,7 +160,7 @@ def _numeric_value(raw: object) -> int | None:
         number = Decimal(text.replace(",", "."))
     except InvalidOperation as error:
         raise ValueError from error
-    if not number.is_finite() or number != number.to_integral_value():
+    if not number.is_finite() or number != number.to_integral_value() or number < 0:
         raise ValueError
     return int(number)
 
