@@ -149,7 +149,12 @@ def test_success_statuses_stay_documented(client: TestClient) -> None:
     assert "200" in documented_statuses(client, "/api/me", "get")
 
 
-# --- Тарифы (issue #26) ------------------------------------------------------
+# --- Тарифы (issue #26, #34) -------------------------------------------------
+#
+# Тарифы теперь только читают: ручки создания, правки, удаления, выбора тарифа
+# организацией и кабинетного `GET /manage` сняты вместе с редактором прайса,
+# поэтому контракт остаётся у двух чтений — публичного списка и тарифа
+# организации. Отсутствие снятых путей в схеме проверяет `test_tariffs.py`.
 
 
 def test_tariffs_public_list_is_anonymous_and_documented(client: TestClient) -> None:
@@ -160,67 +165,8 @@ def test_tariffs_public_list_is_anonymous_and_documented(client: TestClient) -> 
     assert "401" not in documented
 
 
-def test_tariffs_manage_documents_every_status_it_returns(client: TestClient) -> None:
-    """Список для кабинета: 401 без cookie, 403 роли без права, 404 без организации."""
-    documented = documented_statuses(client, "/api/tariffs/manage", "get")
-
-    assert {"200", "401", "403", "404"} <= documented
-
-
-def test_tariffs_create_documents_every_status_it_returns(client: TestClient) -> None:
-    documented = documented_statuses(client, "/api/tariffs", "post")
-
-    assert {"201", "400", "401", "403", "404", "409", "422"} <= documented
-
-
-def test_tariffs_update_documents_every_status_it_returns(client: TestClient) -> None:
-    documented = documented_statuses(client, "/api/tariffs/{tariff_id}", "patch")
-
-    assert {"200", "400", "401", "403", "404", "409", "422"} <= documented
-
-
-def test_tariffs_delete_documents_every_status_it_returns(client: TestClient) -> None:
-    documented = documented_statuses(client, "/api/tariffs/{tariff_id}", "delete")
-
-    assert {"204", "401", "403", "404", "422"} <= documented
-
-
-def test_tariffs_create_broken_json_400_is_documented(
-    client: TestClient, db_session: Session
-) -> None:
-    user = create_user(db_session, email="tariff-owner@example.com")
-    organizations_for(db_session, user)
-    assert login(client, user.email).status_code == 200
-
-    response = client.post("/api/tariffs", content=BROKEN_JSON_BODY, headers=BROKEN_JSON_HEADERS)
-
-    assert response.status_code == 400
-    assert "400" in documented_statuses(client, "/api/tariffs", "post")
-
-
 def test_tariffs_current_read_documents_every_status_it_returns(client: TestClient) -> None:
     """Тариф организации: 200 у участника, 401 без cookie, 403 и 404 по доступу."""
     documented = documented_statuses(client, "/api/tariffs/current", "get")
 
     assert {"200", "401", "403", "404"} <= documented
-
-
-def test_tariffs_current_put_documents_every_status_it_returns(client: TestClient) -> None:
-    documented = documented_statuses(client, "/api/tariffs/current", "put")
-
-    assert {"200", "400", "401", "403", "404", "422"} <= documented
-
-
-def test_tariffs_current_put_broken_json_400_is_documented(
-    client: TestClient, db_session: Session
-) -> None:
-    user = create_user(db_session, email="org-tariff-owner@example.com")
-    organizations_for(db_session, user)
-    assert login(client, user.email).status_code == 200
-
-    response = client.put(
-        "/api/tariffs/current", content=BROKEN_JSON_BODY, headers=BROKEN_JSON_HEADERS
-    )
-
-    assert response.status_code == 400
-    assert "400" in documented_statuses(client, "/api/tariffs/current", "put")
