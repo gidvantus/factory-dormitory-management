@@ -25,6 +25,14 @@ const COLUMNS: FooterColumn[] = [
     ],
   },
   {
+    title: 'Документы',
+    links: [
+      { label: 'Политика конфиденциальности', href: '/documents/privacy-policy' },
+      { label: 'Правила использования', href: '/documents/terms-of-use' },
+      { label: 'Оферта для организации', href: '/documents/offer' },
+    ],
+  },
+  {
     title: 'Связь',
     links: [
       { label: 'Запросить демо', href: '#demo' },

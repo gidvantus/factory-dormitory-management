@@ -4,6 +4,7 @@ import { Route, Routes } from 'react-router-dom';
 import { RequireAuth } from './auth/RequireAuth';
 import { Activate } from './pages/Activate';
 import { Cabinet } from './pages/Cabinet';
+import { Document } from './pages/Document';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { Landing } from './pages/Landing';
 import { NotFound } from './pages/NotFound';
@@ -45,6 +46,8 @@ const Personnel = lazy(() =>
  * `/pricing` тоже вне `RequireAuth`: прайс публичный, а в кабинете живёт раздел
  * «Тариф» с тарифом самой организации (`/cabinet/tariffs`) и отдельный
  * прайс-лист для владельца и администратора (`/cabinet/tariffs/catalog`).
+ * Публичные документы `/documents/:code` — там же, вне `RequireAuth`: на них
+ * ведут ссылки из подвала, и открывать их обязан анонимный посетитель.
  */
 export function App(): JSX.Element {
   return (
@@ -71,6 +74,7 @@ export function App(): JSX.Element {
       <Route path="/register" element={<Landing />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/pricing" element={<Pricing />} />
+      <Route path="/documents/:code" element={<Document />} />
       <Route path="/activate" element={<Activate />} />
       <Route path="/activate/:token" element={<Activate />} />
       <Route

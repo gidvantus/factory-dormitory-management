@@ -99,9 +99,20 @@ export interface OrganizationTariff {
   editable: boolean;
 }
 
+/** Строка списка документов: подвал и оглавление обходятся без текста. */
+export interface DocumentSummary {
+  code: string;
+  title: string;
+}
+
+/** Публичный документ целиком. `body` — plain text, абзацы разделены пустой строкой. */
+export interface Document extends DocumentSummary {
+  body: string;
+  updated_at: string;
+}
+
 /** Роли, которые можно выдать приглашением. `owner` у организации один. */
 export type InviteRole = 'admin' | 'manager' | 'commandant';
-
 export interface OrganizationMember {
   /** Идентификатор строки членства, а не пользователя. */
   id: number;
@@ -804,6 +815,16 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ tariff_id: tariffId }),
     });
+  },
+
+  /** Публичный список документов: страница `/documents/<код>` ходит сюда без сессии. */
+  documents(signal?: AbortSignal): Promise<DocumentSummary[]> {
+    return request<DocumentSummary[]>('/documents', { signal });
+  },
+
+  /** Публичный документ по коду. 404 приходит как ApiError: такого документа нет. */
+  document(code: string, signal?: AbortSignal): Promise<Document> {
+    return request<Document>(`/documents/${encodeURIComponent(code)}`, { signal });
   },
 
   reportReadiness(id: string, signal?: AbortSignal): Promise<DailyReportReadiness> {
