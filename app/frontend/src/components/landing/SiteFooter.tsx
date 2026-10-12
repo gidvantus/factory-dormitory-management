@@ -1,10 +1,15 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 interface FooterColumn {
   title: string;
   links: Array<{ label: string; href: string }>;
 }
 
+/**
+ * Колонки подвала. Якорные ссылки (`#…`) указывают на разделы главной, поэтому
+ * на любой другой странице к ним добавляется база `/`: иначе «Возможности» в
+ * подвале `/pricing` искали бы раздел на самой странице тарифов, где его нет.
+ */
 const COLUMNS: FooterColumn[] = [
   {
     title: 'Продукт',
@@ -44,6 +49,11 @@ const COLUMNS: FooterColumn[] = [
 
 /** Подвал: логотип, разделы страницы и копирайт. */
 export function SiteFooter(): JSX.Element {
+  const { pathname } = useLocation();
+  const onHome = pathname === '/';
+  const href = (target: string): string =>
+    target.startsWith('#') && !onHome ? `/${target}` : target;
+
   return (
     <footer className="site-footer">
       <div className="container">
@@ -91,10 +101,10 @@ export function SiteFooter(): JSX.Element {
               <ul>
                 {column.links.map((link) => (
                   <li key={link.label}>
-                    {link.href.startsWith('#') ? (
+                    {link.href.startsWith('#') && onHome ? (
                       <a href={link.href}>{link.label}</a>
                     ) : (
-                      <Link to={link.href}>{link.label}</Link>
+                      <Link to={href(link.href)}>{link.label}</Link>
                     )}
                   </li>
                 ))}
