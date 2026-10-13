@@ -1,4 +1,7 @@
-import { screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -113,6 +116,26 @@ describe('раздел «Документы» в кабинете', () => {
     // Файлы открывает браузер переходом по ссылке: запросов за ними быть не должно.
     expect(callsTo(fetchMock, '/api/billing/invoices/1/file')).toHaveLength(0);
     expect(callsTo(fetchMock, '/api/billing/invoices/1/act-file')).toHaveLength(0);
+  });
+
+  it('держит действия строки одним столбиком, а не подряд в одной строке', async () => {
+    mockFetch(routes({ status: 200, body: [PAID_INVOICE] }));
+    renderApp('/cabinet/documents');
+
+    await screen.findByTestId('documents-row');
+
+    // Все действия строки — внутри одного блока: без него ссылки подряд
+    // читались одной фразой «Скачать счётСкачать актОплатить».
+    const actions = screen.getByTestId('document-actions');
+    expect(actions).toHaveClass(styles['document-actions']);
+    expect(within(actions).getByTestId('document-download')).toBeInTheDocument();
+    expect(within(actions).getByTestId('document-act')).toBeInTheDocument();
+    expect(within(actions).getByTestId('document-status-close')).toBeInTheDocument();
+
+    // jsdom не считает CSS модулей: раскладку проверяем по самому файлу правил.
+    const css = readFileSync(resolve(process.cwd(), 'src/workspace/Workspace.module.css'), 'utf8');
+    const rule = /\.shell \.document-actions \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(rule).toContain('flex-direction: column');
   });
 
   it('не показывает ссылку на акт до оплаты', async () => {

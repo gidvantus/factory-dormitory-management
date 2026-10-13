@@ -199,55 +199,59 @@ export function Documents(): JSX.Element {
                       </span>
                     </td>
                     <td>
-                      <a
-                        className="link-button"
-                        href={invoiceFileUrl(invoice.id)}
-                        data-testid="document-download"
-                      >
-                        Скачать счёт
-                      </a>
-                      {invoice.has_act && (
+                      {/* Действия столбиком: в строке ссылки шли вплотную и
+                          читались одной фразой. */}
+                      <div className={styles['document-actions']} data-testid="document-actions">
                         <a
                           className="link-button"
-                          href={invoiceActFileUrl(invoice.id)}
-                          data-testid="document-act"
+                          href={invoiceFileUrl(invoice.id)}
+                          data-testid="document-download"
                         >
-                          Скачать акт
+                          Скачать счёт
                         </a>
-                      )}
-                      {invoice.can_manage && invoice.status === 'new' && (
-                        <>
+                        {invoice.has_act && (
+                          <a
+                            className="link-button"
+                            href={invoiceActFileUrl(invoice.id)}
+                            data-testid="document-act"
+                          >
+                            Скачать акт
+                          </a>
+                        )}
+                        {invoice.can_manage && invoice.status === 'new' && (
+                          <>
+                            <button
+                              type="button"
+                              className="link-button"
+                              disabled={acting === invoice.id}
+                              data-testid="document-status-paid"
+                              onClick={() => void changeStatus(invoice, 'paid')}
+                            >
+                              Оплатить
+                            </button>
+                            <button
+                              type="button"
+                              className="link-button"
+                              disabled={acting === invoice.id}
+                              data-testid="document-status-cancel"
+                              onClick={() => void changeStatus(invoice, 'cancelled')}
+                            >
+                              Отменить
+                            </button>
+                          </>
+                        )}
+                        {invoice.can_manage && invoice.status === 'paid' && (
                           <button
                             type="button"
                             className="link-button"
                             disabled={acting === invoice.id}
-                            data-testid="document-status-paid"
-                            onClick={() => void changeStatus(invoice, 'paid')}
+                            data-testid="document-status-close"
+                            onClick={() => void changeStatus(invoice, 'closed')}
                           >
-                            Оплатить
+                            Закрыть
                           </button>
-                          <button
-                            type="button"
-                            className="link-button"
-                            disabled={acting === invoice.id}
-                            data-testid="document-status-cancel"
-                            onClick={() => void changeStatus(invoice, 'cancelled')}
-                          >
-                            Отменить
-                          </button>
-                        </>
-                      )}
-                      {invoice.can_manage && invoice.status === 'paid' && (
-                        <button
-                          type="button"
-                          className="link-button"
-                          disabled={acting === invoice.id}
-                          data-testid="document-status-close"
-                          onClick={() => void changeStatus(invoice, 'closed')}
-                        >
-                          Закрыть
-                        </button>
-                      )}
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

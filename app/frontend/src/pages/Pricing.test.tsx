@@ -109,17 +109,24 @@ function publicRoutes(tariffs: MockResponse): MockHandler {
  *
  * `purchase` — ответ на покупку; без него POST отвечает успехом со счётом, а
  * чтение счетов отдаёт список с тем же счётом: после покупки страница уводит в
- * «Документы», и тем же маршрутом она их и читает.
+ * «Документы», и тем же маршрутом она их и читает. `current` — тариф
+ * организации; без него организация тарифа не имеет.
  */
-function signedInRoutes(tariffs: MockResponse, purchase?: MockResponse): MockHandler {
+function signedInRoutes(
+  tariffs: MockResponse,
+  purchase?: MockResponse,
+  current?: MockResponse,
+): MockHandler {
   return (url, init) => {
     if (url.endsWith('/api/tariffs')) return tariffs;
     if (url.endsWith('/api/me')) return PROFILE;
+    if (url.endsWith('/api/tariffs/current')) {
+      return current ?? { status: 200, body: { tariff: null } };
+    }
     if (url.endsWith('/api/billing/invoices')) {
       if (init?.method === 'POST') return purchase ?? { status: 201, body: INVOICE };
       return { status: 200, body: [INVOICE] };
     }
-    if (url.endsWith('/api/tariffs/current')) return { status: 200, body: { tariff: null } };
     return { status: 404, body: { detail: 'Не найдено' } };
   };
 }
@@ -337,7 +344,7 @@ describe('шапка и подвал страницы тарифов', () => {
     expect(screen.queryByTestId('auth-modal')).not.toBeInTheDocument();
   });
 
-  it('показывает текст отказа сервера и ссылку на раздел «Тариф»', async () => {
+  it('показывает отказ сервера текстом, без отдельного блока про купленный тариф', async () => {
     const fetchMock = mockFetch(
       signedInRoutes(
         { status: 200, body: [TARIFF] },
@@ -356,13 +363,62 @@ describe('шапка и подвал страницы тарифов', () => {
     const error = await screen.findByTestId('pricing-buy-error');
     // Текст показан как есть, а не заменён общим «что-то пошло не так».
     expect(error).toHaveTextContent('Тариф организации уже выбран');
-    expect(screen.getByTestId('pricing-buy-tariff-link')).toHaveAttribute(
-      'href',
-      '/cabinet/tariffs',
-    );
+    // Рассказ про купленный тариф живёт в самом списке, а не отдельным блоком:
+    // на странице остаётся только текст отказа.
+    expect(screen.queryByTestId('pricing-buy-tariff-link')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('pricing-buy-documents-link')).not.toBeInTheDocument();
     // Покупки не было: страница осталась на прайсе.
     expect(screen.getByTestId('pricing')).toBeInTheDocument();
     expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(1);
+  });
+
+  it('помечает купленный тариф в списке и гасит все кнопки «Купить»', async () => {
+    const fetchMock = mockFetch(
+      signedInRoutes({ status: 200, body: PLANS }, undefined, {
+        status: 200,
+        body: { tariff: PLANS[1] },
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    const cards = await screen.findAllByTestId('tariff-card');
+
+    // Пометка стоит на самой плашке купленного тарифа, а не отдельным блоком.
+    expect(within(cards[1]).getByTestId('tariff-owned')).toHaveTextContent('Куплен');
+    expect(within(cards[0]).queryByTestId('tariff-owned')).not.toBeInTheDocument();
+    expect(screen.getAllByTestId('tariff-owned')).toHaveLength(1);
+
+    // Тариф уже выбран: второй раз покупать нечего, кнопки неактивны у всех.
+    const buy = screen.getAllByTestId('tariff-buy');
+    expect(buy).toHaveLength(3);
+    for (const button of buy) {
+      expect(button).toBeDisabled();
+    }
+
+    await user.click(buy[0]);
+    expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(0);
+  });
+
+  it('не гасит кнопки, пока тариф организации не выбран', async () => {
+    mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await screen.findByTestId('tariff-card');
+
+    expect(screen.getByTestId('tariff-buy')).toBeEnabled();
+    expect(screen.queryByTestId('tariff-owned')).not.toBeInTheDocument();
+  });
+
+  it('анониму не спрашивает тариф организации', async () => {
+    const fetchMock = mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    renderApp('/pricing');
+
+    await screen.findByTestId('tariff-card');
+
+    expect(callsTo(fetchMock, '/api/tariffs/current')).toHaveLength(0);
   });
 
   it('открывает вход окном на самой странице тарифов', async () => {
