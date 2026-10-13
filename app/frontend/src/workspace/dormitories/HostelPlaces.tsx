@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
-import { api, ApiError, placesImportTemplateUrl } from '../../api/client';
+import { api, ApiError } from '../../api/client';
 import type { HostelPlaces, PlaceField } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { formatDate } from '../dashboard/dates';
@@ -417,26 +417,6 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
                 <p>{month.hostels.length} хостелов</p>
               </div>
               <div className={styles.monthActions}>
-                {/* Шаблон доступен прямо на вкладке: скачать его можно и не
-                    открывая окно импорта. */}
-                <a
-                  className="btn btn--ghost btn--compact"
-                  data-testid="places-template-download"
-                  href={placesImportTemplateUrl(dormitoryId, month.month.slice(0, 7))}
-                  download
-                  aria-label={`Скачать шаблон «Места» за ${monthTitle(month.month)}`}
-                  title={`Шаблон «Места» за ${monthTitle(month.month)}`}
-                >
-                  Скачать шаблон
-                </a>
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--compact"
-                  data-testid="places-import-open"
-                  onClick={() => setImportingMonth(month.month)}
-                >
-                  Импорт из Excel
-                </button>
                 <button
                   type="button"
                   className="btn btn--primary btn--compact"
@@ -457,14 +437,27 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
               >
                 <div className={styles.hostelHeading}>
                   <h4>{hostel.name}</h4>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--compact"
-                    onClick={() => setRemoving({ hostel, month: month.month })}
-                    aria-label={`Убрать хостел ${hostel.name} с ${monthTitle(month.month)}`}
-                  >
-                    Убрать
-                  </button>
+                  <div className={styles.hostelActions}>
+                    {/* Импорт открывается из строки хостела: шаблон и разбор
+                        остаются месячными, но кнопка стоит там, где хостел. */}
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--compact"
+                      data-testid={`places-import-open-${hostel.id}`}
+                      onClick={() => setImportingMonth(month.month)}
+                      aria-label={`Импорт из Excel: ${hostel.name}, ${monthTitle(month.month)}`}
+                    >
+                      Импорт из Excel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--compact"
+                      onClick={() => setRemoving({ hostel, month: month.month })}
+                      aria-label={`Убрать хостел ${hostel.name} с ${monthTitle(month.month)}`}
+                    >
+                      Убрать
+                    </button>
+                  </div>
                 </div>
                 <div className={styles.tableScroll}>
                   <table className={styles.table}>
