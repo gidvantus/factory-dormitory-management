@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { mockFetch } from '../test/mockFetch';
@@ -120,6 +121,96 @@ describe('публичная страница документа', () => {
     expect(paths.some((path) => path.includes('/api/documents/'))).toBe(true);
     // Сессия проверяется, чтобы показать шапку; всё остальное — кабинетные ручки.
     expect(paths.filter((path) => !path.includes('/api/me'))).toHaveLength(1);
+  });
+});
+
+describe('шапка и подвал страницы документа — как на главной', () => {
+  it('показывает то же меню разделов, что на главной', async () => {
+    mockFetch(publicRoutes({ status: 200, body: PRIVACY_POLICY }));
+    renderApp('/documents/privacy-policy');
+
+    const header = within(await screen.findByTestId('site-header'));
+
+    // Якоря ведут на разделы главной (`/#roles`), а не ищут их на самом документе.
+    const anchors: Array<[string, string]> = [
+      ['Кому подходит', '/#roles'],
+      ['Возможности', '/#features'],
+      ['Как работает', '/#how'],
+      ['Интерфейс', '/#interface'],
+      ['Вопросы', '/#faq'],
+    ];
+    for (const [label, href] of anchors) {
+      expect(header.getByRole('link', { name: label })).toHaveAttribute('href', href);
+    }
+    // «Тарифы» — отдельный адрес, он остаётся на месте.
+    expect(header.getByRole('link', { name: 'Тарифы' })).toHaveAttribute('href', '/pricing');
+  });
+
+  it('анониму показывает вход и регистрацию, как на главной', async () => {
+    mockFetch(publicRoutes({ status: 200, body: PRIVACY_POLICY }));
+    renderApp('/documents/privacy-policy');
+
+    const header = within(await screen.findByTestId('site-header'));
+
+    expect(header.getByTestId('nav-login')).toBeInTheDocument();
+    expect(header.getByTestId('nav-register')).toBeInTheDocument();
+    expect(header.queryByTestId('nav-cabinet')).not.toBeInTheDocument();
+  });
+
+  it('открывает вход окном на самом документе', async () => {
+    mockFetch(publicRoutes({ status: 200, body: PRIVACY_POLICY }));
+    const user = userEvent.setup();
+    renderApp('/documents/privacy-policy');
+
+    await user.click(await screen.findByTestId('nav-login'));
+
+    expect(await screen.findByTestId('auth-modal')).toBeInTheDocument();
+    expect(screen.getByTestId('login-email')).toBeInTheDocument();
+    expect(screen.getByTestId('document-page')).toBeInTheDocument();
+  });
+
+  it('открывает регистрацию окном и закрывает его по Escape', async () => {
+    mockFetch(publicRoutes({ status: 200, body: PRIVACY_POLICY }));
+    const user = userEvent.setup();
+    renderApp('/documents/privacy-policy');
+
+    await user.click(await screen.findByTestId('nav-register'));
+    expect(await screen.findByTestId('register-email')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByTestId('auth-modal')).not.toBeInTheDocument());
+    expect(screen.getByTestId('document-page')).toBeInTheDocument();
+  });
+
+  it('по пункту меню возвращает на раздел главной', async () => {
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, 'scrollIntoView')
+      .mockImplementation(() => undefined);
+    mockFetch(publicRoutes({ status: 200, body: PRIVACY_POLICY }));
+    const user = userEvent.setup();
+    renderApp('/documents/privacy-policy');
+
+    await user.click(
+      within(await screen.findByTestId('site-header')).getByRole('link', { name: 'Возможности' }),
+    );
+
+    expect(await screen.findByTestId('landing')).toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+    scrollIntoView.mockRestore();
+  });
+
+  it('подвал ведёт на три документа и повторяет состав подвала главной', async () => {
+    mockFetch(() => ANONYMOUS);
+    const { container } = renderApp('/documents/privacy-policy');
+
+    await screen.findByTestId('document-page');
+
+    const titles = Array.from(container.querySelectorAll('.footer__grid h3')).map(
+      (heading) => heading.textContent,
+    );
+    expect(titles).toEqual(['Продукт', 'Роли', 'Документы', 'Связь']);
   });
 });
 

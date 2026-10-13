@@ -3,10 +3,20 @@ import { Link, useParams } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import type { Document as PublicDocument } from '../api/client';
+import { SiteActions } from '../components/SiteActions';
 import { SiteHeader } from '../components/SiteHeader';
 import { SiteFooter } from '../components/landing/SiteFooter';
+import { siteNav } from '../components/siteNav';
+import { useAuthDialog } from '../components/useAuthDialog';
 
 const GENERIC_ERROR = 'Не удалось загрузить документ, попробуйте ещё раз';
+
+/**
+ * Меню шапки документа: те же разделы, что на главной. Якоря ведут на разделы
+ * главной (`/#features`), поэтому `onHome: false`; «Тарифы» остаётся на месте —
+ * это отдельный адрес, а не раздел, и на странице документа он уместен.
+ */
+const NAV = siteNav({ onHome: false, withPricing: true });
 
 /**
  * Текст документа в абзацы.
@@ -30,16 +40,22 @@ function paragraphsOf(body: string): string[] {
  * `SessionProvider` всё равно сходит на `/api/me` и получит 401: для анонима это
  * нормальное состояние, а не ошибка страницы. Текст документа лежит в базе, и
  * правка строки SQL-запросом видна без пересборки фронта.
+ *
+ * Шапка и подвал — ровно те же, что на главной: с меню разделов и кнопками входа
+ * и регистрации. Читатель попадает сюда из подвала лендинга и не должен выглядеть
+ * ушедшим с сайта: из шапки он возвращается на главную или открывает форму, не
+ * теряя открытый документ.
  */
 export function Document(): JSX.Element {
   const { code } = useParams<{ code: string }>();
-  const [document, setDocument] = useState<PublicDocument | null>(null);
+  const [doc, setDoc] = useState<PublicDocument | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
+  const { openLogin, openRegister, dialogElement } = useAuthDialog();
 
   useEffect(() => {
     const controller = new AbortController();
     setStatus('loading');
-    setDocument(null);
+    setDoc(null);
 
     if (!code) {
       setStatus('missing');
@@ -50,7 +66,7 @@ export function Document(): JSX.Element {
       .document(code, controller.signal)
       .then((value) => {
         if (controller.signal.aborted) return;
-        setDocument(value);
+        setDoc(value);
         setStatus('ready');
       })
       .catch((caught: unknown) => {
@@ -62,13 +78,13 @@ export function Document(): JSX.Element {
   }, [code]);
 
   useEffect(() => {
-    if (!document) return;
+    if (!doc) return;
     const previousTitle = window.document.title;
-    window.document.title = `${document.title} — Домовой`;
+    window.document.title = `${doc.title} — Домовой`;
     return () => {
       window.document.title = previousTitle;
     };
-  }, [document]);
+  }, [doc]);
 
   return (
     <div className="app" data-testid="document-page">
@@ -76,7 +92,10 @@ export function Document(): JSX.Element {
         К основному содержанию
       </a>
 
-      <SiteHeader />
+      <SiteHeader
+        nav={NAV}
+        actions={<SiteActions onLogin={openLogin} onRegister={openRegister} />}
+      />
 
       <main className="container document" id="main">
         {status === 'loading' && (
@@ -104,10 +123,10 @@ export function Document(): JSX.Element {
           </div>
         )}
 
-        {status === 'ready' && document && (
+        {status === 'ready' && doc && (
           <article className="document__body">
-            <h1 data-testid="document-title">{document.title}</h1>
-            {paragraphsOf(document.body).map((paragraph, index) => (
+            <h1 data-testid="document-title">{doc.title}</h1>
+            {paragraphsOf(doc.body).map((paragraph, index) => (
               <p key={index} data-testid="document-paragraph">
                 {paragraph}
               </p>
@@ -117,6 +136,8 @@ export function Document(): JSX.Element {
       </main>
 
       <SiteFooter />
+
+      {dialogElement}
     </div>
   );
 }
