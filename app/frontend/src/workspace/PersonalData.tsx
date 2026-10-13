@@ -1,4 +1,5 @@
 import { useSession } from '../auth/SessionProvider';
+import { TelegramNotifications } from './TelegramNotifications';
 import { userInitials } from './userInitials';
 import { WorkspaceIcon } from './WorkspaceIcon';
 import styles from './Workspace.module.css';
@@ -45,6 +46,7 @@ export function PersonalData(): JSX.Element {
           </p>
         </div>
       </section>
+      <TelegramNotifications />
     </section>
   );
 }
