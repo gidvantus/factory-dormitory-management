@@ -627,6 +627,65 @@ def test_lookup_rejects_a_bad_inn(client: TestClient, db_session: Session) -> No
         assert response.json()["detail"] == "ИНН должен состоять из 10 или 12 цифр"
 
 
+def test_lookup_reports_an_inn_taken_by_another_organization(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Занятый ИНН виден сразу при вводе, и в DaData за ним не ходим.
+
+    ИНН уникален в базе, поэтому реквизиты чужой организации пользователю не
+    нужны: поиск отвечает `inn_taken` ещё до внешнего запроса.
+    """
+    owner = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, owner)
+    other = create_user(db_session, email="other@example.com")
+    organizations_for(db_session, other, inn="7707083893")
+    assert login(client, owner.email).status_code == 200
+    calls = stub_lookup(monkeypatch, result=LOOKUP_REQUISITES)
+
+    response = client.get("/api/organization/lookup", params={"inn": "7707083893"})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"found": False, "reason": "inn_taken", "details": None}
+    assert calls == []
+
+
+def test_lookup_of_own_inn_is_not_a_conflict(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Свой собственный ИНН — не конфликт: повторное сохранение остаётся возможным."""
+    owner = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, owner, inn="7707083893")
+    assert login(client, owner.email).status_code == 200
+    calls = stub_lookup(monkeypatch, result=LOOKUP_REQUISITES)
+
+    response = client.get("/api/organization/lookup", params={"inn": "7707083893"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["found"] is True
+    assert calls == ["7707083893"]
+
+
+def test_lookup_reports_a_taken_inn_even_when_dadata_is_unavailable(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Уникальность ИНН — наша проверка, а не ответ DaData.
+
+    Даже с недоступным сервисом пользователь должен узнать, что ИНН занят:
+    иначе он будет чинить внешний сервис вместо номера.
+    """
+    owner = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, owner)
+    other = create_user(db_session, email="other@example.com")
+    organizations_for(db_session, other, inn="7707083893")
+    assert login(client, owner.email).status_code == 200
+    stub_lookup(monkeypatch, fail=True)
+
+    response = client.get("/api/organization/lookup", params={"inn": "7707083893"})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"found": False, "reason": "inn_taken", "details": None}
+
+
 def test_lookup_is_allowed_for_a_member_without_edit_rights(
     client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

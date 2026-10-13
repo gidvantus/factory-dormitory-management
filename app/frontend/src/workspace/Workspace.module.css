@@ -724,8 +724,18 @@
   color: var(--color-text-muted);
   font-size: 12px;
 }
-/* Источник данных формы («Заполнено из DaData», «Ищем организацию…»): тот же
-   приглушённый текст, что у подсказки, а не размер заголовка карточки. */
+/* Ход поиска по ИНН: пока он идёт, поля и кнопка «Сохранить» недоступны. */
+.shell .organization-lookup {
+  display: grid;
+  gap: 8px;
+}
+.shell .organization-lookup-progress {
+  width: 100%;
+  height: 10px;
+  accent-color: var(--color-accent);
+}
+/* Источник данных формы («Ищем организацию…»): тот же приглушённый текст, что
+   у подсказки, а не размер заголовка карточки. */
 .shell .organization-source {
   color: var(--color-text-muted);
   font-size: 12px;
