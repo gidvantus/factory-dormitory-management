@@ -200,3 +200,77 @@ def test_places_import_confirm_documents_every_status_it_returns(client: TestCli
     )
 
     assert {"200", "401", "403", "404", "409"} <= documented
+
+
+# --- Счета организации (issue #49) --------------------------------------------
+#
+# Счёт живёт у организации, а не в публичной таблице `documents`: контракт
+# описывает покупку, чтение списка и одного счёта, смену статуса и два файла.
+
+
+def test_purchase_invoice_documents_every_status_it_returns(client: TestClient) -> None:
+    """Покупка: 201 у нового счёта, 200 у уже выставленного, 409 и 404 по отказам."""
+    documented = documented_statuses(client, "/api/billing/invoices", "post")
+
+    assert {"200", "201", "400", "401", "403", "404", "409", "422"} <= documented
+
+
+def test_invoice_list_documents_every_status_it_returns(client: TestClient) -> None:
+    documented = documented_statuses(client, "/api/billing/invoices", "get")
+
+    assert {"200", "401", "403", "404"} <= documented
+
+
+def test_invoice_read_documents_every_status_it_returns(client: TestClient) -> None:
+    documented = documented_statuses(client, "/api/billing/invoices/{invoice_id}", "get")
+
+    assert {"200", "401", "403", "404"} <= documented
+
+
+def test_invoice_status_change_documents_every_status_it_returns(client: TestClient) -> None:
+    """Смена статуса: 409 у запрещённого перехода, 422 у статуса не по схеме."""
+    documented = documented_statuses(client, "/api/billing/invoices/{invoice_id}", "patch")
+
+    assert {"200", "400", "401", "403", "404", "409", "422"} <= documented
+
+
+def test_invoice_file_documents_every_status_it_returns(client: TestClient) -> None:
+    documented = documented_statuses(client, "/api/billing/invoices/{invoice_id}/file", "get")
+
+    assert {"200", "401", "403", "404"} <= documented
+
+
+def test_invoice_act_file_documents_every_status_it_returns(client: TestClient) -> None:
+    """Акт до оплаты — 404, поэтому код объявлен у файла акта."""
+    documented = documented_statuses(client, "/api/billing/invoices/{invoice_id}/act-file", "get")
+
+    assert {"200", "401", "403", "404"} <= documented
+
+
+def test_purchase_broken_json_400_is_documented(client: TestClient, db_session: Session) -> None:
+    """Та же регрессия, что у `register`/`login`, но у ручки покупки."""
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    response = client.post(
+        "/api/billing/invoices", content=BROKEN_JSON_BODY, headers=BROKEN_JSON_HEADERS
+    )
+
+    assert response.status_code == 400
+    assert "400" in documented_statuses(client, "/api/billing/invoices", "post")
+
+
+def test_invoice_status_broken_json_400_is_documented(
+    client: TestClient, db_session: Session
+) -> None:
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    response = client.patch(
+        "/api/billing/invoices/1", content=BROKEN_JSON_BODY, headers=BROKEN_JSON_HEADERS
+    )
+
+    assert response.status_code == 400
+    assert "400" in documented_statuses(client, "/api/billing/invoices/{invoice_id}", "patch")

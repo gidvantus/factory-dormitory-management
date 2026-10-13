@@ -401,6 +401,14 @@
 .shell tbody tr:hover {
   background: var(--color-bg-page);
 }
+/* Действия строки счёта идут столбиком: в одну строку ссылки слипались и
+   читались как одна фраза («Скачать счётОплатитьОтменить»). */
+.shell .document-actions {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
 .shell .person {
   display: flex;
   align-items: center;

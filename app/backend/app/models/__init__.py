@@ -10,6 +10,7 @@ from app.models.dormitory_template import DormitoryTemplate
 from app.models.hostel import Hostel, HostelCell
 from app.models.import_job import ImportJob
 from app.models.inflow import PersonnelInflow
+from app.models.invoice import Invoice, InvoiceDocument
 from app.models.mail_template import MailTemplate
 from app.models.organization import Organization, OrganizationMember
 from app.models.outflow import PersonnelOutflow
@@ -60,6 +61,8 @@ __all__ = [
     "Hostel",
     "HostelCell",
     "ImportJob",
+    "Invoice",
+    "InvoiceDocument",
     "MailTemplate",
     "Organization",
     "OrganizationMember",

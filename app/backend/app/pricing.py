@@ -51,3 +51,16 @@ def format_price(amount: Decimal, currency: str, period: str, unit_label: str | 
         parts.append(unit_label)
     parts.append(PERIOD_SUFFIXES.get(period, period))
     return " ".join(parts)
+
+
+def format_invoice_amount(amount: Decimal, currency: str, period: str | None) -> str:
+    """Сумма счёта: «10 000 ₽ в месяц».
+
+    Период берётся из снимка счёта, а не из текущего прайса: счёт показывает то,
+    за что он выставлен. Периода может не быть только у строки без тарифа —
+    тогда остаётся голая сумма без окончания, а не выдуманное «разово».
+    """
+    if period is None:
+        symbol = CURRENCY_SYMBOLS.get(currency, currency)
+        return f"{format_amount(amount)} {symbol}"
+    return format_price(amount, currency, period)

@@ -11,6 +11,14 @@ import { siteNav } from '../components/siteNav';
 import { useAuthDialog } from '../components/useAuthDialog';
 
 const GENERIC_ERROR = 'Не удалось загрузить тарифы. Проверьте соединение и попробуйте ещё раз.';
+const PURCHASE_ERROR = 'Не удалось выставить счёт. Проверьте соединение и попробуйте ещё раз.';
+
+/**
+ * Почему кнопки покупки неактивны: тариф у организации уже есть, второй раз
+ * покупать нечего. Подпись дублирует серверный отказ, но показывается заранее —
+ * до нажатия, а не вместо него.
+ */
+const OWNED_HINT = 'Тариф организации уже выбран';
 
 /**
  * Меню шапки страницы тарифов: те же разделы, что на главной, но «Тарифы» здесь
@@ -21,6 +29,14 @@ const NAV = siteNav({ onHome: false });
 /** Текст ошибки: сервер объясняет причину точнее общего «не получилось». */
 function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : GENERIC_ERROR;
+}
+
+/** Текст отказа покупки: 401 — конец сессии, 409 и остальное объясняет сервер. */
+function purchaseErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    return error.status === 401 ? 'Сессия завершилась. Войдите в аккаунт снова.' : error.message;
+  }
+  return PURCHASE_ERROR;
 }
 
 /**
@@ -35,6 +51,10 @@ function errorMessage(error: unknown): string {
  * уходом с сайта. Вход и регистрация открываются окном на самой странице: уводить
  * человека на главную ради формы незачем. Единственное отличие меню — пункт
  * «Тарифы» здесь лишний: человек уже на прайсе.
+ *
+ * Если тариф у организации уже есть, список об этом говорит сам: купленная плашка
+ * помечена подписью «Куплен», а кнопки покупки погашены. Отдельного блока с
+ * рассказом про купленный тариф на странице нет — он дублировал бы список.
  */
 export function Pricing(): JSX.Element {
   const [tariffs, setTariffs] = useState<Tariff[]>([]);
@@ -42,22 +62,41 @@ export function Pricing(): JSX.Element {
   const [error, setError] = useState('');
   // Счётчик повторов: изменение значения перезапускает загрузку.
   const [attempt, setAttempt] = useState(0);
+  const [buying, setBuying] = useState(false);
+  const [buyError, setBuyError] = useState('');
+  // Тариф организации: пока он пуст, покупка доступна; после привязки список
+  // только помечает купленное, а кнопки гаснут.
+  const [ownedTariffId, setOwnedTariffId] = useState<number | null>(null);
   const { openLogin, openRegister, dialogElement } = useAuthDialog();
   const { status: sessionStatus } = useSession();
   const navigate = useNavigate();
 
   /**
-   * «Купить» пока не покупка: потока оплаты нет, и кнопка ведёт туда, где тариф
-   * появится у организации. Анониму она открывает регистрацию на самой странице,
-   * вошедшему — показывает его раздел «Тариф»: заставлять его регистрироваться
-   * второй раз нельзя.
+   * «Купить» заводит организации счёт за выбранный тариф.
+   *
+   * Анониму кнопка по-прежнему открывает регистрацию: счёт выставляется только
+   * вошедшему, а форма на самой странице короче похода на главную. Вошедшего
+   * ведёт в раздел «Документы» — именно там виден выставленный счёт.
+   *
+   * Закрытый пробный период покупку не блокирует: 403 «пробный период
+   * закончился» обрабатывает `client.ts` (`notifyTrialExpired`), а текст отказа
+   * от сервера показывается на странице как есть.
    */
-  function buyTariff(): void {
-    if (sessionStatus === 'authenticated') {
-      navigate('/cabinet/tariffs');
+  async function buyTariff(tariffId: number): Promise<void> {
+    if (sessionStatus !== 'authenticated') {
+      openRegister();
       return;
     }
-    openRegister();
+    if (buying) return;
+    setBuying(true);
+    setBuyError('');
+    try {
+      await api.purchaseInvoice(tariffId);
+      navigate('/cabinet/documents', { state: { purchased: true } });
+    } catch (caught: unknown) {
+      setBuyError(purchaseErrorMessage(caught));
+      setBuying(false);
+    }
   }
 
   useEffect(() => {
@@ -77,6 +116,34 @@ export function Pricing(): JSX.Element {
       });
     return () => controller.abort();
   }, [attempt]);
+
+  /**
+   * Купленный тариф организации — чтобы пометить его в самом списке.
+   *
+   * Аноним ничего не покупал, и лишний запрос ему ни к чему. У вошедшего без
+   * организации ручка отвечает `404`, а не «нет тарифа», — и это тоже просто
+   * «покупать есть что»: страница покупки из-за отказа ручки не ломается.
+   */
+  useEffect(() => {
+    if (sessionStatus !== 'authenticated') {
+      setOwnedTariffId(null);
+      return;
+    }
+    const controller = new AbortController();
+    void api
+      .currentTariff(controller.signal)
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setOwnedTariffId(data.tariff ? data.tariff.id : null);
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setOwnedTariffId(null);
+      });
+    return () => controller.abort();
+  }, [sessionStatus]);
+
+  const hasTariff = ownedTariffId !== null;
 
   return (
     <div className="app" data-testid="pricing">
@@ -126,27 +193,54 @@ export function Pricing(): JSX.Element {
 
             {status === 'ready' && tariffs.length > 0 && (
               <ul className="pricing__grid">
-                {tariffs.map((tariff) => (
-                  <li className="card pricing__card" key={tariff.id} data-testid="tariff-card">
-                    <h3 data-testid="tariff-name">{tariff.name}</h3>
-                    {/* Цену собирает сервер: плашка показывает `price_label` как есть. */}
-                    <p className="pricing__price" data-testid="tariff-price">
-                      {tariff.price_label}
-                    </p>
-                    <p className="pricing__description" data-testid="tariff-description">
-                      {tariff.description}
-                    </p>
-                    <button
-                      className="btn btn--primary btn--block"
-                      type="button"
-                      data-testid="tariff-buy"
-                      onClick={buyTariff}
+                {tariffs.map((tariff) => {
+                  const owned = tariff.id === ownedTariffId;
+                  return (
+                    <li
+                      className={
+                        owned ? 'card pricing__card pricing__card--owned' : 'card pricing__card'
+                      }
+                      key={tariff.id}
+                      data-testid="tariff-card"
+                      data-owned={owned ? 'true' : undefined}
                     >
-                      Купить
-                    </button>
-                  </li>
-                ))}
+                      <div className="pricing__card-head">
+                        <h3 data-testid="tariff-name">{tariff.name}</h3>
+                        {/* Купленный тариф помечается здесь же, в списке: отдельного
+                            блока про покупку на странице нет. */}
+                        {owned && (
+                          <span className="tag tag--ok" data-testid="tariff-owned">
+                            Куплен
+                          </span>
+                        )}
+                      </div>
+                      {/* Цену собирает сервер: плашка показывает `price_label` как есть. */}
+                      <p className="pricing__price" data-testid="tariff-price">
+                        {tariff.price_label}
+                      </p>
+                      <p className="pricing__description" data-testid="tariff-description">
+                        {tariff.description}
+                      </p>
+                      <button
+                        className="btn btn--primary btn--block"
+                        type="button"
+                        data-testid="tariff-buy"
+                        disabled={buying || hasTariff}
+                        title={hasTariff ? OWNED_HINT : undefined}
+                        onClick={() => void buyTariff(tariff.id)}
+                      >
+                        Купить
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
+            )}
+
+            {buyError && (
+              <p className="pricing__error" role="alert" data-testid="pricing-buy-error">
+                {buyError}
+              </p>
             )}
           </div>
         </section>
