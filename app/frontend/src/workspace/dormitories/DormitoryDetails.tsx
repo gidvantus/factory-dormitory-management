@@ -518,6 +518,10 @@ export function DormitoryDetails(): JSX.Element {
               }}
               onOpen={(key) => {
                 setSettings(null);
+                if (key === 'arrival_plan') {
+                  navigate(`/cabinet/personnel?view=planning&dormitory=${dormitoryId}`);
+                  return;
+                }
                 navigate(
                   '/cabinet/dormitories/' +
                     dormitoryId +

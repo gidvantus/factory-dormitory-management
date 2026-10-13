@@ -98,7 +98,7 @@ def initialize_structure(
                 422,
                 "Выбранные образцы образуют круг родительских вкладок. Выберите другой образец.",
             )
-    # Hostels define the tables in «Места». Their daily values are never copied.
+    # Hostels define the tables in «Размещение персонала». Their daily values are never copied.
     place_variant = standards.get("places")
     if place_variant and place_variant.dormitory_id:
         for source_hostel in db.scalars(
@@ -116,6 +116,8 @@ def initialize_structure(
 
     def restore_rule(snapshot: dict[str, Any], row_name: str) -> dict[str, Any]:
         rule = deepcopy(snapshot["rule"])
+        if rule["table_key"] == "arrival_plan":
+            return rule
         source_name = (
             str(snapshot["tab_name"])
             if rule["table_key"].startswith("custom_")
@@ -153,7 +155,7 @@ def initialize_structure(
                 if hostel is None:
                     raise HTTPException(
                         422,
-                        f"В образце «Места» нет хостела для строки «{row_name}». "
+                        f"В образце «Размещение персонала» нет хостела для строки «{row_name}». "
                         "Выберите совместимый образец.",
                     )
                 rule["hostel_id"] = hostel.id
@@ -211,7 +213,7 @@ def initialize_structure(
 
     report_variant = standards.get("report")
     if template_rows and not report_variant:
-        raise HTTPException(422, "Для применения шаблона выберите «Большой отчёт»")
+        raise HTTPException(422, "Для применения шаблона выберите «Общий отчёт»")
     definitions: list[dict[str, Any]] = [
         {"name": row.name, "formula": row.formula, "snapshot": row.link_snapshot}
         for row in template_rows

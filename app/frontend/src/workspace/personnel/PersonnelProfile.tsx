@@ -3,13 +3,13 @@ import { Link } from 'react-router-dom';
 import { personnelApi } from '../../api/personnel';
 import type { Employee, EmployeeDetail, PersonnelData, Source } from '../../api/personnel';
 import { Modal } from '../../components/Modal';
-import { DecisionForm, EmployeeEditForm, NextShiftForm, NoteForm, TaskForm } from './Forms';
+import { DecisionForm, EmployeeEditForm, NoteForm } from './Forms';
 import type { Mutate } from './Forms';
 import { dateLabel, dormName, isFavorite, message, personName, sourceUrl, value } from './helpers';
 import { IdentityDialog } from './IdentityDialog';
 import s from './Personnel.module.css';
 
-export type ProfileTab = 'overview' | 'history' | 'shifts' | 'work' | 'next';
+export type ProfileTab = 'overview' | 'history' | 'shifts' | 'notes';
 export function Favorite({
   employee,
   data,
@@ -132,7 +132,6 @@ export function PersonnelProfile({
   const [relink, setRelink] = useState<Source | null>(null);
   const resident =
     employee.current.find((source) => source.row_id === residentId) ?? employee.current[0];
-  const tasks = data.tasks.filter((task) => task.employee_id === employee.id);
   const shifts = new Map<string, EmployeeDetail['events'][number]>();
   for (const event of [...(detail?.events ?? [])].sort((a, b) => a.id - b.id)) {
     if (event.snapshot.shift_start && (event.snapshot.shift_end || event.snapshot.departure_date))
@@ -192,8 +191,7 @@ export function PersonnelProfile({
             ['overview', 'Обзор'],
             ['history', 'История'],
             ['shifts', 'Вахты'],
-            ['work', 'Задачи и заметки'],
-            ['next', 'Следующая вахта'],
+            ['notes', 'Заметки'],
           ] as const
         ).map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
@@ -385,8 +383,8 @@ export function PersonnelProfile({
                   </article>
                 ))}
                 <p className={s.hint}>
-                  При отмене исходные записи, задачи и заметки вернутся к своим карточкам. Новые
-                  записи, добавленные к основной карточке после объединения, останутся у неё.
+                  При отмене исходные записи и заметки вернутся к своим карточкам. Новые записи,
+                  добавленные к основной карточке после объединения, останутся у неё.
                 </p>
               </section>
             ) : null}
@@ -422,37 +420,8 @@ export function PersonnelProfile({
             )}
           </>
         )}
-        {tab === 'work' && (
+        {tab === 'notes' && (
           <>
-            <section>
-              <h4>Задачи сотрудника · {tasks.filter((task) => !task.done).length} в работе</h4>
-              {tasks.map((task) => (
-                <article className={s.task} data-done={task.done} key={task.id}>
-                  <input
-                    type="checkbox"
-                    checked={task.done}
-                    aria-label={`${task.done ? 'Вернуть в работу' : 'Выполнить задачу'}: ${task.text}`}
-                    onChange={() =>
-                      void mutate(() => personnelApi.toggleTask(task.id, !task.done)).catch(
-                        () => {},
-                      )
-                    }
-                  />
-                  <div>
-                    <strong>{task.text}</strong>
-                    <small>
-                      {data.users.find((user) => user.id === task.assignee_id)?.name ??
-                        'Ответственный не назначен'}
-                    </small>
-                  </div>
-                  <time>{dateLabel(task.due)}</time>
-                </article>
-              ))}
-            </section>
-            <section className={s.softCard}>
-              <h4>Новая задача</h4>
-              <TaskForm data={data} employeeId={employee.id} mutate={mutate} />
-            </section>
             <section className={s.softCard}>
               <h4>Заметки и договорённости</h4>
               <NoteForm employeeId={employee.id} mutate={mutate} />
@@ -468,7 +437,6 @@ export function PersonnelProfile({
             </section>
           </>
         )}
-        {tab === 'next' && <NextShiftForm employee={employee} data={data} mutate={mutate} />}
       </div>
     </Modal>
   );

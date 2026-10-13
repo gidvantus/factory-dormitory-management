@@ -19,6 +19,7 @@ from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
 from app.place_values import active_in_month, place_day_values
 from app.schemas.table_column import (
+    ArrivalPlanReportLink,
     PlaceReportLink,
     ReportLink,
     ReportSourceLink,
@@ -305,6 +306,8 @@ def record_value(row: Record, column: TableColumn) -> Any:
 
 
 def validate_link(db: Session, dormitory_id: int, link: ReportSourceLink) -> ReportSourceLink:
+    if isinstance(link, ArrivalPlanReportLink):
+        return link
     if isinstance(link, PlaceReportLink):
         require_section(db, dormitory_id, "places")
         if link.hostel_id is not None:
@@ -423,6 +426,8 @@ def snapshot_link(db: Session, row: ReportRow) -> dict[str, Any] | None:
             if hostel
             else None,
         }
+    if isinstance(link, ArrivalPlanReportLink):
+        return {"rule": link.model_dump()}
     # Preserve the full source schema, including removed built-ins. Otherwise a custom
     # replacement named "Причина" would collide with the default field in a new dormitory.
     columns = columns_for(db, row.dormitory_id, link.table_key)
@@ -466,6 +471,8 @@ def restore_link(
     if snapshot is None:
         return None
     rule = dict(snapshot["rule"])
+    if rule["table_key"] == "arrival_plan":
+        return rule
     if rule["table_key"] == "places":
         if rule.get("hostel_id") is not None:
             key = f"hostel_{rule['hostel_id']}"

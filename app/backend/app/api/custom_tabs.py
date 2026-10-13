@@ -31,7 +31,14 @@ router = APIRouter(tags=["custom-tabs"], responses={**SUBSCRIBED_USER_RESPONSES}
 DbSession = Annotated[Session, Depends(get_db)]
 EntityId = Annotated[int, Path(ge=1, le=2147483647)]
 TAB_PATH = "/dormitories/{dormitory_id}/tabs"
-RESERVED_NAMES = {"большой отчет", "места", "проживающие", "движение персонала", "выплаты", "архив"}
+RESERVED_NAMES = {
+    "общий отчет",
+    "размещение персонала",
+    "проживающие",
+    "движение персонала",
+    "выплаты",
+    "архив",
+}
 
 
 def tab_responses(db: Session, dormitory_id: int, tabs: list[CustomTab]) -> list[TabResponse]:

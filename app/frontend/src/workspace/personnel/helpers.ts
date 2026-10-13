@@ -18,7 +18,6 @@ export const names: Record<Filter, string> = {
   history: 'Были в оттоке',
   mine: 'Мои сотрудники',
   returned: 'Вернулись после оттока',
-  arrivals: 'Ожидают заезда',
   'no-phone': 'Без телефона',
   pending: 'Требуют проверки',
 };
@@ -28,8 +27,7 @@ export const blockNames: Record<BlockKind, string> = {
   contacts: 'Контакты сотрудников',
   outflow: 'История оттока',
   missing: 'Неполные данные',
-  plans: 'План заездов и выездов',
-  tasks: 'Задачи по сотрудникам',
+  plans: 'План заездов',
   saved: 'Сохранённый список',
 };
 export const decisionNames = {
@@ -38,7 +36,7 @@ export const decisionNames = {
   departure: 'Планируется выезд',
 };
 export const defaultBlocks: Block[] = (
-  ['plans', 'tasks', 'residents', 'ending', 'contacts', 'outflow'] as const
+  ['plans', 'residents', 'ending', 'contacts', 'outflow'] as const
 ).map((kind, index) => ({
   id: `default-${index}`,
   kind,
@@ -106,14 +104,6 @@ export function matches(
       return isFavorite(person, data);
     case 'returned':
       return current.length > 0 && person.has_outflow;
-    case 'arrivals':
-      return data.plans.some(
-        (plan) =>
-          plan.kind === 'arrival' &&
-          plan.employee_id === person.id &&
-          plan.date >= data.today &&
-          (dormitory == null || plan.dormitory_id === dormitory),
-      );
     case 'no-phone':
       return !person.phone;
     case 'pending':
@@ -136,16 +126,8 @@ export function filterPeople(
     .filter((person) => {
       const inLocation =
         !scoped ||
-        (list.filter === 'arrivals'
-          ? data.plans.some(
-              (plan) =>
-                plan.employee_id === person.id &&
-                plan.kind === 'arrival' &&
-                plan.date >= data.today &&
-                allowed(plan.dormitory_id),
-            )
-          : person.sources.some((source) => allowed(source.dormitory_id)) ||
-            person.history_dormitory_ids.some(allowed));
+        person.sources.some((source) => allowed(source.dormitory_id)) ||
+        person.history_dormitory_ids.some(allowed);
       const text = [
         person.full_name,
         person.personnel_number,

@@ -241,7 +241,7 @@ CLOSED_REQUESTS = (
     ("GET", "/api/dashboard?from=2026-01-01&to=2026-01-02"),
     ("GET", "/api/statistics/reports"),
     ("GET", "/api/dormitory-tab-catalog"),
-    # Импорт «Мест» — часть рабочего раздела «Общежития», а не отдельная ручка:
+    # Импорт «Размещение персонала» — часть рабочего раздела «Общежития», а не отдельная ручка:
     # он пришёл на ветку вместе с develop-m и обязан закрываться тем же 403.
     ("GET", "/api/dormitories/1/hostels/import/template?month=2026-01-01"),
 )

@@ -118,7 +118,8 @@ export function PlaceLinkEditor({
       </p>
       {metric && (
         <p className={styles.linkSummary}>
-          Брать из «Мест»: {metrics.find((item) => item.key === metric)?.name}.{' '}
+          Брать из раздела «Размещение персонала»:{' '}
+          {metrics.find((item) => item.key === metric)?.name}.{' '}
           {hostel === 'all'
             ? 'Сумма по всем хостелам.'
             : hostels.find((item) => String(item.id) === hostel)?.name}{' '}

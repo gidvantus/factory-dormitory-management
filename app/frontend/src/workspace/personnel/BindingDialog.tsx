@@ -25,7 +25,7 @@ export function PersonnelBindingButton({
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)}>
+      <button type="button" className="btn btn--ghost btn--compact" onClick={() => setOpen(true)}>
         Связь с персоналом
       </button>
       {open && (

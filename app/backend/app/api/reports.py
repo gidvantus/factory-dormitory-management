@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.arrival_plans import report_arrivals
 from app.db import get_db
 from app.models.dormitory import Dormitory
 from app.models.report import ReportCell, ReportRow
@@ -23,7 +24,7 @@ from app.schemas.report import (
     SaveReportCellRequest,
     UpdateReportRowRequest,
 )
-from app.schemas.table_column import PlaceReportLink, report_link_adapter
+from app.schemas.table_column import ArrivalPlanReportLink, PlaceReportLink, report_link_adapter
 from app.schemas.user import ErrorResponse
 from app.section_state import require_section_writable
 from app.table_data import (
@@ -110,7 +111,7 @@ def row_response(row: ReportRow) -> ReportRowResponse:
     )
 
 
-@router.get("", response_model=ReportResponse, summary="Большой отчёт за период")
+@router.get("", response_model=ReportResponse, summary="Общий отчёт за период")
 def read_report(
     dormitory_id: DormitoryId,
     _user: SubscribedUser,
@@ -142,6 +143,9 @@ def read_report(
         if row.link:
             try:
                 link = report_link_adapter.validate_python(row.link)
+                if isinstance(link, ArrivalPlanReportLink):
+                    linked_values[row.id] = report_arrivals(db, dormitory_id, from_date, to_date)
+                    continue
                 if isinstance(link, PlaceReportLink):
                     linked_values[row.id] = linked_place_values(
                         db, dormitory_id, link, from_date, to_date

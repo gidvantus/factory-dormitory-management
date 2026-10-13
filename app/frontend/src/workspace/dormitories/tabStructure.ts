@@ -1,8 +1,8 @@
 import type { CustomTab, Dormitory } from '../../api/client';
 
 export const standardTabs = [
-  { path: 'report', label: 'Большой отчёт' },
-  { path: 'places', label: 'Места' },
+  { path: 'report', label: 'Общий отчёт' },
+  { path: 'places', label: 'Размещение персонала' },
   { path: 'residents', label: 'Проживающие' },
   { path: 'movement', label: 'Движение персонала' },
   { path: 'inflow', label: 'Приток' },

@@ -231,7 +231,7 @@ def test_duplicate_names_and_missing_template_are_rejected(
     dorm = create_dormitory(client)
     tab(client, dorm, "  Мои   документы  ")
     base = f"/api/dormitories/{dorm}/tabs"
-    for name in ("мои документы", "Архив", "Большой отчет"):
+    for name in ("мои документы", "Архив", "Общий отчет", "общий отчёт", "Размещение персонала"):
         assert client.post(base, json={"name": name}).status_code == 409
     for name in ("   ", "\x00", "x" * 121):
         assert client.post(base, json={"name": name}).status_code == 422

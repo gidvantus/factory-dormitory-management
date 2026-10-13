@@ -129,7 +129,7 @@ export function ReportTemplatesPanel(): JSX.Element {
   return (
     <section className={styles.templateSection} aria-label="Шаблоны отчётов">
       <h2>Шаблоны отчётов</h2>
-      <p>Сохраните шаблон из большого отчёта, затем выберите его при создании общежития.</p>
+      <p>Сохраните шаблон из общего отчёта, затем выберите его при создании общежития.</p>
       {status === 'loading' && <p>Загружаем шаблоны…</p>}
       {status === 'error' && (
         <p>

@@ -438,8 +438,8 @@ export function WidgetDialog({
                   });
                 }}
               >
-                <option value="report">Большой отчёт</option>
-                <option value="places">Места</option>
+                <option value="report">Общий отчёт</option>
+                <option value="places">Размещение персонала</option>
                 <option value="table">Таблица / пользовательская вкладка</option>
               </select>
             </label>

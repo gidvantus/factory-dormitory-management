@@ -76,7 +76,7 @@ const initialDormitories: Dormitory[] = [
 const initialSources: Source[] = [
   {
     id: 'report',
-    name: 'Большой отчёт',
+    name: 'Общий отчёт',
     metrics: [
       { id: 'attendance', name: 'Выход Итого', base: 138 },
       { id: 'residents', name: 'Проживает Итого', base: 172 },
@@ -86,7 +86,7 @@ const initialSources: Source[] = [
   },
   {
     id: 'places',
-    name: 'Места',
+    name: 'Размещение персонала',
     metrics: [
       { id: 'occupied', name: 'Проживает', base: 172 },
       { id: 'paid', name: 'Оплачено мест', base: 200 },

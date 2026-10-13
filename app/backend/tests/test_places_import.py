@@ -1,4 +1,4 @@
-"""Импорт вкладки «Места»: шаблон, разбор файла и полная замена месяца.
+"""Импорт вкладки «Размещение персонала»: шаблон, разбор файла и полная замена месяца.
 
 Файлы собираются `openpyxl` прямо в тесте: шаблоны в git не кладём, а разбор
 проверяется на тех же книгах, что отдаёт ручка шаблона.
@@ -70,7 +70,7 @@ def places_file(
     *,
     days: list[str] | None = None,
 ) -> bytes:
-    """Файл «Места»: `entries` — пара «хостел, подпись поля» и значения по дням."""
+    """Файл «Размещение персонала»: `entries` — пара «хостел, подпись поля» и значения по дням."""
     headers = day_headers(month) if days is None else days
     rows = [
         [hostel, label, *[values.get(header) for header in headers]]
@@ -157,7 +157,10 @@ def test_template_protects_rows_and_columns_and_validates_numbers(
     assert str(validations[0].sqref) == "C2:AF5"
 
 
-def test_downloaded_template_is_parsed_back_ready(client: TestClient, db_session: Session) -> None:
+@pytest.mark.parametrize("sheet_title", [SHEET_TITLE, "Места"])
+def test_downloaded_template_is_parsed_back_ready(
+    client: TestClient, db_session: Session, sheet_title: str
+) -> None:
     sign_in(client, db_session, email=PLACES_EMAIL)
     base = places_base(create_dormitory(client))
     hostel_id = client.post(base, json={"name": "Хостел 1", "month": "2025-11-01"}).json()["id"]
@@ -169,7 +172,9 @@ def test_downloaded_template_is_parsed_back_ready(client: TestClient, db_session
             == 204
         )
 
-    response = upload(client, base, download_template(client, base))
+    workbook = load_workbook(BytesIO(download_template(client, base)))
+    workbook[SHEET_TITLE].title = sheet_title
+    response = upload(client, base, book_content(workbook))
 
     assert response.status_code == 200, response.text
     body = response.json()

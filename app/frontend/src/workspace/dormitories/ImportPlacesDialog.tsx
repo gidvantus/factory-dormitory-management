@@ -17,7 +17,7 @@ interface Props {
   /** Выбранный месяц вкладки в формате `ГГГГ-ММ`: за него скачивается шаблон. */
   month: string;
   onClose: () => void;
-  /** Импорт применён: таблица «Места» перезагружается. */
+  /** Импорт применён: таблица «Размещение персонала» перезагружается. */
   onImported: () => void;
 }
 
@@ -89,7 +89,7 @@ export function ImportPlacesDialog({
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.name.toLowerCase().endsWith('.xlsx')) {
-      setError('Выберите файл .xlsx — шаблон «Места».');
+      setError('Выберите файл .xlsx — шаблон «Размещение персонала».');
       return;
     }
     if (file.size > PLACES_IMPORT_MAX_BYTES) {

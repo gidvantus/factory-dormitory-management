@@ -6,7 +6,7 @@ export const dormitories = [
   { id: 'park', name: 'Парковое', client: 'Технопром', color: '#bba1ca' },
   { id: 'south', name: 'Южное', client: 'Меридиан', color: '#d6aa67' },
 ];
-export type EventKind = 'arrival' | 'transfer' | 'shift' | 'outflow' | 'review' | 'task' | 'note';
+export type EventKind = 'arrival' | 'transfer' | 'shift' | 'outflow' | 'review' | 'note';
 export type PersonEvent = {
   id: string;
   date: string;
@@ -33,7 +33,7 @@ export type Person = {
   shifts: Shift[];
 };
 export type BlockKind =
-  'residents' | 'ending' | 'contacts' | 'outflow' | 'missing' | 'plans' | 'tasks' | 'saved';
+  'residents' | 'ending' | 'contacts' | 'outflow' | 'missing' | 'plans' | 'saved';
 export type Block = {
   id: string;
   kind: BlockKind;
@@ -52,7 +52,6 @@ export const blockNames: Record<BlockKind, string> = {
   outflow: 'История оттока',
   missing: 'Неполные данные',
   plans: 'План заездов и выездов',
-  tasks: 'Задачи по сотрудникам',
   saved: 'Сохранённый список',
 };
 export const blockDescriptions: Record<BlockKind, string> = {
@@ -62,7 +61,6 @@ export const blockDescriptions: Record<BlockKind, string> = {
   outflow: 'События оттока с датой, общежитием и причиной',
   missing: 'У кого не указаны телефон или даты вахты',
   plans: 'Подтверждённые и ожидаемые заезды и выезды на неделю',
-  tasks: 'Открытые задачи, сроки и ответственные',
   saved: 'Сотрудники по вашим сохранённым условиям',
 };
 export const dayDiff = (from: string, to: string): number =>
@@ -288,16 +286,6 @@ export const initialBlocks: Block[] = [
     presentation: 'distribution',
   },
   {
-    id: 'tasks',
-    kind: 'tasks',
-    title: blockNames.tasks,
-    scope: [],
-    width: 'half',
-    days: null,
-    showPhone: false,
-    presentation: 'distribution',
-  },
-  {
     id: 'residents',
     kind: 'residents',
     title: blockNames.residents,
@@ -343,7 +331,15 @@ export function readBlocks(): Block[] {
   try {
     const previous = localStorage.getItem('domovoy:personnel-preview:v1');
     const current = localStorage.getItem(blockStorageKey);
-    const saved: unknown = JSON.parse(current ?? previous ?? 'null');
+    const parsed: unknown = JSON.parse(current ?? previous ?? 'null');
+    const saved: unknown = Array.isArray(parsed)
+      ? parsed.filter(
+          (block: unknown) =>
+            !block ||
+            typeof block !== 'object' ||
+            (block as Record<string, unknown>).kind !== 'tasks',
+        )
+      : parsed;
     if (
       Array.isArray(saved) &&
       saved.length <= 20 &&
@@ -372,7 +368,7 @@ export function readBlocks(): Block[] {
         ? (saved as Block[])
         : [
             ...initialBlocks.filter(
-              (b) => ['plans', 'tasks'].includes(b.kind) && !saved.some((old) => old.id === b.id),
+              (b) => b.kind === 'plans' && !saved.some((old) => old.id === b.id),
             ),
             ...(saved as Block[]),
           ].slice(0, 20);

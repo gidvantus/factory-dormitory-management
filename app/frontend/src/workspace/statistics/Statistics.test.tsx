@@ -20,7 +20,7 @@ const catalog: CatalogDormitory[] = [
     sources: [
       {
         key: 'report',
-        name: 'Большой отчёт',
+        name: 'Общий отчёт',
         kind: 'report',
         rows: [{ id: 10, name: 'Выход Итого' }],
         columns: [],

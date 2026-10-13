@@ -4,15 +4,13 @@ import { TODAY, dateLabel, dayDiff, dormitories, dormName, people as originalPeo
 import type { Block, Person } from './data';
 import {
   addDays,
-  assignees,
   decisionNames,
   listNames,
   matches,
-  MY_NAME,
   selectSavedList,
   usePersonnelOperations,
 } from './operations';
-import type { Decision, Plan, ProfileTab, SavedList, Task, WorkspaceView } from './operations';
+import type { Decision, Plan, ProfileTab, SavedList, WorkspaceView } from './operations';
 import styles from './PersonnelDesignPreview.module.css';
 import ops from './Operations.module.css';
 
@@ -159,7 +157,7 @@ export function DecisionCard({ person }: { person: Person }): JSX.Element {
               ? 'Согласованная дата обновит период текущей вахты и списки ближайших окончаний.'
               : draft.status === 'departure'
                 ? 'Выезд появится в плане. Фактическое проживание продолжается до оформления оттока.'
-                : 'Задачу на уточнение можно добавить во вкладке «Задачи и заметки».'}
+                : 'Договорённости можно сохранить во вкладке «Заметки».'}
           </p>
           <div className={ops.actions}>
             <button className={styles.secondary} type="button" onClick={() => setEditing(false)}>
@@ -173,137 +171,11 @@ export function DecisionCard({ person }: { person: Person }): JSX.Element {
   );
 }
 
-function TaskForm({ personId, onDone }: { personId?: string; onDone?: () => void }): JSX.Element {
-  const { people, addTask } = usePersonnelOperations();
-  const [employee, setEmployee] = useState(personId ?? people[0].id);
-  const [text, setText] = useState('');
-  const [due, setDue] = useState(TODAY);
-  const [assignee, setAssignee] = useState(MY_NAME);
-  return (
-    <form
-      className={ops.form}
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!text.trim()) return;
-        const form = new FormData(event.currentTarget);
-        addTask({ personId: employee, text: text.trim(), due: String(form.get('due')), assignee });
-        setText('');
-        onDone?.();
-      }}
-    >
-      {!personId && (
-        <label className={styles.field}>
-          Сотрудник
-          <select value={employee} onChange={(event) => setEmployee(event.target.value)}>
-            {people.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} · {p.number}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      <label className={styles.field}>
-        Что нужно сделать
-        <input
-          required
-          maxLength={300}
-          value={text}
-          placeholder="Например, уточнить дату выезда"
-          onChange={(event) => setText(event.target.value)}
-        />
-      </label>
-      <div className={ops.formRow}>
-        <label className={styles.field}>
-          Срок
-          <input
-            type="date"
-            name="due"
-            required
-            min={TODAY}
-            value={due}
-            onChange={(event) => setDue(event.target.value)}
-          />
-        </label>
-        <label className={styles.field}>
-          Ответственный
-          <select value={assignee} onChange={(event) => setAssignee(event.target.value)}>
-            {assignees.map((name) => (
-              <option key={name}>{name}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <button className={styles.primary} disabled={!text.trim()}>
-        Добавить задачу
-      </button>
-    </form>
-  );
-}
-function TaskItem({ task, onPerson }: { task: Task; onPerson?: OpenPerson }): JSX.Element {
-  const { people, toggleTask } = usePersonnelOperations();
-  const person = people.find((p) => p.id === task.personId)!;
-  return (
-    <div className={ops.taskRow} data-done={task.done}>
-      <input
-        type="checkbox"
-        checked={task.done}
-        aria-label={`${task.done ? 'Вернуть в работу' : 'Выполнить задачу'}: ${task.text}`}
-        onChange={() => toggleTask(task.id)}
-      />
-      <div>
-        <strong>{task.text}</strong>
-        <div className={ops.taskMeta}>
-          {onPerson && (
-            <button onClick={() => onPerson(person, 'work')}>
-              {person.name.split(' ').slice(0, 2).join(' ')}
-            </button>
-          )}
-          <span>{task.assignee}</span>
-          <span className={task.due < TODAY && !task.done ? ops.danger : ''}>
-            {dateLabel(task.due)}
-            {task.due < TODAY && !task.done
-              ? ' · просрочено'
-              : task.due === TODAY && !task.done
-                ? ' · сегодня'
-                : ''}
-          </span>
-        </div>
-      </div>
-      {task.done && <span className={`${styles.badge} ${styles.green}`}>Выполнена</span>}
-    </div>
-  );
-}
-export function PersonWork({ person }: { person: Person }): JSX.Element {
+export function PersonNotes({ person }: { person: Person }): JSX.Element {
   const { state, addNote } = usePersonnelOperations();
   const [note, setNote] = useState('');
-  const [newTask, setNewTask] = useState(false);
-  const tasks = state.tasks
-    .filter((t) => t.personId === person.id)
-    .sort((a, b) => Number(a.done) - Number(b.done) || a.due.localeCompare(b.due));
   return (
     <div className={styles.profileSections}>
-      <section>
-        <div className={styles.sectionHeading}>
-          <h4>
-            Задачи <span className={ops.counter}>{tasks.filter((t) => !t.done).length}</span>
-          </h4>
-          <button className={styles.textButton} onClick={() => setNewTask(!newTask)}>
-            {newTask ? 'Скрыть форму' : '+ Новая задача'}
-          </button>
-        </div>
-        {newTask && (
-          <div className={ops.softCard}>
-            <TaskForm personId={person.id} onDone={() => setNewTask(false)} />
-          </div>
-        )}
-        {tasks.map((task) => (
-          <TaskItem key={task.id} task={task} />
-        ))}
-        {!tasks.length && (
-          <p className={ops.hint}>Задач пока нет. Добавьте первое поручение по сотруднику.</p>
-        )}
-      </section>
       <section>
         <h4>Заметки</h4>
         <form
@@ -710,93 +582,6 @@ export function PlanningBoard({
   );
 }
 
-export function TasksBoard({
-  dormitory,
-  onPerson,
-}: {
-  dormitory: string;
-  onPerson: OpenPerson;
-}): JSX.Element {
-  const { state, people } = usePersonnelOperations();
-  const [filter, setFilter] = useState('open');
-  const [assignee, setAssignee] = useState('all');
-  const [adding, setAdding] = useState(false);
-  const scoped = state.tasks.filter(
-    (t) =>
-      dormitory === 'all' || people.find((p) => p.id === t.personId)?.dormitoryId === dormitory,
-  );
-  const tasks = scoped
-    .filter(
-      (t) =>
-        (assignee === 'all' || t.assignee === assignee) &&
-        (filter === 'all' ||
-          (filter === 'done' ? t.done : !t.done && (filter !== 'overdue' || t.due < TODAY))),
-    )
-    .sort((a, b) => Number(a.done) - Number(b.done) || a.due.localeCompare(b.due));
-  return (
-    <section className={ops.board} data-testid="personnel-tasks">
-      <div className={ops.boardHeading}>
-        <div>
-          <span className={styles.eyebrow}>ЕЖЕДНЕВНАЯ РАБОТА</span>
-          <h2>Задачи по сотрудникам</h2>
-          <p>Договорённости, сроки и ответственные. Выполненные задачи остаются в истории.</p>
-        </div>
-        <button className={styles.primary} onClick={() => setAdding(!adding)}>
-          {adding ? 'Скрыть форму' : '+ Добавить задачу'}
-        </button>
-      </div>
-      <div className={ops.planTotals}>
-        <span>
-          <b>{scoped.filter((t) => !t.done).length}</b> открытых
-        </span>
-        <span>
-          <b>{scoped.filter((t) => !t.done && t.due === TODAY).length}</b> на сегодня
-        </span>
-        <span className={ops.danger}>
-          <b>{scoped.filter((t) => !t.done && t.due < TODAY).length}</b> просроченных
-        </span>
-      </div>
-      {adding && (
-        <div className={ops.taskFormCard}>
-          <TaskForm onDone={() => setAdding(false)} />
-        </div>
-      )}
-      <div className={ops.boardToolbar}>
-        <div className={styles.filterChips}>
-          {[
-            ['open', 'В работе'],
-            ['overdue', 'Просрочены'],
-            ['done', 'Выполнены'],
-            ['all', 'Все задачи'],
-          ].map(([id, name]) => (
-            <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)}>
-              {name}
-            </button>
-          ))}
-        </div>
-        <select
-          aria-label="Ответственный за задачи"
-          value={assignee}
-          onChange={(event) => setAssignee(event.target.value)}
-        >
-          <option value="all">Все ответственные</option>
-          {assignees.map((name) => (
-            <option key={name}>{name}</option>
-          ))}
-        </select>
-      </div>
-      {tasks.map((task) => (
-        <TaskItem key={task.id} task={task} onPerson={onPerson} />
-      ))}
-      {!tasks.length && <p className={ops.empty}>Задач по выбранным условиям нет.</p>}
-      <p className={ops.boardFootnote}>
-        «Мои сотрудники» — ваш закреплённый список людей. Ответственный за задачу выбирается
-        отдельно.
-      </p>
-    </section>
-  );
-}
-
 export function MatchesBoard({
   dormitory,
   onPerson,
@@ -1172,7 +957,7 @@ export function OperationsBlock({
   onView: (view: WorkspaceView) => void;
   onSaved: (list: SavedList) => void;
 }): JSX.Element {
-  const { state, people, toggleTask } = usePersonnelOperations();
+  const { state, people } = usePersonnelOperations();
   const scope = (id: string): boolean =>
     (dormitory === 'all' || id === dormitory) && (!block.scope.length || block.scope.includes(id));
   if (block.kind === 'plans') {
@@ -1213,43 +998,6 @@ export function OperationsBlock({
         <div className={styles.cardFooter}>
           <span>Плановых событий: {plans.length}</span>
           <button onClick={() => onView('planning')}>Открыть календарь →</button>
-        </div>
-      </>
-    );
-  }
-  if (block.kind === 'tasks') {
-    const tasks = state.tasks
-      .filter((t) => !t.done && scope(people.find((p) => p.id === t.personId)!.dormitoryId))
-      .sort((a, b) => a.due.localeCompare(b.due));
-    return (
-      <>
-        <p className={styles.blockNote}>Сначала просроченные и ближайшие задачи</p>
-        <div className={ops.widgetTasks}>
-          {tasks.slice(0, 3).map((task) => {
-            const person = people.find((p) => p.id === task.personId)!;
-            return (
-              <div key={task.id}>
-                <input
-                  type="checkbox"
-                  checked={task.done}
-                  aria-label={`Выполнить задачу: ${task.text}`}
-                  onChange={() => toggleTask(task.id)}
-                />
-                <button onClick={() => onPerson(person, 'work')}>
-                  <strong>{task.text}</strong>
-                  <small>
-                    {person.name.split(' ').slice(0, 2).join(' ')} · {task.assignee}
-                  </small>
-                </button>
-                <span className={task.due < TODAY ? ops.danger : ''}>{dateLabel(task.due)}</span>
-              </div>
-            );
-          })}
-          {!tasks.length && <p className={ops.empty}>Все задачи выполнены.</p>}
-        </div>
-        <div className={styles.cardFooter}>
-          <span>В работе: {tasks.length}</span>
-          <button onClick={() => onView('tasks')}>Все задачи →</button>
         </div>
       </>
     );

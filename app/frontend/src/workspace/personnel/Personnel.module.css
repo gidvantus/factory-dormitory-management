@@ -638,31 +638,6 @@
 .notes article small {
   color: #78846c;
 }
-.task {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 15px 0;
-  border-bottom: 1px solid #edf0e7;
-}
-.task > div {
-  flex: 1;
-  min-width: 0;
-}
-.task small {
-  display: block;
-  color: #78876f;
-  font-size: 11px;
-}
-.task[data-done='true'] strong {
-  text-decoration: line-through;
-  color: #829078;
-}
-.task time {
-  font-size: 11px;
-  color: #718164;
-  white-space: nowrap;
-}
 .week {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));

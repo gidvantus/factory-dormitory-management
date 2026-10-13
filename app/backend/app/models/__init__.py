@@ -1,6 +1,7 @@
 """Модели таблиц."""
 
 from app.models.activation import ActivationToken
+from app.models.arrival_plan import ArrivalPlan
 from app.models.base import Base
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dashboard_block import DashboardBlock, DashboardLayout
@@ -23,7 +24,6 @@ from app.models.personnel import (
     EmployeeNote,
     EmployeePlan,
     EmployeeSeparation,
-    EmployeeTask,
     PersonnelBinding,
     PersonnelPreferences,
 )
@@ -40,6 +40,7 @@ from app.models.user import User
 __all__ = [
     "ActivationToken",
     "ArchiveEntry",
+    "ArrivalPlan",
     "Base",
     "CustomTab",
     "CustomTabEntry",
@@ -56,7 +57,6 @@ __all__ = [
     "EmployeeNote",
     "EmployeePlan",
     "EmployeeSeparation",
-    "EmployeeTask",
     "Hostel",
     "HostelCell",
     "ImportJob",

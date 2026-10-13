@@ -157,53 +157,6 @@
   margin-left: 5px;
   font-size: 12px;
 }
-.taskRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 17px 0;
-  border-bottom: 1px solid #edf1e7;
-}
-.taskRow > input,
-.widgetTasks input {
-  width: 16px;
-  height: 16px;
-  margin-top: 3px;
-  accent-color: #3a8057;
-  flex: none;
-}
-.taskRow > div {
-  flex: 1;
-  min-width: 0;
-}
-.taskRow strong {
-  display: block;
-  font-size: 13px;
-  font-weight: 750;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
-.taskRow[data-done='true'] strong {
-  text-decoration: line-through;
-  color: #687a5d;
-}
-.taskMeta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  margin-top: 6px;
-  font-size: 11px;
-  color: #64775a;
-}
-.taskMeta button {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: #38764b;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
 .danger {
   color: #9c4f39 !important;
 }
@@ -445,16 +398,6 @@
 .quickPlan select {
   width: 240px;
 }
-.taskFormCard {
-  max-width: 680px;
-  padding: 20px;
-  border: 1px solid #dfe9d3;
-  border-radius: 12px;
-  background: #f8fbf3;
-}
-.taskFormCard .form {
-  margin-top: 0;
-}
 .boardFootnote {
   padding-top: 20px;
   color: #687b5c;
@@ -643,47 +586,6 @@
   color: #667e58;
   white-space: nowrap;
 }
-.widgetTasks {
-  padding: 0 22px 12px;
-}
-.widgetTasks > div {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 15px 0;
-  border-bottom: 1px solid #edf2e4;
-  min-height: 74px;
-}
-.widgetTasks > div:last-child {
-  border-bottom: 0;
-}
-.widgetTasks button {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: none;
-  text-align: left;
-  padding: 0;
-}
-.widgetTasks strong {
-  display: block;
-  font-size: 12px;
-  line-height: 1.6;
-  font-weight: 700;
-  color: #3d5533;
-}
-.widgetTasks small {
-  display: block;
-  font-size: 10px;
-  color: #687c5d;
-  margin-top: 4px;
-}
-.widgetTasks > div > span {
-  font-size: 10px;
-  white-space: nowrap;
-  color: #667c59;
-  margin-top: 4px;
-}
 @media (max-width: 1100px) {
   .boardHeading {
     align-items: flex-start;
@@ -693,8 +595,7 @@
     gap: 9px;
     grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr);
   }
-  .widgetRows,
-  .widgetTasks {
+  .widgetRows {
     padding-inline: 17px;
   }
 }
@@ -745,12 +646,6 @@
   .quickPlan select {
     width: 100%;
   }
-  .taskRow strong {
-    font-size: 12px;
-  }
-  .taskMeta {
-    font-size: 10px;
-  }
   .formRow {
     grid-template-columns: 1fr;
   }
@@ -793,8 +688,5 @@
   }
   .widgetRows time {
     margin-left: auto;
-  }
-  .widgetTasks {
-    padding-inline: 15px;
   }
 }

@@ -116,7 +116,11 @@ def apply_snapshot(
             for i, name in enumerate(REQUIRED_REPORT_ROW_NAMES, 1)
         ]
     for row in data["rows"]:
-        if row["link"] and row["link"]["table_key"] not in chosen:
+        if (
+            row["link"]
+            and row["link"]["table_key"] != "arrival_plan"
+            and row["link"]["table_key"] not in chosen
+        ):
             raise HTTPException(
                 422, f"Для строки «{row['name']}» выберите также вкладку-источник её связи."
             )
@@ -181,7 +185,7 @@ def apply_snapshot(
             if rule["table_key"] == "places":
                 if rule.get("hostel_id"):
                     rule["hostel_id"] = hostels[rule["hostel_id"]]
-            else:
+            elif rule["table_key"] != "arrival_plan":
                 original_id = rule["column_id"]
                 if (original_id, rule.get("value")) in options:
                     rule["value"] = options[(original_id, rule["value"])]

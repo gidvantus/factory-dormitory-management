@@ -140,36 +140,6 @@ export function PersonnelOperationsProvider({ children }: { children: ReactNode 
           ),
         };
       }),
-    addTask: (task) =>
-      setState((old) => ({
-        ...old,
-        tasks: [{ ...task, id: crypto.randomUUID(), done: false }, ...old.tasks],
-        events: addEvent(
-          old,
-          task.personId,
-          'Поставлена задача',
-          `${task.text} · до ${task.due} · ${task.assignee}`,
-          'task',
-          'Задачи',
-        ),
-      })),
-    toggleTask: (id) =>
-      setState((old) => {
-        const task = old.tasks.find((t) => t.id === id);
-        if (!task) return old;
-        return {
-          ...old,
-          tasks: old.tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)),
-          events: addEvent(
-            old,
-            task.personId,
-            task.done ? 'Задача возвращена в работу' : 'Задача выполнена',
-            task.text,
-            'task',
-            'Задачи',
-          ),
-        };
-      }),
     addNote: (personId, text) =>
       setState((old) => ({
         ...old,

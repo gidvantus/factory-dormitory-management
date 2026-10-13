@@ -9,16 +9,14 @@ import type {
   PersonnelData,
   Preferences,
   SavedList,
-  SourceTable,
 } from '../api/personnel';
-import { Modal } from '../components/Modal';
 import { useSession } from '../auth/SessionProvider';
 import { usePageRefresh } from './usePageRefresh';
-import { MatchesBoard, PlanningBoard, TasksBoard } from './personnel/Boards';
+import { MatchesBoard } from './personnel/Boards';
+import { ArrivalPlanningBoard } from './personnel/ArrivalPlanningBoard';
 import type { OpenPerson } from './personnel/Boards';
 import { BlockDialog, ExportDialog, SaveListDialog } from './personnel/Dialogs';
 import type { Mutate } from './personnel/Forms';
-import { IdentityDialog } from './personnel/IdentityDialog';
 import { Favorite, PersonnelProfile } from './personnel/PersonnelProfile';
 import type { ProfileTab } from './personnel/PersonnelProfile';
 import {
@@ -38,7 +36,7 @@ import {
 } from './personnel/helpers';
 import s from './personnel/Personnel.module.css';
 
-type View = 'workspace' | 'list' | 'planning' | 'tasks' | 'matches';
+type View = 'workspace' | 'list' | 'planning' | 'matches';
 type Criteria = Omit<SavedList, 'id' | 'name'>;
 
 function blockCriteria(block: Block, dormitory: number | null, data: PersonnelData): Criteria {
@@ -83,7 +81,7 @@ function WorkspaceBlock({
   const criteria = blockCriteria(block, dormitory, data);
   const rows = filterPeople(data, criteria);
   if (block.kind === 'plans') {
-    const plans = data.plans
+    const plans = data.arrival_plans
       .filter(
         (plan) =>
           scope(plan.dormitory_id) &&
@@ -96,21 +94,12 @@ function WorkspaceBlock({
         <p className={s.hint}>Ближайшие {block.days} дней</p>
         <div className={s.rows}>
           {plans.slice(0, block.limit).map((plan) => (
-            <button
-              key={plan.id}
-              onClick={() =>
-                onPerson(plan.employee_id, plan.kind === 'arrival' ? 'next' : 'overview')
-              }
-            >
+            <button key={plan.id} onClick={() => onView('planning')}>
               <span>
                 <strong>
-                  {plan.kind === 'arrival' ? '↓ Заезд' : '↑ Выезд'} ·{' '}
-                  {personName(data.employees.find((person) => person.id === plan.employee_id))}
+                  {plan.count} чел. · {dormName(data, plan.dormitory_id)}
                 </strong>
-                <small>
-                  {dormName(data, plan.dormitory_id)} ·{' '}
-                  {plan.confirmed ? 'подтверждено' : 'ждём подтверждение'}
-                </small>
+                <small>{plan.names.length ? plan.names.join(', ') : 'ФИО не указаны'}</small>
               </span>
               <time>{dateLabel(plan.date)}</time>
             </button>
@@ -118,48 +107,9 @@ function WorkspaceBlock({
         </div>
         {!plans.length && <p className={s.empty}>На выбранный период планов нет.</p>}
         <div className={s.footer}>
-          <span>Плановых событий: {plans.length}</span>
+          <span>Ожидается: {plans.reduce((total, plan) => total + plan.count, 0)} чел.</span>
           <button className={s.linkButton} onClick={() => onView('planning')}>
-            Открыть календарь →
-          </button>
-        </div>
-      </>
-    );
-  }
-  if (block.kind === 'tasks') {
-    const tasks = data.tasks
-      .filter(
-        (task) =>
-          !task.done &&
-          ((dormitory == null && !block.scope.length) ||
-            data.employees
-              .find((person) => person.id === task.employee_id)
-              ?.history_dormitory_ids.some(scope)),
-      )
-      .sort((a, b) => a.due.localeCompare(b.due));
-    return (
-      <>
-        <p className={s.hint}>Сначала просроченные и ближайшие задачи</p>
-        <div className={s.rows}>
-          {tasks.slice(0, block.limit).map((task) => (
-            <button key={task.id} onClick={() => onPerson(task.employee_id, 'work')}>
-              <span>
-                <strong>{task.text}</strong>
-                <small>
-                  {personName(data.employees.find((person) => person.id === task.employee_id))} ·{' '}
-                  {data.users.find((user) => user.id === task.assignee_id)?.name ??
-                    'Ответственный не назначен'}
-                </small>
-              </span>
-              <time>{dateLabel(task.due)}</time>
-            </button>
-          ))}
-        </div>
-        {!tasks.length && <p className={s.empty}>Открытых задач нет.</p>}
-        <div className={s.footer}>
-          <span>В работе: {tasks.length}</span>
-          <button className={s.linkButton} onClick={() => onView('tasks')}>
-            Все задачи →
+            Открыть план заездов →
           </button>
         </div>
       </>
@@ -277,97 +227,6 @@ function WorkspaceBlock({
   );
 }
 
-function CreateRecordDialog({
-  data,
-  initialPerson,
-  dormitory,
-  onClose,
-  onSaved,
-}: {
-  data: PersonnelData;
-  initialPerson?: Employee;
-  dormitory: number | null;
-  onClose: () => void;
-  onSaved: () => void;
-}): JSX.Element {
-  const [selected, setSelected] = useState(
-    dormitory ?? data.dormitories.find((dorm) => !dorm.is_archived)?.id ?? 0,
-  );
-  const [table, setTable] = useState<SourceTable>('residents');
-  const [identity, setIdentity] = useState(false);
-  const plan = initialPerson
-    ? data.plans.find(
-        (plan) =>
-          plan.employee_id === initialPerson.id &&
-          plan.kind === 'arrival' &&
-          plan.dormitory_id === selected &&
-          plan.date <= data.today,
-      )
-    : undefined;
-  if (identity)
-    return (
-      <IdentityDialog
-        dormitoryId={String(selected)}
-        tableKey={table}
-        initial={initialPerson}
-        selectedEmployeeId={initialPerson?.id}
-        values={
-          plan && table === 'residents' ? { shift_start: data.today, shift_end: plan.end } : {}
-        }
-        onClose={onClose}
-        onSaved={onSaved}
-      />
-    );
-  return (
-    <Modal
-      title="Добавить запись сотрудника"
-      testId="personnel-create-record"
-      onClose={onClose}
-      panelClassName={s.modal}
-    >
-      <form
-        className={s.form}
-        onSubmit={(event) => {
-          event.preventDefault();
-          setIdentity(true);
-        }}
-      >
-        <label>
-          Общежитие
-          <select
-            value={selected || ''}
-            required
-            onChange={(event) => setSelected(Number(event.target.value))}
-          >
-            <option value="">Выберите общежитие</option>
-            {data.dormitories
-              .filter((dorm) => !dorm.is_archived)
-              .map((dorm) => (
-                <option key={dorm.id} value={dorm.id}>
-                  {dorm.name} · {dorm.client_name}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label>
-          Таблица
-          <select value={table} onChange={(event) => setTable(event.target.value as SourceTable)}>
-            <option value="residents">Проживающие</option>
-            <option value="inflow">Приток</option>
-            <option value="outflow">Отток</option>
-          </select>
-        </label>
-        <p className={s.hint}>
-          На следующем шаге проверьте совпадения и выберите карточку человека.
-        </p>
-        <button className={s.primary} disabled={!selected}>
-          Продолжить
-        </button>
-      </form>
-    </Modal>
-  );
-}
-
 export function Personnel(): JSX.Element {
   const { user } = useSession();
   const [params, setParams] = useSearchParams();
@@ -377,8 +236,13 @@ export function Personnel(): JSX.Element {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
-  const [view, setView] = useState<View>('workspace');
-  const [dormitory, setDormitory] = useState<number | null>(null);
+  const [view, setView] = useState<View>(
+    params.get('view') === 'planning' ? 'planning' : 'workspace',
+  );
+  const [dormitory, setDormitory] = useState<number | null>(() => {
+    const id = Number(params.get('dormitory'));
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  });
   const [days, setDays] = useState(5);
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
@@ -389,7 +253,6 @@ export function Personnel(): JSX.Element {
   const [blockEditor, setBlockEditor] = useState<Block | 'new' | null>(null);
   const [savingList, setSavingList] = useState(false);
   const [exporting, setExporting] = useState<'people' | 'departures' | null>(null);
-  const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const mutating = useRef(false);
@@ -426,7 +289,7 @@ export function Personnel(): JSX.Element {
     const timer = window.setTimeout(() => setNotice(''), 5000);
     return () => window.clearTimeout(timer);
   }, [notice]);
-  const modalOpen = !!selectedId || !!blockEditor || savingList || !!exporting || creating;
+  const modalOpen = !!selectedId || !!blockEditor || savingList || !!exporting;
   useEffect(() => {
     if (!modalOpen) return;
     const previous = document.body.style.overflow;
@@ -560,21 +423,13 @@ export function Personnel(): JSX.Element {
           </h1>
           <p>Проживание, вахты и контакты — в одном месте.</p>
         </div>
-        <div className={s.actions}>
-          <button disabled={busy} onClick={() => setAttempt((n) => n + 1)}>
-            Обновить
-          </button>
-          <button disabled={busy || blocks.length >= 20} onClick={() => setBlockEditor('new')}>
-            + Добавить блок
-          </button>
-          <button
-            className={s.primary}
-            disabled={busy || !data.dormitories.some((dorm) => !dorm.is_archived)}
-            onClick={() => setCreating(true)}
-          >
-            + Добавить сотрудника
-          </button>
-        </div>
+        {view !== 'planning' && (
+          <div className={s.actions}>
+            <button disabled={busy || blocks.length >= 20} onClick={() => setBlockEditor('new')}>
+              + Добавить блок
+            </button>
+          </div>
+        )}
       </div>
       <div className={s.tabs} role="tablist" aria-label="Раздел персонала">
         {(
@@ -582,14 +437,24 @@ export function Personnel(): JSX.Element {
             ['workspace', 'Рабочая поверхность'],
             ['list', 'Сотрудники'],
             ['planning', 'План заездов'],
-            ['tasks', 'Задачи'],
             ['matches', 'Совпадения'],
           ] as const
         ).map(([id, label]) => (
-          <button key={id} role="tab" aria-selected={view === id} onClick={() => setView(id)}>
+          <button
+            key={id}
+            role="tab"
+            aria-selected={view === id}
+            onClick={() => {
+              if (
+                id === 'planning' &&
+                data.dormitories.some((item) => item.id === dormitory && item.is_archived)
+              )
+                setDormitory(null);
+              setView(id);
+            }}
+          >
             {label}
             {id === 'list' && <b>{data.employees.length}</b>}
-            {id === 'tasks' && <b>{data.tasks.filter((task) => !task.done).length}</b>}
             {id === 'matches' && <b>{data.matches.length}</b>}
           </button>
         ))}
@@ -607,38 +472,42 @@ export function Personnel(): JSX.Element {
               }}
             >
               <option value="all">Все общежития</option>
-              {data.dormitories.map((dorm) => (
-                <option key={dorm.id} value={dorm.id}>
-                  {dorm.name}
-                  {dorm.is_archived ? ' · архив' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Период
-            <select
-              aria-label="Период окончания вахты"
-              value={days}
-              onChange={(event) => setDays(Number(event.target.value))}
-            >
-              {[...new Set([5, 7, 14, 30, days])]
-                .sort((a, b) => a - b)
-                .map((days) => (
-                  <option key={days} value={days}>
-                    Вахта: до {days} дней
+              {data.dormitories
+                .filter((dorm) => view !== 'planning' || !dorm.is_archived)
+                .map((dorm) => (
+                  <option key={dorm.id} value={dorm.id}>
+                    {dorm.name}
+                    {dorm.is_archived ? ' · архив' : ''}
                   </option>
                 ))}
             </select>
           </label>
+          {view !== 'planning' && (
+            <label>
+              Период
+              <select
+                aria-label="Период окончания вахты"
+                value={days}
+                onChange={(event) => setDays(Number(event.target.value))}
+              >
+                {[...new Set([5, 7, 14, 30, days])]
+                  .sort((a, b) => a - b)
+                  .map((days) => (
+                    <option key={days} value={days}>
+                      Вахта: до {days} дней
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
         </div>
         {view === 'workspace' ? (
           <button onClick={() => setConfiguring((value) => !value)}>
             {configuring ? 'Завершить настройку' : 'Настроить поверхность'}
           </button>
-        ) : (
+        ) : view !== 'planning' ? (
           <span className={s.hint}>Нажмите на имя, чтобы открыть карточку</span>
-        )}
+        ) : null}
       </div>
       {error && (
         <p role="alert" className={s.error}>
@@ -655,44 +524,47 @@ export function Personnel(): JSX.Element {
           Карточка не найдена. <button onClick={closeProfile}>Закрыть</button>
         </p>
       )}
-      {!data.dormitories.length && (
+      {!data.dormitories.length && view !== 'planning' && (
         <p className={s.notice}>
           Сначала <Link to="/cabinet/dormitories">создайте общежитие</Link>, затем добавьте
           сотрудника в его таблицу.
         </p>
       )}
-      {data.employees.some(
-        (person) => person.identity_status === 'pending' || person.current.length > 1,
-      ) && (
-        <p className={s.notice}>
-          Есть карточки с непроверенной личностью или несколькими записями проживания. До проверки
-          совпадений количество уникальных сотрудников предварительное.{' '}
-          <button
-            className={s.linkButton}
-            onClick={() => onList({ ...criteria, filter: 'pending', query: '', scope: [] })}
-          >
-            Проверить записи →
-          </button>
-        </p>
+      {view !== 'planning' &&
+        data.employees.some(
+          (person) => person.identity_status === 'pending' || person.current.length > 1,
+        ) && (
+          <p className={s.notice}>
+            Есть карточки с непроверенной личностью или несколькими записями проживания. До проверки
+            совпадений количество уникальных сотрудников предварительное.{' '}
+            <button
+              className={s.linkButton}
+              onClick={() => onList({ ...criteria, filter: 'pending', query: '', scope: [] })}
+            >
+              Проверить записи →
+            </button>
+          </p>
+        )}
+      {view !== 'planning' && (
+        <div className={s.metrics}>
+          {(
+            [
+              ['current', 'Проживают сейчас'],
+              ['ending', `Вахта заканчивается до ${days} дней`],
+              ['overdue', 'Дата окончания уже прошла'],
+              ['missing', 'Нужно дополнить данные'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => onList({ ...criteria, filter: id, query: '', scope: [] })}
+            >
+              <strong>{summary(id)}</strong>
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
       )}
-      <div className={s.metrics}>
-        {(
-          [
-            ['current', 'Проживают сейчас'],
-            ['ending', `Вахта заканчивается до ${days} дней`],
-            ['overdue', 'Дата окончания уже прошла'],
-            ['missing', 'Нужно дополнить данные'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => onList({ ...criteria, filter: id, query: '', scope: [] })}
-          >
-            <strong>{summary(id)}</strong>
-            <span>{label}</span>
-          </button>
-        ))}
-      </div>
       {view === 'workspace' && (
         <>
           <div className={s.grid}>
@@ -793,10 +665,7 @@ export function Personnel(): JSX.Element {
         </>
       )}
       {view === 'planning' && (
-        <PlanningBoard data={data} dormitory={dormitory} onPerson={onPerson} mutate={mutate} />
-      )}
-      {view === 'tasks' && (
-        <TasksBoard data={data} dormitory={dormitory} onPerson={onPerson} mutate={mutate} />
+        <ArrivalPlanningBoard data={data} dormitory={dormitory} mutate={mutate} />
       )}
       {view === 'matches' && (
         <MatchesBoard data={data} dormitory={dormitory} onPerson={onPerson} mutate={mutate} />
@@ -1062,17 +931,6 @@ export function Personnel(): JSX.Element {
           data={data}
           departures={exporting === 'departures'}
           onClose={() => setExporting(null)}
-        />
-      )}
-      {creating && (
-        <CreateRecordDialog
-          data={data}
-          dormitory={dormitory}
-          onClose={() => setCreating(false)}
-          onSaved={() => {
-            setCreating(false);
-            setAttempt((n) => n + 1);
-          }}
         />
       )}
     </section>

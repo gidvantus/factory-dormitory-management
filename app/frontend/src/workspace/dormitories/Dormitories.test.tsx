@@ -189,7 +189,7 @@ describe('общежития', () => {
       'aria-current',
       'page',
     );
-    expect(within(details).getByRole('heading', { name: 'Большой отчёт' })).toBeInTheDocument();
+    expect(within(details).getByRole('heading', { name: 'Общий отчёт' })).toBeInTheDocument();
   });
 
   it('сохраняет шаблон, выбирает его для нового общежития и удаляет из списка', async () => {

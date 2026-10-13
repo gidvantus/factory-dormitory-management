@@ -172,7 +172,7 @@ def test_tariffs_current_read_documents_every_status_it_returns(client: TestClie
     assert {"200", "401", "403", "404"} <= documented
 
 
-# --- Импорт вкладки «Места» (issue #38) ---------------------------------------
+# --- Импорт вкладки «Размещение персонала» (issue #38) ---------------------------------------
 
 
 def test_places_import_template_documents_every_status_it_returns(client: TestClient) -> None:

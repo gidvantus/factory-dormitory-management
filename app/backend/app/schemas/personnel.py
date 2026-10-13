@@ -54,18 +54,33 @@ class EmployeeUpdate(IdentityFields):
     identity_status: Literal["pending", "confirmed"] = "confirmed"
 
 
-class TaskInput(StrictModel):
-    text: str = Field(min_length=1, max_length=300)
-    due: CalendarDate
-    assignee_id: int | None = Field(default=None, ge=1)
-
-
-class TaskUpdate(StrictModel):
-    done: bool
-
-
 class NoteInput(StrictModel):
     text: str = Field(min_length=1, max_length=1500)
+
+
+class ArrivalInput(StrictModel):
+    date: CalendarDate
+    dormitory_id: int = Field(ge=1)
+    count: int = Field(ge=1, le=10000, strict=True)
+    names: list[str] = Field(default_factory=list, max_length=10000)
+
+    @field_validator("names")
+    @classmethod
+    def valid_names(cls, names: list[str]) -> list[str]:
+        normalized = [" ".join(name.split()) for name in names]
+        if any(not name or len(name) > 255 or "\x00" in name for name in normalized):
+            raise ValueError("Каждое ФИО должно содержать от 1 до 255 символов")
+        return normalized
+
+    @model_validator(mode="after")
+    def valid_count(self) -> "ArrivalInput":
+        if len(self.names) > self.count:
+            raise ValueError("Количество ФИО не должно превышать количество приезжающих")
+        return self
+
+
+class ArrivalUpdate(ArrivalInput):
+    revision: int = Field(ge=0)
 
 
 class PlanInput(StrictModel):
@@ -121,7 +136,6 @@ ListFilter = Literal[
     "history",
     "mine",
     "returned",
-    "arrivals",
     "no-phone",
     "pending",
 ]
@@ -139,9 +153,7 @@ class SavedList(StrictModel):
 
 class Block(StrictModel):
     id: str = Field(min_length=1, max_length=80)
-    kind: Literal[
-        "residents", "ending", "contacts", "outflow", "missing", "plans", "tasks", "saved"
-    ]
+    kind: Literal["residents", "ending", "contacts", "outflow", "missing", "plans", "saved"]
     title: str = Field(min_length=1, max_length=120)
     scope: list[int] = Field(default_factory=list, max_length=1000)
     days: int = Field(default=5, ge=1, le=365)
