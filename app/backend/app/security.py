@@ -11,7 +11,7 @@
 
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from secrets import token_urlsafe
+from secrets import compare_digest, token_urlsafe
 from typing import Annotated, Any
 
 import jwt
@@ -189,3 +189,34 @@ ACTIVE_USER_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": ACTIVATION_REQUIRED_DETAIL,
     }
 }
+
+# Заголовок, которым бот доказывает CRM, что он бот. Не cookie: бот не человек и
+# сессии у него нет.
+BOT_TOKEN_HEADER = "X-Bot-Token"
+
+# Единый текст 401 для роутов бота. Точная причина отказа не называется: иначе по
+# ответу можно было бы отличить «нет заголовка» от «неверный токен».
+INVALID_BOT_TOKEN_DETAIL = "Неверный сервисный токен"
+
+
+def require_service_bot(request: Request) -> None:
+    """Пропустить только бота: заголовок `X-Bot-Token` сверяется с секретом.
+
+    Секрет приходит из окружения (`TELEGRAM_SERVICE_TOKEN`) и не является токеном
+    BotFather. Сравнение — в постоянном времени (`secrets.compare_digest`), а
+    неверный токен не пишется в лог: иначе значение секрета попало бы в логи
+    поддержки. Пустой настроенный секрет закрывает роуты целиком: без него
+    отличить бота от постороннего нельзя.
+    """
+    settings = get_settings()
+    expected = settings.telegram_service_token
+    provided = request.headers.get(BOT_TOKEN_HEADER, "")
+    if not expected or not provided or not compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=INVALID_BOT_TOKEN_DETAIL,
+        )
+
+
+# Зависимость роутов бота: работает как «пропуск», значение не нужно.
+ServiceBot = Annotated[None, Depends(require_service_bot)]

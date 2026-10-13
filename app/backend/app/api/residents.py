@@ -14,6 +14,7 @@ from app.models.hostel import Hostel
 from app.models.outflow import PersonnelOutflow
 from app.models.payment import PaymentEntry
 from app.models.resident import Resident
+from app.notifications import capture_resident_outflow, queue_resident_outflow
 from app.personnel import close_residence, record_changed
 from app.resident_outflow import prepare_outflow
 from app.resident_payments import copy_payment_values, existing_payment
@@ -231,6 +232,11 @@ def move_to_outflow(
     record_changed(
         db, plan.resident, _user.id, kind="outflow", title="Проживание завершено · перенос в отток"
     )
+    # Снимок для уведомления снимается до удаления строки: сам отток удаляет
+    # проживающего тем же коммитом, и после него читать ORM-объект уже нельзя.
+    outflow_event = capture_resident_outflow(
+        db, plan.resident, departure_date=plan.preview.departure_date
+    )
     row = PersonnelOutflow(
         dormitory_id=dormitory_id,
         employee_id=plan.resident.employee_id,
@@ -245,6 +251,10 @@ def move_to_outflow(
         db.delete(payment)
     db.delete(plan.resident)
     db.commit()
+    db.refresh(row)
+    # Уведомление — не часть транзакции выселения: падение рассылки не должно
+    # откатывать подтверждённый отток, поэтому очередь ставится после коммита.
+    queue_resident_outflow(db, resident=outflow_event, actor_id=_user.id)
     db.refresh(row)
     return row
 
