@@ -1,49 +1,58 @@
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { anonymousSession, mockFetch } from '../test/mockFetch';
+import { renderApp } from '../test/renderApp';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 /**
- * Страховка от возврата дефекта приёмки: высокая фиксированная плашка согласия
- * накрывала нижний блок бокового меню кабинета — «Личные данные» и кнопку
- * «Выйти», до которых не доходили ни клик, ни Tab (замер `elementFromPoint`
- * возвращал саму плашку).
+ * Страховка от возврата дефекта приёмки: фиксированная плашка согласия накрывала
+ * нижний блок бокового меню кабинета — «Личные данные» и кнопку «Выйти», до
+ * которых не доходили ни клик, ни Tab. Плашка сама измеряет свою высоту и отдаёт
+ * её каркасу кабинета, а список разделов уступает место нижнему блоку.
  *
- * jsdom не считает CSS и геометрию, поэтому контракт проверяется по файлам
- * стилей: плашка обязана быть низкой, а каркас кабинета — резервировать под неё
- * место у нижнего края, пока согласие не принято.
+ * jsdom не считает CSS и геометрию, поэтому проверяются контракт стилей и сама
+ * публикация переменной, а раскладка на низких окнах — слой приёмки (Playwright).
  */
 const SRC = resolve(process.cwd(), 'src');
 const INDEX_CSS = readFileSync(join(SRC, 'index.css'), 'utf8');
 const WORKSPACE_CSS = readFileSync(join(SRC, 'workspace', 'Workspace.module.css'), 'utf8');
 
+/** Тела всех правил с этим селектором; пустой список, если правил нет. */
+function ruleBodies(css: string, selector: string): string[] {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(?:^|[};])\\s*${escaped}\\s*\\{([^}]*)\\}`, 'gm');
+  return [...css.matchAll(re)].map((match) => match[1]);
+}
+
 /** Тело правила по точному селектору; пустая строка, если правила нет. */
 function ruleBody(css: string, selector: string): string {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = new RegExp(`(?:^|[};])\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm').exec(css);
-  return match ? match[1] : '';
+  return ruleBodies(css, selector)[0] ?? '';
 }
 
 describe('плашка согласия не закрывает нижние элементы кабинета', () => {
-  it('каркас кабинета резервирует место под плашку и снимает запас без неё', () => {
-    // Запас ограничен свободной высотой экрана: боковое меню занимает весь
-    // вьюпорт, и жёсткий отступ вытолкнул бы его низ за экран на низких окнах.
-    expect(WORKSPACE_CSS).toContain(
-      'padding-bottom: calc(18px + clamp(0px, 100dvh - 712px, var(--cookie-consent-reserve, 0px)))',
+  it('каркас кабинета оставляет под плашку её измеренную высоту', () => {
+    const sidebarRules = ruleBodies(WORKSPACE_CSS, '.shell .sidebar').join('\n');
+    expect(sidebarRules).toContain(
+      'padding-bottom: calc(18px + var(--cookie-consent-height, 0px))',
     );
-
-    // Запас включается только пока плашка есть в DOM: `:has()` гаснет вместе
-    // с ней, и после принятия согласия боковое меню возвращается к обычному виду.
-    const reserveRule = ruleBody(INDEX_CSS, ':root:has(.cookie-consent)');
-    expect(reserveRule).toContain('--cookie-consent-reserve: var(--cookie-consent-space)');
+    // Магической константы с clamp-обрезкой, из-за которой дефект вернулся,
+    // в запасе быть не должно.
+    expect(sidebarRules).not.toContain('clamp');
   });
 
-  it('оставляет под плашку полосу не меньше пятидесяти пикселей', () => {
-    const reserve = /--cookie-consent-space:\s*(\d+)px/.exec(INDEX_CSS);
-    expect(reserve, 'в index.css нет --cookie-consent-space').not.toBeNull();
-    const pixels = Number(reserve?.[1]);
-    // Ниже 50px цельный блок «Личные данные + Выйти» перестаёт помещаться.
-    expect(pixels).toBeGreaterThanOrEqual(50);
+  it('список разделов уступает высоту нижнему блоку и прокручивается сам', () => {
+    const nav = ruleBody(WORKSPACE_CSS, '.shell .sidebar > nav');
+    expect(nav).toContain('flex: 1 1 auto');
+    expect(nav).toContain('min-height: 0');
+    expect(nav).toContain('overflow-y: auto');
   });
 
   it('держит плашку низкой: компактные отступы и без потолка по ширине текста', () => {
@@ -56,5 +65,19 @@ describe('плашка согласия не закрывает нижние э�
     const text = ruleBody(INDEX_CSS, '.cookie-consent__text');
     expect(text).toContain('max-width: none');
     expect(text).not.toContain('max-width: 60ch');
+  });
+
+  it('публикует измеренную высоту плашки и снимает её после принятия', async () => {
+    mockFetch(() => anonymousSession());
+    const user = userEvent.setup();
+    renderApp('/');
+
+    await screen.findByTestId('cookie-consent');
+    // В jsdom высота равна нулю: важен сам факт публикации переменной.
+    expect(document.documentElement.style.getPropertyValue('--cookie-consent-height')).toBe('0px');
+
+    await user.click(screen.getByTestId('cookie-consent-accept'));
+
+    expect(document.documentElement.style.getPropertyValue('--cookie-consent-height')).toBe('');
   });
 });
