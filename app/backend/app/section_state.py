@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from app.models.dormitory import Dormitory
 
 SECTIONS = {
-    "report": "Большой отчёт",
-    "places": "Места",
+    "report": "Общий отчёт",
+    "places": "Размещение персонала",
     "residents": "Проживающие",
     "movement": "Движение персонала",
     "inflow": "Приток",

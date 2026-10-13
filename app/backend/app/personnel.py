@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.arrival_plans import active_arrivals
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel
@@ -28,7 +29,6 @@ from app.models.personnel import (
     EmployeeNote,
     EmployeePlan,
     EmployeeSeparation,
-    EmployeeTask,
     PersonnelBinding,
     PersonnelPreferences,
 )
@@ -583,9 +583,6 @@ def workspace(db: Session, user: User) -> dict[str, Any]:
     employees, roots = root_map(db)
     identities = group_identities(employees, roots)
     dormitories = list(db.scalars(select(Dormitory).order_by(Dormitory.name, Dormitory.id)))
-    users = list(
-        db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.full_name, User.id))
-    )
     sources: dict[str, list[dict[str, Any]]] = defaultdict(list)
     tabs = {f"custom_{tab.id}": tab.name for tab in db.scalars(select(CustomTab))}
     for row, values in all_sources(db):
@@ -652,24 +649,12 @@ def workspace(db: Session, user: User) -> dict[str, Any]:
     preferences = db.get(PersonnelPreferences, user.id)
     return {
         "today": today(),
-        "user_id": user.id,
         "dormitories": [
             {"id": d.id, "name": d.name, "client_name": d.client_name, "is_archived": d.is_archived}
             for d in dormitories
         ],
-        "users": [{"id": u.id, "name": u.full_name} for u in users],
         "employees": result,
-        "tasks": [
-            {
-                "id": t.id,
-                "employee_id": person(t.employee_id),
-                "text": t.text,
-                "due": t.due,
-                "assignee_id": t.assignee_id,
-                "done": t.done,
-            }
-            for t in db.scalars(select(EmployeeTask).order_by(EmployeeTask.due, EmployeeTask.id))
-        ],
+        "arrival_plans": active_arrivals(db),
         "plans": [
             {
                 "id": p.id,

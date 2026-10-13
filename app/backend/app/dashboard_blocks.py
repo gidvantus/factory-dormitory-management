@@ -351,7 +351,7 @@ def place_daily_values(
                 continue
             values = place_day_values(raw.get((hostel.id, day), {}))
             if source.metric not in values:
-                errors[day] = "Нет показателя «Мест»"
+                errors[day] = "Нет показателя «Размещение персонала»"
             else:
                 daily[day] += values[source.metric]
     return daily, errors

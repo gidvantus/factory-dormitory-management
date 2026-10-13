@@ -18,7 +18,7 @@ const CATALOG: CatalogDormitory[] = [1, 2].map((id) => ({
   sources: [
     {
       key: 'report',
-      name: 'Большой отчёт',
+      name: 'Общий отчёт',
       kind: 'report',
       columns: [],
       rows: [{ id: id * 10, name: 'Выход Итого' }],

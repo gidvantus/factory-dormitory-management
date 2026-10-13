@@ -8,7 +8,7 @@ import { HostelPlaces } from './HostelPlaces';
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe('Места', () => {
+describe('Размещение персонала', () => {
   it('показывает свободные места только для чтения и обновляет расчёт после изменения исходной ячейки', async () => {
     let saves = 0;
     const fetchMock = mockFetch((url, init) => {

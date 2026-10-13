@@ -295,9 +295,9 @@ export function DashboardBlocks({
                   )}
                   <p className={styles.reportNote}>
                     {block.config.source_kind === 'report'
-                      ? 'Большой отчёт'
+                      ? 'Общий отчёт'
                       : block.config.source_kind === 'places'
-                        ? 'Места'
+                        ? 'Размещение персонала'
                         : block.config.operation === 'count'
                           ? 'Количество строк'
                           : 'Сумма столбца'}{' '}

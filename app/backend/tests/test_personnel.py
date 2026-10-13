@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.personnel import Employee, EmployeePlan, EmployeeTask
+from app.models.personnel import Employee, EmployeePlan
 from app.models.resident import Resident
 from app.personnel import today
 from tests.conftest import login, sign_in
@@ -65,6 +65,46 @@ def workspace(client: TestClient) -> dict[str, Any]:
     response = client.get(API)
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def test_tasks_are_removed_and_employee_notes_remain(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session)
+    employee = create(client, create_dormitory(client))["employee_id"]
+    assert client.post(f"{API}/employees/{employee}/tasks", json={}).status_code == 404
+    assert client.patch(f"{API}/tasks/removed", json={"done": True}).status_code == 404
+    paths = client.get("/openapi.json").json()["paths"]
+    assert not any(path.startswith(API) and "/tasks" in path for path in paths)
+    assert "employee_tasks" not in Employee.metadata.tables
+    data = workspace(client)
+    assert "tasks" not in data
+    assert "users" not in data  # Список ответственных больше не нужен в сводке.
+    block = {
+        "id": "old-tasks",
+        "kind": "tasks",
+        "title": "Задачи",
+        "scope": [],
+        "days": 5,
+        "limit": 4,
+        "wide": False,
+        "saved_list_id": None,
+    }
+    assert (
+        client.put(
+            API + "/preferences", json={**data["preferences"], "blocks": [block]}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            f"{API}/employees/{employee}/notes", json={"text": "Обсудили следующую вахту"}
+        ).status_code
+        == 201
+    )
+    detail = client.get(f"{API}/employees/{employee}").json()
+    assert [note["text"] for note in detail["notes"]] == ["Обсудили следующую вахту"]
+    assert any(event["kind"] == "note" for event in detail["events"])
 
 
 def test_requires_active_login(client: TestClient, db_session: Session) -> None:
@@ -202,20 +242,13 @@ def test_transfer_outflow_and_reentry_keep_one_identity_and_close_departure_plan
     assert all(event["actor"] == user.full_name for event in detail["events"])
 
 
-def test_merge_undo_retains_original_sources_tasks_notes_and_plans(
+def test_merge_undo_retains_original_sources_notes_and_plans(
     client: TestClient, db_session: Session
 ) -> None:
-    user = sign_in(client, db_session)
+    sign_in(client, db_session)
     dorm = create_dormitory(client)
     a = create(client, dorm)["employee_id"]
     b = create(client, dorm, table="outflow")["employee_id"]
-    assert (
-        client.post(
-            f"{API}/employees/{a}/tasks",
-            json={"text": "Позвонить", "due": str(today()), "assignee_id": user.id},
-        ).status_code
-        == 201
-    )
     assert (
         client.post(
             f"{API}/employees/{a}/notes", json={"text": "Проверено по первичному документу"}
@@ -256,14 +289,13 @@ def test_merge_undo_retains_original_sources_tasks_notes_and_plans(
     )
     assert merged.status_code == 200, merged.text
     data = workspace(client)
-    assert len(data["employees"]) == 1 and data["tasks"][0]["employee_id"] == b
+    assert len(data["employees"]) == 1
     assert data["plans"][0]["employee_id"] == b
-    assert db_session.scalar(select(EmployeeTask)).employee_id == a
     assert len(client.get(f"{API}/employees/{b}").json()["notes"]) == 1
     operation = merged.json()["merge_id"]
     assert client.post(f"{API}/merges/{operation}/undo").status_code == 200
     data = workspace(client)
-    assert len(data["employees"]) == 2 and data["tasks"][0]["employee_id"] == a
+    assert len(data["employees"]) == 2
     assert db_session.scalar(select(EmployeePlan)).employee_id == a
     assert len(client.get(f"{API}/employees/{a}").json()["notes"]) == 1
     assert not client.get(f"{API}/employees/{b}").json()["notes"]

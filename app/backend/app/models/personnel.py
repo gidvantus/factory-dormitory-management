@@ -66,18 +66,6 @@ class EmployeeEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class EmployeeTask(Base):
-    __tablename__ = "employee_tasks"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
-    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), index=True)
-    text: Mapped[str] = mapped_column(String(300))
-    due: Mapped[CalendarDate] = mapped_column(Date)
-    assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    done: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-
 class EmployeeNote(Base):
     __tablename__ = "employee_notes"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

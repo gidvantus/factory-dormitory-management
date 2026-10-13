@@ -23,7 +23,6 @@ from app.models.personnel import (
     EmployeeNote,
     EmployeePlan,
     EmployeeSeparation,
-    EmployeeTask,
     PersonnelBinding,
     PersonnelPreferences,
 )
@@ -61,8 +60,6 @@ from app.schemas.personnel import (
     PreferencesInput,
     RecordCreate,
     RecordLink,
-    TaskInput,
-    TaskUpdate,
 )
 from app.schemas.resident import UpdateResidentRequest
 from app.schemas.table_column import TableKey
@@ -255,50 +252,6 @@ def update_employee(
         user.id,
         snapshot={"before": before, "after": payload.model_dump()},
     )
-    db.commit()
-    return {"ok": True}
-
-
-@router.post("/employees/{employee_id}/tasks", status_code=201)
-def add_task(
-    employee_id: UUID, payload: TaskInput, user: SubscribedUser, db: DbSession
-) -> dict[str, bool]:
-    identity_lock(db)
-    employee = get_employee(db, str(employee_id))
-    if payload.assignee_id:
-        assignee = db.get(User, payload.assignee_id)
-        if assignee is None or not assignee.is_active:
-            raise HTTPException(422, "Выберите действующего ответственного")
-    db.add(EmployeeTask(employee_id=employee.id, created_by_id=user.id, **payload.model_dump()))
-    event(
-        db,
-        employee.id,
-        "task",
-        f"Добавлена задача: {payload.text}",
-        user.id,
-        snapshot=payload.model_dump(mode="json"),
-    )
-    db.commit()
-    return {"ok": True}
-
-
-@router.patch("/tasks/{task_id}")
-def update_task(
-    task_id: UUID, payload: TaskUpdate, user: SubscribedUser, db: DbSession
-) -> dict[str, bool]:
-    identity_lock(db)
-    task = db.get(EmployeeTask, str(task_id))
-    if task is None:
-        raise HTTPException(404, "Задача не найдена")
-    if task.done != payload.done:
-        task.done = payload.done
-        event(
-            db,
-            task.employee_id,
-            "task",
-            f"{'Выполнена' if task.done else 'Возвращена в работу'} задача: {task.text}",
-            user.id,
-        )
     db.commit()
     return {"ok": True}
 

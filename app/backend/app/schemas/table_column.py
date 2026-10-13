@@ -85,5 +85,10 @@ class PlaceReportLink(BaseModel):
     metric: PlaceMetric
 
 
-ReportSourceLink = ReportLink | PlaceReportLink
+class ArrivalPlanReportLink(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    table_key: Literal["arrival_plan"]
+
+
+ReportSourceLink = ReportLink | PlaceReportLink | ArrivalPlanReportLink
 report_link_adapter: TypeAdapter[ReportSourceLink] = TypeAdapter(cast(Any, ReportSourceLink))

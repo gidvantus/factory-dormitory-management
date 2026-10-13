@@ -23,10 +23,10 @@ const column = (id: string, name: string, kind: Kind = 'text', options?: string)
   options,
 });
 const initialTabs: Tab[] = [
-  { id: 'report', name: 'Большой отчёт', columns: [] },
+  { id: 'report', name: 'Общий отчёт', columns: [] },
   {
     id: 'places',
-    name: 'Места',
+    name: 'Размещение персонала',
     columns: [
       column('building', 'Корпус'),
       column('paid', 'Оплачено', 'number'),
@@ -566,7 +566,7 @@ export function DormitoryDesignPreview(): JSX.Element {
             <>
               <div className={styles.tableHeading}>
                 <div>
-                  <h2>Большой отчёт</h2>
+                  <h2>Общий отчёт</h2>
                   <p>Октябрь 2026 · показатели за каждый день</p>
                 </div>
                 <button className={styles.secondary} onClick={() => openSettings('links')}>
@@ -1142,7 +1142,7 @@ export function DormitoryDesignPreview(): JSX.Element {
               </div>
               <div className={styles.linkForm}>
                 <label className={styles.field}>
-                  Строка большого отчёта
+                  Строка общего отчёта
                   <input
                     value={draftRule.name}
                     onChange={(event) => setDraftRule({ ...draftRule, name: event.target.value })}

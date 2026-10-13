@@ -83,7 +83,7 @@ it('добавляет локальную вкладку, блокирует с�
           sections: [
             {
               key: 'places',
-              name: 'Места',
+              name: 'Размещение персонала',
               parent_key: null,
               status: 'active',
               has_data: false,

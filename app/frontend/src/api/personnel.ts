@@ -48,7 +48,6 @@ export type Filter =
   | 'history'
   | 'mine'
   | 'returned'
-  | 'arrivals'
   | 'no-phone'
   | 'pending';
 export type SavedList = {
@@ -61,7 +60,7 @@ export type SavedList = {
   scope: number[];
 };
 export type BlockKind =
-  'residents' | 'ending' | 'contacts' | 'outflow' | 'missing' | 'plans' | 'tasks' | 'saved';
+  'residents' | 'ending' | 'contacts' | 'outflow' | 'missing' | 'plans' | 'saved';
 export type Block = {
   id: string;
   kind: BlockKind;
@@ -78,14 +77,6 @@ export type Preferences = {
   lists: SavedList[];
   favorites: string[];
 };
-export type Task = {
-  id: string;
-  employee_id: string;
-  text: string;
-  due: string;
-  assignee_id: number | null;
-  done: boolean;
-};
 export type Plan = {
   id: string;
   employee_id: string;
@@ -96,6 +87,15 @@ export type Plan = {
   confirmed: boolean;
   comment: string;
 };
+export type ArrivalPlan = {
+  id: string;
+  dormitory_id: number;
+  date: string;
+  count: number;
+  names: string[];
+  revision: number;
+};
+export type ArrivalInput = Omit<ArrivalPlan, 'id' | 'revision'>;
 export type Decision = {
   employee_id: string;
   resident_id: number;
@@ -113,12 +113,10 @@ export type Match = {
 };
 export type PersonnelData = {
   today: string;
-  user_id: number;
   dormitories: { id: number; name: string; client_name: string; is_archived: boolean }[];
-  users: { id: number; name: string }[];
   employees: Employee[];
-  tasks: Task[];
   plans: Plan[];
+  arrival_plans: ArrivalPlan[];
   decisions: Decision[];
   matches: Match[];
   preferences: Preferences;
@@ -182,22 +180,12 @@ export const personnelApi = {
     id: string,
     values: IdentityFields & { identity_status: 'pending' | 'confirmed' },
   ) => send(`/employees/${id}`, 'PATCH', values),
-  addTask: (id: string, values: Pick<Task, 'text' | 'due' | 'assignee_id'>) =>
-    send(`/employees/${id}/tasks`, 'POST', values),
-  toggleTask: (id: string, done: boolean) => send(`/tasks/${id}`, 'PATCH', { done }),
   addNote: (id: string, text: string) => send(`/employees/${id}/notes`, 'POST', { text }),
-  savePlan: (
-    id: string,
-    values: {
-      date: string;
-      end: string;
-      dormitory_id: number;
-      confirmed: boolean;
-      comment: string;
-    },
-  ) => send(`/employees/${id}/next-shift`, 'PUT', values),
-  confirmPlan: (id: string, confirmed: boolean) => send(`/plans/${id}`, 'PATCH', { confirmed }),
-  cancelPlan: (id: string) => send<void>(`/plans/${id}`, 'DELETE'),
+  createArrival: (values: ArrivalInput) => send<ArrivalPlan>('/arrivals', 'POST', values),
+  updateArrival: (id: string, values: ArrivalInput & { revision: number }) =>
+    send<ArrivalPlan>(`/arrivals/${id}`, 'PUT', values),
+  deleteArrival: (id: string, revision: number) =>
+    send<void>(`/arrivals/${id}?revision=${revision}`, 'DELETE'),
   saveDecision: (id: string, values: Omit<Decision, 'employee_id'>) =>
     send(`/employees/${id}/decision`, 'PUT', values),
   merge: (match: Match, reason: string): Promise<{ employee_id: string; merge_id: string }> =>

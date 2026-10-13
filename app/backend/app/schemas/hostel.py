@@ -1,4 +1,4 @@
-"""Запросы и ответы вкладки «Места»."""
+"""Запросы и ответы вкладки «Размещение персонала»."""
 
 from datetime import date
 from typing import Literal

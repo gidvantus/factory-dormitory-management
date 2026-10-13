@@ -12,7 +12,8 @@ interface Source {
   empty?: boolean;
 }
 const builtInSources: Source[] = [
-  { key: 'places', name: 'Места', tables: [] },
+  { key: 'arrival_plan', name: 'План заездов', tables: [] },
+  { key: 'places', name: 'Размещение персонала', tables: [] },
   { key: 'residents', name: 'Проживающие', tables: [{ key: 'residents', name: 'Проживающие' }] },
   {
     key: 'movement',
@@ -44,15 +45,20 @@ export function ReportLinkEditor({
   onChange: (link: ReportLink | null) => void;
   disabled: boolean;
 }): JSX.Element {
-  const initialTable = initial?.table_key !== 'places' ? initial : null;
+  const initialTable =
+    initial && initial.table_key !== 'places' && initial.table_key !== 'arrival_plan'
+      ? initial
+      : null;
   const [section, setSection] = useState(() =>
-    initial?.table_key === 'places'
-      ? 'places'
-      : initialTable?.table_key.startsWith('custom_')
-        ? initialTable.table_key
-        : (builtInSources.find((source) =>
-            source.tables.some((table) => table.key === initialTable?.table_key),
-          )?.key ?? ''),
+    initial?.table_key === 'arrival_plan'
+      ? 'arrival_plan'
+      : initial?.table_key === 'places'
+        ? 'places'
+        : initialTable?.table_key.startsWith('custom_')
+          ? initialTable.table_key
+          : (builtInSources.find((source) =>
+              source.tables.some((table) => table.key === initialTable?.table_key),
+            )?.key ?? ''),
   );
   const [table, setTable] = useState<TableKey | ''>(initialTable?.table_key ?? '');
   const [tabs, setTabs] = useState<CustomTab[]>([]);
@@ -257,11 +263,12 @@ export function ReportLinkEditor({
             const next = sources.find((item) => item.key === event.target.value);
             setSection(next?.key ?? '');
             selectTable(next?.tables.length === 1 ? next.tables[0].key : '');
+            if (next?.key === 'arrival_plan') onChange({ table_key: 'arrival_plan' });
           }}
         >
           <option value="">Выберите раздел</option>
           <option value="report" disabled>
-            Большой отчёт — связь через формулу
+            Общий отчёт — связь через формулу
           </option>
           {sources.map((item) => (
             <option key={item.key} value={item.key}>
@@ -281,6 +288,12 @@ export function ReportLinkEditor({
         </p>
       )}
       {source?.empty && <p>Сначала создайте таблицу во вкладке «{source.name}».</p>}
+      {section === 'arrival_plan' && (
+        <p className={styles.linkSummary}>
+          Брать количество приезжающих из «Плана заездов» этого общежития за каждую дату отчёта. ФИО
+          на расчёт не влияют.
+        </p>
+      )}
       {section === 'places' && (
         <PlaceLinkEditor
           dormitoryId={dormitoryId}

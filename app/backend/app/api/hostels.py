@@ -119,7 +119,7 @@ def list_sources(
     ]
 
 
-@router.get("", response_model=PlacesResponse, summary="Таблицы мест за период")
+@router.get("", response_model=PlacesResponse, summary="Размещение персонала за период")
 def read_places(
     dormitory_id: DormitoryId,
     _user: SubscribedUser,
@@ -311,7 +311,7 @@ def count_deleted_cells(db: Session, dormitory_id: int, parsed: ParsedImport) ->
 
 @router.get(
     "/import/template",
-    summary="Скачать шаблон импорта мест за месяц",
+    summary="Скачать шаблон импорта размещения персонала за месяц",
     response_class=Response,
     responses={
         status.HTTP_200_OK: {
@@ -368,7 +368,7 @@ def download_places_import_template(
 
 @router.post(
     "/import",
-    summary="Загрузить файл импорта мест",
+    summary="Загрузить файл импорта размещения персонала",
     response_model=PlacesImportResult,
     responses={
         status.HTTP_200_OK: {"model": PlacesImportResult, "description": "Разбор без ошибок"},
@@ -397,7 +397,7 @@ async def upload_places_import(
     """Разобрать файл прямо в запросе и сохранить результат в журнал импортов.
 
     Ответ 422 приходит с полным результатом разбора: по нему экран показывает
-    ошибки и номер задания. Ячейки «Мест» при ошибках не меняются вовсе.
+    ошибки и номер задания. Ячейки «Размещение персонала» при ошибках не меняются вовсе.
     """
     require_section_writable(db, dormitory_id, "places")
     require_dormitory(db, dormitory_id)
@@ -518,7 +518,7 @@ def apply_import(db: Session, dormitory_id: int, job: ImportJob) -> PlacesImport
 @router.post(
     "/import/{import_id}/confirm",
     response_model=PlacesImportApplied,
-    summary="Применить импорт мест",
+    summary="Применить импорт размещения персонала",
     responses={
         **NOT_FOUND_RESPONSE,
         **SECTION_HIDDEN_RESPONSE,

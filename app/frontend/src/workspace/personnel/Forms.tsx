@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { personnelApi } from '../../api/personnel';
 import type { Decision, Employee, PersonnelData, Source } from '../../api/personnel';
-import { addDays, decisionNames, dormName, message, personName, value } from './helpers';
+import { addDays, decisionNames, dormName, message, value } from './helpers';
 import s from './Personnel.module.css';
 
 export type Mutate = (action: () => Promise<unknown>) => Promise<void>;
@@ -57,68 +57,6 @@ export function SubmitForm({
         </button>
       </div>
     </form>
-  );
-}
-export function TaskForm({
-  data,
-  employeeId,
-  mutate,
-  onDone,
-}: {
-  data: PersonnelData;
-  employeeId?: string;
-  mutate: Mutate;
-  onDone?: () => void;
-}): JSX.Element {
-  return (
-    <SubmitForm
-      label="Добавить задачу"
-      disabled={!data.employees.length}
-      onDone={onDone}
-      onSubmit={(form) =>
-        mutate(() =>
-          personnelApi.addTask(employeeId ?? String(form.get('employee')), {
-            text: String(form.get('text')).trim(),
-            due: String(form.get('due')),
-            assignee_id: Number(form.get('assignee')) || null,
-          }),
-        )
-      }
-    >
-      {!employeeId && (
-        <label>
-          Сотрудник
-          <select name="employee" required>
-            {data.employees.map((person) => (
-              <option key={person.id} value={person.id}>
-                {personName(person)} · Т/н {person.personnel_number ?? '—'}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      <label>
-        Что нужно сделать
-        <input name="text" required maxLength={300} placeholder="Например, уточнить дату выезда" />
-      </label>
-      <div className={s.formGrid}>
-        <label>
-          Срок
-          <input type="date" name="due" required defaultValue={data.today} />
-        </label>
-        <label>
-          Ответственный
-          <select name="assignee" defaultValue={data.user_id}>
-            <option value="">Не назначен</option>
-            {data.users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-    </SubmitForm>
   );
 }
 export function NoteForm({
@@ -276,131 +214,8 @@ export function DecisionForm({
           {status === 'extend'
             ? 'Дата изменится в исходной строке «Проживающих» и в списках ближайших окончаний.'
             : status === 'departure'
-              ? 'Выезд появится в календаре. Проживание завершится после оформления оттока.'
-              : 'Задачу на уточнение можно добавить во вкладке «Задачи и заметки».'}
-        </p>
-      </SubmitForm>
-    </section>
-  );
-}
-export function NextShiftForm({
-  employee,
-  data,
-  mutate,
-}: {
-  employee: Employee;
-  data: PersonnelData;
-  mutate: Mutate;
-}): JSX.Element {
-  const plans = data.plans.filter(
-    (plan) => plan.employee_id === employee.id && plan.kind === 'arrival',
-  );
-  const current = plans[0];
-  const earliest = employee.current
-    .map((source) => value(source, 'shift_end'))
-    .filter(Boolean)
-    .reduce((result, end) => (end >= result ? addDays(end, 1) : result), data.today);
-  const available = data.dormitories.filter((dorm) => !dorm.is_archived);
-  const activeDorm = current?.dormitory_id ?? employee.current[0]?.dormitory_id ?? available[0]?.id;
-  return (
-    <section className={s.softCard}>
-      <h4>Следующая вахта</h4>
-      {plans.map((plan) => (
-        <div className={s.source} key={plan.id}>
-          <strong>
-            {plan.date} — {plan.end}
-          </strong>
-          <p>
-            {dormName(data, plan.dormitory_id)} ·{' '}
-            {plan.confirmed ? 'Приезд подтверждён' : 'Ожидаем подтверждение'}
-          </p>
-          {plan.comment && <p>{plan.comment}</p>}
-          <div className={s.actions}>
-            <button
-              type="button"
-              onClick={() =>
-                void mutate(() => personnelApi.confirmPlan(plan.id, !plan.confirmed)).catch(
-                  () => {},
-                )
-              }
-            >
-              {plan.confirmed ? 'Снять подтверждение' : 'Подтвердить приезд'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void mutate(() => personnelApi.cancelPlan(plan.id)).catch(() => {})}
-            >
-              Отменить план
-            </button>
-          </div>
-        </div>
-      ))}
-      {plans.length > 1 && (
-        <p className={s.warning}>
-          У сотрудника несколько планов после связывания карточек. Отмените лишние перед
-          редактированием.
-        </p>
-      )}
-      <SubmitForm
-        key={current?.id ?? employee.id}
-        label={current ? 'Обновить следующую вахту' : 'Запланировать следующую вахту'}
-        disabled={!available.length || plans.length > 1}
-        onSubmit={(form) =>
-          mutate(() =>
-            personnelApi.savePlan(employee.id, {
-              date: String(form.get('date')),
-              end: String(form.get('end')),
-              dormitory_id: Number(form.get('dormitory')),
-              confirmed: !!form.get('confirmed'),
-              comment: String(form.get('comment')).trim(),
-            }),
-          )
-        }
-      >
-        <div className={s.formGrid}>
-          <label>
-            Дата заезда
-            <input
-              type="date"
-              name="date"
-              min={earliest}
-              required
-              defaultValue={current?.date ?? addDays(earliest, 2)}
-            />
-          </label>
-          <label>
-            Окончание вахты
-            <input
-              type="date"
-              name="end"
-              min={earliest}
-              required
-              defaultValue={current?.end ?? addDays(earliest, 46)}
-            />
-          </label>
-        </div>
-        <label>
-          Планируемое общежитие
-          <select name="dormitory" required defaultValue={activeDorm}>
-            {available.map((dorm) => (
-              <option key={dorm.id} value={dorm.id}>
-                {dorm.name} · {dorm.client_name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={s.radio}>
-          <input name="confirmed" type="checkbox" defaultChecked={current?.confirmed} />
-          Сотрудник подтвердил приезд
-        </label>
-        <label>
-          Детали приезда
-          <textarea name="comment" maxLength={1000} defaultValue={current?.comment ?? ''} />
-        </label>
-        <p className={s.hint}>
-          {available.length
-            ? 'План появится в календаре и списке «Ожидают заезда». Фактическое заселение оформляется в общежитии.'
-            : 'Сначала создайте действующее общежитие.'}
+              ? 'Проживание завершится после оформления оттока.'
+              : 'Договорённости можно сохранить во вкладке «Заметки».'}
         </p>
       </SubmitForm>
     </section>

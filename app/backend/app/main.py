@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.api import (
     activation,
+    arrival_plans,
     auth,
     billing,
     custom_tabs,
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     application.include_router(outflow.router, prefix=API_PREFIX)
     application.include_router(payments.router, prefix=API_PREFIX)
     application.include_router(personnel.router, prefix=API_PREFIX)
+    application.include_router(arrival_plans.router, prefix=API_PREFIX)
     application.include_router(residents.router, prefix=API_PREFIX)
     application.include_router(dormitories.router, prefix=API_PREFIX)
     application.include_router(reports.router, prefix=API_PREFIX)

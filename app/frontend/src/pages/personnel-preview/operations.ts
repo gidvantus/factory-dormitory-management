@@ -14,20 +14,12 @@ export type ListFilter =
   | 'returned'
   | 'arrivals'
   | 'no-phone';
-export type ProfileTab = 'overview' | 'history' | 'shifts' | 'work' | 'next';
-export type WorkspaceView = 'workspace' | 'list' | 'planning' | 'tasks' | 'matches';
+export type ProfileTab = 'overview' | 'history' | 'shifts' | 'notes' | 'next';
+export type WorkspaceView = 'workspace' | 'list' | 'planning' | 'matches';
 export type Decision = {
   status: 'waiting' | 'extend' | 'departure';
   date: string;
   comment: string;
-};
-export type Task = {
-  id: string;
-  personId: string;
-  text: string;
-  due: string;
-  assignee: string;
-  done: boolean;
 };
 export type Note = { id: string; personId: string; text: string; date: string; author: string };
 export type Plan = {
@@ -51,7 +43,6 @@ export type SavedList = {
 };
 export type OperationsState = {
   decisions: Record<string, Decision>;
-  tasks: Task[];
   notes: Note[];
   plans: Plan[];
   favorites: string[];
@@ -60,7 +51,6 @@ export type OperationsState = {
   events: Record<string, PersonEvent[]>;
 };
 export const MY_NAME = 'Марина Соколова';
-export const assignees = [MY_NAME, 'Иван Петров', 'Ольга Васильева'];
 export const listNames: Record<ListFilter, string> = {
   all: 'Все сотрудники',
   current: 'Проживают',
@@ -131,48 +121,6 @@ const seed: OperationsState = {
       comment: 'Выезд сегодня, сбор у корпуса в 18:00.',
     },
   },
-  tasks: [
-    {
-      id: 'task-1',
-      personId: 'person-1',
-      text: 'Уточнить продление вахты и дату выезда',
-      due: '2026-10-10',
-      assignee: MY_NAME,
-      done: false,
-    },
-    {
-      id: 'task-2',
-      personId: 'person-5',
-      text: 'Уточнить и записать номер телефона',
-      due: '2026-10-09',
-      assignee: MY_NAME,
-      done: false,
-    },
-    {
-      id: 'task-3',
-      personId: 'person-7',
-      text: 'Проверить проживание после окончания вахты',
-      due: '2026-10-10',
-      assignee: 'Иван Петров',
-      done: false,
-    },
-    {
-      id: 'task-4',
-      personId: 'person-29',
-      text: 'Подтвердить приезд на следующую вахту',
-      due: '2026-10-12',
-      assignee: 'Ольга Васильева',
-      done: false,
-    },
-    {
-      id: 'task-5',
-      personId: 'person-2',
-      text: 'Уточнить время выезда',
-      due: '2026-10-10',
-      assignee: MY_NAME,
-      done: true,
-    },
-  ],
   notes: [
     {
       id: 'note-1',
@@ -287,7 +235,6 @@ function validState(value: unknown): value is OperationsState {
     !s.decisions ||
     !s.events ||
     !s.resolutions ||
-    !Array.isArray(s.tasks) ||
     !Array.isArray(s.notes) ||
     !Array.isArray(s.plans) ||
     !Array.isArray(s.favorites) ||
@@ -302,16 +249,6 @@ function validState(value: unknown): value is OperationsState {
         Object.hasOwn(decisionNames, d.status) &&
         (d.status === 'waiting' || isDate(d.date)) &&
         isText(d.comment),
-    ) &&
-    s.tasks.every(
-      (t) =>
-        t &&
-        isText(t.id) &&
-        isId(t.personId) &&
-        isText(t.text) &&
-        isDate(t.due) &&
-        assignees.includes(t.assignee) &&
-        typeof t.done === 'boolean',
     ) &&
     s.notes.every(
       (n) =>
@@ -361,9 +298,7 @@ function validState(value: unknown): value is OperationsState {
             e &&
             isText(e.id) &&
             isDate(e.date) &&
-            ['arrival', 'transfer', 'shift', 'outflow', 'review', 'task', 'note'].includes(
-              e.kind,
-            ) &&
+            ['arrival', 'transfer', 'shift', 'outflow', 'review', 'note'].includes(e.kind) &&
             isText(e.title) &&
             isText(e.detail) &&
             isDorm(e.dormitoryId) &&
@@ -374,8 +309,36 @@ function validState(value: unknown): value is OperationsState {
 }
 export function readState(): OperationsState {
   try {
-    const state: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
-    if (validState(state)) return state;
+    const stored: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
+    if (stored && typeof stored === 'object') {
+      const raw = stored as Record<string, unknown>;
+      const events =
+        raw.events && typeof raw.events === 'object'
+          ? Object.fromEntries(
+              Object.entries(raw.events).map(([id, entries]: [string, unknown]) => [
+                id,
+                Array.isArray(entries)
+                  ? entries.filter(
+                      (entry: unknown) =>
+                        !entry ||
+                        typeof entry !== 'object' ||
+                        (entry as Record<string, unknown>).kind !== 'task',
+                    )
+                  : entries,
+              ]),
+            )
+          : raw.events;
+      const state = {
+        decisions: raw.decisions,
+        notes: raw.notes,
+        plans: raw.plans,
+        favorites: raw.favorites,
+        lists: raw.lists,
+        resolutions: raw.resolutions,
+        events,
+      };
+      if (validState(state)) return state;
+    }
   } catch {
     /* Используем демонстрационный набор при недоступном хранилище. */
   }
@@ -475,8 +438,6 @@ export type OperationsContextValue = {
   savePlan: (plan: Plan) => void;
   removePlan: (id: string) => void;
   confirmPlan: (id: string) => void;
-  addTask: (task: Omit<Task, 'id' | 'done'>) => void;
-  toggleTask: (id: string) => void;
   addNote: (personId: string, text: string) => void;
   saveList: (list: SavedList) => void;
   removeList: (id: string) => void;

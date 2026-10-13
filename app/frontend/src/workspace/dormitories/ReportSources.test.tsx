@@ -83,12 +83,16 @@ it('создаёт строку отчёта со связью на свою в�
   await user.type(screen.getByLabelText('Название строки'), 'Готовые документы');
   await user.click(screen.getByRole('radio', { name: 'Связь с таблицей' }));
   expect(await screen.findByRole('option', { name: 'Документы' })).toBeInTheDocument();
-  for (const name of ['Проживающие', 'Движение персонала', 'Выплаты', 'Архив', 'Места']) {
+  for (const name of [
+    'Проживающие',
+    'Движение персонала',
+    'Выплаты',
+    'Архив',
+    'Размещение персонала',
+  ]) {
     expect(within(screen.getByLabelText('Раздел')).getByRole('option', { name })).toBeEnabled();
   }
-  expect(
-    screen.getByRole('option', { name: 'Большой отчёт — связь через формулу' }),
-  ).toBeDisabled();
+  expect(screen.getByRole('option', { name: 'Общий отчёт — связь через формулу' })).toBeDisabled();
   await user.selectOptions(screen.getByLabelText('Раздел'), 'custom_9');
   expect(
     screen.getByText('Сначала создайте таблицу во вкладке «Будущая вкладка».'),

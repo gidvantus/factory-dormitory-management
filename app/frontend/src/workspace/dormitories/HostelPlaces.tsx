@@ -345,7 +345,9 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
       .catch((caught) => {
         if (!controller.signal.aborted) {
           const message =
-            caught instanceof ApiError ? caught.message : 'Не удалось загрузить места.';
+            caught instanceof ApiError
+              ? caught.message
+              : 'Не удалось загрузить размещение персонала.';
           if (background) setSaveError(message);
           else {
             setError(message);
@@ -360,7 +362,7 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
     <section className={styles.page} data-testid="dormitory-places">
       <div className="toolbar">
         <div>
-          <h2>Места</h2>
+          <h2>Размещение персонала</h2>
           <p data-testid="places-month-applied">Все дни месяца · {monthTitle(month)}</p>
           <p>Свободных мест = оплачено мест − проживает. Расчёт автоматический.</p>
         </div>
@@ -394,7 +396,7 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
           </button>
         </div>
       </div>
-      {status === 'loading' && <p role="status">Загружаем места…</p>}
+      {status === 'loading' && <p role="status">Загружаем размещение персонала…</p>}
       {status === 'error' && (
         <p role="alert">
           {error}{' '}

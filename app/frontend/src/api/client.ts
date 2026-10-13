@@ -603,7 +603,8 @@ export interface PlaceReportLink {
   hostel_id: number | null;
   metric: PlaceMetric;
 }
-export type ReportLink = ReportTableLink | PlaceReportLink;
+export type ArrivalPlanReportLink = { table_key: 'arrival_plan' };
+export type ReportLink = ReportTableLink | PlaceReportLink | ArrivalPlanReportLink;
 export interface ArchiveRow {
   employee_id?: string | null;
   id: number;
@@ -1442,7 +1443,7 @@ function isPlacesImportResult(body: unknown): body is PlacesImportResult {
 }
 
 /**
- * Загрузка файла импорта «Мест».
+ * Загрузка файла импорта «Размещение персонала».
  *
  * Отдельная функция на `XMLHttpRequest`, а не `request()`: тот жёстко ставит
  * `Content-Type: application/json` и не умеет показывать прогресс выгрузки.

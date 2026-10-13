@@ -1,6 +1,6 @@
-"""Импорт вкладки «Места» из Excel: сборка шаблона и разбор файла.
+"""Импорт вкладки «Размещение персонала» из Excel: сборка шаблона и разбор файла.
 
-Раскладка листа повторяет экран «Места»
+Раскладка листа повторяет экран «Размещение персонала»
 (`app/frontend/src/workspace/dormitories/HostelPlaces.tsx`): у одного хостела на
 каждый день приходится четыре значения — «Проживает М», «Проживает Ж»,
 «Оплачено мест М», «Оплачено мест Ж». Поэтому в файле каждый хостел занимает
@@ -35,13 +35,14 @@ from openpyxl.worksheet.worksheet import Worksheet
 from app.place_values import place_day_values
 from app.schemas.hostel import PlaceField
 
-SHEET_TITLE = "Места"
+SHEET_TITLE = "Размещение персонала"
+LEGACY_SHEET_TITLE = "Места"
 HOSTEL_HEADER = "Хостел"
 FIELD_HEADER = "Показатель"
 DAY_FORMAT = "%d.%m.%Y"
 MAX_VALUE = 1_000_000_000
 
-# Порядок строк внутри блока хостела — как в `rows` на экране «Места».
+# Порядок строк внутри блока хостела — как в `rows` на экране «Размещение персонала».
 FIELDS: tuple[PlaceField, ...] = get_args(PlaceField)
 FIELD_LABELS: dict[PlaceField, str] = {
     "residents_m": "Проживает М",
@@ -56,13 +57,13 @@ CALCULATED_LABELS = frozenset(
 # Ячейки под таблицей, которыми шаблон подписывает месяц: не данные хостела.
 SERVICE_LABELS = frozenset({"месяц", "год"})
 
-TEMPLATE_ERROR_DETAIL = "Файл не похож на шаблон «Места» — скачайте шаблон заново"
+TEMPLATE_ERROR_DETAIL = "Файл не похож на шаблон «Размещение персонала» — скачайте шаблон заново"
 MULTIPLE_MONTHS_DETAIL = "Шаблон содержит больше одного месяца"
 VALUE_ERROR_DETAIL = "не целое неотрицательное число от 0 до 1 000 000 000"
 
 
 class TemplateError(Exception):
-    """Файл не является шаблоном «Места»: применять нечего, 422 с общим текстом."""
+    """Файл не является шаблоном «Размещение персонала»: применять нечего, 422 с общим текстом."""
 
 
 @dataclass(frozen=True)
@@ -185,7 +186,7 @@ def _header_day(raw: object) -> date | None:
 def _hostel_day_value(
     raw: Mapping[date, Mapping[str, int]], day: date, field: PlaceField
 ) -> int | None:
-    """Значение дня через общий расчёт показателей «Места» — как на экране."""
+    """Значение дня через общий расчёт показателей «Размещение персонала» — как на экране."""
     value = place_day_values(dict(raw.get(day, {}))).get(field)
     return None if value is None else int(value)
 
@@ -352,14 +353,17 @@ def parse_places_workbook(content: bytes) -> ParsedImport:
 
 
 def _open_sheet(content: bytes) -> Worksheet:
-    """Лист «Места» из файла: любая проблема чтения — это «не шаблон»."""
+    """Лист «Размещение персонала» из файла: любая проблема чтения — это «не шаблон»."""
     try:
         workbook = load_workbook(BytesIO(content), data_only=True)
     except Exception as error:  # любое повреждение файла читается как «не шаблон»
         raise TemplateError(TEMPLATE_ERROR_DETAIL) from error
-    if SHEET_TITLE not in workbook.sheetnames:
+    title = next(
+        (name for name in (SHEET_TITLE, LEGACY_SHEET_TITLE) if name in workbook.sheetnames), None
+    )
+    if title is None:
         raise TemplateError(TEMPLATE_ERROR_DETAIL)
-    sheet = workbook[SHEET_TITLE]
+    sheet = workbook[title]
     if not isinstance(sheet, Worksheet):
         # Лист с нужным именем есть, но это не обычный лист (например, диаграмма).
         raise TemplateError(TEMPLATE_ERROR_DETAIL)

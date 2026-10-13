@@ -32,11 +32,10 @@ import {
   MatchesBoard,
   NextShift,
   OperationsBlock,
-  PersonWork,
+  PersonNotes,
   PlanningBoard,
   SaveListDialog,
   SavedListsBar,
-  TasksBoard,
 } from './OperationsViews';
 import styles from './PersonnelDesignPreview.module.css';
 import ops from './Operations.module.css';
@@ -65,7 +64,6 @@ const blockIcons: Record<BlockKind, IconName> = {
   outflow: 'history',
   missing: 'alert',
   plans: 'calendar',
-  tasks: 'check',
   saved: 'list',
 };
 
@@ -224,7 +222,7 @@ function BlockBody({
         .map((event) => ({ person, event })),
     )
     .sort((a, b) => b.event.date.localeCompare(a.event.date));
-  if (['plans', 'tasks', 'saved'].includes(block.kind))
+  if (['plans', 'saved'].includes(block.kind))
     return (
       <OperationsBlock
         block={block}
@@ -504,7 +502,7 @@ function PersonDrawer({
             ['overview', 'Обзор'],
             ['history', 'История'],
             ['shifts', 'Вахты'],
-            ['work', 'Задачи и заметки'],
+            ['notes', 'Заметки'],
             ['next', 'Следующая вахта'],
           ] as const
         ).map(([id, title]) => (
@@ -521,8 +519,8 @@ function PersonDrawer({
             ? 'Обзор сотрудника'
             : tab === 'history'
               ? 'История сотрудника'
-              : tab === 'work'
-                ? 'Задачи и заметки сотрудника'
+              : tab === 'notes'
+                ? 'Заметки сотрудника'
                 : tab === 'next'
                   ? 'Следующая вахта сотрудника'
                   : 'Вахты сотрудника'
@@ -678,7 +676,7 @@ function PersonDrawer({
             )}
           </div>
         )}
-        {tab === 'work' && <PersonWork person={person} />}
+        {tab === 'notes' && <PersonNotes person={person} />}
         {tab === 'next' && <NextShift person={person} />}
       </div>
       <div className={styles.demoFootnote}>
@@ -732,30 +730,20 @@ function BlockEditor({
     ? 0
     : draft.kind === 'outflow'
       ? outflowCount
-      : draft.kind === 'tasks'
-        ? state.tasks.filter(
-            (task) =>
-              !task.done &&
-              inScope(
-                people.find((person) => person.id === task.personId)!.dormitoryId,
-                draft,
-                dormitory,
-              ),
+      : draft.kind === 'plans'
+        ? state.plans.filter(
+            (plan) =>
+              inScope(plan.dormitoryId, draft, dormitory) &&
+              plan.date >= TODAY &&
+              dayDiff(TODAY, plan.date) <= 6,
           ).length
-        : draft.kind === 'plans'
-          ? state.plans.filter(
-              (plan) =>
-                inScope(plan.dormitoryId, draft, dormitory) &&
-                plan.date >= TODAY &&
-                dayDiff(TODAY, plan.date) <= 6,
-            ).length
-          : draft.kind === 'saved'
-            ? savedList
-              ? selectSavedList(savedList, people, state, dormitory).filter(
-                  (person) => !draft.scope.length || draft.scope.includes(person.dormitoryId),
-                ).length
-              : 0
-            : count;
+        : draft.kind === 'saved'
+          ? savedList
+            ? selectSavedList(savedList, people, state, dormitory).filter(
+                (person) => !draft.scope.length || draft.scope.includes(person.dormitoryId),
+              ).length
+            : 0
+          : count;
   return (
     <Modal
       title={initial ? 'Настроить блок' : 'Добавить блок'}
@@ -949,9 +937,7 @@ function BlockEditor({
               <small>
                 {draft.kind === 'outflow' || draft.kind === 'plans'
                   ? 'Всего событий'
-                  : draft.kind === 'tasks'
-                    ? 'Открытых задач'
-                    : 'Всего сотрудников'}{' '}
+                  : 'Всего сотрудников'}{' '}
                 в выбранной области
               </small>
               {scopeReady &&
@@ -1232,10 +1218,6 @@ function PersonnelPreviewContent(): JSX.Element {
                 <Icon name="calendar" />
                 План заездов
               </button>
-              <button role="tab" aria-selected={view === 'tasks'} onClick={() => setView('tasks')}>
-                <Icon name="check" />
-                Задачи<span>{state.tasks.filter((task) => !task.done).length}</span>
-              </button>
               <button
                 role="tab"
                 aria-selected={view === 'matches'}
@@ -1453,8 +1435,6 @@ function PersonnelPreviewContent(): JSX.Element {
             </>
           ) : view === 'planning' ? (
             <PlanningBoard dormitory={dormitory} onPerson={openPerson} />
-          ) : view === 'tasks' ? (
-            <TasksBoard dormitory={dormitory} onPerson={openPerson} />
           ) : view === 'matches' ? (
             <MatchesBoard dormitory={dormitory} onPerson={openPerson} />
           ) : (
@@ -1841,8 +1821,8 @@ function PersonnelPreviewContent(): JSX.Element {
             </p>
           </div>
           <p className={styles.smallMuted}>
-            Сейчас все записи вымышлены. Настройки блоков, задачи, заметки, планы и решения
-            сохраняются в этом браузере. Основной раздел «Персонал» остаётся пустым.
+            Сейчас все записи вымышлены. Настройки блоков, заметки, планы и решения сохраняются в
+            этом браузере. Рабочие данные доступны в основном разделе «Персонал».
           </p>
           <button className={styles.primary} onClick={() => setGuide(false)}>
             Попробовать макет <Icon name="arrow" />

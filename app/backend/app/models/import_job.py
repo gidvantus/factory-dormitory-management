@@ -14,7 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
 
-# Раздел, к которому относится задание. Пока импорт есть только у «Мест».
+# Раздел, к которому относится задание. Пока импорт есть только в «Размещении персонала».
 IMPORT_TABLE_PLACES = "places"
 # Разбор прошёл и задание можно применять / разбор с ошибками / уже применено.
 IMPORT_STATUS_READY = "ready"

@@ -1,9 +1,13 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
+import * as session from '../../auth/SessionProvider';
 import { personnelApi } from '../../api/personnel';
 import type { Employee, PersonnelData, Source } from '../../api/personnel';
 import { IdentityDialog } from './IdentityDialog';
+import { Personnel } from '../Personnel';
+import { BlockDialog } from './Dialogs';
 import { filterPeople, isFavorite } from './helpers';
 
 const source = (
@@ -34,18 +38,106 @@ const person = (id: string, current: Source[] = []): Employee => ({
 });
 const data = (employees: Employee[]): PersonnelData => ({
   today: '2026-10-10',
-  user_id: 1,
   dormitories: [],
-  users: [],
   employees,
-  tasks: [],
   plans: [],
+  arrival_plans: [],
   decisions: [],
   matches: [],
   preferences: { revision: 0, blocks: null, lists: [], favorites: [] },
 });
 const criteria = { filter: 'current' as const, dormitory: null, scope: [], days: 5, query: '' };
 afterEach(() => vi.restoreAllMocks());
+
+it('открывает простой план из источника отчёта и сохраняет заезд без сотрудников', async () => {
+  const user = userEvent.setup();
+  const payload = data([]);
+  payload.dormitories = [
+    { id: 1, name: 'Северное', client_name: 'Клиент', is_archived: false },
+    { id: 2, name: 'Старое', client_name: 'Клиент', is_archived: true },
+  ];
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  vi.spyOn(personnelApi, 'workspace').mockImplementation(async () => ({ ...payload }));
+  vi.spyOn(personnelApi, 'createArrival').mockImplementation(async (values) => {
+    const plan = { ...values, id: 'new', revision: 0 };
+    payload.arrival_plans = [plan];
+    return plan;
+  });
+  render(
+    <MemoryRouter initialEntries={['/cabinet/personnel?view=planning&dormitory=1']}>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole('tab', { name: 'План заездов' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  expect(screen.queryByLabelText('Период окончания вахты')).not.toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: /Старое/ })).not.toBeInTheDocument();
+  expect(screen.queryByText('Нажмите на имя, чтобы открыть карточку')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Добавить заезд: Северное, 2026-10-10' }));
+  await user.clear(screen.getByLabelText('Количество человек'));
+  await user.type(screen.getByLabelText('Количество человек'), '10');
+  await user.click(screen.getByRole('button', { name: 'Сохранить заезд' }));
+  expect(await screen.findByText('Ожидается за период: 10 чел.')).toBeInTheDocument();
+});
+
+describe('Персонал без задач', () => {
+  it('показывает заметки отдельно и сохраняет их в карточке', async () => {
+    const user = userEvent.setup();
+    const payload = data([person('one', [source(1)])]);
+    vi.spyOn(session, 'useSession').mockReturnValue({
+      status: 'authenticated',
+      user: null,
+      setUser: vi.fn(),
+      refresh: vi.fn(),
+      logout: vi.fn(),
+    });
+    vi.spyOn(personnelApi, 'workspace').mockResolvedValue(payload);
+    vi.spyOn(personnelApi, 'detail').mockResolvedValue({
+      employee_id: 'one',
+      events: [],
+      merges: [],
+      notes: [
+        {
+          id: 'note',
+          text: 'Договорились о следующей вахте',
+          author: 'Администратор',
+          created_at: '2026-10-10',
+        },
+      ],
+    });
+    const addNote = vi.spyOn(personnelApi, 'addNote').mockResolvedValue({ ok: true });
+    render(
+      <MemoryRouter>
+        <Personnel />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('tab', { name: /Сотрудники/ });
+    expect(screen.queryByRole('tab', { name: /Задачи/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Задачи по сотрудникам')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Сотрудники/ }));
+    await user.click(screen.getByRole('button', { name: /^Иванов Иван/ }));
+    await user.click(screen.getByRole('tab', { name: 'Заметки' }));
+    expect(await screen.findByText('Договорились о следующей вахте')).toBeInTheDocument();
+    expect(screen.queryByText('Новая задача')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Текст заметки'), 'Уточнили дату заезда');
+    await user.click(screen.getByRole('button', { name: 'Сохранить заметку' }));
+    await waitFor(() => expect(addNote).toHaveBeenCalledWith('one', 'Уточнили дату заезда'));
+  });
+
+  it('не предлагает блок задач в настройках рабочей поверхности', () => {
+    render(<BlockDialog block={null} data={data([])} onClose={vi.fn()} onSave={vi.fn()} />);
+    expect(screen.queryByRole('option', { name: /Задачи/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Проживающий персонал' })).toBeInTheDocument();
+  });
+});
 
 describe('Отбор сотрудников', () => {
   it('проверяет текущее проживание и срок в пределах тех же общежитий', () => {

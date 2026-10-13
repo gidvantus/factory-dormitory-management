@@ -23,6 +23,8 @@ export function RuleSummary({
   const link = row.link;
   if (!link)
     return <p>{row.formula ? `Формула: ${row.formula}` : 'Заполняется вручную по дням'}</p>;
+  if (link.table_key === 'arrival_plan')
+    return <p>Брать количество приезжающих из «Плана заездов» этого общежития за дату отчёта.</p>;
   if (link.table_key === 'places')
     return (
       <p>

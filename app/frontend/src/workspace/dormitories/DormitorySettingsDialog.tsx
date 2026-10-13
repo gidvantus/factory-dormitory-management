@@ -702,7 +702,7 @@ export function DormitorySettingsDialog({
             <main className={styles.fullPage}>
               <div className={styles.editorHeading}>
                 <div>
-                  <h3>Как заполняется большой отчёт</h3>
+                  <h3>Как заполняется общий отчёт</h3>
                   <p>Каждое правило считает значения отдельно за каждую дату.</p>
                 </div>
                 <button

@@ -547,7 +547,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
     >
       <div className={styles.reportHeading}>
         <div>
-          <h2 id="report-title">Большой отчёт</h2>
+          <h2 id="report-title">Общий отчёт</h2>
           <p data-testid="dormitory-period-applied">
             Период: {formatDate(range.from)} — {formatDate(range.to)}
           </p>

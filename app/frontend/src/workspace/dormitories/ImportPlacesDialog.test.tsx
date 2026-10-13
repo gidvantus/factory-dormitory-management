@@ -44,7 +44,7 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe('Импорт «Мест»', () => {
+describe('Импорт «Размещение персонала»', () => {
   it('ведёт файл через прогресс и разбор, показывает счётчики и применяет импорт', async () => {
     let resolveUpload!: (value: PlacesImportResult) => void;
     const callbacks: { progress: (percent: number) => void; uploaded: () => void } = {
