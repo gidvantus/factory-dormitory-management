@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TrialState } from '../api/client';
@@ -66,11 +66,15 @@ describe('сообщение о пробном периоде на обзоре'
     expect(screen.queryByTestId('trial-days-left')).not.toBeInTheDocument();
   });
 
-  it('на идущем периоде показывает остаток дней и дату окончания', async () => {
+  it('на идущем периоде показывает остаток дней и дату окончания в блоке «Ваш тариф»', async () => {
     mountOverview(RUNNING);
 
     const note = await screen.findByTestId('trial-days-left');
     expect(note).toHaveTextContent('Пробный период: осталось 12 дней, до 01.11.2026');
+    // Срок периода — часть «Вашего тарифа», а не отдельная строка над блоком.
+    expect(within(screen.getByTestId('dashboard-tariff')).getByTestId('trial-days-left')).toBe(
+      note,
+    );
     expect(screen.queryByTestId('trial-expired-notice')).not.toBeInTheDocument();
   });
 
@@ -88,5 +92,36 @@ describe('сообщение о пробном периоде на обзоре'
     await screen.findByTestId('trial-days-left');
 
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/api/trial'))).toBe(true);
+  });
+});
+
+describe('выделенный блок тарифа и пробного периода', () => {
+  it('на закрытом кабинете выделяет блок и держит в нём сообщение об окончании', async () => {
+    mountOverview(LOCKED);
+
+    await screen.findByTestId('trial-expired-notice');
+
+    const block = screen.getByTestId('trial-tariff-block');
+    expect(block).toHaveAttribute('data-trial', 'true');
+    expect(within(block).getByTestId('trial-expired-notice')).toBeInTheDocument();
+    expect(within(block).getByTestId('dashboard-tariff')).toBeInTheDocument();
+  });
+
+  it('на идущем периоде выделяет блок с остатком дней', async () => {
+    mountOverview(RUNNING);
+
+    await screen.findByTestId('trial-days-left');
+
+    const block = screen.getByTestId('trial-tariff-block');
+    expect(block).toHaveAttribute('data-trial', 'true');
+    expect(within(block).getByTestId('trial-days-left')).toBeInTheDocument();
+  });
+
+  it('с выбранным тарифом блок не выделяет', async () => {
+    mountOverview({ ...RUNNING, is_active: false, locked: false });
+
+    const block = await screen.findByTestId('trial-tariff-block');
+    expect(block).toHaveAttribute('data-trial', 'false');
+    expect(within(block).getByTestId('dashboard-tariff')).toBeInTheDocument();
   });
 });
