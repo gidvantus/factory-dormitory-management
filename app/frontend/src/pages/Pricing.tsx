@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import type { Tariff } from '../api/client';
+import { useSession } from '../auth/SessionProvider';
 import { SiteActions } from '../components/SiteActions';
 import { SiteHeader } from '../components/SiteHeader';
 import { SiteFooter } from '../components/landing/SiteFooter';
@@ -42,6 +43,22 @@ export function Pricing(): JSX.Element {
   // Счётчик повторов: изменение значения перезапускает загрузку.
   const [attempt, setAttempt] = useState(0);
   const { openLogin, openRegister, dialogElement } = useAuthDialog();
+  const { status: sessionStatus } = useSession();
+  const navigate = useNavigate();
+
+  /**
+   * «Купить» пока не покупка: потока оплаты нет, и кнопка ведёт туда, где тариф
+   * появится у организации. Анониму она открывает регистрацию на самой странице,
+   * вошедшему — показывает его раздел «Тариф»: заставлять его регистрироваться
+   * второй раз нельзя.
+   */
+  function buyTariff(): void {
+    if (sessionStatus === 'authenticated') {
+      navigate('/cabinet/tariffs');
+      return;
+    }
+    openRegister();
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -112,19 +129,21 @@ export function Pricing(): JSX.Element {
                 {tariffs.map((tariff) => (
                   <li className="card pricing__card" key={tariff.id} data-testid="tariff-card">
                     <h3 data-testid="tariff-name">{tariff.name}</h3>
-                    <p className="pricing__description" data-testid="tariff-description">
-                      {tariff.description}
-                    </p>
+                    {/* Цену собирает сервер: плашка показывает `price_label` как есть. */}
                     <p className="pricing__price" data-testid="tariff-price">
                       {tariff.price_label}
                     </p>
-                    <Link
+                    <p className="pricing__description" data-testid="tariff-description">
+                      {tariff.description}
+                    </p>
+                    <button
                       className="btn btn--primary btn--block"
-                      to="/register"
-                      data-testid="tariff-start"
+                      type="button"
+                      data-testid="tariff-buy"
+                      onClick={buyTariff}
                     >
-                      Начать
-                    </Link>
+                      Купить
+                    </button>
                   </li>
                 ))}
               </ul>

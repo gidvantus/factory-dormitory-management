@@ -116,7 +116,7 @@ export interface OrganizationLookup {
 }
 
 /** Период списания тарифа: код в базе, «в месяц»/«в год»/«разово» собирает сервер. */
-export type TariffPeriod = 'month' | 'year' | 'once';
+export type TariffPeriod = 'month' | 'year' | 'once' | 'half_year';
 
 export interface Tariff {
   id: number;

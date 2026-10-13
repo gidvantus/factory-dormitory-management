@@ -42,6 +42,37 @@ const SECOND_TARIFF = {
   price_label: '60 000 ₽ в год',
 };
 
+/** Прайс владельца: месяц до 10 пользователей, полгода до 15 и год без лимита. */
+const PLANS = [
+  {
+    ...TARIFF,
+    name: 'Старт',
+    description: 'До 10 пользователей. Реестр проживающих, комнаты и базовые отчёты.',
+    amount: '10000.00',
+    price_label: '10 000 ₽ в месяц',
+  },
+  {
+    ...TARIFF,
+    id: 2,
+    name: 'Стандарт',
+    description: 'До 15 пользователей. Все разделы, расширенная отчётность и статистика.',
+    amount: '50000.00',
+    period: 'half_year',
+    position: 2,
+    price_label: '50 000 ₽ за 6 месяцев',
+  },
+  {
+    ...TARIFF,
+    id: 3,
+    name: 'Максимум',
+    description: 'Без ограничений по пользователям. Все разделы и приоритетная поддержка.',
+    amount: '90000.00',
+    period: 'year',
+    position: 3,
+    price_label: '90 000 ₽ в год',
+  },
+];
+
 /** Сессия анонимная: страница тарифов публичная, 401 от `/api/me` — норма. */
 function publicRoutes(tariffs: MockResponse): MockHandler {
   return (url) => {
@@ -91,13 +122,40 @@ describe('публичная страница тарифов', () => {
     expect(callsTo(fetchMock, '/api/tariffs/manage')).toHaveLength(0);
   });
 
-  it('ведёт на регистрацию с карточки', async () => {
-    mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+  it('показывает плашки трёх тарифов с ценой и кнопкой «Купить»', async () => {
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
     renderApp('/pricing');
 
-    const start = await screen.findByTestId('tariff-start');
+    expect(await screen.findAllByTestId('tariff-card')).toHaveLength(3);
+    expect(screen.getAllByTestId('tariff-name').map((node) => node.textContent)).toEqual([
+      'Старт',
+      'Стандарт',
+      'Максимум',
+    ]);
+    // Цену собирает сервер: страница показывает `price_label` как есть.
+    expect(screen.getAllByTestId('tariff-price').map((node) => node.textContent)).toEqual([
+      '10 000 ₽ в месяц',
+      '50 000 ₽ за 6 месяцев',
+      '90 000 ₽ в год',
+    ]);
+    // Ограничение по пользователям живое: оно есть в описании плашки.
+    expect(screen.getAllByTestId('tariff-description')[0]).toHaveTextContent('До 10 пользователей');
 
-    expect(start).toHaveAttribute('href', '/register');
+    const buy = screen.getAllByTestId('tariff-buy');
+    expect(buy).toHaveLength(3);
+    expect(buy[0]).toHaveTextContent('Купить');
+  });
+
+  it('кнопка «Купить» открывает регистрацию на самой странице', async () => {
+    mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await user.click(await screen.findByTestId('tariff-buy'));
+
+    expect(await screen.findByTestId('register-email')).toBeInTheDocument();
+    // Уводить на главную ради формы незачем: страница остаётся на месте.
+    expect(screen.getByTestId('pricing')).toBeInTheDocument();
   });
 
   it('показывает загрузку, пока запрос в пути', () => {
@@ -215,6 +273,21 @@ describe('шапка и подвал страницы тарифов', () => {
     await user.click(await screen.findByTestId('nav-cabinet'));
 
     expect(await screen.findByTestId('cabinet-page')).toBeInTheDocument();
+  });
+
+  it('вошедшему кнопка «Купить» ведёт в раздел «Тариф», а не в регистрацию', async () => {
+    mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    // Кнопка кабинета означает, что сессия уже подтверждена: иначе «Купить»
+    // успела бы открыть окно регистрации.
+    await screen.findByTestId('nav-cabinet');
+
+    await user.click(await screen.findByTestId('tariff-buy'));
+
+    expect(await screen.findByTestId('tariffs-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('auth-modal')).not.toBeInTheDocument();
   });
 
   it('открывает вход окном на самой странице тарифов', async () => {
