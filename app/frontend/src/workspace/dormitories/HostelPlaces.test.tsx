@@ -132,7 +132,7 @@ describe('Места', () => {
     ).toHaveLength(30);
   });
 
-  it('даёт скачать шаблон импорта за показанный месяц прямо на вкладке', async () => {
+  it('открывает импорт из строки хостела и не держит шаблон в шапке месяца', async () => {
     mockFetch((url) => {
       const query = new URL(url, 'http://localhost').searchParams;
       const from = query.get('from')!;
@@ -156,17 +156,35 @@ describe('Места', () => {
       return <HostelPlaces dormitoryId="7" month={month} onMonthChange={setMonth} />;
     }
     render(<Example />);
-    await screen.findByTestId('hostel-1-2025-10-01');
+    const hostel = await screen.findByTestId('hostel-1-2025-10-01');
 
-    expect(screen.getByTestId('places-template-download')).toHaveAttribute(
+    // Шаблон больше не скачивается с шапки месяца: единственная дверь к импорту —
+    // кнопка в строке хостела, рядом с «Убрать».
+    expect(screen.queryByTestId('places-template-download')).not.toBeInTheDocument();
+    const heading = within(hostel).getByRole('heading', {
+      level: 4,
+      name: 'Хостел',
+    }).parentElement!;
+    const actions = within(heading).getAllByRole('button');
+    expect(actions.map((button) => button.textContent)).toEqual(['Импорт из Excel', 'Убрать']);
+
+    await user.click(screen.getByTestId('places-import-open-1'));
+    const dialog = await screen.findByTestId('places-import-modal');
+    expect(within(dialog).getByTestId('places-import-download-template')).toHaveAttribute(
       'href',
       '/api/dormitories/7/hostels/import/template?month=2025-10-01',
     );
-    expect(screen.getByTestId('places-template-download')).toHaveAttribute('download');
+
+    await user.click(within(dialog).getByTestId('places-import-modal-close'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('places-import-modal')).not.toBeInTheDocument(),
+    );
 
     await user.click(screen.getByRole('button', { name: 'Следующий месяц' }));
     await screen.findByTestId('hostel-1-2025-11-01');
-    expect(screen.getByTestId('places-template-download')).toHaveAttribute(
+    await user.click(screen.getByTestId('places-import-open-1'));
+    const november = await screen.findByTestId('places-import-modal');
+    expect(within(november).getByTestId('places-import-download-template')).toHaveAttribute(
       'href',
       '/api/dormitories/7/hostels/import/template?month=2025-11-01',
     );
