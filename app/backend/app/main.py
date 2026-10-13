@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from app.api import (
     activation,
     auth,
+    billing,
     custom_tabs,
     dashboard,
     dashboard_blocks,
@@ -70,6 +71,7 @@ def create_app() -> FastAPI:
     application.include_router(dormitory_settings.router, prefix=API_PREFIX)
     application.include_router(dormitory_templates.router, prefix=API_PREFIX)
     application.include_router(tariffs.router, prefix=API_PREFIX)
+    application.include_router(billing.router, prefix=API_PREFIX)
     application.include_router(trial.router, prefix=API_PREFIX)
     application.include_router(documents.router, prefix=API_PREFIX)
     application.include_router(telegram.router, prefix=API_PREFIX)

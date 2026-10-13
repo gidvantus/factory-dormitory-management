@@ -1,0 +1,568 @@
+"""Счета организации: покупка, статусы и печатные формы (issue #49).
+
+Критерии готовности разложены по блокам:
+
+* покупка заводит счёт со снимком реквизитов покупателя и предмета, номер вида
+  `СЧ-<год>-<id>`, статус «Новый» и подписи от сервера;
+* повторный клик не плодит счета: живой `new` возвращается как `200`, а уже
+  выбранный тариф — это `409`;
+* пустые название и ИНН, незнакомый тариф, чужая роль и чужой счёт дают разные
+  коды: `409`, `404`, `403` и `404`;
+* `new → paid` привязывает организации тариф и создаёт акт, `paid → closed`
+  разрешён, `cancelled → paid` — `409`;
+* оба файла отдаются вложением и содержат название, ИНН и сумму; акт до оплаты
+  — `404`.
+
+Тесты идут на SQLite: `SELECT … FOR UPDATE` там вырождается в no-op, поэтому
+блокировки проверяются чтением итогового состояния, а не параллельными запросами.
+"""
+
+from decimal import Decimal
+
+from fastapi.testclient import TestClient
+from httpx import Response
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
+from app.models.invoice import Invoice, InvoiceDocument
+from app.models.organization import Organization
+from app.models.tariff import Tariff
+from tests.conftest import organizations_for, sign_in
+
+# Неразрывный пробел — разделитель разрядов в подписи суммы.
+NBSP = "\u00a0"
+
+BUYER_NAME = "ООО «Домовой»"
+BUYER_INN = "7701234567"
+BUYER_KPP = "770101001"
+BUYER_OGRN = "1027700132195"
+BUYER_ADDRESS = "г. Москва, ул. Тверская, д. 1"
+
+INVOICE_URL = "/api/billing/invoices"
+PAID = "paid"
+CLOSED = "closed"
+CANCELLED = "cancelled"
+
+INVALID_STATUS_DETAIL = "Так нельзя изменить статус счёта"
+
+
+def add_tariff(
+    db_session: Session,
+    name: str = "Старт",
+    amount: str = "10000.00",
+    period: str = "month",
+    is_visible: bool = True,
+) -> Tariff:
+    """Тариф прайса прямо в базе: покупка читает его по `id`."""
+    tariff = Tariff(
+        name=name,
+        description="До 10 пользователей",
+        amount=Decimal(amount),
+        currency="RUB",
+        period=period,
+        unit_label=None,
+        position=1,
+        is_visible=is_visible,
+    )
+    db_session.add(tariff)
+    db_session.commit()
+    db_session.refresh(tariff)
+    return tariff
+
+
+def owner(
+    client: TestClient,
+    db_session: Session,
+    role: str = "owner",
+    name: str | None = BUYER_NAME,
+    inn: str | None = BUYER_INN,
+    email: str = "owner@example.com",
+) -> Organization:
+    """Войти участником организации с заполненными реквизитами.
+
+    Реквизиты задаются прямо в строке организации: в проекте их заполняет поиск
+    по ИНН, а счёту нужен уже готовый снимок.
+    """
+    user = sign_in(client, db_session, email=email)
+    organization, _ = organizations_for(db_session, user, role=role, name=name, inn=inn)
+    organization.kpp = BUYER_KPP
+    organization.ogrn = BUYER_OGRN
+    organization.address = BUYER_ADDRESS
+    db_session.commit()
+    db_session.refresh(organization)
+    return organization
+
+
+def purchase(client: TestClient, tariff_id: int) -> Response:
+    """POST покупки. Возвращает ответ целиком: тесты смотрят и код, и тело."""
+    return client.post(INVOICE_URL, json={"tariff_id": tariff_id})
+
+
+def purchase_id(client: TestClient, tariff_id: int) -> int:
+    """Идентификатор успешно выставленного счёта: покупка обязана пройти."""
+    response = purchase(client, tariff_id)
+    assert response.status_code == 201, response.text
+    return int(response.json()["id"])
+
+
+def set_status(client: TestClient, invoice_id: int, value: str) -> Response:
+    return client.patch(f"{INVOICE_URL}/{invoice_id}", json={"status": value})
+
+
+def add_invoice(
+    db_session: Session, organization: Organization, tariff: Tariff, status: str = "new"
+) -> Invoice:
+    """Счёт прямо в базе: нужен там, где ручка покупки отказала бы раньше."""
+    invoice = Invoice(
+        organization_id=organization.id,
+        tariff_id=tariff.id,
+        number="СЧ-2026-1",
+        status=status,
+        amount=tariff.amount,
+        currency="RUB",
+        buyer_name=BUYER_NAME,
+        buyer_inn=BUYER_INN,
+    )
+    db_session.add(invoice)
+    db_session.commit()
+    db_session.refresh(invoice)
+    return invoice
+
+
+def invoices_of(db_session: Session, organization_id: int) -> list[Invoice]:
+    return list(
+        db_session.scalars(
+            select(Invoice).where(Invoice.organization_id == organization_id).order_by(Invoice.id)
+        )
+    )
+
+
+def acts_of(db_session: Session, invoice_id: int) -> list[InvoiceDocument]:
+    return list(
+        db_session.scalars(select(InvoiceDocument).where(InvoiceDocument.invoice_id == invoice_id))
+    )
+
+
+# --- 1. Правила переходов без HTTP --------------------------------------------
+
+
+def test_status_labels_are_russian() -> None:
+    assert INVOICE_STATUS_LABELS == {
+        "new": "Новый",
+        "paid": "Оплачен",
+        "closed": "Закрыт",
+        "cancelled": "Отменён",
+    }
+
+
+def test_status_label_falls_back_to_the_value() -> None:
+    """Незнакомый статус показывается как есть, а не роняет ответ."""
+    assert status_label("archived") == "archived"
+
+
+def test_only_declared_transitions_are_allowed() -> None:
+    assert is_allowed("new", PAID)
+    assert is_allowed("new", CANCELLED)
+    assert is_allowed(PAID, CLOSED)
+
+    assert not is_allowed(PAID, PAID)
+    assert not is_allowed(CLOSED, PAID)
+    assert not is_allowed(CANCELLED, PAID)
+    assert not is_allowed(CLOSED, CANCELLED)
+    assert not is_allowed("new", CLOSED)
+
+
+# --- 2. Покупка ---------------------------------------------------------------
+
+
+def test_purchase_creates_invoice_with_buyer_snapshot(
+    client: TestClient, db_session: Session
+) -> None:
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session)
+
+    response = purchase(client, tariff.id)
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["number"].startswith("СЧ-") and body["number"].endswith(f"-{body['id']}")
+    assert body["status"] == "new"
+    assert body["status_label"] == "Новый"
+    assert body["amount"] == "10000.00"
+    assert body["currency"] == "RUB"
+    assert body["amount_label"] == f"10{NBSP}000 ₽ в месяц"
+    assert body["tariff_name"] == "Старт"
+    assert body["tariff_period"] == "month"
+    assert body["buyer_name"] == BUYER_NAME
+    assert body["buyer_inn"] == BUYER_INN
+    assert body["buyer_kpp"] == BUYER_KPP
+    assert body["buyer_ogrn"] == BUYER_OGRN
+    assert body["buyer_address"] == BUYER_ADDRESS
+    assert body["has_act"] is False
+    assert body["can_manage"] is True
+    assert body["paid_at"] is None
+
+    stored = invoices_of(db_session, organization.id)
+    assert len(stored) == 1
+    assert stored[0].number == body["number"]
+    # Тариф организации покупкой ещё не назначается: это делает оплата.
+    assert organization.tariff_id is None
+
+
+def test_second_purchase_returns_the_live_invoice_and_creates_nothing(
+    client: TestClient, db_session: Session
+) -> None:
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+
+    second = purchase(client, tariff.id)
+
+    assert second.status_code == 200, second.text
+    assert second.json()["id"] == invoice_id
+    assert len(invoices_of(db_session, organization.id)) == 1
+
+
+def test_purchase_after_payment_is_a_conflict(client: TestClient, db_session: Session) -> None:
+    """Тариф уже выбран: второй раз его не покупают."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    response = purchase(client, tariff.id)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Тариф организации уже выбран"
+
+
+def test_purchase_without_name_and_inn_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    owner(client, db_session, name=None, inn=None)
+    tariff = add_tariff(db_session)
+
+    response = purchase(client, tariff.id)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Заполните название и ИНН организации на странице «Организация»"
+    )
+
+
+def test_purchase_of_unknown_tariff_is_not_found(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session)
+
+    response = purchase(client, 999)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Тариф не найден"
+
+
+def test_purchase_is_forbidden_to_a_role_without_edit_rights(
+    client: TestClient, db_session: Session
+) -> None:
+    """`manager` счета видит, но не выставляет."""
+    owner(client, db_session, role="manager")
+    tariff = add_tariff(db_session)
+
+    response = purchase(client, tariff.id)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Недостаточно прав"
+
+
+def test_purchase_requires_a_session(client: TestClient, db_session: Session) -> None:
+    add_tariff(db_session)
+
+    assert purchase(client, 1).status_code == 401
+
+
+def test_purchase_works_on_a_closed_trial(client: TestClient, db_session: Session) -> None:
+    """Закрытый кабинет покупку не блокирует: ради неё он и открывается."""
+    user = sign_in(client, db_session, email="locked@example.com", trial_active=False)
+    organization, _ = organizations_for(db_session, user, name=BUYER_NAME, inn=BUYER_INN)
+    tariff = add_tariff(db_session)
+
+    response = purchase(client, tariff.id)
+
+    assert response.status_code == 201, response.text
+    assert len(invoices_of(db_session, organization.id)) == 1
+
+
+def test_purchase_keeps_the_snapshot_when_the_tariff_changes(
+    client: TestClient, db_session: Session
+) -> None:
+    """Снимок предмета не едет вслед за прайсом."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+
+    tariff.name = "Другое имя"
+    tariff.amount = Decimal("999.00")
+    db_session.commit()
+
+    body = client.get(f"{INVOICE_URL}/{invoice_id}").json()
+
+    assert body["tariff_name"] == "Старт"
+    assert body["amount"] == "10000.00"
+
+
+# --- 3. Статусы ---------------------------------------------------------------
+
+
+def test_paid_binds_the_tariff_and_creates_the_act(client: TestClient, db_session: Session) -> None:
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+
+    response = set_status(client, invoice_id, PAID)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == PAID
+    assert body["status_label"] == "Оплачен"
+    assert body["paid_at"] is not None
+    assert body["has_act"] is True
+
+    db_session.refresh(organization)
+    assert organization.tariff_id == tariff.id
+    assert len(acts_of(db_session, invoice_id)) == 1
+    # Запись тарифа открывает кабинет: пробный режим доступа больше не действует.
+    assert client.get("/api/tariffs/current").json()["tariff"]["id"] == tariff.id
+
+
+def test_paid_invoice_cannot_be_paid_twice(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    set_status(client, invoice_id, PAID)
+
+    response = set_status(client, invoice_id, PAID)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == INVALID_STATUS_DETAIL
+    assert len(acts_of(db_session, invoice_id)) == 1
+
+
+def test_paid_invoice_can_be_closed(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    set_status(client, invoice_id, PAID)
+
+    response = set_status(client, invoice_id, CLOSED)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == CLOSED
+    assert response.json()["status_label"] == "Закрыт"
+
+
+def test_cancelled_invoice_cannot_be_paid(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    set_status(client, invoice_id, CANCELLED)
+
+    response = set_status(client, invoice_id, PAID)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == INVALID_STATUS_DETAIL
+
+
+def test_status_change_is_forbidden_to_a_role_without_edit_rights(
+    client: TestClient, db_session: Session
+) -> None:
+    organization = owner(client, db_session, role="manager")
+    tariff = add_tariff(db_session)
+    invoice = add_invoice(db_session, organization, tariff)
+
+    response = set_status(client, invoice.id, PAID)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Недостаточно прав"
+
+
+def test_foreign_invoice_is_not_found(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session, email="first@example.com")
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    client.post("/api/auth/logout")
+
+    owner(client, db_session, email="second@example.com", inn="7701234568")
+
+    assert client.get(f"{INVOICE_URL}/{invoice_id}").status_code == 404
+    assert set_status(client, invoice_id, PAID).status_code == 404
+
+
+def test_paid_requires_the_organization_to_have_no_other_tariff(
+    client: TestClient, db_session: Session
+) -> None:
+    """Смена тарифа покупкой не делается: у организации уже есть другой."""
+    organization = owner(client, db_session)
+    other = add_tariff(db_session, name="Максимум", amount="90000.00", period="year")
+    tariff = add_tariff(db_session, name="Старт")
+    organization.tariff_id = other.id
+    db_session.commit()
+    invoice = add_invoice(db_session, organization, tariff)
+
+    response = set_status(client, invoice.id, PAID)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Тариф организации уже выбран"
+    assert acts_of(db_session, invoice.id) == []
+
+
+def test_unknown_status_is_rejected_by_the_schema(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+
+    response = set_status(client, invoice_id, "new")
+
+    assert response.status_code == 422
+
+
+# --- 4. Список и чтение -------------------------------------------------------
+
+
+def test_invoice_list_is_ordered_fresh_first(client: TestClient, db_session: Session) -> None:
+    organization = owner(client, db_session)
+    first = add_tariff(db_session, name="Старт")
+    second = add_tariff(db_session, name="Максимум", amount="90000.00", period="year")
+    first_id = purchase_id(client, first.id)
+    # Второй счёт получаем отменой первого: живой `new` вернулся бы как 200.
+    set_status(client, first_id, CANCELLED)
+    second_id = purchase_id(client, second.id)
+
+    response = client.get(INVOICE_URL)
+
+    assert response.status_code == 200, response.text
+    assert [item["id"] for item in response.json()] == [second_id, first_id]
+    assert len(invoices_of(db_session, organization.id)) == 2
+
+
+def test_invoice_list_requires_a_session(client: TestClient) -> None:
+    assert client.get(INVOICE_URL).status_code == 401
+
+
+def test_invoice_list_is_empty_after_signing_in(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session)
+
+    response = client.get(INVOICE_URL)
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_organizations_do_not_see_each_other_invoices(
+    client: TestClient, db_session: Session
+) -> None:
+    owner(client, db_session, email="first@example.com")
+    tariff = add_tariff(db_session)
+    purchase_id(client, tariff.id)
+    client.post("/api/auth/logout")
+
+    owner(client, db_session, email="second@example.com", inn="7701234568")
+
+    assert client.get(INVOICE_URL).json() == []
+
+
+# --- 5. Печатные формы --------------------------------------------------------
+
+
+def test_invoice_file_is_downloaded_as_an_attachment(
+    client: TestClient, db_session: Session
+) -> None:
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+
+    response = client.get(f"{INVOICE_URL}/{invoice_id}/file")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("attachment;")
+    # Кириллицу в заголовок положить нельзя (latin-1), поэтому имя дублируется
+    # по RFC 5987, а ASCII-вариант остаётся для старых клиентов.
+    assert "filename*=UTF-8''" in disposition
+    body = response.text
+    assert body.startswith("<!DOCTYPE html>")
+    assert not body.startswith("\ufeff")
+    assert BUYER_NAME in body
+    assert BUYER_INN in body
+    assert BUYER_KPP in body
+    assert BUYER_OGRN in body
+    assert BUYER_ADDRESS in body
+    assert f"10{NBSP}000 ₽ в месяц" in body
+    # Поставщика в проекте нет: блок подписан заглушкой, а не выдуманными данными.
+    assert "данные поставщика будут заполнены позже" in body
+
+
+def test_invoice_file_escapes_the_buyer_name(client: TestClient, db_session: Session) -> None:
+    """`<` и `&` из карточки организации не ломают разметку."""
+    owner(client, db_session, name="ООО <Дом & Ко>")
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+
+    body = client.get(f"{INVOICE_URL}/{invoice_id}/file").text
+
+    assert "ООО &lt;Дом &amp; Ко&gt;" in body
+    assert "<Дом & Ко>" not in body
+
+
+def test_act_file_is_not_found_before_payment(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+
+    response = client.get(f"{INVOICE_URL}/{invoice_id}/act-file")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Акт по счёту ещё не сформирован"
+
+
+def test_act_file_is_downloaded_after_payment(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    set_status(client, invoice_id, PAID)
+
+    response = client.get(f"{INVOICE_URL}/{invoice_id}/act-file")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-disposition"].startswith("attachment;")
+    body = response.text
+    assert body.startswith("<!DOCTYPE html>")
+    assert BUYER_NAME in body
+    assert BUYER_INN in body
+    assert f"10{NBSP}000 ₽ в месяц" in body
+
+
+def test_foreign_invoice_file_is_not_found(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session, email="first@example.com")
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    client.post("/api/auth/logout")
+    owner(client, db_session, email="second@example.com", inn="7701234568")
+
+    assert client.get(f"{INVOICE_URL}/{invoice_id}/file").status_code == 404
+    assert client.get(f"{INVOICE_URL}/{invoice_id}/act-file").status_code == 404
+
+
+def test_manager_downloads_the_invoice_but_cannot_pay_it(
+    client: TestClient, db_session: Session
+) -> None:
+    """Роль без права правки счёт видит и скачивает — но не меняет статус."""
+    organization = owner(client, db_session, role="manager")
+    tariff = add_tariff(db_session)
+    invoice = add_invoice(db_session, organization, tariff)
+
+    listed = client.get(INVOICE_URL).json()[0]
+    assert listed["id"] == invoice.id
+    # Право на смену статуса решает сервер: экран не держит свою копию правила.
+    assert listed["can_manage"] is False
+    assert client.get(f"{INVOICE_URL}/{invoice.id}/file").status_code == 200
+    assert set_status(client, invoice.id, PAID).status_code == 403

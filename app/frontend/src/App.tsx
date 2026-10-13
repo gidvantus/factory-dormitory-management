@@ -12,6 +12,7 @@ import { NotFound } from './pages/NotFound';
 import { Pricing } from './pages/Pricing';
 import { Dormitories } from './workspace/Dormitories';
 import { DormitoryDetails } from './workspace/dormitories/DormitoryDetails';
+import { Documents } from './workspace/Documents';
 import { Members } from './workspace/Members';
 import { Organization } from './workspace/Organization';
 import { PersonalData } from './workspace/PersonalData';
@@ -95,6 +96,9 @@ export function App(): JSX.Element {
           <Route path="organization" element={<Organization />} />
           <Route path="organization/members" element={<Members />} />
           <Route path="tariffs" element={<Tariffs />} />
+          {/* Раздел «Документы» работает и на закрытом пробном периоде: счёт
+              выставляется именно тогда, когда кабинет закрыт. */}
+          <Route path="documents" element={<Documents />} />
           {/* Старая ссылка на прайс-лист: редактора больше нет, но закладка не должна
               давать 404 — редирект приводит в раздел «Тариф». */}
           <Route path="tariffs/catalog" element={<Navigate to="/cabinet/tariffs" replace />} />

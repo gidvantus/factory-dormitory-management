@@ -139,6 +139,52 @@ export interface OrganizationTariff {
   tariff: Tariff | null;
 }
 
+/** Статус счёта. Подпись для человека приходит отдельным полем `status_label`. */
+export type InvoiceStatus = 'new' | 'paid' | 'closed' | 'cancelled';
+
+/** Статусы, в которые счёт переводится из кабинета: `new` ставится покупкой. */
+export type UpdatableInvoiceStatus = 'paid' | 'closed' | 'cancelled';
+
+/**
+ * Счёт организации.
+ *
+ * Реквизиты покупателя и предмет приходят снимком: это то, что попало в счёт в
+ * момент покупки, и оно не меняется вслед за карточкой организации или прайсом.
+ * `amount_label` и `status_label` собирает сервер — кабинет их не пересчитывает.
+ */
+export interface Invoice {
+  id: number;
+  number: string;
+  status: InvoiceStatus;
+  status_label: string;
+  /** Строка, а не число: `Numeric` едет по JSON как «10000.00». */
+  amount: string;
+  currency: string;
+  /** Готовая подпись суммы: «10 000 ₽ в месяц». */
+  amount_label: string;
+  tariff_name: string | null;
+  tariff_period: string | null;
+  buyer_name: string | null;
+  buyer_inn: string | null;
+  buyer_kpp: string | null;
+  buyer_ogrn: string | null;
+  buyer_address: string | null;
+  /** Акт появился после оплаты: по нему экран показывает ссылку на файл. */
+  has_act: boolean;
+  /** Право менять статус: правило ролей живёт на сервере, экран его не повторяет. */
+  can_manage: boolean;
+  paid_at: string | null;
+  created_at: string;
+}
+
+export interface CreateInvoiceInput {
+  tariff_id: number;
+}
+
+export interface UpdateInvoiceStatusInput {
+  status: UpdatableInvoiceStatus;
+}
+
 /** Строка списка документов: подвал и оглавление обходятся без текста. */
 export interface DocumentSummary {
   code: string;
@@ -945,6 +991,37 @@ export const api = {
     return request<OrganizationTariff>('/tariffs/current', { signal });
   },
 
+  /** Счета организации, свежие первыми. Читает любой участник. */
+  invoices(signal?: AbortSignal): Promise<Invoice[]> {
+    return request<Invoice[]>('/billing/invoices', { signal });
+  },
+
+  /** Один счёт своей организации. Чужой счёт отвечает 404. */
+  invoice(id: number, signal?: AbortSignal): Promise<Invoice> {
+    return request<Invoice>(`/billing/invoices/${id}`, { signal });
+  },
+
+  /**
+   * «Купить» тариф: выставить организации счёт.
+   *
+   * Повторный клик безопасен: живой неоплаченный счёт сервер вернёт как есть
+   * (`200`), а не создаст второй. Тариф уже куплен — `409` с текстом причины.
+   */
+  purchaseInvoice(tariffId: number): Promise<Invoice> {
+    return request<Invoice>('/billing/invoices', {
+      method: 'POST',
+      body: JSON.stringify({ tariff_id: tariffId } satisfies CreateInvoiceInput),
+    });
+  },
+
+  /** Смена статуса счёта. Запрещённый переход отвечает 409 с текстом сервера. */
+  setInvoiceStatus(id: number, status: UpdatableInvoiceStatus): Promise<Invoice> {
+    return request<Invoice>(`/billing/invoices/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status } satisfies UpdateInvoiceStatusInput),
+    });
+  },
+
   /** Публичный список документов: страница `/documents/<код>` ходит сюда без сессии. */
   documents(signal?: AbortSignal): Promise<DocumentSummary[]> {
     return request<DocumentSummary[]>('/documents', { signal });
@@ -1396,6 +1473,16 @@ export const api = {
 export function placesImportTemplateUrl(id: string, month: string): string {
   const query = new URLSearchParams({ month: `${month}-01` });
   return `/api/dormitories/${encodeURIComponent(id)}/hostels/import/template?${query}`;
+}
+
+/** Адрес счёта на скачивание: файл отдаётся вложением, ссылкой. */
+export function invoiceFileUrl(id: number): string {
+  return `/api/billing/invoices/${id}/file`;
+}
+
+/** Адрес акта на скачивание. До оплаты ручка отвечает 404, поэтому ссылку даёт `has_act`. */
+export function invoiceActFileUrl(id: number): string {
+  return `/api/billing/invoices/${id}/act-file`;
 }
 
 /** Тело ответа разбора: по нему экран отличает результат от обычной ошибки. */

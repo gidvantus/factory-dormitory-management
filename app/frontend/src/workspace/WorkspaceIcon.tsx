@@ -35,6 +35,12 @@ const icons = {
       <rect x="16" y="14" width="3.2" height="4" rx="1" />
     </>
   ),
+  document: (
+    <>
+      <path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
+      <path d="M14 3v5h5M9 13h6M9 17h6" />
+    </>
+  ),
   profile: (
     <>
       <circle cx="12" cy="8" r="4" />
