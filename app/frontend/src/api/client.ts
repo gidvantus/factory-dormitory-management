@@ -106,12 +106,13 @@ export interface OrganizationLookupDetails {
  * Результат поиска организации по ИНН.
  *
  * `found: false` — не ошибка запроса: форма остаётся рабочей. `reason`
- * различает «по этому ИНН ничего не найдено» и «сервис проверки недоступен»,
- * чтобы пользователь видел разные тексты.
+ * различает «по этому ИНН ничего не найдено», «сервис проверки недоступен» и
+ * «ИНН занят другой организацией» (`inn_taken`), чтобы пользователь видел
+ * разные тексты.
  */
 export interface OrganizationLookup {
   found: boolean;
-  reason: 'not_found' | 'unavailable' | null;
+  reason: 'not_found' | 'unavailable' | 'inn_taken' | null;
   details: OrganizationLookupDetails | null;
 }
 

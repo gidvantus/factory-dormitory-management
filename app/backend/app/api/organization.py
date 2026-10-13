@@ -241,15 +241,18 @@ def read_organization(membership: Membership, db: DbSession) -> OrganizationResp
         },
     },
 )
-def lookup_organization(inn: str, membership: Membership) -> OrganizationLookupResponse:
+def lookup_organization(
+    inn: str, membership: Membership, db: DbSession
+) -> OrganizationLookupResponse:
     """Подсказать реквизиты организации по ИНН.
 
     Доступ как у чтения организации (`Membership`), а не `EditableMembership`:
     поиск ничего не меняет, и роль без права правки им тоже пользуется.
 
     Неудачный поиск — это `200` с `found: false`, а не ошибка: форма остаётся
-    рабочей, а пользователь видит разный текст для «не найдено» и «сервис
-    недоступен». `422` остаётся только за ИНН не по формату — это ошибка ввода.
+    рабочей, а пользователь видит разный текст для «не найдено», «сервис
+    недоступен» и «ИНН занят другой организацией». `422` остаётся только за ИНН
+    не по формату — это ошибка ввода.
     """
     try:
         normalized = normalize_inn(inn)
@@ -257,6 +260,12 @@ def lookup_organization(inn: str, membership: Membership) -> OrganizationLookupR
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, INN_FORMAT_MESSAGE) from None
     if normalized is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, INN_FORMAT_MESSAGE)
+
+    # Занятый ИНН проверяется до похода в DaData: реквизиты чужой организации
+    # пользователю не нужны, а ИНН в базе уникален — сохранить его всё равно
+    # нельзя. Так о конфликте видно сразу при вводе, а не только после правки.
+    if _inn_taken(db, normalized, membership.organization_id):
+        return OrganizationLookupResponse(found=False, reason="inn_taken", details=None)
 
     try:
         found = dadata.lookup_organization(normalized)

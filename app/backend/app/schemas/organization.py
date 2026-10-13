@@ -134,12 +134,14 @@ class OrganizationLookupResponse(BaseModel):
     """Результат поиска организации по ИНН.
 
     `found: false` — не ошибка: форма не блокируется. `reason` различает
-    «по этому ИНН ничего не найдено» (`not_found`) и «сервис проверки
-    недоступен» (`unavailable`), чтобы пользователь видел разные тексты.
+    «по этому ИНН ничего не найдено» (`not_found`), «сервис проверки
+    недоступен» (`unavailable`) и «ИНН уже занят другой организацией»
+    (`inn_taken`), чтобы пользователь видел разные тексты. Занятый ИНН — не
+    про DaData: его находит проверка по своей базе, а `details` тогда пустые.
     """
 
     found: bool
-    reason: Literal["not_found", "unavailable"] | None
+    reason: Literal["not_found", "unavailable", "inn_taken"] | None
     details: OrganizationLookupDetails | None
 
 
