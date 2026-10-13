@@ -13,9 +13,10 @@
 
 Номер ревизии взят по фактической голове: план issue просил
 `0030_telegram_notifications` от `0029_tariff_half_year`, но к моменту работы
-над задачей на месте `0030` уже стояла `0030_pricing_plans` (issue #34). Две
-головы от `0029` сломали бы `alembic upgrade head`, поэтому ревизия сдвинута на
-`0031` и идёт следом за прайсом.
+над задачей на месте `0030` уже стояла `0030_pricing_plans` (issue #34), а следом
+за ней в `develop-m` встала `0031_invoices` (issue #49). Две ревизии от одной
+головы дают две головы и ломают `alembic upgrade head`, поэтому этот шаг идёт
+после счёта.
 
 Откат удаляет привязки, подписки и историю доставок — данные пользователей он
 не затрагивает.
@@ -28,8 +29,8 @@ from alembic import op
 
 from app.models.activation import ACTIVATION_TOKEN_KINDS
 
-revision: str = "0031_telegram_notifications"
-down_revision: str | None = "0030_pricing_plans"
+revision: str = "0032_telegram_notifications"
+down_revision: str | None = "0031_invoices"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

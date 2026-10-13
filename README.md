@@ -132,7 +132,7 @@ CRM-система ведёт учёт рабочих, проживающих в
 `POST /api/telegram/disconnect`, `PATCH /api/telegram/subscriptions`,
 `POST /api/telegram/test-message`; ручки бота (заголовок `X-Bot-Token`) —
 `POST /api/telegram/chat`, `GET /api/telegram/feed?chat_id=…`,
-`POST /api/telegram/feed/{id}/failed`. Миграция `0031_telegram_notifications`
+`POST /api/telegram/feed/{id}/failed`. Миграция `0032_telegram_notifications`
 добавляет три таблицы и новый вид одноразовой ссылки `telegram_link`; данные
 пользователей не затрагиваются.
 
