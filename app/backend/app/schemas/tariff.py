@@ -16,8 +16,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-# Периоды списания — те же три, что разрешает `CHECK` в таблице.
-TariffPeriod = Literal["month", "year", "once"]
+# Периоды списания — те же, что разрешает `CHECK` в таблице.
+TariffPeriod = Literal["month", "year", "once", "half_year"]
 
 
 class TariffResponse(BaseModel):

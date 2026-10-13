@@ -9,8 +9,8 @@
 * ручек правки больше нет: `GET /manage`, `POST`, `PATCH`/`DELETE /{id}` и
   `PUT /current` отвечают 404/405 и отсутствуют в `openapi.json`.
 
-Плюс отдельный блок на `format_price`: разряды, копейки, «за что», все три
-периода и незнакомая валюта — это то, что видит аноним на странице.
+Плюс отдельный блок на `format_price`: разряды, копейки, «за что», все периоды
+списания и незнакомая валюта — это то, что видит аноним на странице.
 """
 
 from decimal import Decimal
@@ -93,6 +93,8 @@ def test_format_price_uses_symbol_and_period() -> None:
     assert format_price(Decimal("5000.00"), "RUB", "month") == f"5{NBSP}000 ₽ в месяц"
     assert format_price(Decimal("60000.00"), "RUB", "year") == f"60{NBSP}000 ₽ в год"
     assert format_price(Decimal("3000.00"), "RUB", "once") == f"3{NBSP}000 ₽ разово"
+    # Полугодовой тариф прайса читается как «за 6 месяцев», а не «в полгода».
+    assert format_price(Decimal("50000.00"), "RUB", "half_year") == f"50{NBSP}000 ₽ за 6 месяцев"
 
 
 def test_format_price_puts_unit_label_before_period() -> None:
@@ -182,6 +184,25 @@ def test_amount_travels_as_a_string(client: TestClient, db_session: Session) -> 
     response = client.get("/api/tariffs")
 
     assert response.json()[0]["amount"] == "1250.50"
+
+
+def test_public_list_gives_a_half_year_plan_its_own_price(
+    client: TestClient, db_session: Session
+) -> None:
+    """Полугодовой период (тариф «Стандарт») проходит `CHECK` и даёт свою цену."""
+    add_tariff(
+        db_session,
+        name="Стандарт",
+        amount="50000.00",
+        period="half_year",
+        description="До 15 пользователей",
+    )
+
+    response = client.get("/api/tariffs")
+
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["price_label"] == f"50{NBSP}000 ₽ за 6 месяцев"
+    assert response.json()[0]["period"] == "half_year"
 
 
 # --- 2. Тариф организации: чтение ---------------------------------------------
