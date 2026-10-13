@@ -3,12 +3,11 @@ import { Link } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import type { Tariff } from '../api/client';
-import { AuthDialog } from '../components/AuthDialog';
-import type { AuthMode } from '../components/AuthDialog';
 import { SiteActions } from '../components/SiteActions';
 import { SiteHeader } from '../components/SiteHeader';
 import { SiteFooter } from '../components/landing/SiteFooter';
 import { siteNav } from '../components/siteNav';
+import { useAuthDialog } from '../components/useAuthDialog';
 
 const GENERIC_ERROR = 'Не удалось загрузить тарифы. Проверьте соединение и попробуйте ещё раз.';
 
@@ -33,7 +32,8 @@ function errorMessage(error: unknown): string {
  *
  * Шапка и подвал — те же, что на главной, чтобы переход на прайс не выглядел
  * уходом с сайта. Вход и регистрация открываются окном на самой странице: уводить
- * человека на главную ради формы незачем.
+ * человека на главную ради формы незачем. Единственное отличие меню — пункт
+ * «Тарифы» здесь лишний: человек уже на прайсе.
  */
 export function Pricing(): JSX.Element {
   const [tariffs, setTariffs] = useState<Tariff[]>([]);
@@ -41,7 +41,7 @@ export function Pricing(): JSX.Element {
   const [error, setError] = useState('');
   // Счётчик повторов: изменение значения перезапускает загрузку.
   const [attempt, setAttempt] = useState(0);
-  const [dialog, setDialog] = useState<AuthMode | null>(null);
+  const { openLogin, openRegister, dialogElement } = useAuthDialog();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -69,12 +69,7 @@ export function Pricing(): JSX.Element {
 
       <SiteHeader
         nav={NAV}
-        actions={
-          <SiteActions
-            onLogin={() => setDialog('login')}
-            onRegister={() => setDialog('register')}
-          />
-        }
+        actions={<SiteActions onLogin={openLogin} onRegister={openRegister} />}
       />
 
       <main id="main">
@@ -140,7 +135,7 @@ export function Pricing(): JSX.Element {
 
       <SiteFooter />
 
-      {dialog ? <AuthDialog mode={dialog} onClose={() => setDialog(null)} /> : null}
+      {dialogElement}
     </div>
   );
 }
