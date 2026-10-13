@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { isConsentGiven, rememberConsent } from '../consent/storage';
@@ -15,6 +15,38 @@ const CONSENT_TEXT =
  */
 export function CookieConsent(): JSX.Element | null {
   const [given, setGiven] = useState(() => isConsentGiven());
+  const bannerRef = useRef<HTMLElement>(null);
+
+  /*
+   * Высоту плашки знает только браузер: текст переносится по-разному на разной
+   * ширине, а на узком экране плашка ещё и встаёт в колонку. Отдаём измеренную
+   * высоту каркасу кабинета переменной `--cookie-consent-height` — боковое меню
+   * оставляет под плашку ровно столько места. Без этого фиксированная плашка
+   * накрывает «Личные данные» и кнопку «Выйти»: до них не доходят ни клик,
+   * ни Tab. Замер идёт до отрисовки, чтобы меню не дёргалось, и снимается
+   * вместе с плашкой — приняв согласие, меню возвращается вниз.
+   */
+  useLayoutEffect(() => {
+    const element = bannerRef.current;
+    const clear = (): void => {
+      document.documentElement.style.removeProperty('--cookie-consent-height');
+    };
+    if (given || element === null) return clear;
+
+    const publish = (): void => {
+      const height = Math.ceil(element.getBoundingClientRect().height);
+      document.documentElement.style.setProperty('--cookie-consent-height', `${height}px`);
+    };
+    publish();
+    if (typeof ResizeObserver === 'undefined') return clear;
+
+    const observer = new ResizeObserver(publish);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      clear();
+    };
+  }, [given]);
 
   if (given) {
     return null;
@@ -31,6 +63,7 @@ export function CookieConsent(): JSX.Element | null {
       role="region"
       aria-label="Согласие на использование cookie"
       data-testid="cookie-consent"
+      ref={bannerRef}
     >
       <p className="cookie-consent__text" data-testid="cookie-consent-text">
         {CONSENT_TEXT}
