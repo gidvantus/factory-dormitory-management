@@ -12,6 +12,7 @@ const sectionTitles: Record<string, string> = {
   '/cabinet': 'Обзор',
   '/cabinet/dormitories': 'Общежития',
   '/cabinet/tariffs': 'Тариф',
+  '/cabinet/documents': 'Документы',
   '/cabinet/organization': 'Организация',
   '/cabinet/organization/members': 'Сотрудники',
   '/cabinet/personnel': 'Персонал',
@@ -222,6 +223,19 @@ function CabinetShell(): JSX.Element {
               >
                 <WorkspaceIcon name="chart" />
                 Тариф
+              </NavLink>
+            </li>
+            <li>
+              {/* «Документы» не перечислены в `CLOSED_SECTIONS`: счета и акты
+                  нужны именно на закрытом пробном периоде. */}
+              <NavLink
+                className={styles['nav-link']}
+                to="/cabinet/documents"
+                onClick={closeMenu}
+                data-testid="workspace-nav-documents"
+              >
+                <WorkspaceIcon name="document" />
+                Документы
               </NavLink>
             </li>
             <li>

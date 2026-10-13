@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import type { Tariff } from '../api/client';
@@ -11,6 +11,10 @@ import { siteNav } from '../components/siteNav';
 import { useAuthDialog } from '../components/useAuthDialog';
 
 const GENERIC_ERROR = 'Не удалось загрузить тарифы. Проверьте соединение и попробуйте ещё раз.';
+const PURCHASE_ERROR = 'Не удалось выставить счёт. Проверьте соединение и попробуйте ещё раз.';
+
+/** Второй смысл отказа покупки: тариф или счёт уже есть — дорога в кабинет. */
+const CABINET_HINT = 'Посмотреть счета и тариф можно в кабинете:';
 
 /**
  * Меню шапки страницы тарифов: те же разделы, что на главной, но «Тарифы» здесь
@@ -21,6 +25,14 @@ const NAV = siteNav({ onHome: false });
 /** Текст ошибки: сервер объясняет причину точнее общего «не получилось». */
 function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : GENERIC_ERROR;
+}
+
+/** Текст отказа покупки: 401 — конец сессии, 409 и остальное объясняет сервер. */
+function purchaseErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    return error.status === 401 ? 'Сессия завершилась. Войдите в аккаунт снова.' : error.message;
+  }
+  return PURCHASE_ERROR;
 }
 
 /**
@@ -42,22 +54,38 @@ export function Pricing(): JSX.Element {
   const [error, setError] = useState('');
   // Счётчик повторов: изменение значения перезапускает загрузку.
   const [attempt, setAttempt] = useState(0);
+  const [buying, setBuying] = useState(false);
+  const [buyError, setBuyError] = useState('');
   const { openLogin, openRegister, dialogElement } = useAuthDialog();
   const { status: sessionStatus } = useSession();
   const navigate = useNavigate();
 
   /**
-   * «Купить» пока не покупка: потока оплаты нет, и кнопка ведёт туда, где тариф
-   * появится у организации. Анониму она открывает регистрацию на самой странице,
-   * вошедшему — показывает его раздел «Тариф»: заставлять его регистрироваться
-   * второй раз нельзя.
+   * «Купить» заводит организации счёт за выбранный тариф.
+   *
+   * Анониму кнопка по-прежнему открывает регистрацию: счёт выставляется только
+   * вошедшему, а форма на самой странице короче похода на главную. Вошедшего
+   * ведёт в раздел «Документы» — именно там виден выставленный счёт.
+   *
+   * Закрытый пробный период покупку не блокирует: 403 «пробный период
+   * закончился» обрабатывает `client.ts` (`notifyTrialExpired`), а текст отказа
+   * от сервера показывается на странице как есть.
    */
-  function buyTariff(): void {
-    if (sessionStatus === 'authenticated') {
-      navigate('/cabinet/tariffs');
+  async function buyTariff(tariffId: number): Promise<void> {
+    if (sessionStatus !== 'authenticated') {
+      openRegister();
       return;
     }
-    openRegister();
+    if (buying) return;
+    setBuying(true);
+    setBuyError('');
+    try {
+      await api.purchaseInvoice(tariffId);
+      navigate('/cabinet/documents', { state: { purchased: true } });
+    } catch (caught: unknown) {
+      setBuyError(purchaseErrorMessage(caught));
+      setBuying(false);
+    }
   }
 
   useEffect(() => {
@@ -140,13 +168,28 @@ export function Pricing(): JSX.Element {
                       className="btn btn--primary btn--block"
                       type="button"
                       data-testid="tariff-buy"
-                      onClick={buyTariff}
+                      disabled={buying}
+                      onClick={() => void buyTariff(tariff.id)}
                     >
                       Купить
                     </button>
                   </li>
                 ))}
               </ul>
+            )}
+
+            {buyError && (
+              <p className="pricing__error" role="alert" data-testid="pricing-buy-error">
+                {buyError} {CABINET_HINT}{' '}
+                <Link to="/cabinet/tariffs" data-testid="pricing-buy-tariff-link">
+                  раздел «Тариф»
+                </Link>
+                , счета — в разделе{' '}
+                <Link to="/cabinet/documents" data-testid="pricing-buy-documents-link">
+                  «Документы»
+                </Link>
+                .
+              </p>
             )}
           </div>
         </section>

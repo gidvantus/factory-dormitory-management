@@ -73,6 +73,28 @@ const PLANS = [
   },
 ];
 
+/** Счёт, который сервер возвращает на покупку. */
+const INVOICE = {
+  id: 1,
+  number: 'СЧ-2026-1',
+  status: 'new',
+  status_label: 'Новый',
+  amount: '10000.00',
+  currency: 'RUB',
+  amount_label: '10 000 ₽ в месяц',
+  tariff_name: 'Старт',
+  tariff_period: 'month',
+  buyer_name: 'ООО «Домовой»',
+  buyer_inn: '7701234567',
+  buyer_kpp: null,
+  buyer_ogrn: null,
+  buyer_address: null,
+  has_act: false,
+  can_manage: true,
+  paid_at: null,
+  created_at: '2026-01-01T00:00:00Z',
+};
+
 /** Сессия анонимная: страница тарифов публичная, 401 от `/api/me` — норма. */
 function publicRoutes(tariffs: MockResponse): MockHandler {
   return (url) => {
@@ -82,14 +104,36 @@ function publicRoutes(tariffs: MockResponse): MockHandler {
   };
 }
 
-/** Та же страница с активной сессией: в шапке должен быть личный кабинет. */
-function signedInRoutes(tariffs: MockResponse): MockHandler {
-  return (url) => {
+/**
+ * Та же страница с активной сессией: в шапке должен быть личный кабинет.
+ *
+ * `purchase` — ответ на покупку; без него POST отвечает успехом со счётом, а
+ * чтение счетов отдаёт список с тем же счётом: после покупки страница уводит в
+ * «Документы», и тем же маршрутом она их и читает.
+ */
+function signedInRoutes(tariffs: MockResponse, purchase?: MockResponse): MockHandler {
+  return (url, init) => {
     if (url.endsWith('/api/tariffs')) return tariffs;
     if (url.endsWith('/api/me')) return PROFILE;
+    if (url.endsWith('/api/billing/invoices')) {
+      if (init?.method === 'POST') return purchase ?? { status: 201, body: INVOICE };
+      return { status: 200, body: [INVOICE] };
+    }
     if (url.endsWith('/api/tariffs/current')) return { status: 200, body: { tariff: null } };
     return { status: 404, body: { detail: 'Не найдено' } };
   };
+}
+
+/** Вызовы одного маршрута с указанным методом. */
+function callsWithMethod(
+  fetchMock: ReturnType<typeof vi.fn>,
+  path: string,
+  method: string,
+): unknown[][] {
+  return fetchMock.mock.calls.filter(
+    (call) =>
+      String(call[0]).endsWith(path) && (call[1] as RequestInit | undefined)?.method === method,
+  );
 }
 
 afterEach(() => {
@@ -275,8 +319,8 @@ describe('шапка и подвал страницы тарифов', () => {
     expect(await screen.findByTestId('cabinet-page')).toBeInTheDocument();
   });
 
-  it('вошедшему кнопка «Купить» ведёт в раздел «Тариф», а не в регистрацию', async () => {
-    mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+  it('вошедшему кнопка «Купить» выставляет счёт и ведёт в «Документы»', async () => {
+    const fetchMock = mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
     const user = userEvent.setup();
     renderApp('/pricing');
 
@@ -286,8 +330,39 @@ describe('шапка и подвал страницы тарифов', () => {
 
     await user.click(await screen.findByTestId('tariff-buy'));
 
-    expect(await screen.findByTestId('tariffs-empty')).toBeInTheDocument();
+    expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(1);
+    expect(await screen.findByTestId('documents-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('documents-purchase-success')).toBeInTheDocument();
+    expect(screen.getByTestId('document-number')).toHaveTextContent('СЧ-2026-1');
     expect(screen.queryByTestId('auth-modal')).not.toBeInTheDocument();
+  });
+
+  it('показывает текст отказа сервера и ссылку на раздел «Тариф»', async () => {
+    const fetchMock = mockFetch(
+      signedInRoutes(
+        { status: 200, body: [TARIFF] },
+        {
+          status: 409,
+          body: { detail: 'Тариф организации уже выбран' },
+        },
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await user.click(await screen.findByTestId('tariff-buy'));
+
+    const error = await screen.findByTestId('pricing-buy-error');
+    // Текст показан как есть, а не заменён общим «что-то пошло не так».
+    expect(error).toHaveTextContent('Тариф организации уже выбран');
+    expect(screen.getByTestId('pricing-buy-tariff-link')).toHaveAttribute(
+      'href',
+      '/cabinet/tariffs',
+    );
+    // Покупки не было: страница осталась на прайсе.
+    expect(screen.getByTestId('pricing')).toBeInTheDocument();
+    expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(1);
   });
 
   it('открывает вход окном на самой странице тарифов', async () => {

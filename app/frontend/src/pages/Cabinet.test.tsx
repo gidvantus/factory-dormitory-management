@@ -1,4 +1,4 @@
-﻿import { render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -196,6 +196,7 @@ describe('закрытый кабинет и пробный период', () =>
     for (const testId of [
       'workspace-nav-overview',
       'workspace-nav-tariffs',
+      'workspace-nav-documents',
       'workspace-nav-organization',
       'workspace-nav-profile',
     ]) {
