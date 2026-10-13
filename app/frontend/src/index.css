@@ -1922,7 +1922,21 @@ tbody tr:last-child td {
 
    Немодальное предупреждение внизу экрана: z-index выше шапки (50) и ниже
    окон кабинета (60), чтобы открытое окно всегда рисовалось поверх плашки.
+   Плашка намеренно низкая: она живёт внизу каждого экрана, и высокая полоса
+   закрывала бы нижние элементы кабинета — «Личные данные» и кнопку «Выйти».
    ========================================================================== */
+
+:root {
+  /* Высота, которую плашка оставляет за собой у нижнего края экрана. */
+  --cookie-consent-space: 104px;
+}
+
+:root:has(.cookie-consent) {
+  /* Пока согласие не принято, каркас кабинета оставляет плашке полосу внизу:
+     `Workspace.module.css` сдвигает на неё нижний блок бокового меню. Селектор
+     `:has()` отключает запас сразу после принятия — плашки в DOM уже нет. */
+  --cookie-consent-reserve: var(--cookie-consent-space);
+}
 
 .cookie-consent {
   position: fixed;
@@ -1934,8 +1948,7 @@ tbody tr:last-child td {
   gap: var(--space-4);
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  padding: var(--space-4) var(--gutter);
+  padding: var(--space-3) var(--gutter);
   background: var(--color-bg-surface);
   border-top: 1px solid var(--color-border-strong);
   box-shadow: var(--shadow-md);
@@ -1943,16 +1956,22 @@ tbody tr:last-child td {
 
 .cookie-consent__text {
   margin: 0;
-  max-width: 60ch;
+  /* Минимум в 26rem удерживает текст на двух строках даже на 1024px: с третьей
+     строкой плашка вырастает и закрывает «Личные данные» и «Выйти» в кабинете.
+     Ниже 600px упирается нижняя граница колонки, и плашка переносится целиком. */
+  flex: 1 1 auto;
+  min-width: min(26rem, 100%);
+  max-width: none;
   font-size: var(--text-sm);
+  line-height: 1.45;
   color: var(--color-text-body);
 }
 
 .cookie-consent__actions {
   display: flex;
-  gap: var(--space-4);
+  gap: var(--space-3);
   align-items: center;
-  flex-wrap: wrap;
+  flex: 0 1 auto;
 }
 
 .cookie-consent__link {
@@ -2070,6 +2089,8 @@ tbody tr:last-child td {
   .cookie-consent {
     flex-direction: column;
     align-items: stretch;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
   }
 
   .cookie-consent__actions {
