@@ -151,6 +151,29 @@ def fetch_feed(
     return [item for item in items if isinstance(item, dict)]
 
 
+def fetch_chats(*, crm_client: httpx.Client, settings: Settings) -> list[str]:
+    """Чаты всех живых привязок. Сбой CRM — пустой список.
+
+    Без этого списка бот знал бы только те чаты, откуда пришло обновление, и
+    готовое уведомление ждало бы, пока получатель сам что-нибудь напишет боту.
+    Уведомление адресовано человеку, а не ответу на его сообщение, поэтому
+    лента обходится по всем подключённым чатам каждый цикл.
+    """
+    response = _crm_request("GET", "/telegram/chats", crm_client=crm_client, settings=settings)
+    if response is None or response.status_code != httpx.codes.OK:
+        return []
+    try:
+        body = response.json()
+    except ValueError:
+        return []
+    if not isinstance(body, dict):
+        return []
+    items = body.get("items")
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, str) and item]
+
+
 def report_failed(delivery_id: object, *, crm_client: httpx.Client, settings: Settings) -> None:
     """Сообщить CRM, что Bot API отказал: доставка больше не выдаётся."""
     if not isinstance(delivery_id, int):
@@ -236,7 +259,11 @@ def poll_once(
     crm_client: httpx.Client,
     settings: Settings,
 ) -> int | None:
-    """Один шаг цикла: обновления → привязка → лента каждого чата.
+    """Один шаг цикла: обновления → привязка → лента каждого подключённого чата.
+
+    Лента обходится не только у чатов из свежих обновлений, но и у всех живых
+    привязок: уведомление адресовано человеку, а не ответу на его сообщение, и
+    ждать, пока получатель сам напишет боту, нельзя.
 
     Возвращает смещение для следующего `getUpdates`. Ни одно падение шага не
     выходит наружу: ошибка одного обновления не должна останавливать остальные,
@@ -258,6 +285,11 @@ def poll_once(
             continue
         if chat_id is not None:
             chats.append(chat_id)
+
+    try:
+        chats.extend(fetch_chats(crm_client=crm_client, settings=settings))
+    except Exception as error:
+        logger.error("Список чатов не получен: %s", type(error).__name__)
 
     for chat_id in dict.fromkeys(chats):
         try:

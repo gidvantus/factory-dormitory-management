@@ -120,6 +120,94 @@ def test_poll_once_links_the_chat_and_drains_the_feed() -> None:
     assert all("parse_mode" not in text for text in sent_texts)
 
 
+def test_queued_delivery_is_sent_without_new_updates_from_the_recipient() -> None:
+    """Регрессия вердикта: доставка не должна ждать, пока получатель напишет боту.
+
+    Готовое уведомление адресовано человеку, а не ответу на его сообщение.
+    Пока бот узнавал чаты только из свежих обновлений, строка в очереди висела
+    `pending` сколько угодно, и ни выселение коллеги, ни тестовое сообщение до
+    человека не доходили.
+    """
+    bot_calls: list[httpx.Request] = []
+
+    def crm_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/telegram/chats":
+            return httpx.Response(200, json={"items": [CHAT_ID]})
+        if request.url.path == "/api/telegram/feed":
+            return httpx.Response(
+                200, json={"items": [{"id": 7, "text": "Выселение проживающего"}]}
+            )
+        return httpx.Response(404, json={"detail": "нет"})
+
+    def bot_handler(request: httpx.Request) -> httpx.Response:
+        bot_calls.append(request)
+        if request.url.path.endswith("/getUpdates"):
+            # Ни одного обновления: человек боту ничего не писал.
+            return httpx.Response(200, json={"ok": True, "result": []})
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+
+    with (
+        client_with(crm_handler) as crm_client,
+        client_with(bot_handler) as bot_client,
+    ):
+        bot.poll_once(
+            offset=None,
+            bot_client=bot_client,
+            crm_client=crm_client,
+            settings=make_settings(),
+        )
+
+    sent_texts = [
+        request.content.decode("utf-8")
+        for request in bot_calls
+        if request.url.path.endswith("/sendMessage")
+    ]
+    assert len(sent_texts) == 1
+    assert CHAT_ID in sent_texts[0]
+    assert "Выселение проживающего" in sent_texts[0]
+
+
+def test_chats_list_is_not_fatal_when_the_crm_is_unavailable() -> None:
+    """CRM недоступна — бот всё равно продолжает цикл и берёт чаты из обновлений."""
+    bot_calls: list[httpx.Request] = []
+
+    def crm_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    def bot_handler(request: httpx.Request) -> httpx.Response:
+        bot_calls.append(request)
+        if request.url.path.endswith("/getUpdates"):
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "result": [
+                        {
+                            "update_id": 3,
+                            "message": {"chat": {"id": int(CHAT_ID)}, "text": "/start"},
+                        }
+                    ],
+                },
+            )
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    with (
+        client_with(crm_handler) as crm_client,
+        client_with(bot_handler) as bot_client,
+    ):
+        assert (
+            bot.poll_once(
+                offset=None,
+                bot_client=bot_client,
+                crm_client=crm_client,
+                settings=make_settings(),
+            )
+            == 4
+        )
+
+    assert any(request.url.path.endswith("/sendMessage") for request in bot_calls)
+
+
 def test_invalid_code_answers_with_the_same_short_text() -> None:
     bot_calls: list[httpx.Request] = []
 

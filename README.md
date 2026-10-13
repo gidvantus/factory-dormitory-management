@@ -131,10 +131,13 @@ CRM-система ведёт учёт рабочих, проживающих в
 `GET /api/telegram/status`, `POST /api/telegram/connect`,
 `POST /api/telegram/disconnect`, `PATCH /api/telegram/subscriptions`,
 `POST /api/telegram/test-message`; ручки бота (заголовок `X-Bot-Token`) —
-`POST /api/telegram/chat`, `GET /api/telegram/feed?chat_id=…`,
-`POST /api/telegram/feed/{id}/failed`. Миграция `0032_telegram_notifications`
-добавляет три таблицы и новый вид одноразовой ссылки `telegram_link`; данные
-пользователей не затрагиваются.
+`POST /api/telegram/chat`, `GET /api/telegram/chats`,
+`GET /api/telegram/feed?chat_id=…`, `POST /api/telegram/feed/{id}/failed`.
+Готовое уведомление адресовано человеку, а не ответу на его сообщение, поэтому
+бот обходит `GET /api/telegram/chats` и забирает ленту каждого подключённого
+чата — иначе доставка ждала бы, пока получатель сам напишет боту. Миграция
+`0032_telegram_notifications` добавляет три таблицы и новый вид одноразовой
+ссылки `telegram_link`; данные пользователей не затрагиваются.
 
 Миграция `0011_table_columns_links` добавляет настройки и дополнительные поля,
 сохраняя существующие записи. При запуске API миграции применяются автоматически.

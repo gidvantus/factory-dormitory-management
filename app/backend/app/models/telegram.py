@@ -35,9 +35,12 @@ RESIDENT_OUTFLOW_KIND = "resident_outflow"
 TELEGRAM_TEST_KIND = "telegram_test"
 
 # Виды событий, о которых можно подписаться. Заголовки — для кабинета.
+# У тестового сообщения подписки нет, но заголовок нужен: из него собирается
+# первая строка сообщения, и человек не должен видеть там код `telegram_test`.
 NOTIFICATION_KINDS = (RESIDENT_OUTFLOW_KIND,)
 NOTIFICATION_KIND_TITLES = {
     RESIDENT_OUTFLOW_KIND: "Выселение проживающего",
+    TELEGRAM_TEST_KIND: "Тестовое уведомление",
 }
 
 # Состояния доставки. Перечень для `CHECK` собирается из константы, чтобы модель

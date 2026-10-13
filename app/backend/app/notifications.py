@@ -334,7 +334,7 @@ def queue_test_message(db: Session, user: User) -> bool:
             kind=TELEGRAM_TEST_KIND,
             event_key=event_key,
             title=kind_title(TELEGRAM_TEST_KIND),
-            body="Тестовое уведомление из личного кабинета. Если вы его видите, связь работает.",
+            body="Проверка связи: уведомления из кабинета приходят в этот чат.",
             status=DELIVERY_PENDING,
         )
     )
@@ -354,6 +354,28 @@ def pending_for_chat(
             )
             .order_by(NotificationDelivery.id)
             .limit(limit)
+        )
+    )
+
+
+def connected_chats(db: Session) -> list[str]:
+    """Чаты всех живых привязок.
+
+    Нужны боту: готовое уведомление адресовано человеку, а не ответу на его
+    сообщение, и ждать, пока получатель сам что-нибудь напишет, нельзя — иначе
+    доставка висит в `pending` сколько угодно. Бот забирает этот список и
+    обходит ленту каждого чата.
+
+    Сортировка именно по `chat_id`, а не по `id`: с `SELECT DISTINCT` Postgres
+    требует, чтобы выражение из `ORDER BY` было в списке выборки, а `id` туда не
+    попадает — запрос падал бы на живой базе, хотя на SQLite проходит.
+    """
+    return list(
+        db.scalars(
+            select(TelegramLink.chat_id)
+            .where(TelegramLink.revoked_at.is_(None))
+            .order_by(TelegramLink.chat_id)
+            .distinct()
         )
     )
 

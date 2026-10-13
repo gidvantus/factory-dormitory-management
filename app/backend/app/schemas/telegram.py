@@ -47,6 +47,24 @@ class FeedResponse(BaseModel):
     items: list[FeedItemResponse]
 
 
+class ChatsResponse(BaseModel):
+    """Чаты с живой привязкой — по этому списку бот обходит ленты.
+
+    Отдельная ручка, а не поле в `feed`: лента адресована одному чату, а список
+    отвечает на вопрос «кому вообще может быть что-то доставить». Без него бот
+    знал бы только те чаты, откуда пришло обновление, и готовое уведомление
+    ждало бы, пока получатель сам напишет боту.
+    """
+
+    items: list[str]
+
+
+class BadRequestResponse(BaseModel):
+    """Тело запроса не разбирается: его отдаёт Starlette до валидации схемы."""
+
+    detail: str
+
+
 class DeliveryFailedRequest(BaseModel):
     """`POST /api/telegram/feed/{id}/failed` — Bot API отказал.
 

@@ -28,6 +28,7 @@ EXEMPT_PATHS = frozenset(
         # префикса (`/api/telegram/status`, `/connect`, `/disconnect`,
         # `/subscriptions`, `/test-message`) остаются под guard и проверяются.
         "/api/telegram/chat",
+        "/api/telegram/chats",
         "/api/telegram/feed",
         "/api/telegram/feed/{delivery_id}/failed",
     }

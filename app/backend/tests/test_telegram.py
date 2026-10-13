@@ -299,6 +299,45 @@ def test_second_link_of_the_same_user_keeps_a_single_row(
     assert len(list(db_session.scalars(select(TelegramLink)))) == 1
 
 
+def test_chats_lists_only_live_links(
+    client: TestClient, db_session: Session, telegram_env: None
+) -> None:
+    """Бот обходит ленты этих чатов — иначе готовые доставки не уходят."""
+    assert client.get("/api/telegram/chats").status_code == 401
+
+    sign_in(client, db_session)
+    assert client.get("/api/telegram/chats", headers=BOT_HEADERS).json() == {"items": []}
+
+    code = client.post("/api/telegram/connect").json()["code"]
+    client.post(
+        "/api/telegram/chat",
+        json={"code": code, "chat_id": CHAT_ID, "username": None},
+        headers=BOT_HEADERS,
+    )
+    assert client.get("/api/telegram/chats", headers=BOT_HEADERS).json() == {"items": [CHAT_ID]}
+
+    client.post("/api/telegram/disconnect")
+
+    assert client.get("/api/telegram/chats", headers=BOT_HEADERS).json() == {"items": []}
+
+
+def test_unreadable_body_answers_400_as_declared(client: TestClient, telegram_env: None) -> None:
+    """400 от Starlette объявлен в схеме, иначе обещание «только 422» расходится с ответом.
+
+    Схема обещает 422 на тело, не подходящее под модель, но тело, которое вообще
+    не декодируется в UTF-8, отвергается раньше — до валидации pydantic. Это тот
+    же 400, что нашёл `schemathesis status_code_conformance`.
+    """
+    response = client.post(
+        "/api/telegram/chat",
+        content=b"\x80",
+        headers={**BOT_HEADERS, "Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "There was an error parsing the body"}
+
+
 def add_delivery(db_session: Session, user: User, *, event_key: str = "resident_outflow:1") -> int:
     delivery = NotificationDelivery(
         user_id=user.id,
@@ -434,5 +473,8 @@ def test_test_message_reaches_the_feed(
         "/api/telegram/feed", params={"chat_id": CHAT_ID}, headers=BOT_HEADERS
     ).json()["items"]
     assert len(items) == 1
-    assert "Тестовое уведомление" in items[0]["text"]
+    # Первой строкой идёт человеческий заголовок, а не код вида события.
+    assert items[0]["text"].startswith("Тестовое уведомление\n\n")
+    assert "telegram_test" not in items[0]["text"]
+    assert "Проверка связи" in items[0]["text"]
     assert notifications.pending_for_chat(db_session, CHAT_ID) == []

@@ -30,8 +30,10 @@ from app.schemas.telegram import (
     INVALID_LINK_CODE_REASON,
     TELEGRAM_NOT_CONFIGURED_DETAIL,
     TELEGRAM_NOT_CONNECTED_DETAIL,
+    BadRequestResponse,
     ChatLinkRequest,
     ChatLinkResponse,
+    ChatsResponse,
     DeliveryFailedRequest,
     FeedItemResponse,
     FeedResponse,
@@ -81,6 +83,16 @@ NOT_CONNECTED_RESPONSES: dict[int | str, dict[str, object]] = {
     },
 }
 
+# Тело запроса, которое не разбирается как JSON, отвергает сам Starlette — до
+# валидации схемы, поэтому ответ 400, а не 422. Он объявлен у ручек с телом:
+# иначе схемы обещают только 422, а живой сервис отвечает и 400.
+BAD_REQUEST_RESPONSES: dict[int | str, dict[str, object]] = {
+    status.HTTP_400_BAD_REQUEST: {
+        "model": BadRequestResponse,
+        "description": "Тело запроса не разбирается как JSON",
+    },
+}
+
 
 def _subscription_list(db: Session, user: User) -> list[SubscriptionResponse]:
     """Список подписок каталога в том виде, в каком его отдаёт кабинет."""
@@ -95,7 +107,7 @@ def _subscription_list(db: Session, user: User) -> list[SubscriptionResponse]:
     response_model=ChatLinkResponse,
     response_model_exclude_none=True,
     summary="Привязать чат бота к кабинету по коду",
-    responses=INVALID_CODE_RESPONSES,
+    responses={**INVALID_CODE_RESPONSES, **BAD_REQUEST_RESPONSES},
 )
 def link_chat(
     payload: ChatLinkRequest,
@@ -138,12 +150,28 @@ def read_feed(
     return FeedResponse(items=items)
 
 
+@router.get(
+    "/chats",
+    response_model=ChatsResponse,
+    summary="Чаты с живой привязкой",
+)
+def list_chats(_bot: ServiceBot, db: DbSession) -> ChatsResponse:
+    """Кому бот может доставить сообщение прямо сейчас.
+
+    Готовое уведомление адресовано человеку, а не ответу на его сообщение:
+    без этого списка бот обходил бы только те чаты, откуда пришло обновление, и
+    доставка ждала бы, пока получатель сам напишет боту.
+    """
+    return ChatsResponse(items=notifications.connected_chats(db))
+
+
 @router.post(
     "/feed/{delivery_id}/failed",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Отметить доставку неудачной",
     responses={
         status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "Доставка не найдена"},
+        **BAD_REQUEST_RESPONSES,
     },
 )
 def mark_delivery_failed(
@@ -221,7 +249,7 @@ def disconnect(user: ActiveUser, db: DbSession) -> TelegramDisconnectResponse:
     "/subscriptions",
     response_model=list[SubscriptionResponse],
     summary="Включить или выключить вид уведомлений",
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={**ACTIVE_USER_RESPONSES, **BAD_REQUEST_RESPONSES},
 )
 def update_subscription(
     payload: UpdateSubscriptionRequest,

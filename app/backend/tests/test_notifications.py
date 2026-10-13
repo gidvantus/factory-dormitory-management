@@ -213,6 +213,20 @@ def test_render_falls_back_to_the_shift_end_and_unknown_names(db_session: Sessio
     assert "2026-11-01" in body
 
 
+def test_connected_chats_lists_only_live_links(db_session: Session) -> None:
+    """Боту нужны чаты всех живых привязок: иначе доставки ждут сообщения человека."""
+    first = create_user(db_session, email="first@example.com")
+    second = create_user(db_session, email="second@example.com")
+    connect(db_session, first, chat_id="1")
+    connect(db_session, second, chat_id="2")
+    assert notifications.connected_chats(db_session) == ["1", "2"]
+
+    notifications.unlink(db_session, first)
+    db_session.commit()
+
+    assert notifications.connected_chats(db_session) == ["2"]
+
+
 def test_pending_feed_transitions_between_states(db_session: Session) -> None:
     user = create_user(db_session)
     delivery = NotificationDelivery(
