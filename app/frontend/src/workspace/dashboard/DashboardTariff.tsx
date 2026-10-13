@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { api, ApiError } from '../../api/client';
 import type { Tariff } from '../../api/client';
+import { useTrial } from '../../auth/TrialProvider';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import styles from './Dashboard.module.css';
 
@@ -13,6 +14,34 @@ function errorMessage(error: unknown): string {
   return LOAD_ERROR;
 }
 
+/** Дата вида ДД.ММ.ГГГГ: сервер отдаёт ISO, человеку нужен привычный формат. */
+function formatTrialEnd(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone: 'Europe/Moscow',
+  }).format(date);
+}
+
+/** «осталось 5 дней»: без согласования числа текст читается как машинный. */
+function daysWord(days: number): string {
+  const tail = days % 100;
+  if (tail >= 11 && tail <= 14) return 'дней';
+  switch (days % 10) {
+    case 1:
+      return 'день';
+    case 2:
+    case 3:
+    case 4:
+      return 'дня';
+    default:
+      return 'дней';
+  }
+}
+
 /**
  * Тариф организации в обзоре: тот же, что и в разделе «Тариф».
  *
@@ -21,12 +50,17 @@ function errorMessage(error: unknown): string {
  * дашборд и не превращается в красную плашку на весь экран: показатели обзора
  * важнее, а строка про тариф сообщает о себе сдержанно и предлагает повторить
  * запрос.
+ *
+ * Срок пробного периода показывается здесь же: «Ваш тариф» — то место, где
+ * человек ищет ответ, что с кабинетом и сколько это ещё продлится, поэтому
+ * остаток дней не живёт отдельной строкой над блоком.
  */
 export function DashboardTariff(): JSX.Element {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [tariff, setTariff] = useState<Tariff | null>(null);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const { state: trial } = useTrial();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -64,6 +98,13 @@ export function DashboardTariff(): JSX.Element {
           <WorkspaceIcon name="chart" />
         </span>
       </div>
+
+      {trial?.is_active && trial.ends_at !== null && (
+        <p className={styles.tariffCardTrial} role="status" data-testid="trial-days-left">
+          Пробный период: осталось {trial.days_left} {daysWord(trial.days_left)}, до{' '}
+          {formatTrialEnd(trial.ends_at)}
+        </p>
+      )}
 
       {status === 'loading' && (
         <p className={styles.tariffCardNote} role="status" data-testid="dashboard-tariff-loading">

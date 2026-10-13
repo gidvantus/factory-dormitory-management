@@ -210,6 +210,17 @@
   font-size: 13px;
   color: var(--color-text-body);
 }
+/* Срок пробного периода внутри «Вашего тарифа»: выделен, потому что это ответ
+   на вопрос «сколько кабинет ещё проработает», а не справка о тарифе. */
+.dashboard .tariffCardTrial {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--butter-200);
+  border-radius: 11px;
+  background: var(--butter-100);
+  color: var(--ink-900);
+  font-size: 13px;
+}
 .dashboard .tariffCardRetry {
   border: 0;
   padding: 0;

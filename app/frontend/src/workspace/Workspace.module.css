@@ -828,9 +828,25 @@
 .shell .trial-expired p {
   margin: 0;
 }
-/* Остаток дней — сдержанная строка: она не должна спорить с карточкой тарифа. */
-.shell .trial-note {
-  margin: 0 0 14px;
-  color: var(--color-text-body);
-  font-size: 14px;
+/* Тариф и срок пробного периода: один блок, пока период идёт или кабинет
+   закрыт. Это важная информация о состоянии кабинета, поэтому блок выделен
+   мягким «вниманием» — не ошибкой; с выбранным тарифом выделять нечего. */
+.shell .trial-card-block {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.shell .trial-card-block[data-trial='true'] {
+  padding: 18px 20px 20px;
+  border: 1px solid var(--butter-200);
+  border-radius: 20px;
+  background: var(--butter-100);
+}
+/* Рамку внутри выделенного блока держит он сам: у сообщения об окончании
+   остаются только текст и ссылка. */
+.shell .trial-card-block[data-trial='true'] .trial-expired {
+  margin-bottom: 0;
+  padding: 0;
+  border: 0;
+  background: none;
 }

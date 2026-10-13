@@ -39,10 +39,22 @@ const TARIFF = {
   price_label: '5 000 ₽ за одно место в месяц',
 };
 
+const TRIAL_RUNNING: MockResponse = {
+  status: 200,
+  body: {
+    ends_at: '2026-11-01T00:00:00Z',
+    days_left: 12,
+    is_active: true,
+    locked: false,
+    member_limit: 3,
+  },
+};
+
 /** Обзор грузит и показатели, и тариф организации — маршруты нужны оба. */
-function overviewRoutes(tariff: MockResponse) {
+function overviewRoutes(tariff: MockResponse, trial?: MockResponse) {
   return (url: string): MockResponse => {
     if (url.endsWith('/api/me')) return PROFILE;
+    if (url.endsWith('/api/trial')) return trial ?? { status: 404, body: { detail: 'Не найдено' } };
     if (url.endsWith('/api/tariffs/current')) return tariff;
     if (url.includes('/api/dashboard')) return DASHBOARD;
     return { status: 404, body: { detail: 'Не найдено' } };
@@ -87,5 +99,26 @@ describe('тариф организации в обзоре', () => {
       'Внутренняя ошибка',
     );
     expect(screen.getByTestId('workspace-overview')).toBeInTheDocument();
+  });
+
+  it('показывает остаток пробного периода внутри «Вашего тарифа»', async () => {
+    mockFetch(overviewRoutes({ status: 200, body: { tariff: null } }, TRIAL_RUNNING));
+    renderApp('/cabinet');
+
+    const card = await screen.findByTestId('dashboard-tariff');
+    const note = await within(card).findByTestId('trial-days-left');
+
+    expect(note).toHaveTextContent('Пробный период: осталось 12 дней, до 01.11.2026');
+    expect(note).toHaveAttribute('role', 'status');
+  });
+
+  it('без пробного периода строки об остатке дней в блоке нет', async () => {
+    mockFetch(overviewRoutes({ status: 200, body: { tariff: null } }));
+    renderApp('/cabinet');
+
+    const card = await screen.findByTestId('dashboard-tariff');
+
+    expect(card).toBeInTheDocument();
+    expect(within(card).queryByTestId('trial-days-left')).not.toBeInTheDocument();
   });
 });
