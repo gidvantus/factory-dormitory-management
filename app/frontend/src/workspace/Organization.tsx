@@ -11,15 +11,29 @@ export const EMPTY_ORGANIZATION_NAME = 'Без названия';
 /** Сколько цифр бывает в ИНН: 10 у организации, 12 у предпринимателя. */
 const INN_LENGTHS = [10, 12];
 
-/** Источник данных в форме: найденное в DaData помечается подписью. */
-export const LOOKUP_FOUND_NOTE = 'Заполнено из DaData';
 export const LOOKUP_SEARCHING_TEXT = 'Ищем организацию…';
 export const LOOKUP_NOT_FOUND_TEXT = 'По этому ИНН ничего не найдено';
 export const LOOKUP_UNAVAILABLE_TEXT =
   'Сервис проверки недоступен. Проверьте ИНН и попробуйте снова.';
+/** ИНН уже есть в базе у другой организации: ИНН уникален, сохранить его нельзя. */
+export const LOOKUP_INN_TAKEN_TEXT = 'Этот ИНН уже занят другой организацией. Укажите другой ИНН.';
 
-/** Состояние поиска по ИНН. `idle` — ещё не искали или ищем другое значение. */
-type LookupState = 'idle' | 'searching' | 'found' | 'not_found' | 'unavailable';
+/** Вердикт поиска. `idle` — по текущему значению поиска ещё не было. */
+type LookupVerdict = 'idle' | 'searching' | 'found' | 'not_found' | 'unavailable' | 'taken';
+
+/**
+ * Вердикт поиска вместе с ИНН, к которому он относится.
+ *
+ * Поле ИНН остаётся редактируемым и после ответа сервера, поэтому вердикт
+ * хранится парой: «занято» относится к конкретному номеру, и правка поля
+ * снимает его сама собой, без ручного сброса состояния.
+ */
+interface LookupState {
+  verdict: LookupVerdict;
+  inn: string;
+}
+
+const IDLE_LOOKUP: LookupState = { verdict: 'idle', inn: '' };
 
 /**
  * Страница организации: редактируется только ИНН.
@@ -32,6 +46,8 @@ type LookupState = 'idle' | 'searching' | 'found' | 'not_found' | 'unavailable';
  * Поиск идёт по `blur` и `Enter`, а не на каждую цифру: запрос к внешнему
  * сервису на каждый символ — это лишняя нагрузка и мигающий статус. Повторный
  * запрос с тем же ИНН не уходит, а предыдущий отменяется через `AbortController`.
+ * Пока идёт поиск, поля и кнопка «Сохранить» заблокированы: сохранять
+ * недозаполненные реквизиты нельзя, а после ответа они снова доступны.
  *
  * Формат ИНН проверяет сервер, а не клиент: у организации 10 цифр, у
  * индивидуального предпринимателя 12, и дублировать это правило здесь
@@ -48,7 +64,7 @@ export function Organization(): JSX.Element {
   const [kpp, setKpp] = useState('');
   const [ogrn, setOgrn] = useState('');
   const [address, setAddress] = useState('');
-  const [lookup, setLookup] = useState<LookupState>('idle');
+  const [lookup, setLookup] = useState<LookupState>(IDLE_LOOKUP);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -58,10 +74,13 @@ export function Organization(): JSX.Element {
   // «Сохранить» задизейблена и фокус с неё слетает на `<body>`; без этого
   // возврата пользователь клавиатуры теряет место на странице.
   const restoreFocus = useRef(false);
-  // Отмена предыдущего поиска и память о его ИНН: повторный запрос на то же
-  // значение не уходит, даже если пользователь снова увёл и вернул фокус.
+  // Отмена предыдущего поиска: его ответ уже некуда класть.
   const lookupController = useRef<AbortController | null>(null);
-  const lastLookupInn = useRef('');
+
+  // Вердикт относится к конкретному ИНН: после правки поля он устаревает сам.
+  const verdict = lookup.inn === inn ? lookup.verdict : 'idle';
+  const searching = verdict === 'searching';
+  const innTaken = verdict === 'taken';
 
   useEffect(() => {
     const controller = new AbortController();
@@ -98,23 +117,35 @@ export function Organization(): JSX.Element {
    */
   function runLookup(): void {
     const digits = inn.replace(/\D/g, '');
-    if (!INN_LENGTHS.includes(digits.length) || digits === lastLookupInn.current) return;
+    if (!INN_LENGTHS.includes(digits.length)) return;
+    // Вердикт по этому значению уже есть — в том числе «уже ищем»: повторный
+    // запрос не уходит, даже если фокус заходил и уходил.
+    if (lookup.inn === digits) return;
 
-    lastLookupInn.current = digits;
     lookupController.current?.abort();
     const controller = new AbortController();
     lookupController.current = controller;
-    setLookup('searching');
+    setLookup({ verdict: 'searching', inn: digits });
 
     void api
       .lookupOrganization(digits, controller.signal)
       .then((result) => {
         if (controller.signal.aborted) return;
+        if (result.reason === 'inn_taken') {
+          // ИНН занят другой организацией: ИНН в базе уникален, сохранить его
+          // нельзя, а реквизиты чужой организации пользователю не нужны.
+          fillRequisites('', '', '', '');
+          setLookup({ verdict: 'taken', inn: digits });
+          return;
+        }
         if (!result.found) {
           // Сервис не нашёл организацию: поля остаются пустыми, но сохранение
           // доступно — пользователь может сохранить один ИНН.
           fillRequisites('', '', '', '');
-          setLookup(result.reason === 'unavailable' ? 'unavailable' : 'not_found');
+          setLookup({
+            verdict: result.reason === 'unavailable' ? 'unavailable' : 'not_found',
+            inn: digits,
+          });
           return;
         }
         const details = result.details;
@@ -124,13 +155,13 @@ export function Organization(): JSX.Element {
           details?.ogrn ?? '',
           details?.address ?? '',
         );
-        setLookup('found');
+        setLookup({ verdict: 'found', inn: digits });
       })
       .catch(() => {
         // Отменённый запрос — не ошибка: его заменил следующий.
         if (controller.signal.aborted) return;
         fillRequisites('', '', '', '');
-        setLookup('unavailable');
+        setLookup({ verdict: 'unavailable', inn: digits });
       });
   }
 
@@ -153,7 +184,9 @@ export function Organization(): JSX.Element {
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (inFlight.current) return;
+    // Занятый ИНН не сохраняется: кнопка в этом состоянии заблокирована, а
+    // проверка здесь — страховка от отправки формы другим путём.
+    if (inFlight.current || innTaken) return;
     inFlight.current = true;
     setSaving(true);
     setSaved('');
@@ -244,7 +277,7 @@ export function Organization(): JSX.Element {
           <form
             className={styles['organization-form']}
             noValidate
-            aria-busy={saving}
+            aria-busy={saving || searching}
             onSubmit={(event) => void submit(event)}
           >
             <div className="field">
@@ -265,35 +298,46 @@ export function Organization(): JSX.Element {
                   runLookup();
                 }}
                 inputMode="numeric"
-                disabled={saving}
+                disabled={saving || searching}
                 placeholder="10 или 12 цифр"
                 aria-describedby="organization-inn-hint"
               />
               <p className={styles['organization-hint']} id="organization-inn-hint">
                 10 цифр у организации, 12 — у индивидуального предпринимателя. Название, КПП, ОГРН и
-                адрес подтянутся из DaData. Пустое поле очищает ИНН.
+                адрес заполнятся системой.
               </p>
-              {lookup === 'searching' && (
-                <p
-                  className={styles['organization-source']}
-                  role="status"
-                  data-testid="organization-lookup-status"
-                >
-                  {LOOKUP_SEARCHING_TEXT}
-                </p>
+              {searching && (
+                <div className={styles['organization-lookup']}>
+                  <p
+                    className={styles['organization-source']}
+                    role="status"
+                    data-testid="organization-lookup-status"
+                  >
+                    {LOOKUP_SEARCHING_TEXT}
+                  </p>
+                  <progress
+                    className={styles['organization-lookup-progress']}
+                    data-testid="organization-lookup-progress"
+                    aria-label="Поиск организации по ИНН"
+                  />
+                </div>
               )}
-              {lookup === 'found' && (
-                <p className={styles['organization-source']} data-testid="organization-source">
-                  {LOOKUP_FOUND_NOTE}
-                </p>
-              )}
-              {(lookup === 'not_found' || lookup === 'unavailable') && (
+              {innTaken && (
                 <p
                   className="alert alert--error"
                   role="alert"
                   data-testid="organization-lookup-error"
                 >
-                  {lookup === 'not_found' ? LOOKUP_NOT_FOUND_TEXT : LOOKUP_UNAVAILABLE_TEXT}
+                  {LOOKUP_INN_TAKEN_TEXT}
+                </p>
+              )}
+              {(verdict === 'not_found' || verdict === 'unavailable') && (
+                <p
+                  className="alert alert--error"
+                  role="alert"
+                  data-testid="organization-lookup-error"
+                >
+                  {verdict === 'not_found' ? LOOKUP_NOT_FOUND_TEXT : LOOKUP_UNAVAILABLE_TEXT}
                 </p>
               )}
             </div>
@@ -372,7 +416,7 @@ export function Organization(): JSX.Element {
             <button
               className="btn btn--primary"
               type="submit"
-              disabled={saving}
+              disabled={saving || searching || innTaken}
               data-testid="organization-submit"
             >
               {saving ? 'Сохраняем…' : 'Сохранить'}

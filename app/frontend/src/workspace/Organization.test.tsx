@@ -130,6 +130,10 @@ describe('страница организации', () => {
     expect(screen.getByTestId('organization-ogrn')).toBeDisabled();
     expect(screen.getByTestId('organization-address')).toBeDisabled();
     expect(screen.getByLabelText('Адрес регистрации')).toBeInTheDocument();
+    // Подсказка обещает, что реквизиты заполнит система, а не пользователь.
+    expect(
+      screen.getByText(/Название, КПП, ОГРН и адрес заполнятся системой\./),
+    ).toBeInTheDocument();
   });
 
   it('показывает пустую форму для незаполненной организации', async () => {
@@ -153,20 +157,19 @@ describe('страница организации', () => {
 
     await typeInnAndBlur(user, '7707083893');
 
-    expect(await screen.findByTestId('organization-source')).toHaveTextContent(
-      'Заполнено из DaData',
-    );
-    expect(screen.getByTestId('organization-name')).toHaveValue('ПАО СБЕРБАНК');
+    expect(await screen.findByTestId('organization-name')).toHaveValue('ПАО СБЕРБАНК');
     expect(screen.getByTestId('organization-kpp')).toHaveValue('773601001');
     expect(screen.getByTestId('organization-ogrn')).toHaveValue('1027700132195');
     expect(screen.getByTestId('organization-address')).toHaveValue(
       '117312, г Москва, ул Вавилова, д 19',
     );
+    // Подписи «Заполнено из DaData» на форме больше нет.
+    expect(screen.queryByTestId('organization-source')).not.toBeInTheDocument();
     expect(lookupCalls(fetchMock)).toHaveLength(1);
     expect(String(lookupCalls(fetchMock)[0][0])).toContain('inn=7707083893');
   });
 
-  it('показывает «Ищем организацию…», пока идёт поиск', async () => {
+  it('показывает ход поиска и блокирует поля и кнопку, пока идёт запрос', async () => {
     const pending = deferred<OrganizationLookup>();
     vi.spyOn(api, 'lookupOrganization').mockImplementation(() => pending.promise);
     mountOrganization({ status: 200, body: EMPTY });
@@ -178,11 +181,21 @@ describe('страница организации', () => {
     expect(await screen.findByTestId('organization-lookup-status')).toHaveTextContent(
       'Ищем организацию…',
     );
+    expect(screen.getByTestId('organization-lookup-progress')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.getByTestId('organization-inn')).toBeDisabled();
+    expect(screen.getByTestId('organization-submit')).toBeDisabled();
+
     pending.resolve(FOUND);
-    expect(await screen.findByTestId('organization-source')).toHaveTextContent(
-      'Заполнено из DaData',
+
+    // Данные пришли — поля и кнопка снова доступны, индикатор убран.
+    await waitFor(() =>
+      expect(screen.getByTestId('organization-name')).toHaveValue('ПАО СБЕРБАНК'),
     );
     expect(screen.queryByTestId('organization-lookup-status')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('organization-lookup-progress')).not.toBeInTheDocument();
+    expect(screen.getByTestId('organization-inn')).toBeEnabled();
+    expect(screen.getByTestId('organization-submit')).toBeEnabled();
   });
 
   it('не падает, когда у индивидуального предпринимателя КПП пустой', async () => {
@@ -195,10 +208,59 @@ describe('страница организации', () => {
 
     await typeInnAndBlur(user, '500100732259');
 
-    expect(await screen.findByTestId('organization-source')).toBeInTheDocument();
-    expect(screen.getByTestId('organization-name')).toHaveValue('ИП Иванов И.И.');
+    expect(await screen.findByTestId('organization-name')).toHaveValue('ИП Иванов И.И.');
     expect(screen.getByTestId('organization-kpp')).toHaveValue('');
     expect(screen.getByTestId('organization-ogrn')).toHaveValue('304500116000157');
+  });
+
+  it('не даёт сохранить ИНН, занятый другой организацией', async () => {
+    const fetchMock = mountOrganization(
+      { status: 200, body: EMPTY },
+      { lookup: { status: 200, body: { found: false, reason: 'inn_taken', details: null } } },
+    );
+    const user = userEvent.setup();
+    renderApp('/cabinet/organization');
+
+    await typeInnAndBlur(user, '7707083893');
+
+    const error = await screen.findByTestId('organization-lookup-error');
+    expect(error).toHaveTextContent('Этот ИНН уже занят другой организацией');
+    expect(error).toHaveTextContent('Укажите другой ИНН');
+    // Реквизиты чужой организации не подставляются, сохранять нечего.
+    expect(screen.getByTestId('organization-name')).toHaveValue('');
+    expect(screen.getByTestId('organization-kpp')).toHaveValue('');
+    expect(screen.getByTestId('organization-submit')).toBeDisabled();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
+  });
+
+  it('снимает запрет сохранения, когда занятый ИНН заменён на свободный', async () => {
+    mockFetch((url) => {
+      if (url.endsWith('/api/me')) return SESSION;
+      if (url.includes('/api/organization/lookup')) {
+        // Первый введённый ИНН занят, второй — свободен.
+        return url.includes('inn=7707083893')
+          ? { status: 200, body: { found: false, reason: 'inn_taken', details: null } }
+          : { status: 200, body: FOUND };
+      }
+      if (url.endsWith('/api/organization')) return { status: 200, body: EMPTY };
+      return { status: 404, body: { detail: 'Не найдено' } };
+    });
+    const user = userEvent.setup();
+    renderApp('/cabinet/organization');
+
+    await typeInnAndBlur(user, '7707083893');
+    expect(await screen.findByTestId('organization-lookup-error')).toHaveTextContent(
+      'Этот ИНН уже занят другой организацией',
+    );
+    expect(screen.getByTestId('organization-submit')).toBeDisabled();
+
+    await typeInnAndBlur(user, '7707083890');
+
+    await waitFor(() =>
+      expect(screen.getByTestId('organization-name')).toHaveValue('ПАО СБЕРБАНК'),
+    );
+    expect(screen.queryByTestId('organization-lookup-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('organization-submit')).toBeEnabled();
   });
 
   it('сообщает, что по ИНН ничего не найдено, и оставляет сохранение доступным', async () => {
@@ -260,7 +322,9 @@ describe('страница организации', () => {
     renderApp('/cabinet/organization');
 
     await typeInnAndBlur(user, '7707083893');
-    await screen.findByTestId('organization-source');
+    await waitFor(() =>
+      expect(screen.getByTestId('organization-name')).toHaveValue('ПАО СБЕРБАНК'),
+    );
     await user.click(screen.getByTestId('organization-submit'));
 
     expect(await screen.findByTestId('organization-save-success')).toHaveTextContent(
@@ -364,7 +428,9 @@ describe('страница организации', () => {
     renderApp('/cabinet/organization');
 
     await typeInnAndBlur(user, '7707083893');
-    await screen.findByTestId('organization-source');
+    await waitFor(() =>
+      expect(screen.getByTestId('organization-name')).toHaveValue('ПАО СБЕРБАНК'),
+    );
     await user.click(screen.getByTestId('organization-submit'));
 
     await screen.findByTestId('organization-save-success');
@@ -384,7 +450,10 @@ describe('страница организации', () => {
     const user = userEvent.setup();
     renderApp('/cabinet/organization');
 
-    await user.type(await screen.findByTestId('organization-inn'), '7707083893');
+    await typeInnAndBlur(user, '7707083893');
+    await waitFor(() =>
+      expect(screen.getByTestId('organization-name')).toHaveValue('ПАО СБЕРБАНК'),
+    );
     await user.click(screen.getByTestId('organization-submit'));
 
     expect(await screen.findByTestId('organization-save-error')).toHaveTextContent(
@@ -443,7 +512,12 @@ describe('страница организации', () => {
     const user = userEvent.setup();
     renderApp('/cabinet/organization');
 
-    await user.type(await screen.findByTestId('organization-inn'), '7707083893');
+    // Сначала поиск по ИНН (уход фокуса), потом сохранение: пока идёт поиск,
+    // кнопка «Сохранить» заблокирована по требованию задачи.
+    await typeInnAndBlur(user, '7707083893');
+    await waitFor(() =>
+      expect(screen.getByTestId('organization-name')).toHaveValue('ПАО СБЕРБАНК'),
+    );
     await user.click(screen.getByTestId('organization-submit'));
     await waitFor(() => expect(screen.getByTestId('organization-submit')).toBeDisabled());
     await user.click(screen.getByTestId('organization-submit'));
