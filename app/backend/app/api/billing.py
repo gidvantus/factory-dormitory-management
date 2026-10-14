@@ -75,9 +75,9 @@ SOLUTION_NOT_FOUND_DETAIL = "Решение не найдено"
 BUYER_REQUISITES_DETAIL = "Заполните название и ИНН организации на странице «Организация»"
 ACT_NOT_FOUND_DETAIL = "Акт по счёту ещё не сформирован"
 
-# Печатная форма — обычный HTML без BOM: кириллица объявлена `<meta charset>`,
-# а BOM ломает файл при склейке и в чужом парсере.
-HTML_MEDIA_TYPE = "text/html; charset=utf-8"
+# Печатные формы счёта и акта отдаются PDF: файл собирается в памяти и уходит
+# вложением, на диск ничего не пишется и адреса ручек не меняются.
+PDF_MEDIA_TYPE = "application/pdf"
 
 # 404 у этих роутов приходит с тремя разными текстами: нет организации у
 # пользователя, нет счёта у организации или нет предмета покупки. Все в описании.
@@ -192,10 +192,11 @@ def _load_own_invoice(db: Session, membership: Membership, invoice_id: int) -> I
     return invoice
 
 
-def _html_response(content: str, filename: str) -> Response:
+def _pdf_response(content: bytes, filename: str) -> Response:
+    """Файл печатной формы вложением: имя дублируется ASCII-запасным."""
     return Response(
         content=content,
-        media_type=HTML_MEDIA_TYPE,
+        media_type=PDF_MEDIA_TYPE,
         headers={"Content-Disposition": billing_forms.content_disposition(filename)},
     )
 
@@ -393,7 +394,7 @@ def update_invoice_status(
         **FORBIDDEN_RESPONSES,
         **NOT_FOUND_RESPONSES,
         status.HTTP_200_OK: {
-            "content": {HTML_MEDIA_TYPE: {}},
+            "content": {PDF_MEDIA_TYPE: {}},
             "description": "Печатная форма счёта отдельным файлом",
         },
     },
@@ -401,7 +402,7 @@ def update_invoice_status(
 def download_invoice(invoice_id: int, membership: Membership, db: DbSession) -> Response:
     """Счёт на скачивание. Доступ как у чтения: любой участник организации."""
     invoice = _load_own_invoice(db, membership, invoice_id)
-    return _html_response(billing_forms.invoice_html(invoice), f"invoice-{invoice.number}.html")
+    return _pdf_response(billing_forms.invoice_pdf(invoice), f"invoice-{invoice.number}.pdf")
 
 
 @router.get(
@@ -417,7 +418,7 @@ def download_invoice(invoice_id: int, membership: Membership, db: DbSession) -> 
             f"{ACT_NOT_FOUND_DETAIL}",
         },
         status.HTTP_200_OK: {
-            "content": {HTML_MEDIA_TYPE: {}},
+            "content": {PDF_MEDIA_TYPE: {}},
             "description": "Печатная форма акта отдельным файлом",
         },
     },
@@ -427,4 +428,4 @@ def download_act(invoice_id: int, membership: Membership, db: DbSession) -> Resp
     invoice = _load_own_invoice(db, membership, invoice_id)
     if invoice.id not in _act_invoice_ids(db, [invoice.id]):
         raise HTTPException(status.HTTP_404_NOT_FOUND, ACT_NOT_FOUND_DETAIL)
-    return _html_response(billing_forms.act_html(invoice), f"act-{invoice.number}.html")
+    return _pdf_response(billing_forms.act_pdf(invoice), f"act-{invoice.number}.pdf")
