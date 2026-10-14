@@ -12,27 +12,33 @@
   разрешён, `cancelled → paid` — `409`;
 * счёт за решение (#61) покупается тем же путём, оплата выдаёт право и **не
   трогает** тариф организации, а счета за тариф и за решение не мешают друг другу;
-* оба файла отдаются вложением и содержат название, ИНН и сумму; акт до оплаты
-  — `404`.
+* оба файла — PDF, отдаются вложением и содержат название, ИНН и сумму; акт до
+  оплаты — `404`.
 
 Тесты идут на SQLite: `SELECT … FOR UPDATE` там вырождается в no-op, поэтому
 блокировки проверяются чтением итогового состояния, а не параллельными запросами.
 """
 
+import io
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from urllib.parse import quote
 
+import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
+from pypdf import PdfReader
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import solutions
+from app import billing_forms, solutions
+from app.billing_forms import EMPTY_VALUE
 from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
 from app.models.invoice import Invoice, InvoiceDocument
 from app.models.organization import Organization
 from app.models.solution import OrganizationSolution
 from app.models.tariff import Tariff
+from app.pricing import format_invoice_amount
 from tests.conftest import add_solution, organizations_for, sign_in
 
 # Неразрывный пробел — разделитель разрядов в подписи суммы.
@@ -490,47 +496,122 @@ def test_organizations_do_not_see_each_other_invoices(
 
 
 # --- 5. Печатные формы --------------------------------------------------------
+#
+# Обе формы — PDF: тело ответа двоичное, поэтому содержимое проверяется не
+# поиском подстроки в тексте, а извлечением текста из готового файла. fpdf2
+# пишет ToUnicode-CMap, поэтому кириллица из файла читается.
 
 
-def test_invoice_file_is_downloaded_as_an_attachment(
-    client: TestClient, db_session: Session
-) -> None:
+def pdf_pages(body: bytes) -> list[str]:
+    """Текст по страницам скачанного файла: проверяются и содержимое, и объём."""
+    reader = PdfReader(io.BytesIO(body))
+    return [page.extract_text() for page in reader.pages]
+
+
+def pdf_text(body: bytes) -> str:
+    """Весь текст файла.
+
+    Неразрывный пробел приводится к обычному: разделитель разрядов в сумме —
+    типографский символ, и сравнивать его в тесте неудобно.
+    """
+    return "\n".join(pdf_pages(body)).replace(NBSP, " ")
+
+
+def amount_text(invoice: Invoice) -> str:
+    """Сумма счёта такой, какой она должна быть в файле: без неразрывного пробела."""
+    label = format_invoice_amount(invoice.amount, invoice.currency, invoice.tariff_period)
+    return label.replace(NBSP, " ")
+
+
+def ascii_filename(disposition: str) -> str:
+    """ASCII-запасное имя из `filename=`: его понимают старые клиенты."""
+    return disposition.split('filename="', 1)[1].split('"', 1)[0]
+
+
+def test_invoice_file_is_downloaded_as_a_pdf(client: TestClient, db_session: Session) -> None:
     owner(client, db_session)
     tariff = add_tariff(db_session)
     invoice_id = purchase_id(client, tariff.id)
+    invoice = db_session.get(Invoice, invoice_id)
+    assert invoice is not None
+    assert invoice.created_at is not None
 
     response = client.get(f"{INVOICE_URL}/{invoice_id}/file")
 
     assert response.status_code == 200, response.text
-    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF-")
     disposition = response.headers["content-disposition"]
     assert disposition.startswith("attachment;")
     # Кириллицу в заголовок положить нельзя (latin-1), поэтому имя дублируется
     # по RFC 5987, а ASCII-вариант остаётся для старых клиентов.
-    assert "filename*=UTF-8''" in disposition
-    body = response.text
-    assert body.startswith("<!DOCTYPE html>")
-    assert not body.startswith("\ufeff")
-    assert BUYER_NAME in body
-    assert BUYER_INN in body
-    assert BUYER_KPP in body
-    assert BUYER_OGRN in body
-    assert BUYER_ADDRESS in body
-    assert f"10{NBSP}000 ₽ в месяц" in body
+    assert f"filename*=UTF-8''{quote(f'invoice-{invoice.number}.pdf')}" in disposition
+    assert ascii_filename(disposition).isascii()
+    assert ascii_filename(disposition).endswith(".pdf")
+
+    pages = pdf_pages(response.content)
+    assert len(pages) == 1
+    text = pdf_text(response.content)
+    assert f"Счёт № {invoice.number}" in text
+    assert f"Дата: {invoice.created_at:%d.%m.%Y}" in text
+    assert "Поставщик" in text
+    assert "Покупатель" in text
+    assert "Предмет" in text
+    assert BUYER_NAME in text
+    assert BUYER_INN in text
+    assert BUYER_KPP in text
+    assert BUYER_OGRN in text
+    assert BUYER_ADDRESS in text
+    assert invoice.tariff_name is not None
+    assert invoice.tariff_name in text
+    assert amount_text(invoice) in text
     # Поставщика в проекте нет: блок подписан заглушкой, а не выдуманными данными.
-    assert "данные поставщика будут заполнены позже" in body
+    assert "данные поставщика будут заполнены позже" in text
 
 
-def test_invoice_file_escapes_the_buyer_name(client: TestClient, db_session: Session) -> None:
-    """`<` и `&` из карточки организации не ломают разметку."""
+def test_invoice_file_keeps_the_buyer_name_as_is(client: TestClient, db_session: Session) -> None:
+    """`<` и `&` из карточки организации доходят до файла как есть.
+
+    Экранировать в PDF нечего: HTML-сущностей в тексте быть не должно.
+    """
     owner(client, db_session, name="ООО <Дом & Ко>")
     tariff = add_tariff(db_session)
     invoice_id = purchase_id(client, tariff.id)
 
-    body = client.get(f"{INVOICE_URL}/{invoice_id}/file").text
+    text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
 
-    assert "ООО &lt;Дом &amp; Ко&gt;" in body
-    assert "<Дом & Ко>" not in body
+    assert "ООО <Дом & Ко>" in text
+    assert "&lt;" not in text
+    assert "&amp;" not in text
+
+
+def test_invoice_file_draws_a_dash_for_an_empty_requisite(
+    client: TestClient, db_session: Session
+) -> None:
+    """У индивидуального предпринимателя нет КПП: пустая ячейка — прочерк."""
+    organization = owner(client, db_session)
+    organization.kpp = None
+    db_session.commit()
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+
+    text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
+
+    assert "КПП" in text
+    assert EMPTY_VALUE in text
+
+
+def test_missing_font_fails_with_a_clear_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Без шрифта с кириллицей форма не собирается: модуль падает с текстом.
+
+    Core-шрифты PDF кириллицу не покрывают — молчаливая подстановка Helvetica
+    дала бы пустые квадраты вместо букв, поэтому отсутствие файла это отказ.
+    """
+    invoice = Invoice(number="СЧ-2026-1", amount=Decimal("10000.00"), currency="RUB")
+    monkeypatch.setattr(billing_forms, "FONT_REGULAR", "/nowhere/DejaVuSans.ttf")
+
+    with pytest.raises(RuntimeError, match="fonts-dejavu-core"):
+        billing_forms.invoice_pdf(invoice)
 
 
 def test_act_file_is_not_found_before_payment(client: TestClient, db_session: Session) -> None:
@@ -549,16 +630,27 @@ def test_act_file_is_downloaded_after_payment(client: TestClient, db_session: Se
     tariff = add_tariff(db_session)
     invoice_id = purchase_id(client, tariff.id)
     set_status(client, invoice_id, PAID)
+    invoice = db_session.get(Invoice, invoice_id)
+    assert invoice is not None
+    assert invoice.paid_at is not None
 
     response = client.get(f"{INVOICE_URL}/{invoice_id}/act-file")
 
     assert response.status_code == 200, response.text
-    assert response.headers["content-disposition"].startswith("attachment;")
-    body = response.text
-    assert body.startswith("<!DOCTYPE html>")
-    assert BUYER_NAME in body
-    assert BUYER_INN in body
-    assert f"10{NBSP}000 ₽ в месяц" in body
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF-")
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("attachment;")
+    assert f"filename*=UTF-8''{quote(f'act-{invoice.number}.pdf')}" in disposition
+    assert ascii_filename(disposition).endswith(".pdf")
+
+    assert len(pdf_pages(response.content)) == 1
+    text = pdf_text(response.content)
+    assert f"Акт № {invoice.number}" in text
+    assert f"Дата: {invoice.paid_at:%d.%m.%Y}" in text
+    assert BUYER_NAME in text
+    assert BUYER_INN in text
+    assert amount_text(invoice) in text
 
 
 def test_foreign_invoice_file_is_not_found(client: TestClient, db_session: Session) -> None:
