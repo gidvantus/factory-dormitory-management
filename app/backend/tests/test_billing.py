@@ -1,15 +1,17 @@
-"""Счета организации: покупка, статусы и печатные формы (issue #49).
+"""Счета организации: покупка, статусы и печатные формы (issue #49, #61).
 
 Критерии готовности разложены по блокам:
 
 * покупка заводит счёт со снимком реквизитов покупателя и предмета, номер вида
   `СЧ-<год>-<id>`, статус «Новый» и подписи от сервера;
-* повторный клик не плодит счета: живой `new` возвращается как `200`, а уже
-  выбранный тариф — это `409`;
+* повторный клик не плодит счета: живой `new` **за тот же предмет** возвращается
+  как `200`, а уже выбранный тариф — это `409`;
 * пустые название и ИНН, незнакомый тариф, чужая роль и чужой счёт дают разные
   коды: `409`, `404`, `403` и `404`;
 * `new → paid` привязывает организации тариф и создаёт акт, `paid → closed`
   разрешён, `cancelled → paid` — `409`;
+* счёт за решение (#61) покупается тем же путём, оплата выдаёт право и **не
+  трогает** тариф организации, а счета за тариф и за решение не мешают друг другу;
 * оба файла отдаются вложением и содержат название, ИНН и сумму; акт до оплаты
   — `404`.
 
@@ -17,6 +19,7 @@
 блокировки проверяются чтением итогового состояния, а не параллельными запросами.
 """
 
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -24,11 +27,13 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import solutions
 from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
 from app.models.invoice import Invoice, InvoiceDocument
 from app.models.organization import Organization
+from app.models.solution import OrganizationSolution
 from app.models.tariff import Tariff
-from tests.conftest import organizations_for, sign_in
+from tests.conftest import add_solution, organizations_for, sign_in
 
 # Неразрывный пробел — разделитель разрядов в подписи суммы.
 NBSP = "\u00a0"
@@ -45,6 +50,15 @@ CLOSED = "closed"
 CANCELLED = "cancelled"
 
 INVALID_STATUS_DETAIL = "Так нельзя изменить статус счёта"
+
+
+def as_utc(value: datetime) -> datetime:
+    """SQLite отдаёт naive datetime: для сравнения считаем его UTC.
+
+    Приложение приводит даты тем же способом (`app.solutions._as_utc`), а тесту
+    нужен этот помощник там, где он сверяет срок права с «сейчас».
+    """
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def add_tariff(
@@ -95,8 +109,13 @@ def owner(
 
 
 def purchase(client: TestClient, tariff_id: int) -> Response:
-    """POST покупки. Возвращает ответ целиком: тесты смотрят и код, и тело."""
+    """POST покупки тарифа. Возвращает ответ целиком: тесты смотрят и код, и тело."""
     return client.post(INVOICE_URL, json={"tariff_id": tariff_id})
+
+
+def purchase_solution(client: TestClient, solution_id: int) -> Response:
+    """POST покупки решения: та же ручка, другое поле предмета."""
+    return client.post(INVOICE_URL, json={"solution_id": solution_id})
 
 
 def purchase_id(client: TestClient, tariff_id: int) -> int:
@@ -189,6 +208,7 @@ def test_purchase_creates_invoice_with_buyer_snapshot(
     assert body["number"].startswith("СЧ-") and body["number"].endswith(f"-{body['id']}")
     assert body["status"] == "new"
     assert body["status_label"] == "Новый"
+    assert body["item_kind"] == "tariff"
     assert body["amount"] == "10000.00"
     assert body["currency"] == "RUB"
     assert body["amount_label"] == f"10{NBSP}000 ₽ в месяц"
@@ -566,3 +586,245 @@ def test_manager_downloads_the_invoice_but_cannot_pay_it(
     assert listed["can_manage"] is False
     assert client.get(f"{INVOICE_URL}/{invoice.id}/file").status_code == 200
     assert set_status(client, invoice.id, PAID).status_code == 403
+
+
+# --- 6. Счёт за решение магазина улучшений (#61) -------------------------------
+
+
+def rights_of(db_session: Session, organization_id: int) -> list[OrganizationSolution]:
+    return list(
+        db_session.scalars(
+            select(OrganizationSolution).where(
+                OrganizationSolution.organization_id == organization_id
+            )
+        )
+    )
+
+
+def test_purchase_of_a_solution_creates_an_invoice_with_the_snapshot(
+    client: TestClient, db_session: Session
+) -> None:
+    """Счёт за решение: предмет-решение в снимке, тариф организации не тронут."""
+    organization = owner(client, db_session)
+    solution = add_solution(db_session, amount="500.00", period="month")
+
+    response = purchase_solution(client, solution.id)
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["item_kind"] == "solution"
+    assert body["number"].startswith("СЧ-")
+    assert body["status"] == "new"
+    assert body["amount"] == "500.00"
+    assert body["currency"] == "RUB"
+    assert body["amount_label"] == "500 ₽ в месяц"
+    # Снимок предмета лежит в колонках тарифа: печатные формы их и читают.
+    assert body["tariff_name"] == "Уведомления в Telegram"
+    assert body["tariff_period"] == "month"
+    assert body["buyer_name"] == BUYER_NAME
+    assert body["has_act"] is False
+
+    stored = invoices_of(db_session, organization.id)
+    assert len(stored) == 1
+    assert stored[0].item_kind == "solution"
+    assert stored[0].solution_id == solution.id
+    assert stored[0].tariff_id is None
+    # Покупка решения не выбирает организации тариф: кабинет она не открывает.
+    db_session.refresh(organization)
+    assert organization.tariff_id is None
+
+
+def test_second_purchase_of_a_solution_returns_the_live_invoice(
+    client: TestClient, db_session: Session
+) -> None:
+    organization = owner(client, db_session)
+    solution = add_solution(db_session)
+    first = purchase_solution(client, solution.id)
+    assert first.status_code == 201, first.text
+
+    second = purchase_solution(client, solution.id)
+
+    assert second.status_code == 200, second.text
+    assert second.json()["id"] == first.json()["id"]
+    assert len(invoices_of(db_session, organization.id)) == 1
+
+
+def test_invoices_for_a_tariff_and_a_solution_do_not_block_each_other(
+    client: TestClient, db_session: Session
+) -> None:
+    """Дедупликация сужена до того же предмета, а не «любого живого счёта»."""
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session)
+    solution = add_solution(db_session)
+    tariff_invoice = purchase(client, tariff.id)
+    assert tariff_invoice.status_code == 201, tariff_invoice.text
+
+    solution_invoice = purchase_solution(client, solution.id)
+
+    assert solution_invoice.status_code == 201, solution_invoice.text
+    assert len(invoices_of(db_session, organization.id)) == 2
+
+    # И обратный порядок: живой счёт за решение не мешает счёту за тариф.
+    other = owner(client, db_session, email="second@example.com", inn="7701234568")
+    tariff_again = add_tariff(db_session, name="Годовой", period="year")
+    assert purchase_solution(client, solution.id).status_code == 201
+    assert purchase(client, tariff_again.id).status_code == 201
+    assert len(invoices_of(db_session, other.id)) == 2
+
+
+def test_purchase_of_an_unknown_solution_is_not_found(
+    client: TestClient, db_session: Session
+) -> None:
+    owner(client, db_session)
+
+    response = purchase_solution(client, 999)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Решение не найдено"
+
+
+def test_chosen_tariff_does_not_block_a_solution(client: TestClient, db_session: Session) -> None:
+    """Тариф организации уже выбран — решение всё равно покупается."""
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session)
+    organization.tariff_id = tariff.id
+    db_session.commit()
+    solution = add_solution(db_session)
+
+    response = purchase_solution(client, solution.id)
+
+    assert response.status_code == 201, response.text
+
+
+def test_hidden_solution_is_still_buyable_by_id(client: TestClient, db_session: Session) -> None:
+    """Скрытая строка каталога списком не продаётся, но по `id` покупается."""
+    owner(client, db_session)
+    solution = add_solution(db_session, is_visible=False)
+
+    assert purchase_solution(client, solution.id).status_code == 201
+
+
+def test_payment_of_a_solution_invoice_grants_the_right_and_creates_the_act(
+    client: TestClient, db_session: Session
+) -> None:
+    organization = owner(client, db_session)
+    solution = add_solution(db_session)
+    invoice_id = int(purchase_solution(client, solution.id).json()["id"])
+
+    response = set_status(client, invoice_id, PAID)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["has_act"] is True
+    assert len(acts_of(db_session, invoice_id)) == 1
+    assert client.get(f"{INVOICE_URL}/{invoice_id}/act-file").status_code == 200
+
+    rights = rights_of(db_session, organization.id)
+    assert len(rights) == 1
+    assert rights[0].solution_id == solution.id
+    assert rights[0].invoice_id == invoice_id
+    assert rights[0].expires_at is not None
+    # Оплата счёта за решение не привязывает организации тариф.
+    db_session.refresh(organization)
+    assert organization.tariff_id is None
+    assert solutions.has_solution(db_session, organization.id, solution.code)
+
+
+def test_payment_of_a_solution_invoice_keeps_a_chosen_tariff(
+    client: TestClient, db_session: Session
+) -> None:
+    """У организации другой тариф — оплата решения его не меняет и не отказывает."""
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session)
+    organization.tariff_id = tariff.id
+    db_session.commit()
+    solution = add_solution(db_session)
+    invoice_id = int(purchase_solution(client, solution.id).json()["id"])
+
+    response = set_status(client, invoice_id, PAID)
+
+    assert response.status_code == 200, response.text
+    db_session.refresh(organization)
+    assert organization.tariff_id == tariff.id
+
+
+def test_second_paid_solution_invoice_renews_the_single_right(
+    client: TestClient, db_session: Session
+) -> None:
+    """Вторая покупка того же решения продлевает право, а не заводит второе."""
+    organization = owner(client, db_session)
+    solution = add_solution(db_session)
+    first_id = int(purchase_solution(client, solution.id).json()["id"])
+    assert set_status(client, first_id, PAID).status_code == 200
+    db_session.expire_all()
+    first_expiry = rights_of(db_session, organization.id)[0].expires_at
+    assert first_expiry is not None
+
+    second_id = int(purchase_solution(client, solution.id).json()["id"])
+    assert second_id != first_id
+    assert set_status(client, second_id, PAID).status_code == 200
+
+    rights = rights_of(db_session, organization.id)
+    assert len(rights) == 1
+    assert rights[0].expires_at is not None
+    # Отсчёт от прежнего конца: месяц добавился к остатку, а не заменил его.
+    assert rights[0].expires_at > first_expiry + timedelta(days=27)
+    assert rights[0].invoice_id == second_id
+
+
+def test_solution_expiry_counts_from_the_payment_moment(
+    client: TestClient, db_session: Session
+) -> None:
+    organization = owner(client, db_session)
+    solution = add_solution(db_session, period="month")
+    invoice_id = int(purchase_solution(client, solution.id).json()["id"])
+
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    expires_at = rights_of(db_session, organization.id)[0].expires_at
+    assert expires_at is not None
+    # Один календарный месяц от оплаты: границы проверяются с запасом в сутки.
+    assert datetime.now(UTC) + timedelta(days=27) < as_utc(expires_at)
+    assert as_utc(expires_at) < datetime.now(UTC) + timedelta(days=32)
+
+
+def test_purchase_with_both_items_is_rejected(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    solution = add_solution(db_session)
+
+    response = client.post(INVOICE_URL, json={"tariff_id": tariff.id, "solution_id": solution.id})
+
+    assert response.status_code == 422
+
+
+def test_purchase_without_an_item_is_rejected(client: TestClient, db_session: Session) -> None:
+    owner(client, db_session)
+
+    response = client.post(INVOICE_URL, json={})
+
+    assert response.status_code == 422
+
+
+def test_unknown_field_is_still_rejected(client: TestClient, db_session: Session) -> None:
+    """`extra="forbid"` остался: опечатка в имени поля — ошибка ввода."""
+    owner(client, db_session)
+    solution = add_solution(db_session)
+
+    response = client.post(INVOICE_URL, json={"solution_ids": solution.id})
+
+    assert response.status_code == 422
+
+
+def test_solution_invoice_shows_the_item_in_the_documents_list(
+    client: TestClient, db_session: Session
+) -> None:
+    """Раздел «Документы» показывает название решения в столбце предмета."""
+    owner(client, db_session)
+    solution = add_solution(db_session)
+    invoice_id = int(purchase_solution(client, solution.id).json()["id"])
+
+    listed = client.get(INVOICE_URL).json()[0]
+
+    assert listed["id"] == invoice_id
+    assert listed["item_kind"] == "solution"
+    assert listed["tariff_name"] == "Уведомления в Telegram"
