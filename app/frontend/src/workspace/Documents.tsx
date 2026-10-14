@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 
 import { api, ApiError, invoiceActFileUrl, invoiceFileUrl } from '../api/client';
 import type { Invoice, InvoiceStatus, UpdatableInvoiceStatus } from '../api/client';
+import { useSolutions } from './SolutionsProvider';
 import { WorkspaceIcon } from './WorkspaceIcon';
 import styles from './Workspace.module.css';
 
@@ -62,6 +63,13 @@ function purchasedFlag(state: unknown): boolean {
  * `CLOSED_SECTIONS` кабинета: счёт выставляется именно тогда, когда кабинет
  * закрыт и его нужно открыть оплатой.
  *
+ * Оплата здесь же меняет права организации: счёт за решение при оплате выдаёт
+ * или продлевает право (`app/solutions.py`). Признак владения держит оболочка
+ * кабинета (`SolutionsProvider`), которая читает каталог один раз, — поэтому
+ * успешная оплата обязана попросить её перечитать каталог. Иначе право уже
+ * действует на сервере, а метка «Подключено» и пункт «Уведомления» не появятся
+ * до перезагрузки: переход по меню — клиентский, оболочка не перемонтируется.
+ *
  * Скачивание идёт обычной ссылкой `href`, а не `fetch`: ответ — файл вложением,
  * и браузер открывает его сам. Управа на статус спрашивается у сервера
  * (`can_manage`): роль без права правки видит те же счета, но без кнопок — иначе
@@ -76,6 +84,8 @@ export function Documents(): JSX.Element {
   const [attempt, setAttempt] = useState(0);
   const location = useLocation();
   const purchased = purchasedFlag(location.state);
+  // Права организации: их перечитывают после оплаты — см. докстринг выше.
+  const { reload: reloadSolutions } = useSolutions();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -102,6 +112,9 @@ export function Documents(): JSX.Element {
     try {
       const updated = await api.setInvoiceStatus(invoice.id, next);
       setInvoices((list) => list.map((item) => (item.id === updated.id ? updated : item)));
+      // Переход в `paid` — единственная смена статуса, которая выдаёт право:
+      // закрытие и отмена счёта права не трогают, и лишний запрос им ни к чему.
+      if (next === 'paid') reloadSolutions();
     } catch (error) {
       setActionError(statusErrorMessage(error));
     } finally {
