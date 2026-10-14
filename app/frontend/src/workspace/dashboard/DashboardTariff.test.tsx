@@ -79,7 +79,7 @@ describe('тариф организации в обзоре', () => {
     expect(screen.getByTestId('workspace-overview')).toBeInTheDocument();
   });
 
-  it('без тарифа объясняет его отсутствие без кнопок и ссылок', async () => {
+  it('без тарифа объясняет его отсутствие и ведёт на публичную страницу покупки', async () => {
     mockFetch(overviewRoutes({ status: 200, body: { tariff: null } }));
     renderApp('/cabinet');
 
@@ -88,6 +88,7 @@ describe('тариф организации в обзоре', () => {
     expect(empty).toHaveTextContent('Тариф не выбран');
     expect(within(empty).queryByRole('link')).not.toBeInTheDocument();
     expect(within(empty).queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-tariff-choose')).toHaveAttribute('href', '/pricing');
     expect(screen.getByTestId('workspace-overview')).toBeInTheDocument();
   });
 
@@ -110,6 +111,7 @@ describe('тариф организации в обзоре', () => {
 
     expect(note).toHaveTextContent('Пробный период: осталось 12 дней, до 01.11.2026');
     expect(note).toHaveAttribute('role', 'status');
+    expect(card).toHaveAttribute('data-access', 'trial');
   });
 
   it('без пробного периода строки об остатке дней в блоке нет', async () => {

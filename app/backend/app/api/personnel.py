@@ -22,7 +22,6 @@ from app.models.personnel import (
     EmployeeMerge,
     EmployeeNote,
     EmployeePlan,
-    EmployeeSeparation,
     PersonnelBinding,
     PersonnelPreferences,
 )
@@ -41,7 +40,6 @@ from app.personnel import (
     get_employee,
     group_ids,
     identity_lock,
-    pair_signature,
     record_changed,
     today,
     workspace,
@@ -53,7 +51,6 @@ from app.schemas.personnel import (
     DecisionInput,
     EmployeeUpdate,
     IdentityFields,
-    MergeInput,
     NoteInput,
     PlanInput,
     PlanUpdate,
@@ -451,70 +448,6 @@ def save_decision(
         source_id=resident.id,
         snapshot=payload.model_dump(mode="json"),
     )
-    db.commit()
-    return {"ok": True}
-
-
-def validate_pair(db: Session, payload: MergeInput) -> tuple[Employee, Employee]:
-    identity_lock(db)
-    source, target = (
-        get_employee(db, str(payload.source_id)),
-        get_employee(db, str(payload.target_id)),
-    )
-    if source.id == target.id:
-        raise HTTPException(409, "Записи уже относятся к одной карточке")
-    if pair_signature(db, source.id, target.id) != payload.signature:
-        raise HTTPException(409, "Данные карточек изменились. Повторите сравнение")
-    return source, target
-
-
-@router.post("/merge")
-def merge(payload: MergeInput, user: SubscribedUser, db: DbSession) -> dict[str, Any]:
-    source, target = validate_pair(db, payload)
-    source.merged_into_id = target.id
-    target.identity_status = "confirmed"
-    operation = EmployeeMerge(
-        source_id=source.id, target_id=target.id, reason=payload.reason, actor_id=user.id
-    )
-    db.add(operation)
-    db.flush()
-    event(
-        db,
-        source.id,
-        "identity",
-        "Карточки связаны в общую историю",
-        user.id,
-        snapshot={
-            "merge_id": operation.id,
-            "source_id": source.id,
-            "target_id": target.id,
-            "reason": payload.reason,
-        },
-    )
-    db.commit()
-    return {"employee_id": target.id, "merge_id": operation.id}
-
-
-@router.post("/separate")
-def separate(payload: MergeInput, user: SubscribedUser, db: DbSession) -> dict[str, bool]:
-    source, target = validate_pair(db, payload)
-    pair = ":".join(sorted((source.id, target.id)))
-    separation = db.get(EmployeeSeparation, pair) or EmployeeSeparation(pair=pair)
-    separation.signature, separation.reason, separation.actor_id = (
-        payload.signature,
-        payload.reason,
-        user.id,
-    )
-    db.add(separation)
-    for item, other in ((source, target), (target, source)):
-        event(
-            db,
-            item.id,
-            "identity",
-            "Совпадение проверено: разные сотрудники",
-            user.id,
-            snapshot={"other_id": other.id, "reason": payload.reason},
-        )
     db.commit()
     return {"ok": True}
 

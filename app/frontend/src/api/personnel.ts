@@ -19,10 +19,7 @@ export type Employee = IdentityFields & {
   identity_status: 'pending' | 'confirmed';
   current: Source[];
   sources: Source[];
-  has_outflow: boolean;
   history_dormitory_ids: number[];
-  outflow_dormitory_ids: number[];
-  last_outflow: { date: string; dormitory_id: number | null; reason: string | null } | null;
   variants: Partial<Record<keyof IdentityFields, string[]>>;
 };
 export type Candidate = IdentityFields & {
@@ -39,17 +36,7 @@ export type IdentityChoice = IdentityFields & {
   employee_id: string | null;
   check_token: string;
 };
-export type Filter =
-  | 'all'
-  | 'current'
-  | 'ending'
-  | 'overdue'
-  | 'missing'
-  | 'history'
-  | 'mine'
-  | 'returned'
-  | 'no-phone'
-  | 'pending';
+export type Filter = 'all' | 'current' | 'ending';
 export type SavedList = {
   id: string;
   name: string;
@@ -59,8 +46,7 @@ export type SavedList = {
   query: string;
   scope: number[];
 };
-export type BlockKind =
-  'residents' | 'ending' | 'contacts' | 'outflow' | 'missing' | 'plans' | 'saved';
+export type BlockKind = 'residents' | 'ending' | 'contacts' | 'plans' | 'saved';
 export type Block = {
   id: string;
   kind: BlockKind;
@@ -75,7 +61,6 @@ export type Preferences = {
   revision: number;
   blocks: Block[] | null;
   lists: SavedList[];
-  favorites: string[];
 };
 export type Plan = {
   id: string;
@@ -103,14 +88,6 @@ export type Decision = {
   date: string | null;
   comment: string;
 };
-export type Match = {
-  source_id: string;
-  target_id: string;
-  score: number;
-  evidence: string[];
-  differences: string[];
-  signature: string;
-};
 export type PersonnelData = {
   today: string;
   dormitories: { id: number; name: string; client_name: string; is_archived: boolean }[];
@@ -118,7 +95,6 @@ export type PersonnelData = {
   plans: Plan[];
   arrival_plans: ArrivalPlan[];
   decisions: Decision[];
-  matches: Match[];
   preferences: Preferences;
 };
 export type EmployeeDetail = {
@@ -188,24 +164,10 @@ export const personnelApi = {
     send<void>(`/arrivals/${id}?revision=${revision}`, 'DELETE'),
   saveDecision: (id: string, values: Omit<Decision, 'employee_id'>) =>
     send(`/employees/${id}/decision`, 'PUT', values),
-  merge: (match: Match, reason: string): Promise<{ employee_id: string; merge_id: string }> =>
-    send('/merge', 'POST', {
-      source_id: match.source_id,
-      target_id: match.target_id,
-      signature: match.signature,
-      reason,
-    }),
-  separate: (match: Match, reason: string) =>
-    send('/separate', 'POST', {
-      source_id: match.source_id,
-      target_id: match.target_id,
-      signature: match.signature,
-      reason,
-    }),
   undoMerge: (id: string) => send(`/merges/${id}/undo`, 'POST'),
   preferences: (values: Preferences): Promise<Preferences> => send('/preferences', 'PUT', values),
-  binding: (id: string, table: SourceTable): Promise<Binding> =>
-    request(`/personnel/bindings/${id}/${table}`),
+  binding: (id: string, table: SourceTable, signal?: AbortSignal): Promise<Binding> =>
+    request(`/personnel/bindings/${id}/${table}`, { signal }),
   saveBinding: (id: string, table: SourceTable, fields: Record<string, number>) =>
     send(`/bindings/${id}/${table}`, 'PUT', { fields }),
 };

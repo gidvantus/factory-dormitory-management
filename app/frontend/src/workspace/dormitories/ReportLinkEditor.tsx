@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '../../api/client';
-import type { CellValue, ReportLink, TableColumn, TableKey, CustomTab } from '../../api/client';
+import type {
+  CellValue,
+  ReportLink,
+  TableColumn,
+  TableKey,
+  CustomTab,
+  OutflowFields,
+} from '../../api/client';
+import { OutflowReasonInput } from './OutflowReasonInput';
 import styles from './ReportTable.module.css';
 import { customChain, customLabel, standardChain } from './tabStructure';
 import { PlaceLinkEditor } from './PlaceLinkEditor';
@@ -143,6 +151,7 @@ export function ReportLinkEditor({
     if (initialSourceKey) setSection(initialSourceKey);
   }, [initialSourceKey]);
   const [columns, setColumns] = useState<TableColumn[]>([]);
+  const [outflowFields, setOutflowFields] = useState<OutflowFields | null>(null);
   const [columnId, setColumnId] = useState(initialTable?.column_id ?? 0);
   const [operator, setOperator] = useState<'equals' | 'not_empty'>(
     initialTable?.operator ?? 'equals',
@@ -188,6 +197,7 @@ export function ReportLinkEditor({
   }, [dormitoryId, tabsAttempt, initialTable?.table_key]);
   useEffect(() => {
     setColumns([]);
+    setOutflowFields(null);
     setError('');
     if (!table) {
       setLoading(false);
@@ -195,11 +205,16 @@ export function ReportLinkEditor({
     }
     const controller = new AbortController();
     setLoading(true);
-    void api
-      .tableColumns(dormitoryId, table, controller.signal)
-      .then((result) => {
+    void Promise.all([
+      api.tableColumns(dormitoryId, table, controller.signal),
+      table === 'outflow'
+        ? api.outflowFields(dormitoryId, controller.signal)
+        : Promise.resolve(null),
+    ])
+      .then(([result, outflow]) => {
         if (!controller.signal.aborted) {
           setColumns(result.filter((col) => !col.archived));
+          setOutflowFields(outflow);
           setLoading(false);
         }
       })
@@ -376,7 +391,18 @@ export function ReportLinkEditor({
               {operator === 'equals' && (
                 <label className={styles.field}>
                   Значение для подсчёта
-                  {column.kind === 'select' || column.kind === 'checkbox' ? (
+                  {column.kind === 'text' && column.id === outflowFields?.reason_column?.id ? (
+                    <OutflowReasonInput
+                      label="Значение для подсчёта"
+                      value={String(value ?? '')}
+                      choices={outflowFields.reasons}
+                      allowCustom
+                      onChange={(next) => {
+                        setValue(next);
+                        emit(columnId, next, dateId);
+                      }}
+                    />
+                  ) : column.kind === 'select' || column.kind === 'checkbox' ? (
                     <select
                       value={String(value)}
                       onChange={(event) => {

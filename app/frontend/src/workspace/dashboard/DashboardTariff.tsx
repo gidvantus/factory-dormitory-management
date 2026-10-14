@@ -4,8 +4,9 @@ import { Link } from 'react-router-dom';
 import { api, ApiError } from '../../api/client';
 import type { Tariff } from '../../api/client';
 import { useTrial } from '../../auth/TrialProvider';
+import { TariffPrice } from '../../components/TariffPrice';
 import { WorkspaceIcon } from '../WorkspaceIcon';
-import styles from './Dashboard.module.css';
+import styles from './DashboardTariff.module.css';
 
 const LOAD_ERROR = 'Не удалось загрузить тариф организации';
 
@@ -80,71 +81,105 @@ export function DashboardTariff(): JSX.Element {
     return () => controller.abort();
   }, [attempt]);
 
+  const current = status === 'ready' ? tariff : null;
+  const trialActive = !current && trial?.is_active && trial.ends_at !== null;
+
   return (
     <section
-      className={styles.tariffCard}
+      className={styles.ribbon}
       aria-labelledby="dashboard-tariff-title"
       data-testid="dashboard-tariff"
       data-status={status}
+      data-access={current ? 'paid' : trialActive ? 'trial' : 'none'}
     >
-      <div className={styles.tariffCardHead}>
-        <div>
-          <h2 className={styles.tariffCardTitle} id="dashboard-tariff-title">
-            Ваш тариф
+      <span className={styles.iconTile}>
+        <WorkspaceIcon name={current ? 'chart' : 'house'} />
+      </span>
+      <div className={styles.copy}>
+        <div className={styles.heading}>
+          <h2 className={styles.title} id="dashboard-tariff-title">
+            {current ? (
+              <>
+                Тариф «<span data-testid="dashboard-tariff-name">{current.name}</span>»
+              </>
+            ) : trialActive ? (
+              'Пробный период активен'
+            ) : (
+              'Ваш тариф'
+            )}
           </h2>
-          <p className={styles.tariffCardHint}>Купленный тариф организации</p>
+          {(current || trialActive) && (
+            <span className={styles.status}>
+              <span />
+              {current ? 'Тариф активен' : 'Пробный доступ'}
+            </span>
+          )}
         </div>
-        <span className={styles.blockIcon} data-tone="mint">
-          <WorkspaceIcon name="chart" />
-        </span>
+        {status === 'loading' && (
+          <p className={styles.note} role="status" data-testid="dashboard-tariff-loading">
+            Загружаем тариф…
+          </p>
+        )}
+        {status === 'error' && (
+          <p className={styles.note} role="status" data-testid="dashboard-tariff-error">
+            {error}
+          </p>
+        )}
+        {status === 'ready' && !current && (
+          <p className={styles.note} data-testid="dashboard-tariff-empty">
+            Тариф не выбран.{' '}
+            {trialActive
+              ? 'Знакомьтесь с возможностями «Домового».'
+              : 'Его условия появятся здесь после покупки.'}
+          </p>
+        )}
+        {current?.description && <p className={styles.note}>{current.description}</p>}
       </div>
-
-      {trial?.is_active && trial.ends_at !== null && (
-        <p className={styles.tariffCardTrial} role="status" data-testid="trial-days-left">
-          Пробный период: осталось {trial.days_left} {daysWord(trial.days_left)}, до{' '}
-          {formatTrialEnd(trial.ends_at)}
+      {trialActive && trial && trial.ends_at !== null && (
+        <p className={styles.term} role="status" data-testid="trial-days-left">
+          <span className="visually-hidden">Пробный период: осталось </span>
+          <strong>
+            {trial.days_left} {daysWord(trial.days_left)}
+          </strong>
+          <span className="visually-hidden">, </span>
+          <span>до {formatTrialEnd(trial.ends_at)}</span>
         </p>
       )}
-
-      {status === 'loading' && (
-        <p className={styles.tariffCardNote} role="status" data-testid="dashboard-tariff-loading">
-          Загружаем тариф…
-        </p>
+      {current && (
+        <TariffPrice
+          label={current.price_label}
+          className={`${styles.term} ${styles.price}`}
+          testId="dashboard-tariff-price"
+        />
       )}
-
       {status === 'error' && (
-        <p className={styles.tariffCardNote} role="status" data-testid="dashboard-tariff-error">
-          {error}.{' '}
-          <button
-            className={styles.tariffCardRetry}
-            type="button"
-            onClick={() => setAttempt((value) => value + 1)}
-          >
-            Повторить
-          </button>
-        </p>
+        <button
+          type="button"
+          className="btn btn--ghost btn--compact"
+          onClick={() => setAttempt((value) => value + 1)}
+        >
+          Повторить
+        </button>
       )}
-
-      {status === 'ready' && !tariff && (
-        <p className={styles.tariffCardNote} data-testid="dashboard-tariff-empty">
-          Тариф не выбран. Он появится здесь, когда организация купит тариф.
-        </p>
+      {current && (
+        <Link
+          className={`btn btn--ghost btn--compact ${styles.action}`}
+          to="/cabinet/tariffs"
+          data-testid="dashboard-tariff-link"
+        >
+          О тарифе
+          <WorkspaceIcon name="chevron" />
+        </Link>
       )}
-
-      {status === 'ready' && tariff && (
-        <>
-          <p className={styles.tariffCardValue} data-testid="dashboard-tariff-price">
-            {tariff.price_label}
-          </p>
-          <p className={styles.tariffCardName} data-testid="dashboard-tariff-name">
-            {tariff.name}
-          </p>
-          <p className={styles.tariffCardNote}>
-            <Link to="/cabinet/tariffs" data-testid="dashboard-tariff-link">
-              Подробнее о тарифе
-            </Link>
-          </p>
-        </>
+      {status === 'ready' && !current && !trial?.locked && (
+        <Link
+          className={`btn btn--primary btn--compact ${styles.action}`}
+          to="/pricing"
+          data-testid="dashboard-tariff-choose"
+        >
+          Выбрать тариф
+          <WorkspaceIcon name="chevron" />
+        </Link>
       )}
     </section>
   );

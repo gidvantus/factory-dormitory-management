@@ -242,8 +242,10 @@ export function DashboardBlocks({
                         {block.config.display === 'chart'
                           ? 'По дням · ' + formatDate(range.from) + ' — ' + formatDate(range.to)
                           : block.config.period === 'snapshot'
-                            ? 'На дату среза' +
-                              (data.snapshotDate ? ' · ' + formatDate(data.snapshotDate) : '')
+                            ? block.config.source_kind === 'arrival_plan'
+                              ? 'На дату · ' + formatDate(range.to)
+                              : 'На дату среза' +
+                                (data.snapshotDate ? ' · ' + formatDate(data.snapshotDate) : '')
                             : 'За период · ' +
                               formatDate(range.from) +
                               ' — ' +
@@ -298,9 +300,11 @@ export function DashboardBlocks({
                       ? 'Общий отчёт'
                       : block.config.source_kind === 'places'
                         ? 'Размещение персонала'
-                        : block.config.operation === 'count'
-                          ? 'Количество строк'
-                          : 'Сумма столбца'}{' '}
+                        : block.config.source_kind === 'arrival_plan'
+                          ? 'План заездов · Ожидается человек'
+                          : block.config.operation === 'count'
+                            ? 'Количество строк'
+                            : 'Сумма столбца'}{' '}
                     · {block.config.all_dormitories ? 'Все общежития' : 'Выбранные общежития'}
                     {block.config.display === 'chart' && block.config.source_kind === 'table'
                       ? block.config.period === 'snapshot'

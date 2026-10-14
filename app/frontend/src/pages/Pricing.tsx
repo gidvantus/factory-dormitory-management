@@ -9,16 +9,10 @@ import { SiteHeader } from '../components/SiteHeader';
 import { SiteFooter } from '../components/landing/SiteFooter';
 import { siteNav } from '../components/siteNav';
 import { useAuthDialog } from '../components/useAuthDialog';
+import { PricingPlans } from '../components/PricingPlans';
 
 const GENERIC_ERROR = 'Не удалось загрузить тарифы. Проверьте соединение и попробуйте ещё раз.';
 const PURCHASE_ERROR = 'Не удалось выставить счёт. Проверьте соединение и попробуйте ещё раз.';
-
-/**
- * Почему кнопки покупки неактивны: тариф у организации уже есть, второй раз
- * покупать нечего. Подпись дублирует серверный отказ, но показывается заранее —
- * до нажатия, а не вместо него.
- */
-const OWNED_HINT = 'Тариф организации уже выбран';
 
 /**
  * Меню шапки страницы тарифов: те же разделы, что на главной, но «Тарифы» здесь
@@ -143,8 +137,6 @@ export function Pricing(): JSX.Element {
     return () => controller.abort();
   }, [sessionStatus]);
 
-  const hasTariff = ownedTariffId !== null;
-
   return (
     <div className="app" data-testid="pricing">
       <a className="skip-link" href="#main">
@@ -192,49 +184,12 @@ export function Pricing(): JSX.Element {
             )}
 
             {status === 'ready' && tariffs.length > 0 && (
-              <ul className="pricing__grid">
-                {tariffs.map((tariff) => {
-                  const owned = tariff.id === ownedTariffId;
-                  return (
-                    <li
-                      className={
-                        owned ? 'card pricing__card pricing__card--owned' : 'card pricing__card'
-                      }
-                      key={tariff.id}
-                      data-testid="tariff-card"
-                      data-owned={owned ? 'true' : undefined}
-                    >
-                      <div className="pricing__card-head">
-                        <h3 data-testid="tariff-name">{tariff.name}</h3>
-                        {/* Купленный тариф помечается здесь же, в списке: отдельного
-                            блока про покупку на странице нет. */}
-                        {owned && (
-                          <span className="tag tag--ok" data-testid="tariff-owned">
-                            Куплен
-                          </span>
-                        )}
-                      </div>
-                      {/* Цену собирает сервер: плашка показывает `price_label` как есть. */}
-                      <p className="pricing__price" data-testid="tariff-price">
-                        {tariff.price_label}
-                      </p>
-                      <p className="pricing__description" data-testid="tariff-description">
-                        {tariff.description}
-                      </p>
-                      <button
-                        className="btn btn--primary btn--block"
-                        type="button"
-                        data-testid="tariff-buy"
-                        disabled={buying || hasTariff}
-                        title={hasTariff ? OWNED_HINT : undefined}
-                        onClick={() => void buyTariff(tariff.id)}
-                      >
-                        Купить
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+              <PricingPlans
+                tariffs={tariffs}
+                ownedTariffId={ownedTariffId}
+                buying={buying}
+                onBuy={(id) => void buyTariff(id)}
+              />
             )}
 
             {buyError && (

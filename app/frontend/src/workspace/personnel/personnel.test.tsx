@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -8,7 +8,7 @@ import type { Employee, PersonnelData, Source } from '../../api/personnel';
 import { IdentityDialog } from './IdentityDialog';
 import { Personnel } from '../Personnel';
 import { BlockDialog } from './Dialogs';
-import { filterPeople, isFavorite } from './helpers';
+import { filterPeople } from './helpers';
 
 const source = (
   dorm: number,
@@ -30,10 +30,7 @@ const person = (id: string, current: Source[] = []): Employee => ({
   identity_status: 'pending',
   current,
   sources: [...current],
-  has_outflow: false,
   history_dormitory_ids: current.map((row) => row.dormitory_id),
-  outflow_dormitory_ids: [],
-  last_outflow: null,
   variants: {},
 });
 const data = (employees: Employee[]): PersonnelData => ({
@@ -43,11 +40,90 @@ const data = (employees: Employee[]): PersonnelData => ({
   plans: [],
   arrival_plans: [],
   decisions: [],
-  matches: [],
-  preferences: { revision: 0, blocks: null, lists: [], favorites: [] },
+  preferences: { revision: 0, blocks: null, lists: [] },
 });
 const criteria = { filter: 'current' as const, dormitory: null, scope: [], days: 5, query: '' };
 afterEach(() => vi.restoreAllMocks());
+
+it('оставляет три фильтра, убирает избранное и сохраняет поиск, карточку и экспорт', async () => {
+  const user = userEvent.setup();
+  const employees = [
+    { ...person('ending', [source(1)]), full_name: 'Иванов Иван' },
+    { ...person('overdue', [source(1, 'residents', '2026-10-09')]), full_name: 'Петров Пётр' },
+    { ...person('later', [source(1, 'residents', '2026-10-16')]), full_name: 'Сидоров Сергей' },
+    { ...person('away'), full_name: 'Кузнецов Алексей' },
+  ];
+  const payload = data(employees);
+  payload.dormitories = [{ id: 1, name: 'Северное', client_name: 'Клиент', is_archived: false }];
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  vi.spyOn(personnelApi, 'workspace').mockResolvedValue(payload);
+  vi.spyOn(personnelApi, 'detail').mockResolvedValue({
+    employee_id: 'ending',
+    events: [],
+    notes: [],
+    merges: [],
+  });
+  render(
+    <MemoryRouter>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('tab', { name: /Сотрудники/ });
+  expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+    'Рабочая поверхность',
+    'Сотрудники4',
+    'План заездов',
+  ]);
+  expect(screen.queryByTestId('personnel-matches')).not.toBeInTheDocument();
+  await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+  for (const name of [
+    'Дата вахты прошла',
+    'Неполные данные',
+    'Были в оттоке',
+    'Мои сотрудники',
+    'Вернулись после оттока',
+    'Без телефона',
+    'Требуют проверки',
+    'Проверить записи →',
+  ])
+    expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/Добавить в мои сотрудники/)).not.toBeInTheDocument();
+  const table = screen.getByRole('table');
+  expect(within(table).getAllByRole('row')).toHaveLength(5);
+  await user.click(screen.getByRole('button', { name: 'Проживают' }));
+  expect(within(table).getAllByRole('row')).toHaveLength(4);
+  await user.click(screen.getByRole('button', { name: 'Заканчивается вахта' }));
+  expect(within(table).getAllByRole('row')).toHaveLength(2);
+  await user.click(screen.getByRole('button', { name: 'Экспорт для Excel' }));
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /Закрыть/ }));
+  await user.click(screen.getByRole('button', { name: 'Все сотрудники' }));
+  await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Иванов');
+  expect(within(table).getAllByRole('row')).toHaveLength(2);
+  await user.click(within(table).getByRole('button', { name: /^Иванов Иван/ }));
+  expect(screen.getByRole('dialog')).toHaveTextContent('Карточка сотрудника');
+  expect(screen.getByRole('tab', { name: /^История/ })).toBeInTheDocument();
+  expect(screen.queryByLabelText(/Добавить в мои сотрудники/)).not.toBeInTheDocument();
+});
+
+it('не предлагает блоки, связанные с удалёнными фильтрами', () => {
+  render(<BlockDialog block={null} data={data([])} onClose={vi.fn()} onSave={vi.fn()} />);
+  expect(screen.queryByRole('option', { name: 'Неполные данные' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: 'История оттока' })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+    'Проживающий персонал',
+    'Заканчивается вахта',
+    'Контакты сотрудников',
+    'План заездов',
+    'Сохранённый список',
+  ]);
+});
 
 it('открывает простой план из источника отчёта и сохраняет заезд без сотрудников', async () => {
   const user = userEvent.setup();
@@ -150,27 +226,22 @@ describe('Отбор сотрудников', () => {
     employee.current[0].values.shift_end = '2026-10-16';
     expect(filterPeople(payload, { ...criteria, filter: 'ending', scope: [1] })).toEqual([]);
   });
-  it('находит историю оттока после удаления исходной строки', () => {
+  it('находит карточку по прежнему общежитию после удаления исходной строки', () => {
     const employee = {
       ...person('one'),
-      has_outflow: true,
       history_dormitory_ids: [2],
-      outflow_dormitory_ids: [2],
-      last_outflow: { date: '2026-10-01', dormitory_id: 2, reason: 'Вахта завершена' },
     };
     const payload = data([employee]);
-    expect(filterPeople(payload, { ...criteria, filter: 'history', dormitory: 2 })).toHaveLength(1);
-    expect(filterPeople(payload, { ...criteria, filter: 'history', dormitory: 1 })).toEqual([]);
+    expect(filterPeople(payload, { ...criteria, filter: 'all', dormitory: 2 })).toHaveLength(1);
+    expect(filterPeople(payload, { ...criteria, filter: 'all', dormitory: 1 })).toEqual([]);
   });
-  it('учитывает прежние данные и избранное после объединения', () => {
+  it('находит прежние данные после объединения', () => {
     const employee = {
       ...person('primary', [source(1)]),
       member_ids: ['primary', 'previous'],
       variants: { full_name: ['Семёнов И. И.'], phone: ['+7 (912) 123-45-67'] },
     };
     const payload = data([employee]);
-    payload.preferences.favorites = ['previous'];
-    expect(isFavorite(employee, payload)).toBe(true);
     expect(filterPeople(payload, { ...criteria, query: 'семенов' })).toHaveLength(1);
     expect(filterPeople(payload, { ...criteria, query: '9121234567' })).toHaveLength(1);
   });
@@ -182,11 +253,11 @@ describe('Выбор личности перед добавлением', () => 
       id: '00000000-0000-4000-8000-000000000001',
       full_name: 'Иванов Иван',
       personnel_number: '10',
-      phone: null,
+      phone: '+7 (900) 123-45-67',
       identity_status: 'confirmed' as const,
       dormitories: ['Северное'],
       score: 50,
-      evidence: ['Совпадает табельный номер'],
+      evidence: ['Совпадает ФИО', 'Совпадает телефон'],
       differences: [],
     };
     vi.spyOn(personnelApi, 'check').mockResolvedValue({
@@ -201,7 +272,7 @@ describe('Выбор личности перед добавлением', () => 
       <IdentityDialog
         dormitoryId="1"
         tableKey="residents"
-        initial={{ personnel_number: '10' }}
+        initial={{ full_name: 'Иванов Иван', phone: '+7 (900) 123-45-67' }}
         onSaved={() => {}}
         onClose={() => {}}
       />,
@@ -215,7 +286,9 @@ describe('Выбор личности перед добавлением', () => 
     expect(save.mock.calls[0][2]).toMatchObject({
       mode: 'existing',
       employee_id: candidate.id,
-      personnel_number: '10',
+      personnel_number: null,
+      full_name: 'Иванов Иван',
+      phone: '+7 (900) 123-45-67',
       check_token: 'a'.repeat(64),
     });
   });

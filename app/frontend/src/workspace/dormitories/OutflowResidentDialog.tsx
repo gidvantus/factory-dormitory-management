@@ -3,7 +3,9 @@ import type { FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 import { api, ApiError } from '../../api/client';
-import type { Resident } from '../../api/client';
+import type { Resident, ResidentOutflowPreview } from '../../api/client';
+import { todayDate } from '../dashboard/dates';
+import { OutflowTransferFields } from './OutflowTransferFields';
 import { Modal } from '../../components/Modal';
 import { useColumns } from './tableColumnsContext';
 import styles from './TransferResidentDialog.module.css';
@@ -37,6 +39,10 @@ export function OutflowResidentDialog({
         : resident.custom_values?.[nameColumn.id];
   const fullName = typeof nameValue === 'string' ? nameValue.trim() : '';
   const [previewToken, setPreviewToken] = useState<string | null>(null);
+  const [preview, setPreview] = useState<ResidentOutflowPreview | null>(null);
+  const [reason, setReason] = useState('');
+  const [departure, setDeparture] = useState(todayDate());
+  const initialized = useRef(false);
   const [checking, setChecking] = useState(true);
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState('');
@@ -59,7 +65,20 @@ export function OutflowResidentDialog({
     void api
       .previewResidentOutflow(dormitoryId, resident.id, controller.signal)
       .then((result) => {
-        if (!controller.signal.aborted) setPreviewToken(result.preview_token);
+        if (!controller.signal.aborted) {
+          setPreviewToken(result.preview_token);
+          setPreview(result);
+          if (!initialized.current) {
+            setDeparture(result.departure_date ?? todayDate());
+            initialized.current = true;
+          }
+          setReason((current) =>
+            result.fields.reason_column?.kind === 'select' &&
+            !result.fields.reasons.some((option) => option.value === current)
+              ? ''
+              : current,
+          );
+        }
       })
       .catch((caught: unknown) => {
         if (!controller.signal.aborted) {
@@ -79,7 +98,10 @@ export function OutflowResidentDialog({
     setSaving(true);
     setError('');
     try {
-      await api.moveResidentToOutflow(dormitoryId, resident.id, previewToken, true);
+      await api.moveResidentToOutflow(dormitoryId, resident.id, previewToken, true, {
+        ...(preview?.fields.reason_column ? { reason: reason.trim() } : {}),
+        ...(preview?.fields.departure_column ? { departure_date: departure } : {}),
+      });
       onMoved(resident.id);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось перенести в отток.');
@@ -109,6 +131,16 @@ export function OutflowResidentDialog({
           Проживающий будет удалён из «Проживающих» и списков аванса и расчёта этого общежития.
         </p>
         {checking && <p role="status">Подготавливаем перенос…</p>}
+        {preview && !checking && (
+          <OutflowTransferFields
+            fields={preview.fields}
+            reason={reason}
+            departure={departure}
+            onReason={setReason}
+            onDeparture={setDeparture}
+            disabled={saving}
+          />
+        )}
         {error && (
           <p role="alert" className={styles.error}>
             {error}
@@ -130,7 +162,16 @@ export function OutflowResidentDialog({
           <button type="button" disabled={saving} onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" disabled={saving || checking || !previewToken}>
+          <button
+            type="submit"
+            disabled={
+              saving ||
+              checking ||
+              !previewToken ||
+              (!!preview?.fields.reason_column && !reason.trim()) ||
+              (!!preview?.fields.departure_column && !departure)
+            }
+          >
             {saving ? 'Переносим…' : 'Перенести в отток'}
           </button>
         </div>

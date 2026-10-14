@@ -1,9 +1,12 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 
 import { api, ApiError } from '../../api/client';
 import type { PaymentKind, Resident, ResidentPaymentResult } from '../../api/client';
+import { personnelApi } from '../../api/personnel';
+import type { Employee, IdentityChoice, PersonnelData, Source } from '../../api/personnel';
 import { defaultColumns, mockTableFetch as mockFetch } from '../../test/tableColumns';
 import { ResidentsTable } from './ResidentsTable';
 
@@ -28,8 +31,129 @@ const blank: Resident = {
 };
 
 describe('Проживающие', () => {
-  it('создаёт строку, сохраняет поля и удаляет только после подтверждения', async () => {
+  it('открывает карточку по ФИО поверх таблицы и сохраняет исправление связи внутри карточки', async () => {
+    const resident = { ...blank, full_name: 'Иванов Иван', employee_id: 'first' };
+    const record: Source = {
+      dormitory_id: 7,
+      table_key: 'residents',
+      row_id: 3,
+      source_name: 'Проживающие',
+      values: { full_name: resident.full_name, shift_start: '2026-10-01', shift_end: '2026-10-30' },
+    };
+    const person = (id: string, name: string, sources: Source[]): Employee => ({
+      id,
+      member_ids: [id],
+      full_name: name,
+      personnel_number: null,
+      phone: null,
+      identity_status: 'confirmed',
+      current: sources,
+      sources,
+      history_dormitory_ids: [7],
+      variants: {},
+    });
+    let data: PersonnelData = {
+      today: '2026-10-14',
+      dormitories: [{ id: 7, name: 'Северное', client_name: 'Завод', is_archived: false }],
+      employees: [person('first', 'Иванов Иван', [record]), person('second', 'Иванов Илья', [])],
+      plans: [],
+      arrival_plans: [],
+      decisions: [],
+      preferences: { revision: 0, blocks: [], lists: [] },
+    };
+    vi.spyOn(api, 'tableColumns').mockResolvedValue(defaultColumns('residents'));
+    vi.spyOn(api, 'residents').mockResolvedValue({ residents: [resident], hostels: [] });
+    vi.spyOn(personnelApi, 'workspace').mockImplementation(async () => data);
+    vi.spyOn(personnelApi, 'detail').mockImplementation(async (id) => ({
+      employee_id: id,
+      events: [],
+      notes: [],
+      merges: [],
+    }));
+    vi.spyOn(personnelApi, 'check').mockResolvedValue({
+      check_token: 'a'.repeat(64),
+      candidates: data.employees.map((employee) => ({
+        ...employee,
+        dormitories: ['Северное'],
+        score: 40,
+        evidence: ['Совпадает фамилия'],
+        differences: [],
+      })),
+    });
+    const link = vi.spyOn(personnelApi, 'link').mockImplementation(async () => {
+      data = {
+        ...data,
+        employees: [person('first', 'Иванов Иван', []), person('second', 'Иванов Илья', [record])],
+      };
+      return { employee_id: 'second' };
+    });
+    function Location(): JSX.Element {
+      return <output data-testid="location">{useLocation().pathname}</output>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/cabinet/dormitories/7/residents']}>
+        <ResidentsTable dormitoryId="7" />
+        <Location />
+      </MemoryRouter>,
+    );
+    const user = userEvent.setup();
+    const row = await screen.findByTestId('resident-3');
+    expect(
+      within(row).queryByText(/Карточка|Изменить связь|Связать с сотрудником/),
+    ).not.toBeInTheDocument();
+    await user.click(within(row).getByRole('link', { name: 'Иванов Иван' }));
+    let dialog = await screen.findByTestId('personnel-profile');
+    expect(row).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/cabinet/dormitories/7/residents');
+    await user.click(within(dialog).getByRole('button', { name: 'Изменить связь' }));
+    dialog = screen.getByTestId('personnel-identity');
+    await user.click(await within(dialog).findByRole('radio', { name: /Иванов Илья/ }));
+    await user.click(within(dialog).getByRole('button', { name: 'Использовать карточку' }));
+    await screen.findByRole('heading', { name: 'Иванов Илья' });
+    expect(link).toHaveBeenCalledWith(
+      7,
+      'residents',
+      3,
+      expect.objectContaining({ mode: 'existing', employee_id: 'second' }),
+    );
+    await user.click(
+      within(screen.getByTestId('personnel-profile')).getByRole('button', { name: /Закрыть/ }),
+    );
+    expect(within(row).getByRole('link', { name: 'Иванов Иван' })).toHaveAttribute(
+      'href',
+      '/cabinet/personnel?employee=second',
+    );
+  });
+
+  it('редактирует ФИО карандашом, сохраняет черновик при ошибке и повторяет сохранение по Enter', async () => {
+    const resident = { ...blank, full_name: 'Иванов Иван', employee_id: 'first' };
+    vi.spyOn(api, 'tableColumns').mockResolvedValue(defaultColumns('residents'));
+    vi.spyOn(api, 'residents').mockResolvedValue({ residents: [resident], hostels: [] });
+    const save = vi
+      .spyOn(api, 'updateResident')
+      .mockRejectedValueOnce(new ApiError(503, 'Ошибка сохранения'))
+      .mockResolvedValueOnce({ ...resident, full_name: 'Иванов Илья' });
+    render(<ResidentsTable dormitoryId="7" />);
+    const user = userEvent.setup();
+    const row = await screen.findByTestId('resident-3');
+    await user.click(within(row).getByRole('button', { name: 'Редактировать ФИО, строка 1' }));
+    const input = within(row).getByRole('textbox', { name: 'ФИО, строка 1' });
+    expect(input).toHaveFocus();
+    await user.clear(input);
+    await user.type(input, 'Иванов Илья');
+    await user.tab();
+    expect(await within(row).findByRole('alert')).toHaveAttribute('title', 'Ошибка сохранения');
+    expect(input).toHaveValue('Иванов Илья');
+    await user.click(input);
+    await user.keyboard('{Enter}');
+    expect(await within(row).findByRole('link', { name: 'Иванов Илья' })).toBeInTheDocument();
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save).toHaveBeenLastCalledWith('7', 3, expect.any(String), 'full_name', 'Иванов Илья');
+  });
+
+  it('создаёт строку по ФИО и телефону без табельного номера, сохраняет поля и удаляет после подтверждения', async () => {
     let resident: Resident | null = null;
+    const created: IdentityChoice[] = [];
     const fetchMock = mockFetch((url, init) => {
       if (url.includes('/api/dormitories/7/residents?') && !init?.method) {
         return {
@@ -40,7 +164,14 @@ describe('Проживающие', () => {
       if (url.endsWith('/api/personnel/check'))
         return { status: 200, body: { candidates: [], check_token: 'a'.repeat(64) } };
       if (url.endsWith('/api/personnel/records') && init?.method === 'POST') {
-        resident = { ...blank };
+        const { identity } = JSON.parse(String(init.body)) as { identity: IdentityChoice };
+        created.push(identity);
+        resident = {
+          ...blank,
+          full_name: identity.full_name,
+          phone: identity.phone,
+          personnel_number: identity.personnel_number,
+        };
         return {
           status: 201,
           body: { row_id: 3, employee_id: '00000000-0000-4000-8000-000000000001' },
@@ -65,21 +196,41 @@ describe('Проживающие', () => {
     render(<ResidentsTable dormitoryId="7" />);
     await user.click(await screen.findByRole('button', { name: /Добавить строку/ }));
     const identity = await screen.findByRole('dialog');
-    await user.type(within(identity).getByLabelText('Табельный номер'), '123');
-    const saveIdentity = within(identity).getByRole('button', { name: 'Сохранить на проверку' });
+    expect(within(identity).queryByLabelText('Табельный номер')).not.toBeInTheDocument();
+    await user.type(within(identity).getByLabelText('ФИО'), 'Иванова Мария');
+    await user.type(within(identity).getByLabelText('Телефон'), '+7 (900) 123-45-67');
+    const saveIdentity = within(identity).getByRole('button', {
+      name: 'Создать новую карточку',
+    });
     await waitFor(() => expect(saveIdentity).toBeEnabled());
     await user.click(saveIdentity);
     const row = await screen.findByTestId('resident-3');
+    expect(created).toEqual([
+      expect.objectContaining({
+        full_name: 'Иванова Мария',
+        phone: '+7 (900) 123-45-67',
+        personnel_number: null,
+      }),
+    ]);
+    expect(within(row).getByRole('link', { name: 'Иванова Мария' })).toBeInTheDocument();
+    expect(within(row).getByRole('textbox', { name: 'Т/н, строка 1' })).toHaveValue('');
     expect(within(row).getByRole('rowheader')).toHaveTextContent('1');
     await user.selectOptions(within(row).getByRole('combobox', { name: 'Пол, строка 1' }), 'Ж');
-    await user.type(within(row).getByRole('textbox', { name: 'ФИО, строка 1' }), 'Иванова Мария');
+    await user.type(within(row).getByRole('textbox', { name: 'Т/н, строка 1' }), '123');
+    await user.click(within(row).getByRole('button', { name: 'Редактировать ФИО, строка 1' }));
+    await user.clear(within(row).getByRole('textbox', { name: 'ФИО, строка 1' }));
+    await user.type(
+      within(row).getByRole('textbox', { name: 'ФИО, строка 1' }),
+      'Иванова Мария Петровна',
+    );
     await user.tab();
     await user.selectOptions(
       within(row).getByRole('combobox', { name: 'Место проживания, строка 1' }),
       '9',
     );
     await waitFor(() => expect(resident?.hostel_id).toBe(9));
-    expect((resident as Resident | null)?.full_name).toBe('Иванова Мария');
+    expect((resident as Resident | null)?.full_name).toBe('Иванова Мария Петровна');
+    expect((resident as Resident | null)?.personnel_number).toBe('123');
     const headers = screen.getAllByRole('columnheader').map((header) => header.textContent);
     expect(headers.indexOf('Запись на расчёт')).toBe(headers.indexOf('Запись на аванс') + 1);
     const registrationButtons = within(row).getAllByRole('button', { name: /Записать на/ });

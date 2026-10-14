@@ -15,6 +15,7 @@ from app.models.invoice import Invoice, InvoiceDocument
 from app.models.mail_template import MailTemplate
 from app.models.organization import Organization, OrganizationMember
 from app.models.outflow import PersonnelOutflow
+from app.models.outflow_reason import OutflowReason
 from app.models.payment import PaymentEntry
 from app.models.personnel import (
     Employee,
@@ -66,6 +67,7 @@ __all__ = [
     "MailTemplate",
     "Organization",
     "OrganizationMember",
+    "OutflowReason",
     "PaymentEntry",
     "PersonnelBinding",
     "PersonnelInflow",

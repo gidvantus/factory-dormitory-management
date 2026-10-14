@@ -25,8 +25,7 @@ const data: PersonnelData = {
   plans: [],
   arrival_plans: [plan, { ...plan, id: 'archived', dormitory_id: 3, count: 100 }],
   decisions: [],
-  matches: [],
-  preferences: { revision: 0, blocks: [], lists: [], favorites: [] },
+  preferences: { revision: 0, blocks: [], lists: [] },
 };
 const mutate = async (action: () => Promise<unknown>): Promise<void> => {
   await action();

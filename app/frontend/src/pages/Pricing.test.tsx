@@ -179,18 +179,19 @@ describe('публичная страница тарифов', () => {
 
     expect(await screen.findAllByTestId('tariff-card')).toHaveLength(3);
     expect(screen.getAllByTestId('tariff-name').map((node) => node.textContent)).toEqual([
-      'Старт',
       'Стандарт',
+      'Старт',
       'Максимум',
     ]);
     // Цену собирает сервер: страница показывает `price_label` как есть.
     expect(screen.getAllByTestId('tariff-price').map((node) => node.textContent)).toEqual([
-      '10 000 ₽ в месяц',
       '50 000 ₽ за 6 месяцев',
+      '10 000 ₽ в месяц',
       '90 000 ₽ в год',
     ]);
     // Ограничение по пользователям живое: оно есть в описании плашки.
-    expect(screen.getAllByTestId('tariff-description')[0]).toHaveTextContent('До 10 пользователей');
+    expect(screen.getAllByTestId('tariff-description')[0]).toHaveTextContent('До 15 пользователей');
+    expect(screen.getAllByTestId('tariff-description')[1]).toHaveTextContent('До 10 пользователей');
 
     const buy = screen.getAllByTestId('tariff-buy');
     expect(buy).toHaveLength(3);
@@ -386,8 +387,8 @@ describe('шапка и подвал страницы тарифов', () => {
     const cards = await screen.findAllByTestId('tariff-card');
 
     // Пометка стоит на самой плашке купленного тарифа, а не отдельным блоком.
-    expect(within(cards[1]).getByTestId('tariff-owned')).toHaveTextContent('Куплен');
-    expect(within(cards[0]).queryByTestId('tariff-owned')).not.toBeInTheDocument();
+    expect(within(cards[0]).getByTestId('tariff-owned')).toHaveTextContent('Куплен');
+    expect(within(cards[1]).queryByTestId('tariff-owned')).not.toBeInTheDocument();
     expect(screen.getAllByTestId('tariff-owned')).toHaveLength(1);
 
     // Тариф уже выбран: второй раз покупать нечего, кнопки неактивны у всех.

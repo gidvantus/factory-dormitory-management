@@ -11,7 +11,7 @@ import styles from '../workspace/Workspace.module.css';
 const sectionTitles: Record<string, string> = {
   '/cabinet': 'Обзор',
   '/cabinet/dormitories': 'Общежития',
-  '/cabinet/tariffs': 'Тариф',
+  '/cabinet/tariffs': 'Тарифы',
   '/cabinet/documents': 'Документы',
   '/cabinet/organization': 'Организация',
   '/cabinet/organization/members': 'Сотрудники',
@@ -222,7 +222,7 @@ function CabinetShell(): JSX.Element {
                 data-testid="workspace-nav-tariffs"
               >
                 <WorkspaceIcon name="chart" />
-                Тариф
+                Тарифы
               </NavLink>
             </li>
             <li>

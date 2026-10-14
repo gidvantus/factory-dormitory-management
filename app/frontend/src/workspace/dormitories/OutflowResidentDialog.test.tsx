@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 
@@ -47,6 +47,7 @@ function plan(loss = true): ResidentOutflowPreview {
     departure_date: null,
     payments_to_delete: { advance: 1, settlement: 2 },
     preview_token: 'a'.repeat(64),
+    fields: { reason_column: null, departure_column: null, reasons: [] },
   };
 }
 
@@ -61,7 +62,77 @@ function setup(loss = true) {
   return { preview, move };
 }
 
-it('показывает только подтверждение, позволяет отменить и переносит при несовпадении столбцов', async () => {
+it.each(['text', 'select'] as const)(
+  'требует причину из %s и отправляет выбранную дату выезда',
+  async (kind) => {
+    const { preview, move } = setup();
+    const columns = defaultColumns('outflow');
+    const reasonColumn = { ...columns.find((column) => column.builtin_key === 'reason')!, kind };
+    preview.mockResolvedValue({
+      ...plan(),
+      fields: {
+        reason_column: reasonColumn,
+        departure_column: columns.find((column) => column.builtin_key === 'departure_date')!,
+        reasons: kind === 'select' ? [{ value: 'end', label: 'Вахта закончилась' }] : [],
+      },
+    });
+    const user = userEvent.setup();
+    render(<ResidentsTable dormitoryId="7" />);
+    await user.click(
+      within(await screen.findByTestId('resident-3')).getByRole('button', { name: 'Отток' }),
+    );
+    const dialog = screen.getByRole('dialog');
+    const reason = await within(dialog).findByLabelText('Причина оттока');
+    const submit = within(dialog).getByRole('button', { name: 'Перенести в отток' });
+    expect(submit).toBeDisabled();
+    if (kind === 'select') await user.selectOptions(reason, 'end');
+    else await user.type(reason, 'Уволился');
+    fireEvent.change(within(dialog).getByLabelText('Дата оттока'), {
+      target: { value: '2026-10-21' },
+    });
+    await user.click(submit);
+    await waitFor(() =>
+      expect(move).toHaveBeenCalledWith('7', 3, 'a'.repeat(64), true, {
+        reason: kind === 'select' ? 'end' : 'Уволился',
+        departure_date: '2026-10-21',
+      }),
+    );
+  },
+);
+
+it('выбирает сохранённую текстовую причину и позволяет ввести новую, сохраняя ввод при ошибке', async () => {
+  const { preview, move } = setup();
+  preview.mockResolvedValue({
+    ...plan(),
+    fields: {
+      reason_column: defaultColumns('outflow').find((column) => column.builtin_key === 'reason')!,
+      departure_column: null,
+      reasons: [{ value: 'Уволился', label: 'Уволился' }],
+    },
+  });
+  move.mockRejectedValueOnce(new ApiError(503, 'Ошибка переноса'));
+  const user = userEvent.setup();
+  render(<ResidentsTable dormitoryId="7" />);
+  await user.click(
+    within(await screen.findByTestId('resident-3')).getByRole('button', { name: 'Отток' }),
+  );
+  const dialog = screen.getByRole('dialog');
+  const select = await within(dialog).findByLabelText('Причина оттока');
+  await user.selectOptions(select, 'Уволился');
+  expect(within(dialog).getByRole('button', { name: 'Перенести в отток' })).toBeEnabled();
+  await user.selectOptions(select, '__new_reason__');
+  await user.type(within(dialog).getByRole('textbox'), 'Вахта закончилась');
+  await user.click(within(dialog).getByRole('button', { name: 'Перенести в отток' }));
+  expect(await within(dialog).findByRole('alert')).toHaveTextContent('Ошибка переноса');
+  expect(within(dialog).getByRole('textbox')).toHaveValue('Вахта закончилась');
+  expect(within(dialog).queryByLabelText('Дата оттока')).not.toBeInTheDocument();
+  await user.click(within(dialog).getByRole('button', { name: 'Перенести в отток' }));
+  expect(move).toHaveBeenLastCalledWith('7', 3, 'a'.repeat(64), true, {
+    reason: 'Вахта закончилась',
+  });
+});
+
+it('скрывает отсутствующие поля, объясняет как их включить и позволяет перенести без них', async () => {
   const { preview, move } = setup();
   const user = userEvent.setup();
   render(<ResidentsTable dormitoryId="7" />);
@@ -73,7 +144,9 @@ it('показывает только подтверждение, позволя
   expect(dialog).toHaveTextContent('Перенести «Иванов Иван» в «Отток»?');
   expect(dialog).toHaveTextContent('из «Проживающих» и списков аванса и расчёта');
   expect(dialog).not.toHaveTextContent('Личный столбец');
-  expect(dialog).not.toHaveTextContent('Дата выезда');
+  expect(within(dialog).queryByLabelText('Дата оттока')).not.toBeInTheDocument();
+  expect(within(dialog).queryByLabelText('Причина оттока')).not.toBeInTheDocument();
+  expect(dialog).toHaveTextContent('добавьте или восстановите');
   expect(dialog).not.toHaveTextContent('Удалим записей');
   expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument();
   expect(within(dialog).queryByRole('list')).not.toBeInTheDocument();
@@ -91,7 +164,7 @@ it('показывает только подтверждение, позволя
   );
   await user.click(within(dialog).getByRole('button', { name: 'Перенести в отток' }));
   await waitFor(() => expect(screen.queryByTestId('resident-3')).not.toBeInTheDocument());
-  expect(move).toHaveBeenCalledWith('7', 3, 'a'.repeat(64), true);
+  expect(move).toHaveBeenCalledWith('7', 3, 'a'.repeat(64), true, {});
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(screen.getByRole('status')).toHaveTextContent(
     'Проживающий перенесён в «Отток». Его записи на аванс и расчёт удалены.',
@@ -119,7 +192,7 @@ it('блокирует повторные нажатия и закрытие д�
   expect(within(dialog).getByRole('button', { name: 'Отмена' })).toBeDisabled();
   await user.click(submit);
   expect(move).toHaveBeenCalledTimes(1);
-  expect(move).toHaveBeenCalledWith('7', 3, 'a'.repeat(64), true);
+  expect(move).toHaveBeenCalledWith('7', 3, 'a'.repeat(64), true, {});
   await act(async () => finish(outflow));
   await waitFor(() => expect(screen.queryByTestId('resident-3')).not.toBeInTheDocument());
 });
@@ -182,6 +255,7 @@ it('дожидается сохранения изменённой ячейки 
   const user = userEvent.setup();
   render(<ResidentsTable dormitoryId="7" />);
   const row = await screen.findByTestId('resident-3');
+  await user.click(within(row).getByRole('button', { name: 'Редактировать ФИО, строка 1' }));
   const input = within(row).getByRole('textbox', { name: 'ФИО, строка 1' });
   await user.clear(input);
   await user.type(input, 'Новое имя');

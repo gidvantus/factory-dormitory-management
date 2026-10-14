@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { api, ApiError } from '../../api/client';
-import type { InflowField, InflowRow } from '../../api/client';
+import type { InflowAction, InflowField, InflowRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
-import { IdentityDialog, PersonnelLink } from '../personnel/IdentityDialog';
+import { IdentityDialog } from '../personnel/IdentityDialog';
+import { EmployeeNameCell } from './EmployeeNameCell';
+import { InflowActionDialog } from './InflowActionDialog';
+import { useTableSaves } from './tableColumnsContext';
 import styles from './InflowTable.module.css';
 import {
   ColumnsControls,
@@ -20,49 +23,78 @@ function InflowEntry({
   row,
   dormitoryId,
   onDelete,
+  onAction,
 }: {
   row: InflowRow;
   dormitoryId: string;
   onDelete: (row: InflowRow) => void;
+  onAction: (row: InflowRow, action: InflowAction) => void;
 }): JSX.Element {
   const [draft, setDraft] = useState(row);
   const [shiftCountText, setShiftCountText] = useState(row.shift_count?.toString() ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const saved = useRef(row);
+  const { trackSave, waitForRowSaves } = useTableSaves();
+  const [preparing, setPreparing] = useState(false);
+  const preparingRef = useRef(false);
+
+  async function prepare(action: InflowAction): Promise<void> {
+    if (preparingRef.current || row.processed_as) return;
+    preparingRef.current = true;
+    setPreparing(true);
+    setError('');
+    try {
+      await waitForRowSaves(row.id);
+      onAction(draft, action);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Сначала сохраните изменения строки.');
+    } finally {
+      preparingRef.current = false;
+      setPreparing(false);
+    }
+  }
 
   function change(field: InflowField, value: FieldValue): void {
     setDraft((current) => ({ ...current, [field]: value }));
     setError('');
   }
 
-  async function save(field: InflowField, value: FieldValue): Promise<void> {
-    if (value === saved.current[field]) return;
+  async function save(field: InflowField, value: FieldValue): Promise<boolean> {
+    const key = `${row.id}:builtin:${field}`;
+    if (value === saved.current[field]) {
+      await trackSave(key, Promise.resolve());
+      return true;
+    }
     setSaving(true);
     setError('');
     try {
-      const updated = await api.updateInflowRow(dormitoryId, row.id, field, value);
-      saved.current = { ...saved.current, [field]: updated[field] };
+      const updated = await trackSave(key, api.updateInflowRow(dormitoryId, row.id, field, value));
+      saved.current = {
+        ...saved.current,
+        [field]: updated[field],
+        employee_id: updated.employee_id,
+      };
       setDraft((current) => ({
         ...current,
         [field]: updated[field],
         employee_id: updated.employee_id,
       }));
       if (field === 'shift_count') setShiftCountText(updated.shift_count?.toString() ?? '');
+      return true;
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось сохранить строку.');
+      return false;
     } finally {
       setSaving(false);
     }
   }
 
   function textField(
-    field: 'personnel_number' | 'full_name' | 'citizenship' | 'notes',
+    field: 'personnel_number' | 'citizenship' | 'notes',
     label: string,
   ): JSX.Element {
-    const maxLength = { personnel_number: 40, full_name: 255, citizenship: 120, notes: 5000 }[
-      field
-    ];
+    const maxLength = { personnel_number: 40, citizenship: 120, notes: 5000 }[field];
     return (
       <input
         type="text"
@@ -86,6 +118,8 @@ function InflowEntry({
           'citizenship',
           'notes',
           'shift_count',
+          'action_check_in',
+          'action_outflow',
           'action_delete',
         ]}
       >
@@ -103,13 +137,19 @@ function InflowEntry({
         </td>
         <td>{textField('personnel_number', 'Т/н')}</td>
         <td>
-          {textField('full_name', 'ФИО')}
-          <PersonnelLink
+          <EmployeeNameCell
             dormitoryId={dormitoryId}
             tableKey="inflow"
             rowId={row.id}
             employeeId={draft.employee_id}
             fields={draft}
+            onChange={(name) => change('full_name', name)}
+            onSave={(name) => save('full_name', name.trim() || null)}
+            beforeOpen={() => waitForRowSaves(row.id)}
+            onLinked={(id) => {
+              saved.current = { ...saved.current, employee_id: id };
+              setDraft((current) => ({ ...current, employee_id: id }));
+            }}
           />
         </td>
         <td>{textField('citizenship', 'Гражданство')}</td>
@@ -141,12 +181,37 @@ function InflowEntry({
           <button
             type="button"
             className="btn btn--ghost btn--compact"
+            disabled={saving || preparing || !!row.processed_as}
+            onClick={() => void prepare('settle')}
+          >
+            Заселить
+          </button>
+        </td>
+        <td className={styles.actionCell}>
+          <button
+            type="button"
+            className="btn btn--ghost btn--compact"
+            disabled={saving || preparing || !!row.processed_as}
+            onClick={() => void prepare('outflow')}
+          >
+            В отток
+          </button>
+        </td>
+        <td className={styles.actionCell}>
+          <button
+            type="button"
+            className="btn btn--ghost btn--compact"
             aria-busy={saving}
             disabled={saving}
             onClick={() => onDelete(draft)}
           >
             Удалить
           </button>
+          {row.processed_as && (
+            <span className={styles.result}>
+              {row.processed_as === 'residents' ? 'Заселён' : 'В оттоке'}
+            </span>
+          )}
           {(saving || error) && (
             <span role={error ? 'alert' : 'status'} className={error ? styles.error : undefined}>
               {error || 'Сохраняем…'}
@@ -172,6 +237,9 @@ function InflowContent({
   const [deleting, setDeleting] = useState<InflowRow | null>(null);
   const [removing, setRemoving] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [processing, setProcessing] = useState<{ row: InflowRow; action: InflowAction } | null>(
+    null,
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -215,6 +283,18 @@ function InflowContent({
 
   return (
     <section className={styles.page} data-testid="dormitory-inflow">
+      {processing && (
+        <InflowActionDialog
+          dormitoryId={dormitoryId}
+          row={processing.row}
+          action={processing.action}
+          onClose={() => setProcessing(null)}
+          onProcessed={(updated) => {
+            setRows((current) => current.map((row) => (row.id === updated.id ? updated : row)));
+            setProcessing(null);
+          }}
+        />
+      )}
       {adding && (
         <IdentityDialog
           dormitoryId={dormitoryId}
@@ -274,6 +354,7 @@ function InflowContent({
                   row={row}
                   dormitoryId={dormitoryId}
                   onDelete={setDeleting}
+                  onAction={(row, action) => setProcessing({ row, action })}
                 />
               ))}
             </tbody>

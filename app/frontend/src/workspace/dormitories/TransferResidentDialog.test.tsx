@@ -199,6 +199,7 @@ it('дожидается сохранения последнего ввода п
   const user = userEvent.setup();
   render(<ResidentsTable dormitoryId="7" />);
   const row = await screen.findByTestId('resident-3');
+  await user.click(within(row).getByRole('button', { name: 'Редактировать ФИО, строка 1' }));
   const name = within(row).getByRole('textbox', { name: 'ФИО, строка 1' });
   await user.clear(name);
   await user.type(name, 'Новое имя');

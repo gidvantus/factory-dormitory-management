@@ -5,7 +5,6 @@ import type { CustomTab, CustomTabRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import {
   ColumnsControls,
-  ConfiguredCells,
   ConfiguredHeaders,
   ConfiguredTable,
   TableColumnsProvider,
@@ -14,7 +13,7 @@ import { useColumns } from './tableColumnsContext';
 import styles from './OutflowTable.module.css';
 import { CreateTableDialog } from './CreateTableDialog';
 import { useSettingsNavigation } from './settingsContext';
-import { PersonnelLink } from '../personnel/IdentityDialog';
+import { PersonnelTableCells } from './PersonnelTableCells';
 import { PersonnelBindingButton } from '../personnel/BindingDialog';
 
 function CustomTableContent({
@@ -26,7 +25,7 @@ function CustomTableContent({
   tab: CustomTab;
   waitForSavesRef?: MutableRefObject<(() => Promise<void>) | null>;
 }): JSX.Element {
-  const { loading: columnsLoading, error: columnsError, waitForRowSaves } = useColumns();
+  const { loading: columnsLoading, error: columnsError, waitForRowSaves, reload } = useColumns();
   const [rows, setRows] = useState<CustomTabRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -104,7 +103,10 @@ function CustomTableContent({
           <PersonnelBindingButton
             dormitoryId={dormitoryId}
             tableKey={`custom_${tab.id}`}
-            onSaved={() => setAttempt((n) => n + 1)}
+            onSaved={() => {
+              reload();
+              setAttempt((n) => n + 1);
+            }}
           />
         )}
         <button
@@ -143,18 +145,18 @@ function CustomTableContent({
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id} data-testid={`custom-row-${row.id}`}>
-                  <ConfiguredCells row={row} fields={['action_delete']} readOnly={!tab.is_active}>
+                  <PersonnelTableCells
+                    row={row}
+                    readOnly={!tab.is_active}
+                    onLinked={(id) =>
+                      setRows((current) =>
+                        current.map((item) =>
+                          item.id === row.id ? { ...item, employee_id: id } : item,
+                        ),
+                      )
+                    }
+                  >
                     <td className={styles.actionCell}>
-                      {tab.is_active && (
-                        <PersonnelLink
-                          dormitoryId={dormitoryId}
-                          tableKey={`custom_${tab.id}`}
-                          rowId={row.id}
-                          employeeId={row.employee_id}
-                          beforeOpen={() => waitForRowSaves(row.id)}
-                          onChanged={() => setAttempt((n) => n + 1)}
-                        />
-                      )}
                       <button
                         type="button"
                         disabled={busy || !tab.is_active}
@@ -168,7 +170,7 @@ function CustomTableContent({
                         Удалить
                       </button>
                     </td>
-                  </ConfiguredCells>
+                  </PersonnelTableCells>
                 </tr>
               ))}
             </tbody>

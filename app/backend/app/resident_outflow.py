@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.payment import PaymentEntry
 from app.models.resident import Resident
+from app.outflow_fields import outflow_fields
 from app.resident_payments import matching_value, normalized_name
 from app.schemas.outflow import UpdateOutflowRequest
 from app.schemas.resident import UpdateResidentRequest
@@ -166,5 +167,6 @@ def prepare_outflow(db: Session, dormitory_id: int, resident_id: int) -> Outflow
                 for kind in ("advance", "settlement")
             },
             preview_token=token,
+            fields=outflow_fields(db, dormitory_id, targets),
         ),
     )

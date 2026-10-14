@@ -1,0 +1,43 @@
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 33px;
+}
+.nameLink {
+  flex: 1;
+  min-width: 0;
+  padding: 5px;
+  color: var(--mint-700, #286348);
+  font: inherit;
+  line-height: 1.4;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.nameLink:hover,
+.nameLink:focus-visible {
+  text-decoration: underline;
+}
+.nameEdit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.nameEdit:hover,
+.nameEdit:focus-visible {
+  background: var(--cream-100);
+  color: var(--mint-700, #286348);
+}
+.error {
+  color: var(--color-danger);
+  font-size: 13px;
+}

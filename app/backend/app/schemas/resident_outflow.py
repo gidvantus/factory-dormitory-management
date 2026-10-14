@@ -4,6 +4,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.outflow import OutflowFields
 from app.schemas.resident_transfer import TransferWarning
 
 
@@ -11,6 +12,8 @@ class ResidentOutflowRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     preview_token: str = Field(pattern=r"^[0-9a-f]{64}$")
     confirm_loss: bool = Field(default=False, strict=True)
+    reason: str | None = Field(default=None, max_length=255)
+    departure_date: date | None = None
 
 
 class ResidentOutflowPreview(BaseModel):
@@ -20,3 +23,4 @@ class ResidentOutflowPreview(BaseModel):
     departure_date: date | None
     payments_to_delete: dict[str, int]
     preview_token: str
+    fields: OutflowFields

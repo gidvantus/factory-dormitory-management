@@ -26,6 +26,14 @@ const catalog: CatalogDormitory[] = [
         columns: [],
         hostels: [],
       },
+      {
+        key: 'arrival_plan',
+        name: 'План заездов',
+        kind: 'arrival_plan',
+        rows: [],
+        columns: [],
+        hostels: [],
+      },
     ],
   },
 ];
@@ -81,6 +89,91 @@ function page(path = '/cabinet/statistics/7'): JSX.Element {
     </MemoryRouter>
   );
 }
+
+it('выбирает план заездов как источник статистики и сохраняет расчёт на будущие даты', async () => {
+  mocks();
+  const user = userEvent.setup();
+  const save = vi.fn();
+  const future = { from: '2027-10-20', to: '2027-10-22' };
+  render(
+    <StatisticsEditor
+      initial={newBlock(catalog)!}
+      catalog={catalog}
+      range={future}
+      busy={false}
+      onSave={save}
+      onCancel={vi.fn()}
+      onRefresh={vi.fn()}
+    />,
+  );
+  await user.selectOptions(screen.getByLabelText('Откуда брать данные'), 'arrival_plan');
+  expect(screen.queryByText('Связи с другими общежитиями')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Строка отчёта')).not.toBeInTheDocument();
+  expect(screen.getByText(/Количество ожидаемых людей по датам заезда/)).toBeInTheDocument();
+  await waitFor(() =>
+    expect(statisticsApi.preview).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        query: expect.objectContaining({
+          source_kind: 'arrival_plan',
+          period: 'range',
+          sources: [{ kind: 'arrival_plan', dormitory_id: 1 }],
+        }),
+      }),
+      future,
+      expect.any(AbortSignal),
+    ),
+  );
+  await user.click(screen.getByRole('button', { name: 'Сохранить блок' }));
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({ query: expect.objectContaining({ source_kind: 'arrival_plan' }) }),
+  );
+});
+
+it('объясняет расчёт будущих дат для отчёта с планом заездов', async () => {
+  mocks();
+  const planned = newBlock(catalog)!;
+  planned.query.source_kind = 'arrival_plan';
+  planned.query.sources = [{ kind: 'arrival_plan', dormitory_id: 1 }];
+  vi.mocked(statisticsApi.report).mockResolvedValue({ ...report, blocks: [planned] });
+  vi.mocked(statisticsApi.data).mockResolvedValue({
+    revision: 0,
+    from_date: range.from,
+    to_date: range.to,
+    through_date: null,
+    results: [],
+  });
+  render(page());
+  expect(
+    await screen.findByText(
+      'План заездов учитывается за весь выбранный период, включая будущие даты.',
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByText('План заездов / Ожидается человек')).toBeInTheDocument();
+  expect(screen.queryByText(/Будущие даты не учитываются/)).not.toBeInTheDocument();
+});
+
+it('показывает нули в будущих днях без заездов и объясняет их в таблице', () => {
+  const planned = newBlock(catalog)!;
+  planned.display = 'table';
+  planned.query.source_kind = 'arrival_plan';
+  planned.query.sources = [{ kind: 'arrival_plan', dormitory_id: 1 }];
+  const future = { from: '2027-10-20', to: '2027-10-22' };
+  const daily = [
+    { date: future.from, value: 10 },
+    { date: '2027-10-21', value: 0 },
+    { date: future.to, value: 7 },
+  ];
+  render(
+    <StatisticsChart
+      block={planned}
+      range={future}
+      result={{ ...result, daily, series: [{ ...result.series![0], daily }] }}
+    />,
+  );
+  expect(screen.getAllByRole('cell', { name: '0' })).toHaveLength(2);
+  expect(screen.getByText(/0 — заезды на эту дату не запланированы/)).toBeInTheDocument();
+  expect(screen.queryByText(/дата ещё не наступила/)).not.toBeInTheDocument();
+});
 
 it('создаёт отчёт через API, сохраняет блок с версией и открывает сохранённый отчёт повторно', async () => {
   mocks();

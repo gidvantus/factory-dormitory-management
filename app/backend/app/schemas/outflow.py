@@ -4,6 +4,19 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.table_column import ColumnResponse
+
+
+class ReasonChoice(BaseModel):
+    value: str
+    label: str
+
+
+class OutflowFields(BaseModel):
+    reason_column: ColumnResponse | None
+    departure_column: ColumnResponse | None
+    reasons: list[ReasonChoice]
+
 
 class UpdateOutflowRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")

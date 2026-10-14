@@ -15,6 +15,7 @@ interface ModalProps {
   children: ReactNode;
   panelClassName?: string;
   containerClassName?: string;
+  initialFocus?: 'first-input' | 'panel';
 }
 
 /**
@@ -30,6 +31,7 @@ export function Modal({
   children,
   panelClassName = '',
   containerClassName = '',
+  initialFocus = 'first-input',
 }: ModalProps): JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = `${testId}-title`;
@@ -44,11 +46,11 @@ export function Modal({
       'input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
     );
     const firstFocusable = panel.querySelector<HTMLElement>(FOCUSABLE);
-    (firstInput ?? firstFocusable ?? panel).focus();
+    (initialFocus === 'panel' ? panel : (firstInput ?? firstFocusable ?? panel)).focus();
     return () => {
       if (trigger?.isConnected) trigger.focus({ preventScroll: true });
     };
-  }, []);
+  }, [initialFocus]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {

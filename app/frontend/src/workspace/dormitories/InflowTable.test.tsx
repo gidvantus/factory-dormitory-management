@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { InflowRow } from '../../api/client';
+import type { IdentityChoice } from '../../api/personnel';
 import { mockTableFetch as mockFetch } from '../../test/tableColumns';
 import { InflowTable } from './InflowTable';
 
@@ -19,8 +20,9 @@ const blank: InflowRow = {
 };
 
 describe('Приток', () => {
-  it('создаёт и сохраняет строку, подтверждает удаление и использует верхний период', async () => {
+  it('создаёт строку по ФИО и телефону без табельного номера, сохраняет поля и использует верхний период', async () => {
     let row: InflowRow | null = null;
+    const created: IdentityChoice[] = [];
     const fetchMock = mockFetch((url, init) => {
       if (url.includes('/api/dormitories/7/inflow?') && !init?.method) {
         return { status: 200, body: row ? [row] : [] };
@@ -28,7 +30,13 @@ describe('Приток', () => {
       if (url.endsWith('/api/personnel/check'))
         return { status: 200, body: { candidates: [], check_token: 'a'.repeat(64) } };
       if (url.endsWith('/api/personnel/records') && init?.method === 'POST') {
-        row = { ...blank };
+        const { identity } = JSON.parse(String(init.body)) as { identity: IdentityChoice };
+        created.push(identity);
+        row = {
+          ...blank,
+          full_name: identity.full_name,
+          personnel_number: identity.personnel_number,
+        };
         return {
           status: 201,
           body: { row_id: 5, employee_id: '00000000-0000-4000-8000-000000000001' },
@@ -48,22 +56,36 @@ describe('Приток', () => {
     render(<InflowTable dormitoryId="7" range={{ from: '2026-10-01', to: '2026-10-31' }} />);
     await user.click(await screen.findByRole('button', { name: /Добавить строку/ }));
     const identity = await screen.findByRole('dialog');
-    await user.type(within(identity).getByLabelText('Табельный номер'), '123');
-    const saveIdentity = within(identity).getByRole('button', { name: 'Сохранить на проверку' });
+    expect(within(identity).queryByLabelText('Табельный номер')).not.toBeInTheDocument();
+    await user.type(within(identity).getByLabelText('ФИО'), 'Иванов Иван');
+    await user.type(within(identity).getByLabelText('Телефон'), '+7 (900) 123-45-67');
+    const saveIdentity = within(identity).getByRole('button', {
+      name: 'Создать новую карточку',
+    });
     await waitFor(() => expect(saveIdentity).toBeEnabled());
     await user.click(saveIdentity);
     const tableRow = await screen.findByTestId('inflow-row-5');
-    expect(within(screen.getByRole('table')).getAllByRole('columnheader')).toHaveLength(7);
+    expect(created).toEqual([
+      expect.objectContaining({
+        full_name: 'Иванов Иван',
+        phone: '+7 (900) 123-45-67',
+        personnel_number: null,
+      }),
+    ]);
+    expect(within(screen.getByRole('table')).getAllByRole('columnheader')).toHaveLength(9);
     fireEvent.change(within(tableRow).getByLabelText('Дата заселения, строка 5'), {
       target: { value: '2026-10-07' },
     });
-    await user.type(within(tableRow).getByLabelText('ФИО, строка 5'), 'Иванов Иван');
+    expect(within(tableRow).getByRole('link', { name: 'Иванов Иван' })).toBeInTheDocument();
+    await user.click(within(tableRow).getByRole('button', { name: 'Редактировать ФИО, строка 5' }));
+    await user.clear(within(tableRow).getByLabelText('ФИО, строка 5'));
+    await user.type(within(tableRow).getByLabelText('ФИО, строка 5'), 'Иванов Иван Петрович');
     await user.tab();
     await user.type(within(tableRow).getByLabelText('Кол-во смен, строка 5'), '10x');
     expect(within(tableRow).getByLabelText('Кол-во смен, строка 5')).toHaveValue('10');
     await user.tab();
     await waitFor(() => expect((row as InflowRow | null)?.shift_count).toBe(10));
-    expect((row as InflowRow | null)?.full_name).toBe('Иванов Иван');
+    expect((row as InflowRow | null)?.full_name).toBe('Иванов Иван Петрович');
     await user.click(within(tableRow).getByRole('button', { name: 'Удалить' }));
     const dialog = screen.getByRole('dialog', { name: 'Удалить строку притока?' });
     await user.click(within(dialog).getByRole('button', { name: 'Отмена' }));

@@ -137,7 +137,15 @@ def read_dashboard(
     return DashboardResponse(
         layout=layout,
         widgets=[
-            calculate_widget(db, _user, block, dormitories, from_date, snapshot_date, reports)
+            calculate_widget(
+                db,
+                _user,
+                block,
+                dormitories,
+                from_date,
+                to_date if block.config.source_kind == "arrival_plan" else snapshot_date,
+                reports,
+            )
             for block in layout.blocks
             if f"custom:{block.id}" not in layout.hidden
         ],

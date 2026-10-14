@@ -22,7 +22,7 @@ export function TrialNotice(): JSX.Element | null {
       <p>Выберите тариф, чтобы вернуть рабочие разделы.</p>
       <Link
         className="btn btn--primary btn--compact"
-        to="/cabinet/tariffs"
+        to="/pricing"
         data-testid="trial-expired-link"
       >
         Выбрать тариф

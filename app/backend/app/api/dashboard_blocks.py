@@ -49,6 +49,8 @@ def preview_block(
         raise HTTPException(422, "Выберите период не длиннее года")
     validate_config(db, payload)
     end = min(to_date, today_moscow()) if from_date <= today_moscow() else None
+    if payload.source_kind == "arrival_plan":
+        end = to_date
     dormitories = list(db.scalars(select(Dormitory).order_by(Dormitory.id)))
     return calculate_widget(
         db, user, WidgetDefinition(id=0, config=payload), dormitories, from_date, end, {}

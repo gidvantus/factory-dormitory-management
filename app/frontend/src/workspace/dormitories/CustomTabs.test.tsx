@@ -49,6 +49,8 @@ it('добавляет локальную вкладку, блокирует с�
   let tabs: CustomTab[] = [];
   let rows: CustomTabRow[] = [];
   const requests = mockFetch((url, init) => {
+    if (url.includes('/personnel/bindings/'))
+      return { status: 200, body: { fields: {}, columns: [] } };
     if (url === '/api/me')
       return {
         status: 200,
@@ -206,6 +208,8 @@ it('не удаляет строку до подтверждения и сохр
   let failed = true;
   const fetch = mockFetch((url, init) => {
     if (url.endsWith('/columns')) return { status: 200, body: columns };
+    if (url.includes('/personnel/bindings/'))
+      return { status: 200, body: { fields: {}, columns: [] } };
     if (init?.method === 'DELETE') {
       if (failed) return { status: 503, body: { detail: 'Повторите позже' } };
       rows = [];
@@ -230,6 +234,8 @@ it('блокирует добавление строк при ошибке за�
   let failed = true;
   mockFetch((url) => {
     if (url.endsWith('/columns')) return { status: 200, body: columns };
+    if (url.includes('/personnel/bindings/'))
+      return { status: 200, body: { fields: {}, columns: [] } };
     return failed ? { status: 503, body: { detail: 'Нет соединения' } } : { status: 200, body: [] };
   });
   render(<CustomTabTable dormitoryId="7" tab={ready} onChanged={vi.fn()} />);

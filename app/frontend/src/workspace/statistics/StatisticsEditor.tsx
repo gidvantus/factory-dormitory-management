@@ -44,6 +44,12 @@ function SourceFields({
   };
   return (
     <>
+      {source.kind === 'arrival_plan' && (
+        <p className={styles.hint}>
+          Количество ожидаемых людей по датам заезда, включая будущие даты выбранного периода. Дни
+          без записей дают 0. Заполнение ФИО не влияет на расчёт.
+        </p>
+      )}
       {showSourcePicker && source.kind === 'table' && (
         <label className={styles.field}>
           Таблица в этом общежитии
@@ -434,6 +440,7 @@ export function StatisticsEditor({
                   if (dorm && meta)
                     query({
                       source_kind: meta.kind,
+                      period: meta.kind === 'arrival_plan' ? 'range' : draft.query.period,
                       operation:
                         meta.kind === 'table' && draft.query.source_kind === 'table'
                           ? draft.query.operation
@@ -560,64 +567,66 @@ export function StatisticsEditor({
                 <option value="dormitory">По общежитиям</option>
               </select>
             </label>
-            <details className={styles.sourceOverrides}>
-              <summary>Связи с другими общежитиями</summary>
-              <p className={styles.hint}>
-                По умолчанию подбираются строки, вкладки и столбцы с такими же названиями. Если
-                структура отличается, укажите источник вручную.
-              </p>
-              <label className={styles.field}>
-                Настроить общежитие
-                <select value={override} onChange={(event) => setOverride(event.target.value)}>
-                  <option value="">Выберите общежитие</option>
-                  {catalog
-                    .filter((item) => item.id !== dorm?.id)
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              {target && overrideSource && (
-                <>
-                  <p className={styles.hint}>
-                    {explicit
-                      ? 'Источник задан явно'
-                      : 'Настройте источник и он будет закреплён за этим общежитием'}
-                  </p>
-                  <SourceFields
-                    dorm={target}
-                    source={overrideSource}
-                    block={draft}
-                    onChange={(next) =>
-                      query({
-                        sources: [
-                          ...draft.query.sources.filter(
-                            (item) => item.dormitory_id !== next.dormitory_id,
-                          ),
-                          next,
-                        ],
-                      })
-                    }
-                  />
-                  {explicit && (
-                    <button
-                      className={styles.textButton}
-                      onClick={() =>
+            {draft.query.source_kind !== 'arrival_plan' && (
+              <details className={styles.sourceOverrides}>
+                <summary>Связи с другими общежитиями</summary>
+                <p className={styles.hint}>
+                  По умолчанию подбираются строки, вкладки и столбцы с такими же названиями. Если
+                  структура отличается, укажите источник вручную.
+                </p>
+                <label className={styles.field}>
+                  Настроить общежитие
+                  <select value={override} onChange={(event) => setOverride(event.target.value)}>
+                    <option value="">Выберите общежитие</option>
+                    {catalog
+                      .filter((item) => item.id !== dorm?.id)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                {target && overrideSource && (
+                  <>
+                    <p className={styles.hint}>
+                      {explicit
+                        ? 'Источник задан явно'
+                        : 'Настройте источник и он будет закреплён за этим общежитием'}
+                    </p>
+                    <SourceFields
+                      dorm={target}
+                      source={overrideSource}
+                      block={draft}
+                      onChange={(next) =>
                         query({
-                          sources: draft.query.sources.filter(
-                            (item) => item.dormitory_id !== target.id,
-                          ),
+                          sources: [
+                            ...draft.query.sources.filter(
+                              (item) => item.dormitory_id !== next.dormitory_id,
+                            ),
+                            next,
+                          ],
                         })
                       }
-                    >
-                      Вернуть автоматический подбор
-                    </button>
-                  )}
-                </>
-              )}
-            </details>
+                    />
+                    {explicit && (
+                      <button
+                        className={styles.textButton}
+                        onClick={() =>
+                          query({
+                            sources: draft.query.sources.filter(
+                              (item) => item.dormitory_id !== target.id,
+                            ),
+                          })
+                        }
+                      >
+                        Вернуть автоматический подбор
+                      </button>
+                    )}
+                  </>
+                )}
+              </details>
+            )}
           </section>
         </div>
         <div className={styles.editorPreview}>

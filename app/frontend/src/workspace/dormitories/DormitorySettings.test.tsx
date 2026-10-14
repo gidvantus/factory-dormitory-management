@@ -253,10 +253,22 @@ it('собирает действия строки в одну ячейку и �
   expect(screen.getAllByRole('columnheader')).toHaveLength(3);
   expect(screen.getByRole('rowheader', { name: '1' })).toBeInTheDocument();
   const user = userEvent.setup();
-  await user.click(screen.getByLabelText('Действия, строка 20'));
+  const trigger = screen.getByRole('button', { name: 'Действия, строка 20' });
+  await user.click(trigger);
+  const menu = screen.getByRole('group', { name: 'Действия, строка 20' });
+  expect(screen.getByRole('rowheader', { name: '1' }).closest('tr')).not.toContainElement(menu);
+  expect(screen.getByRole('button', { name: 'Записать на аванс' })).toHaveFocus();
   await user.click(screen.getByRole('button', { name: 'Записать на аванс' }));
   expect(action).toHaveBeenCalledTimes(1);
-  await user.click(screen.getByLabelText('Действия, строка 20'));
+  expect(screen.queryByRole('group', { name: 'Действия, строка 20' })).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
+  await user.click(trigger);
+  await user.keyboard('{Escape}');
+  expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  expect(trigger).toHaveFocus();
+  await user.click(trigger);
+  await user.click(screen.getByRole('columnheader', { name: 'ФИО' }));
+  expect(trigger).toHaveAttribute('aria-expanded', 'false');
   expect(screen.getByRole('status')).toBeVisible();
 });
 
