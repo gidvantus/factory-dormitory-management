@@ -2,8 +2,8 @@
 
 Статусов четыре, и переходы между ними разрешены не все:
 
-* `new → paid` — оплата: проставляется `paid_at`, организации привязывается
-  тариф счёта и заводится строка акта;
+* `new → paid` — оплата: проставляется `paid_at`, заводится строка акта, и
+  дальше всё зависит от вида предмета счёта;
 * `paid → closed` — счёт закрыт после оплаты;
 * `new → cancelled` — счёт отменён до оплаты.
 
@@ -15,11 +15,19 @@
 (тем же приёмом, что `_lock_organization` в `app/api/organization.py`), затем
 строка счёта. Так два одновременных `PATCH` не выставят организации два разных
 тарифа, а порядок блокировок совпадает с порядком в остальных ручках — иначе
-встречные транзакции упёрлись бы во взаимную блокировку.
+встречные транзакции упёрлись бы во взаимную блокировку. Та же блокировка
+сериализует выдачу прав на решения: два одновременных `PATCH` по счетам за одно
+решение не создадут две строки права.
 
-Снимок тарифа в счёте остаётся главным: организация получает `tariff_id` из
-счёта, а не из текущего прайса. Если у организации уже есть **другой** тариф —
-это `409` «Тариф организации уже выбран»: смена тарифа покупкой не делается.
+Предмет счёта бывает двух видов, и оплата у них разная:
+
+* **тариф** (`item_kind = 'tariff'`) — организации привязывается тариф счёта.
+  Снимок тарифа в счёте остаётся главным: организация получает `tariff_id` из
+  счёта, а не из текущего прайса. Если у организации уже есть **другой** тариф —
+  это `409` «Тариф организации уже выбран»: смена тарифа покупкой не делается;
+* **решение** (`item_kind = 'solution'`) — оплата выдаёт или продлевает право
+  организации на решение (`app/solutions.py::grant`), а `organizations.tariff_id`
+  **не трогается**: решение не открывает кабинет и не меняет тариф.
 """
 
 from datetime import UTC, datetime
@@ -28,8 +36,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.invoice import Invoice, InvoiceDocument
+from app.models.invoice import SOLUTION_ITEM_KIND, Invoice, InvoiceDocument
 from app.models.organization import Organization
+from app.models.solution import Solution
+from app.solutions import grant
 
 # Подписи статусов для кабинета. Собирает сервер: экран показывает то же, что
 # видит и выгрузка, и формулировка живёт в одном месте.
@@ -115,10 +125,22 @@ def change_status(db: Session, invoice: Invoice, target: str) -> Invoice:
         raise HTTPException(status.HTTP_409_CONFLICT, INVALID_STATUS_DETAIL)
 
     if target == PAID_STATUS:
-        if organization.tariff_id is not None and organization.tariff_id != invoice.tariff_id:
-            raise HTTPException(status.HTTP_409_CONFLICT, TARIFF_ALREADY_CHOSEN_DETAIL)
+        if invoice.item_kind == SOLUTION_ITEM_KIND:
+            # Право выдаётся из строки каталога: снимок счёта хранит только
+            # название и период, а для срока нужен `period` решения.
+            solution = (
+                db.get(Solution, invoice.solution_id) if invoice.solution_id is not None else None
+            )
+            if solution is not None:
+                grant(db, organization.id, solution, invoice_id=invoice.id)
+            # Строки каталога может уже не быть (`ON DELETE SET NULL` обнуляет
+            # ссылку): тогда выдавать нечего — оплата всё равно фиксируется, а
+            # право не появляется. Молчаливой выдачи «не того» решения нет.
+        else:
+            if organization.tariff_id is not None and organization.tariff_id != invoice.tariff_id:
+                raise HTTPException(status.HTTP_409_CONFLICT, TARIFF_ALREADY_CHOSEN_DETAIL)
+            organization.tariff_id = invoice.tariff_id
         invoice.paid_at = datetime.now(UTC)
-        organization.tariff_id = invoice.tariff_id
         db.add(InvoiceDocument(invoice_id=invoice.id, kind=ACT_KIND))
 
     invoice.status = target

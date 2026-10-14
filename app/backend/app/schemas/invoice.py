@@ -7,28 +7,47 @@
 `status_label` тоже серверный: кабинет, письмо и печатная форма показывают один
 и тот же текст статуса, а словарь подписей живёт в `app/invoice_status.py`.
 
+Предмет покупки объявлен двумя взаимоисключающими полями: тариф (`tariff_id`)
+или решение магазина улучшений (`solution_id`). Ровно одно из двух — иначе
+`422`: запрос «купить сразу и тариф, и решение» не имеет одного предмета счёта,
+а запрос без предмета нечего выставлять.
+
 Оба тела запроса запрещают лишние поля (`extra="forbid"`): опечатка в имени
 поля должна быть ошибкой ввода, а не молча проигнорированным значением.
 """
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 # Статусы, в которые счёт можно перевести вручную. `new` здесь нет: счёт
 # создаётся покупкой, а не сменой статуса.
 InvoiceStatus = Literal["new", "paid", "closed", "cancelled"]
 UpdatableInvoiceStatus = Literal["paid", "closed", "cancelled"]
 
+# Вид предмета счёта — тот же набор, что держит `CHECK` в таблице.
+InvoiceItemKind = Literal["tariff", "solution"]
+
+# Текст отказа схемы: он попадает в 422 и объясняет, чего не хватает.
+ITEM_REQUIRED_MESSAGE = "Укажите ровно один предмет счёта: tariff_id или solution_id"
+
 
 class CreateInvoiceRequest(BaseModel):
-    """Покупка: какой тариф покупает организация."""
+    """Покупка: какой предмет покупает организация — тариф или решение."""
 
     model_config = ConfigDict(extra="forbid")
 
-    tariff_id: int
+    tariff_id: int | None = None
+    solution_id: int | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_item(self) -> Self:
+        """Один предмет на счёт: оба поля или ни одного — ошибка ввода."""
+        if (self.tariff_id is None) == (self.solution_id is None):
+            raise ValueError(ITEM_REQUIRED_MESSAGE)
+        return self
 
 
 class UpdateInvoiceStatusRequest(BaseModel):
@@ -53,9 +72,15 @@ class InvoiceResponse(BaseModel):
     number: str
     status: InvoiceStatus
     status_label: str
+    # Вид предмета: тариф или решение магазина улучшений. Снимок предмета лежит
+    # в `tariff_name`/`tariff_period` для обоих видов — переименование колонок
+    # вынесено в отдельную задачу.
+    item_kind: InvoiceItemKind
     amount: Decimal
     currency: str
     amount_label: str
+    # Название предмета: тарифа или решения. Колонка называется `tariff_name`
+    # исторически — снимок появился вместе со счетами за тариф.
     tariff_name: str | None
     # Снимок периода: строка из `TARIFF_PERIODS`. Литералом не объявляется —
     # историческая строка переживает правки прайса, и обещать объявленный набор
