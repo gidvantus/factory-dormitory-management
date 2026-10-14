@@ -177,7 +177,10 @@ export function Documents(): JSX.Element {
                 <tr>
                   <th scope="col">Номер</th>
                   <th scope="col">Дата</th>
-                  <th scope="col">Тариф</th>
+                  {/* «Предмет» — потому что в счёте за решение в этой колонке
+                      стоит название решения, а `tariff_name` — историческое имя
+                      колонки снимка. */}
+                  <th scope="col">Предмет</th>
                   <th scope="col">Сумма</th>
                   <th scope="col">Статус</th>
                   <th scope="col">Документы</th>

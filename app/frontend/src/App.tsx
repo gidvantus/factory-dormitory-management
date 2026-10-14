@@ -14,8 +14,10 @@ import { Dormitories } from './workspace/Dormitories';
 import { DormitoryDetails } from './workspace/dormitories/DormitoryDetails';
 import { Documents } from './workspace/Documents';
 import { Members } from './workspace/Members';
+import { Notifications } from './workspace/Notifications';
 import { Organization } from './workspace/Organization';
 import { PersonalData } from './workspace/PersonalData';
+import { Shop } from './workspace/Shop';
 import { Tariffs } from './workspace/Tariffs';
 import { WorkspaceOverview } from './workspace/WorkspaceOverview';
 import { DormitoryDesignPreview } from './pages/DormitoryDesignPreview';
@@ -96,6 +98,12 @@ export function App(): JSX.Element {
           <Route path="organization" element={<Organization />} />
           <Route path="organization/members" element={<Members />} />
           <Route path="tariffs" element={<Tariffs />} />
+          {/* «Магазин улучшений» работает и на закрытом пробном периоде: решение
+              покупают именно тогда, когда кабинет закрыт. */}
+          <Route path="shop" element={<Shop />} />
+          {/* «Уведомления» — платная функция: без права организации страница
+              сама показывает состояние «решение не подключено». */}
+          <Route path="notifications" element={<Notifications />} />
           {/* Раздел «Документы» работает и на закрытом пробном периоде: счёт
               выставляется именно тогда, когда кабинет закрыт. */}
           <Route path="documents" element={<Documents />} />

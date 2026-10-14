@@ -1,9 +1,15 @@
 import { useSession } from '../auth/SessionProvider';
-import { TelegramNotifications } from './TelegramNotifications';
 import { userInitials } from './userInitials';
 import { WorkspaceIcon } from './WorkspaceIcon';
 import styles from './Workspace.module.css';
 
+/**
+ * «Личные данные»: только учётная запись.
+ *
+ * Карточка Telegram отсюда убрана: настройки уведомлений — платная функция, и
+ * они живут на отдельной странице `/cabinet/notifications`, которая включается
+ * правом организации на решение.
+ */
 export function PersonalData(): JSX.Element {
   const { user } = useSession();
 
@@ -46,7 +52,6 @@ export function PersonalData(): JSX.Element {
           </p>
         </div>
       </section>
-      <TelegramNotifications />
     </section>
   );
 }

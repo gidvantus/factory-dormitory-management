@@ -4,6 +4,8 @@ import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react
 import { useSession } from '../auth/SessionProvider';
 import { TrialProvider, useTrial } from '../auth/TrialProvider';
 import { subscribeToTrialExpired } from '../auth/trial';
+import { SolutionsProvider, useSolutions } from '../workspace/SolutionsProvider';
+import { TELEGRAM_NOTIFICATIONS_CODE } from '../workspace/solutions';
 import { userInitials } from '../workspace/userInitials';
 import { WorkspaceIcon } from '../workspace/WorkspaceIcon';
 import styles from '../workspace/Workspace.module.css';
@@ -12,6 +14,8 @@ const sectionTitles: Record<string, string> = {
   '/cabinet': 'Обзор',
   '/cabinet/dormitories': 'Общежития',
   '/cabinet/tariffs': 'Тариф',
+  '/cabinet/shop': 'Магазин улучшений',
+  '/cabinet/notifications': 'Уведомления',
   '/cabinet/documents': 'Документы',
   '/cabinet/organization': 'Организация',
   '/cabinet/organization/members': 'Сотрудники',
@@ -24,8 +28,9 @@ const sectionTitles: Record<string, string> = {
  * Разделы, закрытые после окончания пробного периода.
  *
  * Список ведётся явно, а не «всё, кроме перечисленного»: открытыми остаются
- * «Обзор», «Тариф», «Прайс-лист», «Организация» и «Личные данные», и новый
- * рабочий раздел должен появиться здесь осознанно, а не закрыться случайно.
+ * «Обзор», «Тариф», «Магазин улучшений», «Документы», «Организация» и «Личные
+ * данные», и новый рабочий раздел должен появиться здесь осознанно, а не
+ * закрыться случайно.
  */
 const CLOSED_SECTIONS = [
   '/cabinet/dormitories',
@@ -38,11 +43,19 @@ function isClosedSection(path: string): boolean {
   return CLOSED_SECTIONS.some((section) => path === section || path.startsWith(`${section}/`));
 }
 
-/** Оболочка кабинета вместе с состоянием пробного периода. */
+/**
+ * Оболочка кабинета вместе с состоянием пробного периода и правами на решения.
+ *
+ * `SolutionsProvider` стоит рядом с `TrialProvider` и оборачивает ту же оболочку:
+ * пункт меню платной функции появляется по праву организации, а право читается
+ * один раз на весь кабинет.
+ */
 export function Cabinet(): JSX.Element {
   return (
     <TrialProvider>
-      <CabinetShell />
+      <SolutionsProvider>
+        <CabinetShell />
+      </SolutionsProvider>
     </TrialProvider>
   );
 }
@@ -50,6 +63,7 @@ export function Cabinet(): JSX.Element {
 function CabinetShell(): JSX.Element {
   const { user, logout } = useSession();
   const { locked } = useTrial();
+  const { ownedCodes } = useSolutions();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const trimmedPath = pathname.replace(/\/$/, '');
@@ -224,6 +238,35 @@ function CabinetShell(): JSX.Element {
                 <WorkspaceIcon name="chart" />
                 Тариф
               </NavLink>
+            </li>
+            <li>
+              {/* «Магазин улучшений» открыт всегда: решения покупают именно на
+                  закрытом пробном кабинете, когда тарифа ещё нет. */}
+              <NavLink
+                className={styles['nav-link']}
+                to="/cabinet/shop"
+                onClick={closeMenu}
+                data-testid="workspace-nav-shop"
+              >
+                <WorkspaceIcon name="info" />
+                Магазин улучшений
+              </NavLink>
+            </li>
+            <li>
+              {/* «Уведомления» — платная функция: пункт появляется только при
+                  действующем праве организации на решение. Прямой заход по
+                  адресу показывает состояние «решение не подключено». */}
+              {ownedCodes.has(TELEGRAM_NOTIFICATIONS_CODE) && (
+                <NavLink
+                  className={styles['nav-link']}
+                  to="/cabinet/notifications"
+                  onClick={closeMenu}
+                  data-testid="workspace-nav-notifications"
+                >
+                  <WorkspaceIcon name="people" />
+                  Уведомления
+                </NavLink>
+              )}
             </li>
             <li>
               {/* «Документы» не перечислены в `CLOSED_SECTIONS`: счета и акты

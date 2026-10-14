@@ -139,6 +139,35 @@ export interface OrganizationTariff {
   tariff: Tariff | null;
 }
 
+/**
+ * Решение магазина улучшений: отдельный продаваемый предмет.
+ *
+ * `code` — машинное имя решения (`telegram_notifications`): по нему кабинет
+ * решает, показывать ли пункт меню и страницу платной функции. `period` — из
+ * того же набора, что у тарифов, а `price_label` собирает сервер.
+ */
+export interface Solution {
+  id: number;
+  code: string;
+  name: string;
+  description: string | null;
+  /** Строка, а не число: `Numeric` едет по JSON как «500.00». */
+  amount: string;
+  currency: string;
+  period: TariffPeriod;
+  /** Готовая цена от сервера: «500 ₽ в месяц». */
+  price_label: string;
+  /** Есть ли у организации пользователя действующее право на это решение. */
+  is_owned: boolean;
+  /** `null` при `is_owned` — право бессрочное (`period = 'once'`). */
+  expires_at: string | null;
+}
+
+/** Каталог решений целиком: обёртка оставляет место новым полям ответа. */
+export interface SolutionsResponse {
+  items: Solution[];
+}
+
 /** Статус счёта. Подпись для человека приходит отдельным полем `status_label`. */
 export type InvoiceStatus = 'new' | 'paid' | 'closed' | 'cancelled';
 
@@ -157,11 +186,14 @@ export interface Invoice {
   number: string;
   status: InvoiceStatus;
   status_label: string;
+  /** Вид предмета: тариф или решение магазина улучшений. */
+  item_kind: 'tariff' | 'solution';
   /** Строка, а не число: `Numeric` едет по JSON как «10000.00». */
   amount: string;
   currency: string;
   /** Готовая подпись суммы: «10 000 ₽ в месяц». */
   amount_label: string;
+  /** Название предмета счёта: тарифа или решения. */
   tariff_name: string | null;
   tariff_period: string | null;
   buyer_name: string | null;
@@ -177,9 +209,11 @@ export interface Invoice {
   created_at: string;
 }
 
-export interface CreateInvoiceInput {
-  tariff_id: number;
-}
+/**
+ * Предмет покупки: ровно один из двух. Сервер отвечает `422`, если заполнены
+ * оба поля или ни одного, поэтому тип-объединение, а не два необязательных поля.
+ */
+export type CreateInvoiceInput = { tariff_id: number } | { solution_id: number };
 
 export interface UpdateInvoiceStatusInput {
   status: UpdatableInvoiceStatus;
@@ -992,6 +1026,11 @@ export const api = {
     return request<OrganizationTariff>('/tariffs/current', { signal });
   },
 
+  /** Каталог решений магазина улучшений с признаком владения. */
+  solutions(signal?: AbortSignal): Promise<SolutionsResponse> {
+    return request<SolutionsResponse>('/solutions', { signal });
+  },
+
   /** Счета организации, свежие первыми. Читает любой участник. */
   invoices(signal?: AbortSignal): Promise<Invoice[]> {
     return request<Invoice[]>('/billing/invoices', { signal });
@@ -1003,15 +1042,17 @@ export const api = {
   },
 
   /**
-   * «Купить» тариф: выставить организации счёт.
+   * «Купить»: выставить организации счёт за тариф или за решение.
    *
-   * Повторный клик безопасен: живой неоплаченный счёт сервер вернёт как есть
-   * (`200`), а не создаст второй. Тариф уже куплен — `409` с текстом причины.
+   * Предмет передаётся одним из двух полей (`{ tariff_id }` или
+   * `{ solution_id }`). Повторный клик безопасен: живой неоплаченный счёт за
+   * тот же предмет сервер вернёт как есть (`200`), а не создаст второй. Тариф
+   * уже куплен — `409` с текстом причины.
    */
-  purchaseInvoice(tariffId: number): Promise<Invoice> {
+  purchaseInvoice(input: CreateInvoiceInput): Promise<Invoice> {
     return request<Invoice>('/billing/invoices', {
       method: 'POST',
-      body: JSON.stringify({ tariff_id: tariffId } satisfies CreateInvoiceInput),
+      body: JSON.stringify(input satisfies CreateInvoiceInput),
     });
   },
 
