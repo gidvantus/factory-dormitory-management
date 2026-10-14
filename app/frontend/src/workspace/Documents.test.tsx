@@ -63,6 +63,35 @@ const PAID_INVOICE = {
   paid_at: '2026-01-16T10:00:00Z',
 };
 
+/** Счёт за решение магазина: в столбце предмета стоит название решения. */
+const SOLUTION_INVOICE = {
+  ...NEW_INVOICE,
+  item_kind: 'solution',
+  tariff_name: 'Уведомления в Telegram',
+  amount: '500.00',
+  amount_label: '500 ₽ в месяц',
+};
+
+/** Строка каталога решений: право появляется у организации только оплатой. */
+const SOLUTION = {
+  id: 7,
+  code: 'telegram_notifications',
+  name: 'Уведомления в Telegram',
+  description: 'Сообщения о событиях, которые вас касаются',
+  amount: '500.00',
+  currency: 'RUB',
+  period: 'month',
+  price_label: '500 ₽ в месяц',
+  is_owned: false,
+  expires_at: null,
+};
+
+const OWNED_SOLUTION = {
+  ...SOLUTION,
+  is_owned: true,
+  expires_at: '2026-11-14T10:00:00Z',
+};
+
 /** Маршруты кабинета: сессия активна, счета приходят из `/api/billing/invoices`. */
 function routes(invoices: MockResponse, patch?: MockResponse): MockHandler {
   return (url, init) => {
@@ -275,5 +304,82 @@ describe('раздел «Документы» в кабинете', () => {
     expect(screen.getByTestId('document-download')).toBeInTheDocument();
     expect(screen.queryByTestId('document-status-paid')).not.toBeInTheDocument();
     expect(screen.queryByTestId('document-status-cancel')).not.toBeInTheDocument();
+  });
+
+  /**
+   * Регрессия приёмки: оплата счёта за решение выдаёт право, но оболочка кабинета
+   * держит признак владения у себя и читает каталог один раз. Без перечитывания
+   * каталога право на сервере уже действует, а метка «Подключено» и пункт
+   * «Уведомления» не появляются до перезагрузки: переход по меню — клиентский,
+   * оболочка не перемонтируется.
+   */
+  it('после оплаты перечитывает каталог решений: право видно без перезагрузки', async () => {
+    // Сервер отдаёт право сразу после оплаты — как настоящий: до неё права нет.
+    let ownsSolution = false;
+    const fetchMock = mockFetch((url, init) => {
+      if (url.endsWith('/api/me')) return PROFILE;
+      if (url.endsWith('/api/trial')) return TRIAL;
+      if (url.endsWith('/api/solutions')) {
+        return { status: 200, body: { items: [ownsSolution ? OWNED_SOLUTION : SOLUTION] } };
+      }
+      if (url.endsWith('/api/billing/invoices')) {
+        return { status: 200, body: [SOLUTION_INVOICE] };
+      }
+      if (url.includes('/api/billing/invoices/') && init?.method === 'PATCH') {
+        ownsSolution = true;
+        return {
+          status: 200,
+          body: { ...SOLUTION_INVOICE, status: 'paid', status_label: 'Оплачен' },
+        };
+      }
+      return NOT_FOUND;
+    });
+    const user = userEvent.setup();
+    renderApp('/cabinet/documents');
+
+    await screen.findByTestId('documents-row');
+    expect(callsTo(fetchMock, '/api/solutions')).toHaveLength(1);
+    expect(screen.queryByTestId('workspace-nav-notifications')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('document-status-paid'));
+
+    // Пункт меню появляется сразу после оплаты — значит каталог перечитан.
+    expect(await screen.findByTestId('workspace-nav-notifications')).toBeInTheDocument();
+    expect(callsTo(fetchMock, '/api/solutions')).toHaveLength(2);
+
+    // И карточка магазина показывает право — тем же состоянием, без перезагрузки.
+    await user.click(screen.getByTestId('workspace-nav-shop'));
+    const card = await screen.findByTestId('solution-card');
+    expect(within(card).getByTestId('solution-owned')).toHaveTextContent('Подключено');
+    expect(card).toHaveAttribute('data-owned', 'true');
+  });
+
+  it('закрытие и отмена счёта каталог решений не перечитывают', async () => {
+    // Право меняет только оплата: остальные переходы лишний запрос не шлют.
+    const fetchMock = mockFetch((url, init) => {
+      if (url.endsWith('/api/me')) return PROFILE;
+      if (url.endsWith('/api/trial')) return TRIAL;
+      if (url.endsWith('/api/solutions')) {
+        return { status: 200, body: { items: [SOLUTION] } };
+      }
+      if (url.endsWith('/api/billing/invoices')) {
+        return { status: 200, body: [SOLUTION_INVOICE] };
+      }
+      if (url.includes('/api/billing/invoices/') && init?.method === 'PATCH') {
+        return {
+          status: 200,
+          body: { ...SOLUTION_INVOICE, status: 'cancelled', status_label: 'Отменён' },
+        };
+      }
+      return NOT_FOUND;
+    });
+    const user = userEvent.setup();
+    renderApp('/cabinet/documents');
+
+    await screen.findByTestId('documents-row');
+    await user.click(screen.getByTestId('document-status-cancel'));
+
+    expect(screen.getByTestId('document-status')).toHaveTextContent('Отменён');
+    expect(callsTo(fetchMock, '/api/solutions')).toHaveLength(1);
   });
 });
