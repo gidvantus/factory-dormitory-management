@@ -27,6 +27,7 @@ from app.api import (
     reports,
     residents,
     sections,
+    solutions,
     statistics_reports,
     tab_catalog,
     table_columns,
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     application.include_router(dormitory_settings.router, prefix=API_PREFIX)
     application.include_router(dormitory_templates.router, prefix=API_PREFIX)
     application.include_router(tariffs.router, prefix=API_PREFIX)
+    application.include_router(solutions.router, prefix=API_PREFIX)
     application.include_router(billing.router, prefix=API_PREFIX)
     application.include_router(trial.router, prefix=API_PREFIX)
     application.include_router(documents.router, prefix=API_PREFIX)

@@ -22,6 +22,7 @@ os.environ["DADATA_API_KEY"] = ""
 
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,11 +31,13 @@ from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import solutions
 from app.config import get_settings
 from app.db import get_db
 from app.main import app
 from app.models import Base
 from app.models.organization import Organization, OrganizationMember
+from app.models.solution import OrganizationSolution, Solution
 from app.models.user import User
 from app.security import hash_password
 
@@ -189,3 +192,72 @@ def organizations_for(
     db_session.refresh(organization)
     db_session.refresh(membership)
     return organization, membership
+
+
+# Код решения «уведомления в Telegram»: он же стоит в seed-строке каталога.
+TELEGRAM_NOTIFICATIONS_CODE = "telegram_notifications"
+
+
+def add_solution(
+    db_session: Session,
+    *,
+    code: str = TELEGRAM_NOTIFICATIONS_CODE,
+    name: str = "Уведомления в Telegram",
+    description: str | None = "Сообщения о событиях, которые вас касаются",
+    amount: str = "500.00",
+    period: str = "month",
+    position: int = 1,
+    is_visible: bool = True,
+) -> Solution:
+    """Завести строку каталога решений прямо в базе.
+
+    Юнит-тесты идут на SQLite и схему собирают из моделей, а seed каталога живёт
+    в миграции `0035_solutions`: без этой строки магазин был бы пуст, поэтому
+    её заводит сам тест.
+    """
+    solution = Solution(
+        code=code,
+        name=name,
+        description=description,
+        amount=Decimal(amount),
+        currency="RUB",
+        period=period,
+        position=position,
+        is_visible=is_visible,
+    )
+    db_session.add(solution)
+    db_session.commit()
+    db_session.refresh(solution)
+    return solution
+
+
+def give_solution(
+    db_session: Session,
+    organization: Organization,
+    *,
+    code: str = TELEGRAM_NOTIFICATIONS_CODE,
+    period: str = "month",
+    expires_at: datetime | None = None,
+    invoice_id: int | None = None,
+) -> Solution:
+    """Выдать организации право на решение — как это делает оплата счёта.
+
+    Обычный путь — `solutions.grant`: срок считается от момента выдачи. Явный
+    `expires_at` нужен там, где проверяется просроченное право: подменить часы
+    тест не может.
+    """
+    solution = add_solution(db_session, code=code, period=period)
+    if expires_at is None:
+        solutions.grant(db_session, organization.id, solution, invoice_id=invoice_id)
+    else:
+        db_session.add(
+            OrganizationSolution(
+                organization_id=organization.id,
+                solution_id=solution.id,
+                granted_at=expires_at - timedelta(days=30),
+                expires_at=expires_at,
+                invoice_id=invoice_id,
+            )
+        )
+    db_session.commit()
+    return solution
