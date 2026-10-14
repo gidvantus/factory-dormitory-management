@@ -2,6 +2,7 @@
 
 from app.models.activation import ActivationToken
 from app.models.arrival_plan import ArrivalPlan
+from app.models.audit import AuditEvent
 from app.models.base import Base
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dashboard_block import DashboardBlock, DashboardLayout
@@ -44,6 +45,7 @@ __all__ = [
     "ActivationToken",
     "ArchiveEntry",
     "ArrivalPlan",
+    "AuditEvent",
     "Base",
     "CustomTab",
     "CustomTabEntry",

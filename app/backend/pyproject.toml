@@ -63,7 +63,10 @@ exclude = ["alembic/versions"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# Юнит-прогон идёт без проверок против настоящей PostgreSQL: они помечены
+# `dbtest` и запускаются отдельно на стенде (`pytest -m dbtest`). Явный `-m`
+# в командной строке перекрывает этот флаг: побеждает последний.
+addopts = '-q -m "not dbtest"'
 markers = [
     "dbtest: проверка против настоящей PostgreSQL (в юнит-прогоне не участвует)",
 ]
