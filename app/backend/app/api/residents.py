@@ -15,6 +15,7 @@ from app.models.outflow import PersonnelOutflow
 from app.models.payment import PaymentEntry
 from app.models.resident import Resident
 from app.notifications import capture_resident_outflow, queue_resident_outflow
+from app.outflow_fields import apply_outflow_fields
 from app.personnel import close_residence, record_changed
 from app.resident_outflow import prepare_outflow
 from app.resident_payments import copy_payment_values, existing_payment
@@ -71,7 +72,7 @@ def list_residents(
     if month.day != 1:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите первый день месяца")
     residents = db.scalars(
-        select(Resident).where(Resident.dormitory_id == dormitory_id).order_by(Resident.id)
+        select(Resident).where(Resident.dormitory_id == dormitory_id).order_by(Resident.id.desc())
     ).all()
     hostels = db.scalars(
         select(Hostel)
@@ -229,6 +230,13 @@ def move_to_outflow(
         raise HTTPException(409, "Данные, столбцы или выплаты изменились. Повторно проверьте отток")
     if plan.preview.warnings and not payload.confirm_loss:
         raise HTTPException(409, "Подтвердите перенос в отток без перечисленных полей")
+    apply_outflow_fields(
+        db,
+        dormitory_id,
+        plan.fields,
+        plan.custom,
+        payload.model_dump(exclude_unset=True, include={"reason", "departure_date"}),
+    )
     record_changed(
         db, plan.resident, _user.id, kind="outflow", title="Проживание завершено · перенос в отток"
     )

@@ -50,6 +50,8 @@ const fields: Record<TableKey, string[]> = {
     'citizenship',
     'notes',
     'shift_count',
+    'action_check_in',
+    'action_outflow',
     'action_delete',
   ],
   outflow: [
@@ -94,6 +96,21 @@ export function defaultColumns(table: TableKey): TableColumn[] {
 /** Existing row editor tests supply the table schema explicitly through this fixture. */
 export function mockTableFetch(handler: MockHandler): ReturnType<typeof mockFetch> {
   return mockFetch((url, init) => {
+    if (/\/dormitories\/\d+\/outflow\/fields$/.test(url) && !init?.method)
+      return {
+        status: 200,
+        body: {
+          reason_column: defaultColumns('outflow').find(
+            (column) => column.builtin_key === 'reason',
+          ),
+          departure_column: defaultColumns('outflow').find(
+            (column) => column.builtin_key === 'departure_date',
+          ),
+          reasons: [],
+        },
+      };
+    if (/\/personnel\/bindings\/\d+\/(archive|custom_\d+)$/.test(url) && !init?.method)
+      return { status: 200, body: { fields: {}, columns: [] } };
     if (/\/dormitories\/\d+\/report-readiness$/.test(url) && !init?.method)
       return {
         status: 200,

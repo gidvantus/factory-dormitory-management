@@ -13,7 +13,7 @@ import styles from '../workspace/Workspace.module.css';
 const sectionTitles: Record<string, string> = {
   '/cabinet': 'Обзор',
   '/cabinet/dormitories': 'Общежития',
-  '/cabinet/tariffs': 'Тариф',
+  '/cabinet/tariffs': 'Тарифы',
   '/cabinet/shop': 'Магазин улучшений',
   '/cabinet/notifications': 'Уведомления',
   '/cabinet/documents': 'Документы',
@@ -28,7 +28,7 @@ const sectionTitles: Record<string, string> = {
  * Разделы, закрытые после окончания пробного периода.
  *
  * Список ведётся явно, а не «всё, кроме перечисленного»: открытыми остаются
- * «Обзор», «Тариф», «Магазин улучшений», «Документы», «Организация» и «Личные
+ * «Обзор», «Тарифы», «Магазин улучшений», «Документы», «Организация» и «Личные
  * данные», и новый рабочий раздел должен появиться здесь осознанно, а не
  * закрыться случайно.
  */
@@ -236,7 +236,7 @@ function CabinetShell(): JSX.Element {
                 data-testid="workspace-nav-tariffs"
               >
                 <WorkspaceIcon name="chart" />
-                Тариф
+                Тарифы
               </NavLink>
             </li>
             <li>

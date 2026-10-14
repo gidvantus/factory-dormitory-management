@@ -52,6 +52,7 @@
   border-right: 0;
 }
 .table input,
+.table select,
 .table textarea {
   display: block;
   width: 100%;
@@ -64,12 +65,19 @@
   color: var(--color-text);
   font: inherit;
 }
+.table select {
+  border-color: var(--color-border);
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
 .table textarea {
   resize: vertical;
   min-height: 42px;
 }
 .table input:hover,
 .table input:focus,
+.table select:hover,
+.table select:focus,
 .table textarea:hover,
 .table textarea:focus {
   border-color: var(--mint-600);

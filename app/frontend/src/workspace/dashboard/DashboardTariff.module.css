@@ -1,0 +1,136 @@
+.ribbon {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-18);
+  min-width: 0;
+  padding: var(--gap-20);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+}
+
+.ribbon[data-access='trial'] {
+  background: color-mix(in srgb, var(--mint-100) 24%, var(--color-bg-surface));
+  border-color: var(--mint-200);
+}
+
+.iconTile {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--control-h-lg);
+  height: var(--control-h-lg);
+  background: var(--mint-100);
+  color: var(--mint-700);
+  border-radius: var(--radius-sm);
+}
+
+.copy {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap-10);
+}
+
+.ribbon .title {
+  font: 800 var(--text-body)/var(--leading-snug) var(--font-display);
+  letter-spacing: normal;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-6);
+  color: var(--mint-700);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status > span {
+  width: var(--gap-6);
+  height: var(--gap-6);
+  background: var(--color-accent);
+  border-radius: var(--radius-pill);
+}
+
+.ribbon .note {
+  margin-top: var(--gap-6);
+  color: var(--color-text-muted);
+}
+
+.term {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-4);
+  flex-shrink: 0;
+  max-width: 32%;
+  padding-inline: var(--gap-18);
+  border-left: 1px solid var(--mint-200);
+}
+
+.term > strong,
+.price {
+  font: 900 var(--text-h3)/var(--leading-snug) var(--font-display);
+}
+
+.term > span {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.action {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.ribbon .action > svg {
+  width: var(--gap-14);
+  height: var(--gap-14);
+}
+
+@media (max-width: 1100px) {
+  .ribbon {
+    flex-wrap: wrap;
+  }
+
+  .copy {
+    flex-basis: 65%;
+  }
+
+  .ribbon .term {
+    flex: 1;
+    max-width: none;
+    min-width: 0;
+    margin-left: calc(var(--control-h-lg) + var(--gap-18));
+    border-left: 0;
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .ribbon {
+    padding: var(--gap-18);
+    gap: var(--gap-14);
+  }
+
+  .copy {
+    flex-basis: 60%;
+  }
+
+  .ribbon .term {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .action {
+    width: 100%;
+  }
+}

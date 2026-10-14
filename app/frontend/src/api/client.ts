@@ -408,6 +408,13 @@ export interface ResidentOutflowPreview {
   departure_date: string | null;
   payments_to_delete: Record<PaymentKind, number>;
   preview_token: string;
+  fields: OutflowFields;
+}
+
+export interface OutflowFields {
+  reason_column: TableColumn | null;
+  departure_column: TableColumn | null;
+  reasons: { value: string; label: string }[];
 }
 
 export interface InflowRow {
@@ -420,9 +427,31 @@ export interface InflowRow {
   citizenship: string | null;
   notes: string | null;
   shift_count: number | null;
+  processed_as?: 'residents' | 'outflow' | null;
+  processed_row_id?: number | null;
+  processed_at?: string | null;
 }
 
-export type InflowField = keyof Omit<InflowRow, 'id' | 'custom_values' | 'employee_id'>;
+export type InflowField = keyof Omit<
+  InflowRow,
+  'id' | 'custom_values' | 'employee_id' | 'processed_as' | 'processed_row_id' | 'processed_at'
+>;
+
+export type InflowAction = 'settle' | 'outflow';
+export interface InflowActionPreview {
+  destination: 'residents' | 'outflow';
+  preview_token: string;
+  matched_columns: string[];
+  warnings: { column: string; reason: string }[];
+  empty_columns: string[];
+  fields: OutflowFields | null;
+  departure_date: string | null;
+}
+export interface InflowActionResponse {
+  inflow: InflowRow;
+  destination: 'residents' | 'outflow';
+  row_id: number;
+}
 
 export interface OutflowRow {
   employee_id?: string | null;
@@ -1319,11 +1348,16 @@ export const api = {
     residentId: number,
     previewToken: string,
     confirmLoss: boolean,
+    fields: { reason?: string; departure_date?: string } = {},
   ): Promise<OutflowRow> {
     return request(`/dormitories/${encodeURIComponent(id)}/residents/${residentId}/outflow`, {
       method: 'POST',
-      body: JSON.stringify({ preview_token: previewToken, confirm_loss: confirmLoss }),
+      body: JSON.stringify({ preview_token: previewToken, confirm_loss: confirmLoss, ...fields }),
     });
+  },
+
+  outflowFields(id: string, signal?: AbortSignal): Promise<OutflowFields> {
+    return request(`/dormitories/${encodeURIComponent(id)}/outflow/fields`, { signal });
   },
 
   inflow(id: string, from: string, to: string, signal?: AbortSignal): Promise<InflowRow[]> {
@@ -1336,6 +1370,31 @@ export const api = {
   createInflowRow(id: string): Promise<InflowRow> {
     return request<InflowRow>(`/dormitories/${encodeURIComponent(id)}/inflow`, {
       method: 'POST',
+    });
+  },
+
+  previewInflowAction(
+    id: string,
+    rowId: number,
+    action: InflowAction,
+    signal?: AbortSignal,
+  ): Promise<InflowActionPreview> {
+    return request(`/dormitories/${encodeURIComponent(id)}/inflow/${rowId}/${action}/preview`, {
+      method: 'POST',
+      signal,
+    });
+  },
+
+  processInflow(
+    id: string,
+    rowId: number,
+    action: InflowAction,
+    previewToken: string,
+    fields: { reason?: string; departure_date?: string } = {},
+  ): Promise<InflowActionResponse> {
+    return request(`/dormitories/${encodeURIComponent(id)}/inflow/${rowId}/${action}`, {
+      method: 'POST',
+      body: JSON.stringify({ preview_token: previewToken, ...fields }),
     });
   },
 

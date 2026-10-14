@@ -17,13 +17,20 @@ import type {
   ColumnOption,
   TableColumn,
   TableKey,
+  OutflowFields,
 } from '../../api/client';
 import { Modal } from '../../components/Modal';
+import { personnelApi } from '../../api/personnel';
+import type { SourceTable } from '../../api/personnel';
+import { EmployeeNameCell } from './EmployeeNameCell';
+import { personnelCellFields } from './personnelCellFields';
 import styles from './ConfigurableColumns.module.css';
 import { ColumnsContext, useColumns } from './tableColumnsContext';
 import type { ColumnsDialog, TableColumnsContext } from './tableColumnsContext';
 import { columnKinds as kinds } from './columnKinds';
 import { useSettingsNavigation } from './settingsContext';
+import { RowActionsMenu } from './RowActionsMenu';
+import { OutflowReasonInput } from './OutflowReasonInput';
 
 export function TableColumnsProvider({
   dormitoryId,
@@ -42,6 +49,8 @@ export function TableColumnsProvider({
   const [attempt, setAttempt] = useState(0);
   const [dialog, setDialog] = useState<ColumnsDialog>(null);
   const [values, setValues] = useState<Record<string, CellValue>>({});
+  const [personnelFields, setPersonnelFields] = useState<Record<string, number>>({});
+  const [outflowFields, setOutflowFields] = useState<OutflowFields | null>(null);
   const pendingSaves = useRef(new Map<Promise<unknown>, string>());
   const failedSaves = useRef(new Set<string>());
 
@@ -82,11 +91,20 @@ export function TableColumnsProvider({
     const controller = new AbortController();
     setLoading(true);
     setError('');
-    void api
-      .tableColumns(dormitoryId, table, controller.signal)
-      .then((result) => {
+    void Promise.all([
+      api.tableColumns(dormitoryId, table, controller.signal),
+      table === 'archive' || table.startsWith('custom_')
+        ? personnelApi.binding(dormitoryId, table as SourceTable, controller.signal)
+        : Promise.resolve({ fields: {} }),
+      table === 'outflow'
+        ? api.outflowFields(dormitoryId, controller.signal)
+        : Promise.resolve(null),
+    ])
+      .then(([result, binding, outflow]) => {
         if (!controller.signal.aborted) {
           setColumns(result);
+          setPersonnelFields(binding.fields);
+          setOutflowFields(outflow);
           setLoading(false);
         }
       })
@@ -106,6 +124,8 @@ export function TableColumnsProvider({
     loading,
     error,
     values,
+    personnelFields,
+    outflowFields,
     trackSave,
     waitForRowSaves,
     reload: () => setAttempt((n) => n + 1),
@@ -539,11 +559,13 @@ export function ConfiguredCells({
   row,
   children,
   readOnly = false,
+  onPersonnelLinked,
 }: {
   fields: string[];
-  row: { id: number; custom_values?: Record<string, CellValue> };
+  row: { id: number; custom_values?: Record<string, CellValue>; employee_id?: string | null };
   children: ReactNode;
   readOnly?: boolean;
+  onPersonnelLinked?: (id: string) => void;
 }): JSX.Element {
   const { columns } = useColumns();
   const settings = useSettingsNavigation();
@@ -557,38 +579,31 @@ export function ConfiguredCells({
             <Fragment key={column.id}>{cells[fields.indexOf(column.builtin_key)]}</Fragment>
           ) : (
             <td key={column.id} className={styles.customCell}>
-              <CustomCell column={column} row={row} readOnly={readOnly} />
+              <CustomCell
+                column={column}
+                row={row}
+                readOnly={readOnly || !!settings?.readOnly}
+                onPersonnelLinked={onPersonnelLinked}
+              />
             </td>
           ),
         )}
       {settings && columns.some((column) => !column.archived && isRowAction(column)) && (
         <td className={styles.rowActions}>
-          <details
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') event.currentTarget.open = false;
-            }}
-          >
-            <summary
-              aria-label={`Действия, строка ${row.id}`}
-              aria-disabled={readOnly || settings.readOnly}
-            >
-              Действия <span>⌄</span>
-            </summary>
-            <div className={styles.rowActionList}>
-              {columns
-                .filter((column) => !column.archived && isRowAction(column))
-                .map((column) => (
-                  <Fragment key={column.id}>
-                    {actionParts(
-                      cells[fields.indexOf(column.builtin_key ?? '')],
-                      column,
-                      readOnly || settings.readOnly,
-                      true,
-                    )}
-                  </Fragment>
-                ))}
-            </div>
-          </details>
+          <RowActionsMenu label={`Действия, строка ${row.id}`}>
+            {columns
+              .filter((column) => !column.archived && isRowAction(column))
+              .map((column) => (
+                <Fragment key={column.id}>
+                  {actionParts(
+                    cells[fields.indexOf(column.builtin_key ?? '')],
+                    column,
+                    readOnly || settings.readOnly,
+                    true,
+                  )}
+                </Fragment>
+              ))}
+          </RowActionsMenu>
           {columns
             .filter((column) => !column.archived && isRowAction(column))
             .map((column) => (
@@ -638,24 +653,36 @@ function CustomCell({
   column,
   row,
   readOnly,
+  onPersonnelLinked,
 }: {
   column: TableColumn;
-  row: { id: number; custom_values?: Record<string, CellValue> };
+  row: { id: number; custom_values?: Record<string, CellValue>; employee_id?: string | null };
   readOnly: boolean;
+  onPersonnelLinked?: (id: string) => void;
 }): JSX.Element {
-  const { dormitoryId, table, values, saved, trackSave } = useColumns();
+  const {
+    dormitoryId,
+    table,
+    values,
+    saved,
+    trackSave,
+    personnelFields,
+    waitForRowSaves,
+    outflowFields,
+    reload,
+  } = useColumns();
   const key = `${row.id}:${column.id}`;
   const initial = key in values ? values[key] : (row.custom_values?.[column.id] ?? null);
   const [draft, setDraft] = useState<CellValue>(initial);
   const [committed, setCommitted] = useState<CellValue>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  async function save(value: CellValue): Promise<void> {
-    if (saving || readOnly) return;
+  async function save(value: CellValue): Promise<boolean> {
+    if (saving || readOnly) return false;
     if (value === committed) {
       await trackSave(key, Promise.resolve());
       setError('');
-      return;
+      return true;
     }
     setSaving(true);
     setError('');
@@ -667,8 +694,10 @@ function CustomCell({
       setDraft(result.value);
       setCommitted(result.value);
       saved(key, result.value);
+      return true;
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось сохранить значение.');
+      return false;
     } finally {
       setSaving(false);
     }
@@ -676,7 +705,47 @@ function CustomCell({
   const label = `${column.name}, строка ${row.id}`;
   return (
     <div className={styles.cell}>
-      {column.kind === 'select' ? (
+      {column.kind === 'text' && personnelFields?.full_name === column.id ? (
+        <EmployeeNameCell
+          dormitoryId={dormitoryId}
+          tableKey={table as SourceTable}
+          rowId={row.id}
+          employeeId={row.employee_id}
+          label={column.name}
+          fields={{
+            ...personnelCellFields(row, values, personnelFields),
+            full_name: String(draft ?? ''),
+          }}
+          onChange={(name) => {
+            setDraft(name);
+            setError('');
+          }}
+          onSave={(name) => save(name.trim() || null)}
+          beforeOpen={() => waitForRowSaves(row.id)}
+          onLinked={onPersonnelLinked}
+          readOnly={readOnly}
+        />
+      ) : table === 'outflow' &&
+        column.id === outflowFields?.reason_column?.id &&
+        column.kind === 'text' ? (
+        <OutflowReasonInput
+          compact
+          value={String(draft ?? '')}
+          label={label}
+          choices={outflowFields.reasons}
+          allowCustom
+          disabled={saving || readOnly}
+          onChange={(value) => {
+            setDraft(value);
+            setError('');
+          }}
+          onCommit={async (value) => {
+            const result = await save(value || null);
+            if (result) reload();
+            return result;
+          }}
+        />
+      ) : column.kind === 'select' ? (
         <select
           aria-label={label}
           value={String(draft ?? '')}

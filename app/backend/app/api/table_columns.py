@@ -17,6 +17,7 @@ from app.models.inflow import PersonnelInflow
 from app.models.outflow import PersonnelOutflow
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
+from app.outflow_fields import sync_outflow_cell
 from app.personnel import record_changed
 from app.schemas.table_column import CellRequest, ColumnRequest, ColumnResponse, TableKey
 from app.table_data import (
@@ -205,6 +206,8 @@ def save_custom_cell(
     row = get_record(db, dormitory_id, table_key, row_id)
     old = row.custom_values.get(str(column.id))
     value = normalize_value(column, payload.value, allow_archived=old == payload.value)
+    if isinstance(row, PersonnelOutflow):
+        value = sync_outflow_cell(db, row, column, value)
     row.custom_values = {**row.custom_values, str(column.id): value}
     if isinstance(row, (Resident, PersonnelInflow, PersonnelOutflow, CustomTabEntry, ArchiveEntry)):
         record_changed(db, row, _user.id)

@@ -114,31 +114,13 @@ class DecisionInput(StrictModel):
         return self
 
 
-class MergeInput(StrictModel):
-    source_id: UUID
-    target_id: UUID
-    signature: str = Field(min_length=64, max_length=64)
-    reason: str = Field(min_length=1, max_length=1000)
-
-
 class BindingInput(StrictModel):
     fields: dict[
         Literal["full_name", "personnel_number", "phone", "shift_start", "shift_end", "reason"], int
     ]
 
 
-ListFilter = Literal[
-    "all",
-    "current",
-    "ending",
-    "overdue",
-    "missing",
-    "history",
-    "mine",
-    "returned",
-    "no-phone",
-    "pending",
-]
+ListFilter = Literal["all", "current", "ending"]
 
 
 class SavedList(StrictModel):
@@ -153,7 +135,7 @@ class SavedList(StrictModel):
 
 class Block(StrictModel):
     id: str = Field(min_length=1, max_length=80)
-    kind: Literal["residents", "ending", "contacts", "outflow", "missing", "plans", "saved"]
+    kind: Literal["residents", "ending", "contacts", "plans", "saved"]
     title: str = Field(min_length=1, max_length=120)
     scope: list[int] = Field(default_factory=list, max_length=1000)
     days: int = Field(default=5, ge=1, le=365)
@@ -166,7 +148,6 @@ class PreferencesInput(StrictModel):
     revision: int = Field(ge=0)
     blocks: list[Block] = Field(max_length=20)
     lists: list[SavedList] = Field(default_factory=list, max_length=50)
-    favorites: list[UUID] = Field(default_factory=list, max_length=10000)
 
     @model_validator(mode="after")
     def unique_ids(self) -> "PreferencesInput":

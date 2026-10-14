@@ -27,6 +27,16 @@ const StatisticsDesignPreview = lazy(() =>
     default: module.StatisticsDesignPreview,
   })),
 );
+const PricingDesignPreview = lazy(() =>
+  import('./pages/PricingDesignPreview').then((module) => ({
+    default: module.PricingDesignPreview,
+  })),
+);
+const DashboardTariffDesignPreview = lazy(() =>
+  import('./pages/DashboardTariffDesignPreview').then((module) => ({
+    default: module.DashboardTariffDesignPreview,
+  })),
+);
 const Statistics = lazy(() =>
   import('./workspace/Statistics').then((module) => ({ default: module.Statistics })),
 );
@@ -61,6 +71,22 @@ export function App(): JSX.Element {
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/preview/dormitory-settings" element={<DormitoryDesignPreview />} />
+        <Route
+          path="/preview/overview-tariff"
+          element={
+            <Suspense fallback={<p role="status">Загрузка вариантов блока тарифа…</p>}>
+              <DashboardTariffDesignPreview />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/pricing"
+          element={
+            <Suspense fallback={<p role="status">Загрузка вариантов тарифов…</p>}>
+              <PricingDesignPreview />
+            </Suspense>
+          }
+        />
         <Route
           path="/preview/personnel"
           element={

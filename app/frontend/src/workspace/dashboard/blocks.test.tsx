@@ -17,6 +17,14 @@ const CATALOG: CatalogDormitory[] = [1, 2].map((id) => ({
   is_archived: false,
   sources: [
     {
+      key: 'arrival_plan',
+      name: 'План заездов',
+      kind: 'arrival_plan',
+      columns: [],
+      rows: [],
+      hostels: [],
+    },
+    {
       key: 'report',
       name: 'Общий отчёт',
       kind: 'report',
@@ -66,6 +74,74 @@ const CONFIG: WidgetConfig = {
   excluded_dormitory_ids: [],
   sources: [{ kind: 'report', dormitory_id: 1, row_id: 10 }],
 };
+
+it('сохраняет план заездов без выбора строк и считает весь будущий период', async () => {
+  const user = userEvent.setup();
+  const future = { from: '2027-10-20', to: '2027-10-22' };
+  vi.spyOn(api, 'dashboardSources').mockResolvedValue(CATALOG);
+  const preview = vi.spyOn(api, 'previewDashboardBlock').mockResolvedValue({
+    id: 0,
+    value: 17,
+    items: [],
+    errors: [],
+  });
+  const save = vi.spyOn(api, 'saveDashboardBlock').mockResolvedValue(DEFAULT_LAYOUT);
+  render(
+    <WidgetDialog initial={null} revision={0} range={future} onClose={vi.fn()} onSaved={vi.fn()} />,
+  );
+  await user.type(screen.getByLabelText('Название блока'), 'Ожидаемые заезды');
+  await user.selectOptions(screen.getByLabelText('Источник данных'), 'arrival_plan');
+  expect(screen.getByLabelText('Период расчёта')).toHaveValue('range');
+  expect(screen.queryByLabelText('Строка отчёта — Северное')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Проверить расчёт' }));
+  expect(await screen.findByText('Предпросмотр: 17')).toBeInTheDocument();
+  expect(preview).toHaveBeenCalledWith(
+    expect.objectContaining({
+      source_kind: 'arrival_plan',
+      period: 'range',
+      operation: 'sum',
+      sources: [
+        { kind: 'arrival_plan', dormitory_id: 1 },
+        { kind: 'arrival_plan', dormitory_id: 2 },
+      ],
+    }),
+    future.from,
+    future.to,
+  );
+  await user.click(screen.getByRole('button', { name: 'Добавить блок' }));
+  expect(save).toHaveBeenCalledWith(
+    0,
+    expect.objectContaining({ source_kind: 'arrival_plan' }),
+    undefined,
+  );
+});
+
+it('показывает дату будущего заезда вместо даты фактического среза', () => {
+  const layout = {
+    ...DEFAULT_LAYOUT,
+    order: ['custom:1'],
+    blocks: [
+      {
+        id: 1,
+        config: {
+          ...CONFIG,
+          source_kind: 'arrival_plan' as const,
+          sources: [{ kind: 'arrival_plan' as const, dormitory_id: 1 }],
+        },
+      },
+    ],
+  };
+  render(
+    <DashboardBlocks
+      data={{ ...EMPTY_DASHBOARD, layout, snapshotDate: '2026-10-14' }}
+      range={{ from: '2026-10-20', to: '2026-10-22' }}
+      loading={false}
+      cards={[]}
+      onChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByText('На дату · 22.10.2026')).toBeInTheDocument();
+});
 
 it('подбирает строки разных общежитий по названию, показывает расчёт и добавляет общий блок', async () => {
   const user = userEvent.setup(),

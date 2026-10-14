@@ -11,14 +11,14 @@ from app.models.payment import PaymentEntry
 from app.models.resident import Resident
 from app.models.table_column import TableColumn
 from app.schemas.payment import PaymentKind, UpdatePaymentRequest
-from app.table_data import ensure_columns, normalize_value, record_value
+from app.table_data import Record, ensure_columns, normalize_value, record_value
 
 
 def normalized_name(value: str) -> str:
     return " ".join(value.split()).casefold()
 
 
-def matching_value(source: TableColumn, target: TableColumn, resident: Resident) -> Any:
+def matching_value(source: TableColumn, target: TableColumn, resident: Record) -> Any:
     value = record_value(resident, source)
     if value is None:
         return None

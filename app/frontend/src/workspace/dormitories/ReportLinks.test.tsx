@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { ReportLink, ReportRow, TableColumn } from '../../api/client';
 import { mockFetch } from '../../test/mockFetch';
 import { ReportTable } from './ReportTable';
+import { ReportLinkEditor } from './ReportLinkEditor';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -33,6 +34,51 @@ const columns: TableColumn[] = [
   },
 ];
 
+it('предлагает сохранённые текстовые причины оттока для связи с общим отчётом', async () => {
+  const reason = { ...columns[0], builtin_key: 'reason', kind: 'text' as const, options: [] };
+  mockFetch((url) => {
+    if (url.endsWith('/tabs')) return { status: 200, body: [] };
+    if (url.endsWith('/columns')) return { status: 200, body: [reason, columns[1]] };
+    if (url.endsWith('/outflow/fields'))
+      return {
+        status: 200,
+        body: {
+          reason_column: reason,
+          departure_column: columns[1],
+          reasons: [{ value: 'Вахта закончилась', label: 'Вахта закончилась' }],
+        },
+      };
+    return { status: 404 };
+  });
+  const change = vi.fn();
+  render(
+    <ReportLinkEditor
+      dormitoryId="7"
+      disabled={false}
+      onChange={change}
+      initial={{
+        table_key: 'outflow',
+        column_id: 12,
+        operator: 'equals',
+        value: '',
+        date_column_id: 13,
+      }}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.selectOptions(
+    await screen.findByLabelText('Значение для подсчёта'),
+    'Вахта закончилась',
+  );
+  expect(change).toHaveBeenLastCalledWith({
+    table_key: 'outflow',
+    column_id: 12,
+    operator: 'equals',
+    value: 'Вахта закончилась',
+    date_column_id: 13,
+  });
+});
+
 it('создаёт связь через раздел и подвкладку, показывает подсчёт и запрещает ручной ввод', async () => {
   let rows: ReportRow[] = [];
   let submitted: ReportLink | null = null;
@@ -40,6 +86,15 @@ it('создаёт связь через раздел и подвкладку, �
     if (url.endsWith('/tabs')) return { status: 200, body: [] };
     if (url.includes('/report?')) return { status: 200, body: { rows } };
     if (url.endsWith('/tables/outflow/columns')) return { status: 200, body: columns };
+    if (url.endsWith('/outflow/fields'))
+      return {
+        status: 200,
+        body: {
+          reason_column: columns[0],
+          departure_column: columns[1],
+          reasons: columns[0].options.map((option) => ({ value: option.id, label: option.label })),
+        },
+      };
     if (url.endsWith('/report/rows') && init?.method === 'POST') {
       const input = JSON.parse(String(init.body)) as {
         name: string;

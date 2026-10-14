@@ -9,6 +9,7 @@ from app.dashboard_blocks import calculate_widget
 from app.models.dormitory import Dormitory
 from app.models.user import User
 from app.schemas.dashboard_block import (
+    ArrivalPlanWidgetSource,
     CatalogDormitory,
     CatalogSource,
     PlaceWidgetSource,
@@ -44,6 +45,12 @@ def match_source(
     metadata = source_metadata(origin, source)
     if metadata is None:
         return None
+    if isinstance(source, ArrivalPlanWidgetSource):
+        return (
+            ArrivalPlanWidgetSource(kind="arrival_plan", dormitory_id=target.id)
+            if any(item.kind == "arrival_plan" for item in target.sources)
+            else None
+        )
     if isinstance(source, ReportWidgetSource):
         row = next((item for item in metadata.rows if item["id"] == source.row_id), None)
         destination = next((item for item in target.sources if item.key == "report"), None)

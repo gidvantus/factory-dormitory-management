@@ -4,7 +4,10 @@ import { api, ApiError } from '../../api/client';
 import type { OutflowField, OutflowRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
-import { IdentityDialog, PersonnelLink } from '../personnel/IdentityDialog';
+import { IdentityDialog } from '../personnel/IdentityDialog';
+import { EmployeeNameCell } from './EmployeeNameCell';
+import { useColumns } from './tableColumnsContext';
+import { OutflowReasonInput } from './OutflowReasonInput';
 import styles from './OutflowTable.module.css';
 import {
   ColumnsControls,
@@ -27,26 +30,37 @@ function OutflowEntry({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const saved = useRef(row);
+  const { trackSave, waitForRowSaves, outflowFields, reload } = useColumns();
 
   function change(field: OutflowField, value: string | null): void {
     setDraft((current) => ({ ...current, [field]: value }));
     setError('');
   }
 
-  async function save(field: OutflowField, value: string | null): Promise<void> {
-    if (value === saved.current[field]) return;
+  async function save(field: OutflowField, value: string | null): Promise<boolean> {
+    const key = `${row.id}:builtin:${field}`;
+    if (value === saved.current[field]) {
+      await trackSave(key, Promise.resolve());
+      return true;
+    }
     setSaving(true);
     setError('');
     try {
-      const updated = await api.updateOutflowRow(dormitoryId, row.id, field, value);
-      saved.current = { ...saved.current, [field]: updated[field] };
+      const updated = await trackSave(key, api.updateOutflowRow(dormitoryId, row.id, field, value));
+      saved.current = {
+        ...saved.current,
+        [field]: updated[field],
+        employee_id: updated.employee_id,
+      };
       setDraft((current) => ({
         ...current,
         [field]: updated[field],
         employee_id: updated.employee_id,
       }));
+      return true;
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось сохранить строку.');
+      return false;
     } finally {
       setSaving(false);
     }
@@ -68,11 +82,10 @@ function OutflowEntry({
   }
 
   function textField(
-    field: 'personnel_number' | 'full_name' | 'reason' | 'notes' | 'additional_info',
+    field: 'personnel_number' | 'reason' | 'notes' | 'additional_info',
     label: string,
   ): JSX.Element {
-    const maxLength =
-      field === 'personnel_number' ? 40 : field === 'full_name' || field === 'reason' ? 255 : 5000;
+    const maxLength = field === 'personnel_number' ? 40 : field === 'reason' ? 255 : 5000;
     if (field === 'notes' || field === 'additional_info') {
       return (
         <textarea
@@ -116,17 +129,42 @@ function OutflowEntry({
         <td>{dateField('departure_date', 'Дата выезда')}</td>
         <td>{textField('personnel_number', 'Т/н')}</td>
         <td>
-          {textField('full_name', 'ФИО')}
-          <PersonnelLink
+          <EmployeeNameCell
             dormitoryId={dormitoryId}
             tableKey="outflow"
             rowId={row.id}
             employeeId={draft.employee_id}
             fields={draft}
+            onChange={(name) => change('full_name', name)}
+            onSave={(name) => save('full_name', name.trim() || null)}
+            beforeOpen={() => waitForRowSaves(row.id)}
+            onLinked={(id) => {
+              saved.current = { ...saved.current, employee_id: id };
+              setDraft((current) => ({ ...current, employee_id: id }));
+            }}
           />
         </td>
         <td>{dateField('shift_start', 'Начало вахты')}</td>
-        <td>{textField('reason', 'Причина')}</td>
+        <td>
+          {outflowFields?.reason_column?.builtin_key === 'reason' ? (
+            <OutflowReasonInput
+              compact
+              value={draft.reason ?? ''}
+              label={`Причина, строка ${row.id}`}
+              choices={outflowFields.reasons}
+              allowCustom
+              onChange={(value) => change('reason', value)}
+              disabled={saving}
+              onCommit={async (value) => {
+                const result = await save('reason', value || null);
+                if (result) reload();
+                return result;
+              }}
+            />
+          ) : (
+            textField('reason', 'Причина')
+          )}
+        </td>
         <td>{textField('notes', 'Примечание')}</td>
         <td>{textField('additional_info', 'Доп. информация')}</td>
         <td className={styles.actionCell}>

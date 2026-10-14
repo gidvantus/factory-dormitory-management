@@ -53,6 +53,11 @@ it('создаёт список, сохраняет выбор, переимен
   let columns: TableColumn[] = [{ ...existing }];
   const row = { id: 8, custom_values: {} as Record<string, CellValue> };
   mockFetch((url, init) => {
+    if (url.endsWith('/outflow/fields'))
+      return {
+        status: 200,
+        body: { reason_column: null, departure_column: null, reasons: [] },
+      };
     if (url.endsWith('/columns') && !init?.method) return { status: 200, body: columns };
     if (url.endsWith('/columns') && init?.method === 'POST') {
       const input = JSON.parse(String(init.body)) as ColumnInput;
@@ -119,15 +124,17 @@ it('создаёт список, сохраняет выбор, переимен
 });
 
 it('показывает зависимость от отчета и оставляет используемый столбец', async () => {
-  mockFetch((_url, init) =>
-    init?.method === 'DELETE'
-      ? {
-          status: 409,
-          body: {
-            detail: 'Столбец используется в строках отчёта: Сбежал. Сначала измените их связь.',
-          },
-        }
-      : { status: 200, body: [existing] },
+  mockFetch((url, init) =>
+    url.endsWith('/outflow/fields')
+      ? { status: 200, body: { reason_column: null, departure_column: null, reasons: [] } }
+      : init?.method === 'DELETE'
+        ? {
+            status: 409,
+            body: {
+              detail: 'Столбец используется в строках отчёта: Сбежал. Сначала измените их связь.',
+            },
+          }
+        : { status: 200, body: [existing] },
   );
   const user = userEvent.setup();
   render(<Harness row={{ id: 8, custom_values: {} }} />);

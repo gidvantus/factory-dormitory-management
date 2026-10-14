@@ -31,6 +31,11 @@ class PlaceWidgetSource(StrictModel):
     hostel_id: int | None = Field(default=None, ge=1)
 
 
+class ArrivalPlanWidgetSource(StrictModel):
+    kind: Literal["arrival_plan"]
+    dormitory_id: int = Field(ge=1)
+
+
 class TableWidgetSource(StrictModel):
     kind: Literal["table"]
     dormitory_id: int = Field(ge=1)
@@ -42,7 +47,8 @@ class TableWidgetSource(StrictModel):
 
 
 WidgetSource = Annotated[
-    ReportWidgetSource | PlaceWidgetSource | TableWidgetSource, Field(discriminator="kind")
+    ReportWidgetSource | PlaceWidgetSource | ArrivalPlanWidgetSource | TableWidgetSource,
+    Field(discriminator="kind"),
 ]
 
 
@@ -50,7 +56,7 @@ class WidgetConfig(StrictModel):
     name: str = Field(min_length=1, max_length=120)
     display: Literal["number", "list", "chart"] = "number"
     chart_mode: Literal["total", "dormitories"] = "total"
-    source_kind: Literal["report", "places", "table"]
+    source_kind: Literal["report", "places", "arrival_plan", "table"]
     operation: Literal["count", "sum"] = "sum"
     period: Literal["snapshot", "range"] = "snapshot"
     grouping: Literal["dormitory", "value"] = "dormitory"
@@ -135,7 +141,7 @@ class WidgetResult(BaseModel):
 class CatalogSource(BaseModel):
     key: str
     name: str
-    kind: Literal["report", "places", "table"]
+    kind: Literal["report", "places", "arrival_plan", "table"]
     columns: list[ColumnResponse] = Field(default_factory=list)
     rows: list[dict[str, int | str]] = Field(default_factory=list)
     hostels: list[dict[str, int | str]] = Field(default_factory=list)

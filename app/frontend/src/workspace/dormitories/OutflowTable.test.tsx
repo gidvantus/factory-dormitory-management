@@ -49,7 +49,9 @@ describe('Отток', () => {
     await user.click(await screen.findByRole('button', { name: /Добавить строку/ }));
     const identity = await screen.findByRole('dialog');
     await user.type(within(identity).getByLabelText('Табельный номер'), '123');
-    const saveIdentity = within(identity).getByRole('button', { name: 'Сохранить на проверку' });
+    const saveIdentity = within(identity).getByRole('button', {
+      name: 'Создать новую карточку',
+    });
     await waitFor(() => expect(saveIdentity).toBeEnabled());
     await user.click(saveIdentity);
     const tableRow = await screen.findByTestId('outflow-row-8');

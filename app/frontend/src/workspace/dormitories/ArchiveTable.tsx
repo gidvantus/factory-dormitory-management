@@ -6,13 +6,13 @@ import { formatDate } from '../dashboard/dates';
 import type { DateRange } from '../dashboard/dates';
 import {
   ColumnsControls,
-  ConfiguredCells,
   ConfiguredHeaders,
   ConfiguredTable,
   TableColumnsProvider,
 } from './ConfigurableColumns';
 import styles from './OutflowTable.module.css';
-import { PersonnelLink } from '../personnel/IdentityDialog';
+import { PersonnelTableCells } from './PersonnelTableCells';
+import { useColumns } from './tableColumnsContext';
 import { PersonnelBindingButton } from '../personnel/BindingDialog';
 
 function ArchiveContent({
@@ -22,6 +22,7 @@ function ArchiveContent({
   dormitoryId: string;
   range: DateRange;
 }): JSX.Element {
+  const { reload } = useColumns();
   const [rows, setRows] = useState<ArchiveRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -82,7 +83,10 @@ function ArchiveContent({
         <PersonnelBindingButton
           dormitoryId={dormitoryId}
           tableKey="archive"
-          onSaved={() => setAttempt((n) => n + 1)}
+          onSaved={() => {
+            reload();
+            setAttempt((n) => n + 1);
+          }}
         />
         <button
           type="button"
@@ -116,16 +120,18 @@ function ArchiveContent({
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.id}>
-                  <ConfiguredCells row={row} fields={['action_delete']}>
+                <tr key={row.id} data-testid={`archive-row-${row.id}`}>
+                  <PersonnelTableCells
+                    row={row}
+                    onLinked={(id) =>
+                      setRows((current) =>
+                        current.map((item) =>
+                          item.id === row.id ? { ...item, employee_id: id } : item,
+                        ),
+                      )
+                    }
+                  >
                     <td className={styles.actionCell}>
-                      <PersonnelLink
-                        dormitoryId={dormitoryId}
-                        tableKey="archive"
-                        rowId={row.id}
-                        employeeId={row.employee_id}
-                        onChanged={() => setAttempt((n) => n + 1)}
-                      />
                       <button
                         type="button"
                         className="btn btn--ghost btn--compact"
@@ -136,7 +142,7 @@ function ArchiveContent({
                         Удалить
                       </button>
                     </td>
-                  </ConfiguredCells>
+                  </PersonnelTableCells>
                 </tr>
               ))}
             </tbody>

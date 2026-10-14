@@ -3,13 +3,14 @@
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.personnel import Employee, EmployeePlan
+from app.models.personnel import Employee, EmployeeMerge, EmployeePlan
 from app.models.resident import Resident
-from app.personnel import today
+from app.personnel import event, today
 from tests.conftest import login, sign_in
 from tests.test_custom_tabs import create_table, tab
 from tests.test_reports import create_dormitory
@@ -65,6 +66,29 @@ def workspace(client: TestClient) -> dict[str, Any]:
     response = client.get(API)
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def legacy_merge(db: Session, source_id: str, target_id: str, actor_id: int) -> str:
+    """Состояние базы с объединением, выполненным до удаления вкладки."""
+    source, target = db.get(Employee, source_id), db.get(Employee, target_id)
+    assert source is not None and target is not None
+    source.merged_into_id = target_id
+    target.identity_status = "confirmed"
+    operation = EmployeeMerge(
+        source_id=source_id, target_id=target_id, actor_id=actor_id, reason="Проверены контакты"
+    )
+    db.add(operation)
+    db.flush()
+    event(
+        db,
+        source_id,
+        "identity",
+        "Карточки связаны в общую историю",
+        actor_id,
+        snapshot={"merge_id": operation.id, "source_id": source_id, "target_id": target_id},
+    )
+    db.commit()
+    return operation.id
 
 
 def test_tasks_are_removed_and_employee_notes_remain(
@@ -137,7 +161,9 @@ def test_check_precedes_creation_and_same_number_never_auto_merges(
     second = create(client, b, fields={"personnel_number": "Т-10", "full_name": "Петров Пётр"})
     assert second["employee_id"] != first["employee_id"]
     assert len(workspace(client)["employees"]) == 2
-    assert len(workspace(client)["matches"]) == 1
+    assert {
+        candidate["id"] for candidate in check(client, {"personnel_number": "Т-10"})["candidates"]
+    } == {first["employee_id"], second["employee_id"]}
 
 
 def test_explicit_existing_preserves_source_variants_and_deletion_history(
@@ -235,17 +261,18 @@ def test_transfer_outflow_and_reentry_keep_one_identity_and_close_departure_plan
     again = create(client, a, employee=employee)
     assert again["employee_id"] == employee
     person = workspace(client)["employees"][0]
-    assert person["has_outflow"] and len(person["current"]) == 1
+    assert len(person["current"]) == 1
     assert not workspace(client)["plans"]
     detail = client.get(f"{API}/employees/{employee}").json()
+    assert any(event["kind"] == "outflow" for event in detail["events"])
     assert {a, b} <= {event["dormitory_id"] for event in detail["events"]}
     assert all(event["actor"] == user.full_name for event in detail["events"])
 
 
-def test_merge_undo_retains_original_sources_notes_and_plans(
+def test_existing_merge_undo_retains_original_sources_notes_and_plans(
     client: TestClient, db_session: Session
 ) -> None:
-    sign_in(client, db_session)
+    user = sign_in(client, db_session)
     dorm = create_dormitory(client)
     a = create(client, dorm)["employee_id"]
     b = create(client, dorm, table="outflow")["employee_id"]
@@ -266,33 +293,16 @@ def test_merge_undo_retains_original_sources_notes_and_plans(
         ).status_code
         == 200
     )
-    pair = workspace(client)["matches"][0]
-    merged = client.post(
-        API + "/merge",
-        json={
-            **pair,
-            "source_id": a,
-            "target_id": b,
-            "reason": "Проверены контакты",
-            "score": None,
-        },
-    )
-    assert merged.status_code == 422  # API не принимает лишние поля
-    merged = client.post(
-        API + "/merge",
-        json={
-            "source_id": a,
-            "target_id": b,
-            "signature": pair["signature"],
-            "reason": "Проверены контакты",
-        },
-    )
-    assert merged.status_code == 200, merged.text
+    operation = legacy_merge(db_session, a, b, user.id)
     data = workspace(client)
     assert len(data["employees"]) == 1
+    assert len(data["employees"][0]["sources"]) == 2
     assert data["plans"][0]["employee_id"] == b
-    assert len(client.get(f"{API}/employees/{b}").json()["notes"]) == 1
-    operation = merged.json()["merge_id"]
+    detail = client.get(f"{API}/employees/{b}").json()
+    assert len(detail["notes"]) == 1
+    assert detail["merges"][0]["id"] == operation
+    assert any(entry["title"] == "Карточки связаны в общую историю" for entry in detail["events"])
+    assert [item["id"] for item in check(client, FIELDS)["candidates"]] == [b]
     assert client.post(f"{API}/merges/{operation}/undo").status_code == 200
     data = workspace(client)
     assert len(data["employees"]) == 2
@@ -302,27 +312,26 @@ def test_merge_undo_retains_original_sources_notes_and_plans(
     assert client.post(f"{API}/merges/{operation}/undo").status_code == 409
 
 
-def test_separation_reappears_only_after_identity_changes(
+def test_bulk_matches_removed_but_identity_check_remains(
     client: TestClient, db_session: Session
 ) -> None:
     sign_in(client, db_session)
     dorm = create_dormitory(client)
     a = create(client, dorm)["employee_id"]
     b = create(client, dorm)["employee_id"]
-    pair = workspace(client)["matches"][0]
     payload = {
         "source_id": a,
         "target_id": b,
-        "signature": pair["signature"],
+        "signature": "a" * 64,
         "reason": "Разные сотрудники",
     }
-    assert client.post(API + "/separate", json=payload).status_code == 200
-    assert not workspace(client)["matches"]
-    assert (
-        client.patch(f"{API}/employees/{a}", json={"phone": "+7 912 000 00 02"}).status_code == 200
-    )
-    assert len(workspace(client)["matches"]) == 1
-    assert client.post(API + "/merge", json=payload).status_code == 409
+    assert client.post(API + "/separate", json=payload).status_code == 404
+    assert client.post(API + "/merge", json=payload).status_code == 404
+    paths = client.get("/openapi.json").json()["paths"]
+    assert API + "/merge" not in paths and API + "/separate" not in paths
+    data = workspace(client)
+    assert "matches" not in data and len(data["employees"]) == 2
+    assert {item["id"] for item in check(client, FIELDS)["candidates"]} == {a, b}
 
 
 def test_extend_writes_source_and_rejects_overlap(client: TestClient, db_session: Session) -> None:
@@ -370,16 +379,59 @@ def test_preferences_are_personal_and_use_revision_check(
     sign_in(client, db_session, email="first@example.com")
     dorm = create_dormitory(client)
     employee = create(client, dorm)["employee_id"]
-    prefs = {"revision": 0, "blocks": [], "lists": [], "favorites": [employee]}
+    lists = [{"id": "current", "name": "Проживающие", "filter": "current"}]
+    prefs = {"revision": 0, "blocks": [], "lists": lists}
     response = client.put(API + "/preferences", json=prefs)
     assert response.status_code == 200, response.text
     assert client.put(API + "/preferences", json=prefs).status_code == 409
     sign_in(client, db_session, email="second@example.com")
     assert workspace(client)["preferences"]["revision"] == 0
-    assert workspace(client)["preferences"]["favorites"] == []
+    assert workspace(client)["preferences"]["lists"] == []
+    assert "favorites" not in workspace(client)["preferences"]
     assert workspace(client)["employees"][0]["id"] == employee
     assert login(client, "first@example.com").status_code == 200
-    assert workspace(client)["preferences"]["favorites"] == [employee]
+    assert workspace(client)["preferences"]["lists"][0]["id"] == "current"
+
+
+@pytest.mark.parametrize(
+    "removed", ["overdue", "missing", "history", "mine", "returned", "no-phone", "pending"]
+)
+def test_removed_personnel_filters_cannot_be_saved(
+    client: TestClient, db_session: Session, removed: str
+) -> None:
+    sign_in(client, db_session)
+    response = client.put(
+        API + "/preferences",
+        json={
+            "revision": 0,
+            "blocks": [],
+            "lists": [{"id": "old", "name": "Удалённый фильтр", "filter": removed}],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert workspace(client)["preferences"] == {"revision": 0, "blocks": None, "lists": []}
+
+
+def test_removed_personnel_blocks_and_favorites_cannot_be_saved(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session)
+    for kind in ("outflow", "missing"):
+        response = client.put(
+            API + "/preferences",
+            json={
+                "revision": 0,
+                "blocks": [{"id": "old", "kind": kind, "title": "Удалённый блок"}],
+                "lists": [],
+            },
+        )
+        assert response.status_code == 422, response.text
+    assert (
+        client.put(
+            API + "/preferences", json={"revision": 0, "blocks": [], "lists": [], "favorites": []}
+        ).status_code
+        == 422
+    )
 
 
 def test_custom_binding_uses_column_id_and_does_not_merge(
@@ -402,7 +454,8 @@ def test_custom_binding_uses_column_id_and_does_not_merge(
     binding = f"{API}/bindings/{dorm}/{item['table_key']}"
     assert client.put(binding, json={"fields": {"full_name": column["id"]}}).status_code == 200
     people = workspace(client)["employees"]
-    assert len(people) == 2 and len(workspace(client)["matches"]) == 1
+    assert len(people) == 2
+    assert len(check(client, {"full_name": FIELDS["full_name"]})["candidates"]) == 2
     other = next(person for person in people if person["id"] != existing)
     assert other["identity_status"] == "pending"
     assert (
@@ -469,29 +522,19 @@ def test_relink_residence_keeps_its_departure_decision_with_new_card(
     assert data["plans"][0]["employee_id"] == other["employee_id"]
 
 
-def test_merge_uses_missing_primary_fields_without_changing_them_on_undo(
+def test_existing_merge_uses_missing_primary_fields_without_changing_them_on_undo(
     client: TestClient, db_session: Session
 ) -> None:
-    sign_in(client, db_session)
+    user = sign_in(client, db_session)
     dorm = create_dormitory(client)
     source = create(client, dorm)
     target = create(
         client, dorm, table="outflow", fields={"personnel_number": FIELDS["personnel_number"]}
     )
-    pair = workspace(client)["matches"][0]
-    response = client.post(
-        API + "/merge",
-        json={
-            "source_id": source["employee_id"],
-            "target_id": target["employee_id"],
-            "signature": pair["signature"],
-            "reason": "Проверено",
-        },
-    )
-    assert response.status_code == 200, response.text
+    operation = legacy_merge(db_session, source["employee_id"], target["employee_id"], user.id)
     assert workspace(client)["employees"][0]["full_name"] == FIELDS["full_name"]
     assert db_session.get(Employee, target["employee_id"]).full_name is None
-    assert client.post(f"{API}/merges/{response.json()['merge_id']}/undo").status_code == 200
+    assert client.post(f"{API}/merges/{operation}/undo").status_code == 200
     people = workspace(client)["employees"]
     assert (
         next(person for person in people if person["id"] == target["employee_id"])["full_name"]

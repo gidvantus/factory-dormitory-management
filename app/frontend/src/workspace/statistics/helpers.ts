@@ -44,6 +44,7 @@ export function metadata(
   );
 }
 export function sourceFor(dorm: CatalogDormitory, source: CatalogSource): WidgetSource {
+  if (source.kind === 'arrival_plan') return { kind: 'arrival_plan', dormitory_id: dorm.id };
   if (source.kind === 'report')
     return { kind: 'report', dormitory_id: dorm.id, row_id: source.rows[0]?.id ?? 0 };
   if (source.kind === 'places')
@@ -94,13 +95,15 @@ export function sourceLabel(block: StatisticsBlock, catalog: CatalogDormitory[])
   );
   if (!source || !meta) return 'Источник недоступен';
   const metric =
-    source.kind === 'report'
-      ? meta.rows.find((row) => row.id === source.row_id)?.name
-      : source.kind === 'places'
-        ? metrics[source.metric]
-        : block.query.operation === 'count'
-          ? 'Количество строк'
-          : meta.columns.find((col) => col.id === source.value_column_id)?.name;
+    source.kind === 'arrival_plan'
+      ? 'Ожидается человек'
+      : source.kind === 'report'
+        ? meta.rows.find((row) => row.id === source.row_id)?.name
+        : source.kind === 'places'
+          ? metrics[source.metric]
+          : block.query.operation === 'count'
+            ? 'Количество строк'
+            : meta.columns.find((col) => col.id === source.value_column_id)?.name;
   return `${meta.name} / ${metric ?? 'Показатель недоступен'}`;
 }
 export function validSource(
@@ -110,6 +113,7 @@ export function validSource(
 ): boolean {
   const meta = metadata(dorm, source);
   if (!source || !meta) return false;
+  if (source.kind === 'arrival_plan') return true;
   if (source.kind === 'report') return meta.rows.some((item) => item.id === source.row_id);
   if (source.kind === 'places')
     return source.hostel_id === null || meta.hostels.some((item) => item.id === source.hostel_id);

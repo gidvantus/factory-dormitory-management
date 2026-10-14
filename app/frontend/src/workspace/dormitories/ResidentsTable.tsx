@@ -15,7 +15,8 @@ import {
 import { useTableSaves } from './tableColumnsContext';
 import { TransferResidentDialog } from './TransferResidentDialog';
 import { OutflowResidentDialog } from './OutflowResidentDialog';
-import { IdentityDialog, PersonnelLink } from '../personnel/IdentityDialog';
+import { IdentityDialog } from '../personnel/IdentityDialog';
+import { EmployeeNameCell } from './EmployeeNameCell';
 
 type FieldValue = string | number | null;
 
@@ -79,11 +80,11 @@ function ResidentRow({
     setError('');
   }
 
-  async function save(field: ResidentField, value: FieldValue): Promise<void> {
+  async function save(field: ResidentField, value: FieldValue): Promise<boolean> {
     const key = `${resident.id}:builtin:${field}`;
     if (value === saved.current[field]) {
       await trackSave(key, Promise.resolve());
-      return;
+      return true;
     }
     setSaving(true);
     setError('');
@@ -112,8 +113,10 @@ function ResidentRow({
         [field]: updated[field],
         hostel_name: updated.hostel_name,
       }));
+      return true;
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось сохранить строку.');
+      return false;
     } finally {
       setSaving(false);
     }
@@ -271,14 +274,20 @@ function ResidentRow({
         </td>
         <td>{textField('personnel_number', 'Т/н')}</td>
         <td>
-          {textField('full_name', 'ФИО')}
-          <PersonnelLink
+          <EmployeeNameCell
             dormitoryId={dormitoryId}
             tableKey="residents"
             rowId={resident.id}
             employeeId={draft.employee_id}
             fields={draft}
+            rowLabel={rowLabel}
+            onChange={(name) => change('full_name', name)}
+            onSave={(name) => save('full_name', name || null)}
             beforeOpen={() => waitForRowSaves(resident.id)}
+            onLinked={(id) => {
+              saved.current = { ...saved.current, employee_id: id };
+              setDraft((current) => ({ ...current, employee_id: id }));
+            }}
           />
         </td>
         <td>

@@ -45,6 +45,7 @@ function unique<T>(items: T[]): T | undefined {
   return items.length === 1 ? items[0] : undefined;
 }
 function blankSource(dorm: CatalogDormitory, kind: WidgetSource['kind']): WidgetSource {
+  if (kind === 'arrival_plan') return { kind, dormitory_id: dorm.id };
   if (kind === 'report') return { kind, dormitory_id: dorm.id, row_id: 0 };
   if (kind === 'places')
     return { kind, dormitory_id: dorm.id, metric: 'paid_total', hostel_id: null };
@@ -71,6 +72,7 @@ function validSource(
   if (!source) return false;
   const metadata = sourceMetadata(dorm, source);
   if (!metadata) return false;
+  if (source.kind === 'arrival_plan') return true;
   if (source.kind === 'report') return metadata.rows.some((row) => row.id === source.row_id);
   if (source.kind === 'places')
     return (
@@ -208,6 +210,7 @@ export function WidgetDialog({
         ),
       );
       if (!metadata) return blankSource(dorm, base.kind);
+      if (base.kind === 'arrival_plan') return { ...base, dormitory_id: dorm.id };
       if (base.kind === 'report')
         return {
           ...base,
@@ -430,6 +433,7 @@ export function WidgetDialog({
                   change({
                     ...config,
                     source_kind: kind,
+                    period: kind === 'arrival_plan' ? 'range' : config.period,
                     operation: kind === 'table' ? 'count' : 'sum',
                     grouping: 'dormitory',
                     sources: catalog
@@ -440,6 +444,7 @@ export function WidgetDialog({
               >
                 <option value="report">Общий отчёт</option>
                 <option value="places">Размещение персонала</option>
+                <option value="arrival_plan">План заездов</option>
                 <option value="table">Таблица / пользовательская вкладка</option>
               </select>
             </label>
@@ -455,7 +460,9 @@ export function WidgetDialog({
                   <option value="snapshot">
                     {config.display === 'chart'
                       ? 'Накопительно на каждую дату'
-                      : 'На дату среза дашборда'}
+                      : config.source_kind === 'arrival_plan'
+                        ? 'На последнюю дату периода'
+                        : 'На дату среза дашборда'}
                   </option>
                   <option value="range">
                     {config.display === 'chart' ? 'Отдельно за каждый день' : 'За выбранный период'}
@@ -496,19 +503,23 @@ export function WidgetDialog({
             )}
           </div>
           <p className={styles.hint}>
-            {config.display === 'chart'
-              ? config.source_kind === 'table'
-                ? 'График показывает текущие строки таблиц по выбранной дате. Можно считать отдельно за день или накопительно. Строки без выбранной даты не учитываются.'
-                : 'График показывает значение выбранного показателя за каждую дату периода дашборда. Пропуски и ошибки данных разрывают линию.'
-              : config.source_kind === 'table'
-                ? 'Считаются текущие строки таблиц. За период — по выбранной дате; на дату среза — все строки с датой не позже среза. Строки без выбранной даты не учитываются.'
-                : 'На дату среза берётся один день. За период суммируются дневные значения — для численности обычно нужен срез.'}
+            {config.source_kind === 'arrival_plan'
+              ? 'Учитывается введённое количество приезжающих по датам заезда, включая будущие даты. Дни без записей дают 0. Заполнение ФИО не влияет на расчёт.'
+              : config.display === 'chart'
+                ? config.source_kind === 'table'
+                  ? 'График показывает текущие строки таблиц по выбранной дате. Можно считать отдельно за день или накопительно. Строки без выбранной даты не учитываются.'
+                  : 'График показывает значение выбранного показателя за каждую дату периода дашборда. Пропуски и ошибки данных разрывают линию.'
+                : config.source_kind === 'table'
+                  ? 'Считаются текущие строки таблиц. За период — по выбранной дате; на дату среза — все строки с датой не позже среза. Строки без выбранной даты не учитываются.'
+                  : 'На дату среза берётся один день. За период суммируются дневные значения — для численности обычно нужен срез.'}
           </p>
           <div className={styles.sourceHeading}>
             <h3>Общежития и источники</h3>
-            <button type="button" disabled={loading || !!loadError} onClick={copyFirst}>
-              Подобрать по первому общежитию
-            </button>
+            {config.source_kind !== 'arrival_plan' && (
+              <button type="button" disabled={loading || !!loadError} onClick={copyFirst}>
+                Подобрать по первому общежитию
+              </button>
+            )}
           </div>
           <label className={styles.check}>
             <input
@@ -533,8 +544,9 @@ export function WidgetDialog({
             Учитывать все общежития, включая новые
           </label>
           <p className={styles.hint}>
-            Для новых общежитий потребуется выбрать источник. Подбор сопоставляет названия и типы;
-            проверьте результат. Скрытые вкладки доступны для расчётов.
+            {config.source_kind === 'arrival_plan'
+              ? 'При выборе всех общежитий новые общежития будут учитываться автоматически.'
+              : 'Для новых общежитий потребуется выбрать источник. Подбор сопоставляет названия и типы; проверьте результат. Скрытые вкладки доступны для расчётов.'}
           </p>
           {loading && <p role="status">Загружаем источники…</p>}
           {loadError && (
@@ -568,6 +580,11 @@ export function WidgetDialog({
                     <details open={index === 0}>
                       <summary>{valid ? 'Источник выбран' : 'Настроить источник'}</summary>
                       <div className={styles.grid}>
+                        {source.kind === 'arrival_plan' && (
+                          <p className={styles.hint}>
+                            Количество ожидаемых людей из плана заездов.
+                          </p>
+                        )}
                         {source.kind === 'report' && (
                           <label className={styles.field}>
                             Строка отчёта — {dorm.name}

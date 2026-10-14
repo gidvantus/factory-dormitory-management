@@ -5,32 +5,11 @@ import type { Employee, EmployeeDetail, PersonnelData, Source } from '../../api/
 import { Modal } from '../../components/Modal';
 import { DecisionForm, EmployeeEditForm, NoteForm } from './Forms';
 import type { Mutate } from './Forms';
-import { dateLabel, dormName, isFavorite, message, personName, sourceUrl, value } from './helpers';
+import { dateLabel, dormName, message, personName, sourceUrl, value } from './helpers';
 import { IdentityDialog } from './IdentityDialog';
 import s from './Personnel.module.css';
 
 export type ProfileTab = 'overview' | 'history' | 'shifts' | 'notes';
-export function Favorite({
-  employee,
-  data,
-  onToggle,
-}: {
-  employee: Employee;
-  data: PersonnelData;
-  onToggle: (person: Employee) => void;
-}): JSX.Element {
-  const active = isFavorite(employee, data);
-  return (
-    <button
-      className={s.favorite}
-      aria-pressed={active}
-      aria-label={`${active ? 'Убрать из моих сотрудников' : 'Добавить в мои сотрудники'}: ${personName(employee)}`}
-      onClick={() => onToggle(employee)}
-    >
-      {active ? '★' : '☆'}
-    </button>
-  );
-}
 export function SourceCard({
   source,
   data,
@@ -91,16 +70,16 @@ export function PersonnelProfile({
   tab: initialTab,
   onClose,
   mutate,
-  onFavorite,
   onReload,
+  refreshError,
 }: {
   employee: Employee;
   data: PersonnelData;
   tab: ProfileTab;
   onClose: () => void;
   mutate: Mutate;
-  onFavorite: (person: Employee) => void;
   onReload: () => void;
+  refreshError?: string;
 }): JSX.Element {
   const [tab, setTab] = useState<ProfileTab>(initialTab);
   const [detail, setDetail] = useState<EmployeeDetail | null>(null);
@@ -160,6 +139,7 @@ export function PersonnelProfile({
     <Modal
       title="Карточка сотрудника"
       testId="personnel-profile"
+      initialFocus="panel"
       onClose={onClose}
       panelClassName={`${s.modal} ${s.drawer}`}
       containerClassName={s.drawerContainer}
@@ -177,7 +157,6 @@ export function PersonnelProfile({
             Т/н {employee.personnel_number ?? '—'} · {employee.phone ?? 'Телефон не указан'}
           </p>
         </div>
-        <Favorite employee={employee} data={data} onToggle={onFavorite} />
       </div>
       {employee.current.length > 1 && (
         <p className={s.notice}>
@@ -200,6 +179,12 @@ export function PersonnelProfile({
           </button>
         ))}
       </div>
+      {refreshError && (
+        <p role="alert" className={s.error}>
+          {refreshError}
+          <button onClick={onReload}>Повторить загрузку карточки</button>
+        </p>
+      )}
       {error && (
         <p role="alert" className={s.error}>
           {error}

@@ -8,9 +8,8 @@ import styles from './Workspace.module.css';
  * Обзор: он остаётся открытым и на закрытом кабинете, поэтому состояние
  * пробного периода живёт здесь.
  *
- * Тариф и срок пробного периода — один блок: пока период идёт или кабинет
- * закрыт, это важная информация о состоянии кабинета, а не рядовой показатель
- * обзора, и блок выделен. С выбранным тарифом выделять нечего.
+ * Тариф и срок пробного периода — компактная лента. Дополнительное предупреждение
+ * остаётся только у закрытого кабинета, чтобы объяснить недоступность разделов.
  */
 export function WorkspaceOverview(): JSX.Element {
   const { state } = useTrial();
@@ -22,6 +21,7 @@ export function WorkspaceOverview(): JSX.Element {
         <div
           className={styles['trial-card-block']}
           data-trial={highlighted ? 'true' : 'false'}
+          data-locked={state?.locked ? 'true' : 'false'}
           data-testid="trial-tariff-block"
         >
           <TrialNotice />

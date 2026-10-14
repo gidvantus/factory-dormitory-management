@@ -28,7 +28,6 @@ from app.models.personnel import (
     EmployeeMerge,
     EmployeeNote,
     EmployeePlan,
-    EmployeeSeparation,
     PersonnelBinding,
     PersonnelPreferences,
 )
@@ -527,58 +526,6 @@ def choose_identity(db: Session, choice: IdentityChoice) -> Employee:
     return employee
 
 
-def pair_signature(db: Session, source_id: str, target_id: str) -> str:
-    employees, roots, aliases = identity_index(db)
-    if source_id not in employees or target_id not in employees:
-        raise HTTPException(404, "Карточка сотрудника не найдена")
-    ids = sorted({roots[source_id], roots[target_id]})
-    return indexed_signature(roots, aliases, ids)
-
-
-def indexed_signature(
-    roots: dict[str, str], aliases: dict[str, dict[str, set[str]]], ids: list[str]
-) -> str:
-    return digest(
-        {
-            id: {
-                "members": sorted(member for member, root in roots.items() if root == id),
-                "values": {field: sorted(values) for field, values in aliases[id].items()},
-            }
-            for id in ids
-        }
-    )
-
-
-def match_pairs(db: Session) -> list[dict[str, Any]]:
-    _employees, roots, aliases = identity_index(db)
-    ids = sorted(aliases)
-    separated = {item.pair: item.signature for item in db.scalars(select(EmployeeSeparation))}
-    # Индекс значений ограничивает сравнение карточками с общими признаками.
-    buckets: dict[tuple[str, str], set[str]] = defaultdict(set)
-    for id in ids:
-        for field, values in aliases[id].items():
-            for value in values:
-                buckets[(field, value if field != "full_name" else value.split()[0])].add(id)
-    pairs = {(a, b) for values in buckets.values() for a in values for b in values if a < b}
-    result = []
-    for a, b in sorted(pairs):
-        score, evidence, differences = score_match(aliases[a], aliases[b])
-        signature = indexed_signature(roots, aliases, [a, b])
-        if not score or separated.get(f"{a}:{b}") == signature:
-            continue
-        result.append(
-            {
-                "source_id": a,
-                "target_id": b,
-                "score": score,
-                "evidence": evidence,
-                "differences": differences,
-                "signature": signature,
-            }
-        )
-    return sorted(result, key=lambda item: -item["score"])
-
-
 def workspace(db: Session, user: User) -> dict[str, Any]:
     employees, roots = root_map(db)
     identities = group_identities(employees, roots)
@@ -597,26 +544,12 @@ def workspace(db: Session, user: User) -> dict[str, Any]:
             }
         )
     history_dorms: dict[str, set[int]] = defaultdict(set)
-    outflow_dorms: dict[str, set[int]] = defaultdict(set)
-    last_outflows: dict[str, dict[str, Any]] = {}
     history_ids: set[str] = set()
     for entry in db.scalars(select(EmployeeEvent).order_by(EmployeeEvent.id)):
         root = roots[entry.employee_id]
         history_ids.add(root)
         if entry.dormitory_id:
             history_dorms[root].add(entry.dormitory_id)
-        if entry.kind == "outflow" or (
-            entry.source_table == "outflow" and "custom_values" in entry.snapshot
-        ):
-            if entry.dormitory_id:
-                outflow_dorms[root].add(entry.dormitory_id)
-            departure = str(entry.snapshot.get("departure_date") or entry.happened_on)
-            if root not in last_outflows or departure >= last_outflows[root]["date"]:
-                last_outflows[root] = {
-                    "date": departure,
-                    "dormitory_id": entry.dormitory_id,
-                    "reason": entry.snapshot.get("reason"),
-                }
     variants: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for alias in db.scalars(select(EmployeeAlias)):
         variants[roots[alias.employee_id]][alias.field].add(alias.raw_value)
@@ -635,10 +568,7 @@ def workspace(db: Session, user: User) -> dict[str, Any]:
                 "member_ids": sorted(member for member, root in roots.items() if root == id),
                 "sources": rows,
                 "current": current,
-                "has_outflow": id in last_outflows,
                 "history_dormitory_ids": sorted(history_dorms[id]),
-                "outflow_dormitory_ids": sorted(outflow_dorms[id]),
-                "last_outflow": last_outflows.get(id),
                 "variants": {field: sorted(values) for field, values in variants[id].items()},
             }
         )
@@ -680,8 +610,7 @@ def workspace(db: Session, user: User) -> dict[str, Any]:
         ],
         "preferences": {"revision": preferences.revision, **preferences.settings}
         if preferences
-        else {"revision": 0, "blocks": None, "lists": [], "favorites": []},
-        "matches": match_pairs(db),
+        else {"revision": 0, "blocks": None, "lists": []},
     }
 
 

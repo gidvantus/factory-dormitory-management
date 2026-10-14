@@ -117,6 +117,8 @@ class EmployeeMerge(Base):
 
 
 class EmployeeSeparation(Base):
+    """Решения прежней вкладки «Совпадения», сохранённые без создания новых."""
+
     __tablename__ = "employee_separations"
     pair: Mapped[str] = mapped_column(String(73), primary_key=True)
     signature: Mapped[str] = mapped_column(String(64))

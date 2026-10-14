@@ -2,22 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { personnelApi } from '../api/personnel';
-import type {
-  Block,
-  Employee,
-  Filter,
-  PersonnelData,
-  Preferences,
-  SavedList,
-} from '../api/personnel';
+import type { Block, Filter, PersonnelData, Preferences, SavedList } from '../api/personnel';
 import { useSession } from '../auth/SessionProvider';
 import { usePageRefresh } from './usePageRefresh';
-import { MatchesBoard } from './personnel/Boards';
 import { ArrivalPlanningBoard } from './personnel/ArrivalPlanningBoard';
-import type { OpenPerson } from './personnel/Boards';
 import { BlockDialog, ExportDialog, SaveListDialog } from './personnel/Dialogs';
 import type { Mutate } from './personnel/Forms';
-import { Favorite, PersonnelProfile } from './personnel/PersonnelProfile';
+import { PersonnelProfile } from './personnel/PersonnelProfile';
 import type { ProfileTab } from './personnel/PersonnelProfile';
 import {
   addDays,
@@ -28,7 +19,6 @@ import {
   defaultBlocks,
   dormName,
   filterPeople,
-  isFavorite,
   message,
   names,
   personName,
@@ -36,7 +26,8 @@ import {
 } from './personnel/helpers';
 import s from './personnel/Personnel.module.css';
 
-type View = 'workspace' | 'list' | 'planning' | 'matches';
+type View = 'workspace' | 'list' | 'planning';
+type OpenPerson = (id: string, tab?: ProfileTab) => void;
 type Criteria = Omit<SavedList, 'id' | 'name'>;
 
 function blockCriteria(block: Block, dormitory: number | null, data: PersonnelData): Criteria {
@@ -50,11 +41,7 @@ function blockCriteria(block: Block, dormitory: number | null, data: PersonnelDa
         ? (list?.filter ?? 'all')
         : block.kind === 'residents' || block.kind === 'contacts'
           ? 'current'
-          : block.kind === 'outflow'
-            ? 'history'
-            : block.kind === 'missing'
-              ? 'missing'
-              : 'ending',
+          : 'ending',
     dormitory: dormitory ?? list?.dormitory ?? null,
     days: list?.days ?? block.days,
     query: list?.query ?? '',
@@ -178,10 +165,7 @@ function WorkspaceBlock({
             (decision) => decision.resident_id === source?.row_id,
           );
           return (
-            <button
-              key={person.id}
-              onClick={() => onPerson(person.id, block.kind === 'outflow' ? 'history' : 'overview')}
-            >
+            <button key={person.id} onClick={() => onPerson(person.id)}>
               <span>
                 <strong>{personName(person)}</strong>
                 <small>
@@ -195,12 +179,6 @@ function WorkspaceBlock({
                 </small>
                 {block.kind === 'ending' && (
                   <small>{decisionNames[decision?.status ?? 'waiting']}</small>
-                )}
-                {block.kind === 'outflow' && person.last_outflow && (
-                  <small>
-                    {dateLabel(person.last_outflow.date, true)} ·{' '}
-                    {person.last_outflow.reason || 'Причина не указана'}
-                  </small>
                 )}
               </span>
               {block.kind === 'contacts' ? (
@@ -364,11 +342,6 @@ export function Personnel(): JSX.Element {
       await personnelApi.preferences({ ...data.preferences, blocks, ...changes });
     });
   };
-  const onFavorite = (person: Employee): void => {
-    const favorites = data.preferences.favorites.filter((id) => !person.member_ids.includes(id));
-    if (!isFavorite(person, data)) favorites.push(person.id);
-    void savePreferences({ favorites }).catch(() => {});
-  };
   const onPerson: OpenPerson = (id, tab = 'overview') => {
     setProfileTab(tab);
     const next = new URLSearchParams(params);
@@ -423,7 +396,7 @@ export function Personnel(): JSX.Element {
           </h1>
           <p>Проживание, вахты и контакты — в одном месте.</p>
         </div>
-        {view !== 'planning' && (
+        {view === 'workspace' && (
           <div className={s.actions}>
             <button disabled={busy || blocks.length >= 20} onClick={() => setBlockEditor('new')}>
               + Добавить блок
@@ -437,7 +410,6 @@ export function Personnel(): JSX.Element {
             ['workspace', 'Рабочая поверхность'],
             ['list', 'Сотрудники'],
             ['planning', 'План заездов'],
-            ['matches', 'Совпадения'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -455,7 +427,6 @@ export function Personnel(): JSX.Element {
           >
             {label}
             {id === 'list' && <b>{data.employees.length}</b>}
-            {id === 'matches' && <b>{data.matches.length}</b>}
           </button>
         ))}
       </div>
@@ -530,29 +501,12 @@ export function Personnel(): JSX.Element {
           сотрудника в его таблицу.
         </p>
       )}
-      {view !== 'planning' &&
-        data.employees.some(
-          (person) => person.identity_status === 'pending' || person.current.length > 1,
-        ) && (
-          <p className={s.notice}>
-            Есть карточки с непроверенной личностью или несколькими записями проживания. До проверки
-            совпадений количество уникальных сотрудников предварительное.{' '}
-            <button
-              className={s.linkButton}
-              onClick={() => onList({ ...criteria, filter: 'pending', query: '', scope: [] })}
-            >
-              Проверить записи →
-            </button>
-          </p>
-        )}
       {view !== 'planning' && (
         <div className={s.metrics}>
           {(
             [
               ['current', 'Проживают сейчас'],
               ['ending', `Вахта заканчивается до ${days} дней`],
-              ['overdue', 'Дата окончания уже прошла'],
-              ['missing', 'Нужно дополнить данные'],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -666,9 +620,6 @@ export function Personnel(): JSX.Element {
       )}
       {view === 'planning' && (
         <ArrivalPlanningBoard data={data} dormitory={dormitory} mutate={mutate} />
-      )}
-      {view === 'matches' && (
-        <MatchesBoard data={data} dormitory={dormitory} onPerson={onPerson} mutate={mutate} />
       )}
       {view === 'list' && (
         <section className={s.board}>
@@ -789,7 +740,6 @@ export function Personnel(): JSX.Element {
                       />
                     </td>
                     <td>
-                      <Favorite employee={person} data={data} onToggle={onFavorite} />
                       <button className={s.name} onClick={() => onPerson(person.id)}>
                         {personName(person)}
                         <small>Т/н {person.personnel_number ?? '—'}</small>
@@ -827,17 +777,6 @@ export function Personnel(): JSX.Element {
                       <span className={s.badge}>
                         {person.current.length ? 'Проживает' : 'Вне общежитий'}
                       </span>
-                      {person.identity_status === 'pending' && (
-                        <small>Личность требует проверки</small>
-                      )}
-                      {person.has_outflow && (
-                        <button
-                          className={s.linkButton}
-                          onClick={() => onPerson(person.id, 'history')}
-                        >
-                          Есть история оттока
-                        </button>
-                      )}
                     </td>
                     <td>{person.phone ?? 'Не указан'}</td>
                   </tr>
@@ -874,7 +813,6 @@ export function Personnel(): JSX.Element {
           tab={profileTab}
           onClose={closeProfile}
           mutate={mutate}
-          onFavorite={onFavorite}
           onReload={() => setAttempt((n) => n + 1)}
         />
       )}

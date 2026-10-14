@@ -188,6 +188,8 @@ def preview_block(
     to_date: Annotated[date, Query(alias="to")],
 ) -> StatisticsResult:
     end = period_end(from_date, to_date)
+    if payload.query.source_kind == "arrival_plan":
+        end = to_date
     catalog = source_catalog(db)
     dormitories = list(db.scalars(select(Dormitory).order_by(Dormitory.id)))
     result = calculate_block(db, user, payload, dormitories, catalog, from_date, end, {})
@@ -221,7 +223,7 @@ def read_data(
             dormitories,
             catalog,
             from_date,
-            end,
+            to_date if block["query"]["source_kind"] == "arrival_plan" else end,
             cache,
         )
         for block in report.blocks

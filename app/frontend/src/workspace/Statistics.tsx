@@ -462,9 +462,13 @@ export function Statistics(): JSX.Element {
               <p className={styles.periodNote}>
                 {dataLoading
                   ? 'Обновление расчётов…'
-                  : data?.through_date
-                    ? `Расчёт по ${formatDate(data.through_date)} включительно. Будущие даты не учитываются.`
-                    : 'За выбранный период нет доступных дат.'}
+                  : report.blocks.every((block) => block.query.source_kind === 'arrival_plan')
+                    ? 'План заездов учитывается за весь выбранный период, включая будущие даты.'
+                    : report.blocks.some((block) => block.query.source_kind === 'arrival_plan')
+                      ? `План заездов — за весь выбранный период, включая будущие даты. Остальные показатели${data?.through_date ? ` — по ${formatDate(data.through_date)} включительно.` : ': за выбранный период нет доступных дат.'}`
+                      : data?.through_date
+                        ? `Расчёт по ${formatDate(data.through_date)} включительно. Будущие даты не учитываются.`
+                        : 'За выбранный период нет доступных дат.'}
               </p>
               <div className={styles.blockGrid} aria-busy={dataLoading}>
                 {report.blocks.map((block, index) => {

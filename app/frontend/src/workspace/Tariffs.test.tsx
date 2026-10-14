@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { Tariff } from '../api/client';
 import { callsTo, mockFetch } from '../test/mockFetch';
 import type { MockHandler, MockResponse } from '../test/mockFetch';
 import { renderApp } from '../test/renderApp';
@@ -15,169 +16,202 @@ const PROFILE: MockResponse = {
     is_active: true,
   },
 };
-
 const NOT_FOUND: MockResponse = { status: 404, body: { detail: 'Не найдено' } };
-
-const TARIFF = {
+const START: Tariff = {
   id: 1,
-  name: 'Базовый',
-  description: 'Всё основное',
-  amount: '5000.00',
+  name: 'Старт',
+  description: 'До 10 пользователей.',
+  amount: '10000.00',
   currency: 'RUB',
   period: 'month',
   unit_label: null,
   position: 1,
-  is_visible: true,
-  price_label: '5 000 ₽ в месяц',
+  price_label: '10 000 ₽ в месяц',
 };
+const STANDARD: Tariff = {
+  ...START,
+  id: 2,
+  name: 'Стандарт',
+  description: 'До 15 пользователей. Все разделы.',
+  amount: '50000.00',
+  period: 'half_year',
+  price_label: '50 000 ₽ за 6 месяцев',
+};
+const MAXIMUM: Tariff = {
+  ...START,
+  id: 3,
+  name: 'Максимум',
+  description: 'Без ограничений по пользователям.',
+  amount: '90000.00',
+  period: 'year',
+  price_label: '90 000 ₽ в год',
+};
+const PLANS = [START, STANDARD, MAXIMUM];
 
-/** Маршруты кабинета: `/api/me` — активная сессия, тариф приходит только на чтение. */
-function tariffRoutes(current: MockResponse): MockHandler {
+function routes(current: Tariff | null = null, catalog = PLANS): MockHandler {
   return (url) => {
     if (url.endsWith('/api/me')) return PROFILE;
-    if (url.endsWith('/api/tariffs/current')) return current;
-    if (url.endsWith('/api/tariffs')) return { status: 200, body: [TARIFF] };
+    if (url.endsWith('/api/tariffs/current')) return { status: 200, body: { tariff: current } };
+    if (url.endsWith('/api/tariffs')) return { status: 200, body: catalog };
     return NOT_FOUND;
   };
 }
 
-/** Ответ сервера на тариф организации: поле `editable` из контракта убрано. */
-function assigned(tariff: typeof TARIFF | null): MockResponse {
-  return { status: 200, body: { tariff } };
-}
+afterEach(() => vi.unstubAllGlobals());
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-describe('раздел «Тариф» в кабинете', () => {
-  it('показывает назначенный организации тариф, а не прайс', async () => {
-    mockFetch(tariffRoutes(assigned(TARIFF)));
+describe('раздел «Тарифы» в кабинете', () => {
+  it('показывает весь каталог с акцентом на Стандарт и серверными ценами', async () => {
+    mockFetch(routes());
     renderApp('/cabinet/tariffs');
-
-    expect(await screen.findByTestId('tariff-current')).toBeInTheDocument();
-    expect(screen.getByTestId('tariff-current-name')).toHaveTextContent('Базовый');
-    expect(screen.getByTestId('tariff-current-price')).toHaveTextContent('5 000 ₽ в месяц');
-    expect(screen.getByTestId('tariff-current-description')).toHaveTextContent('Всё основное');
-    // Строки прайса с кнопками правки — это другой экран, которого больше нет.
-    expect(screen.queryByTestId('tariff-row')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('tariff-edit')).not.toBeInTheDocument();
+    const cards = await screen.findAllByTestId('tariff-card');
+    expect(cards).toHaveLength(3);
+    expect(screen.getAllByTestId('tariff-name').map((name) => name.textContent)).toEqual([
+      'Стандарт',
+      'Старт',
+      'Максимум',
+    ]);
+    expect(cards[0]).toHaveAttribute('data-featured', 'true');
+    expect(within(cards[0]).getByTestId('tariff-price')).toHaveTextContent(STANDARD.price_label);
+    expect(within(cards[0]).getByTestId('tariff-description')).toHaveTextContent(
+      STANDARD.description!,
+    );
+    for (const button of screen.getAllByTestId('tariff-buy')) expect(button).toBeEnabled();
     expect(screen.getByTestId('workspace-nav-tariffs')).toHaveAttribute('href', '/cabinet/tariffs');
-    expect(document.title).toBe('Тариф — Домовой');
+    expect(document.title).toBe('Тарифы — Домовой');
   });
 
-  it('не оставляет в DOM ни одного элемента правки тарифа', async () => {
-    mockFetch(tariffRoutes(assigned(TARIFF)));
+  it('помечает купленный тариф и блокирует повторную покупку', async () => {
+    const fetchMock = mockFetch(routes(START));
+    const user = userEvent.setup();
     renderApp('/cabinet/tariffs');
-
-    await screen.findByTestId('tariff-current');
-
-    for (const testId of [
-      'tariff-choose',
-      'tariff-change',
-      'tariff-save',
-      'tariff-cancel',
-      'tariff-option',
-      'tariff-catalog-link',
-      'tariff-choice-catalog-link',
-      'tariffs-readonly',
-      'tariff-current-visibility',
-      'tariff-modal',
-    ]) {
-      expect(screen.queryByTestId(testId)).not.toBeInTheDocument();
-    }
-  });
-
-  it('не запрашивает снятые ручки правки', async () => {
-    const fetchMock = mockFetch(tariffRoutes(assigned(TARIFF)));
-    renderApp('/cabinet/tariffs');
-
-    await screen.findByTestId('tariff-current');
-
+    const owned = await screen.findByTestId('tariff-owned');
+    expect(owned.closest('article')).toHaveTextContent('Старт');
+    const buttons = screen.getAllByTestId('tariff-buy');
+    for (const button of buttons) expect(button).toBeDisabled();
+    await user.click(buttons[0]);
+    expect(callsTo(fetchMock, '/api/billing/invoices')).toHaveLength(0);
     expect(callsTo(fetchMock, '/api/tariffs/manage')).toHaveLength(0);
-    expect(callsTo(fetchMock, '/api/tariffs/current')).toHaveLength(1);
-    // Единственный запрос к тарифу организации — чтение, без метода вовсе.
-    expect(
-      (callsTo(fetchMock, '/api/tariffs/current')[0][1] as RequestInit).method,
-    ).toBeUndefined();
   });
 
-  it('показывает загрузку, пока тариф не пришёл', async () => {
+  it('сохраняет снятый с продажи тариф организации и его условия', async () => {
+    const archived = {
+      ...START,
+      id: 9,
+      name: 'Архивный',
+      is_visible: false,
+      unit_label: 'За организацию',
+    };
+    mockFetch(routes(archived));
+    renderApp('/cabinet/tariffs');
+    const owned = await screen.findByTestId('tariff-owned');
+    expect(owned.closest('article')).toHaveTextContent('Архивный');
+    expect(owned.closest('article')).toHaveTextContent('За организацию');
+    expect(screen.getAllByTestId('tariff-card')).toHaveLength(4);
+  });
+
+  it('ждёт проверки текущего тарифа перед показом кнопок покупки', async () => {
+    const handler = routes();
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (input: RequestInfo | URL) =>
-        String(input).endsWith('/api/tariffs/current')
-          ? new Promise<Response>(() => {})
-          : new Response(JSON.stringify(PROFILE.body), {
-              status: 200,
-              headers: { 'Content-Type': 'application/json' },
-            }),
-      ),
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/api/tariffs/current')) return new Promise<Response>(() => {});
+        const response = handler(String(input));
+        return new Response(JSON.stringify(response.body), {
+          status: response.status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
     );
     renderApp('/cabinet/tariffs');
-
     expect(await screen.findByTestId('tariffs-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('tariff-buy')).not.toBeInTheDocument();
   });
 
-  it('показывает текст ошибки и повторяет запрос', async () => {
-    let attempts = 0;
-    const fetchMock = mockFetch((url) => {
-      if (url.endsWith('/api/me')) return PROFILE;
-      attempts += 1;
-      return attempts === 1
-        ? { status: 500, body: { detail: 'Внутренняя ошибка' } }
-        : assigned(TARIFF);
+  it.each(['/api/tariffs', '/api/tariffs/current'])(
+    'повторяет загрузку после ошибки %s',
+    async (endpoint) => {
+      let attempts = 0;
+      const handler = routes();
+      const fetchMock = mockFetch((url, init) => {
+        if (url.endsWith(endpoint) && ++attempts === 1)
+          return { status: 500, body: { detail: 'Внутренняя ошибка' } };
+        return handler(url, init);
+      });
+      const user = userEvent.setup();
+      renderApp('/cabinet/tariffs');
+      expect(await screen.findByTestId('tariffs-error')).toHaveTextContent('Внутренняя ошибка');
+      expect(screen.queryByTestId('tariff-buy')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Повторить' }));
+      expect(await screen.findAllByTestId('tariff-card')).toHaveLength(3);
+      expect(callsTo(fetchMock, endpoint)).toHaveLength(2);
+    },
+  );
+
+  it('показывает пустой каталог', async () => {
+    mockFetch(routes(null, []));
+    renderApp('/cabinet/tariffs');
+    expect(await screen.findByTestId('tariffs-empty')).toHaveTextContent(
+      'Тарифы ещё не опубликованы',
+    );
+    expect(screen.queryByTestId('tariff-buy')).not.toBeInTheDocument();
+  });
+
+  it('старый адрес каталога открывает новые карточки', async () => {
+    mockFetch(routes());
+    renderApp('/cabinet/tariffs/catalog');
+    expect(await screen.findAllByTestId('tariff-card')).toHaveLength(3);
+    expect(document.title).toBe('Тарифы — Домовой');
+  });
+
+  it('выставляет счёт за выбранный тариф и открывает Документы', async () => {
+    const handler = routes();
+    const fetchMock = mockFetch((url, init) => {
+      if (url.endsWith('/api/billing/invoices'))
+        return {
+          status: init?.method === 'POST' ? 201 : 200,
+          body: init?.method === 'POST' ? { id: 42 } : [],
+        };
+      return handler(url, init);
     });
     const user = userEvent.setup();
     renderApp('/cabinet/tariffs');
-
-    expect(await screen.findByTestId('tariffs-error')).toHaveTextContent('Внутренняя ошибка');
-
-    await user.click(screen.getByRole('button', { name: 'Повторить' }));
-
-    expect(await screen.findByTestId('tariff-current')).toBeInTheDocument();
-    expect(callsTo(fetchMock, '/api/tariffs/current')).toHaveLength(2);
+    const cards = await screen.findAllByTestId('tariff-card');
+    await user.click(within(cards[0]).getByTestId('tariff-buy'));
+    expect(await screen.findByTestId('documents-purchase-success')).toBeInTheDocument();
+    const post = callsTo(fetchMock, '/api/billing/invoices').filter(
+      (call) => (call[1] as RequestInit).method === 'POST',
+    );
+    expect(post).toHaveLength(1);
+    expect(JSON.parse((post[0][1] as RequestInit).body as string)).toEqual({
+      tariff_id: STANDARD.id,
+    });
   });
 
-  it('без тарифа объясняет, откуда он появится, и ничего не предлагает', async () => {
-    mockFetch(tariffRoutes(assigned(null)));
+  it('показывает отказ покупки и возвращает доступность кнопок', async () => {
+    const handler = routes();
+    mockFetch((url, init) =>
+      url.endsWith('/api/billing/invoices')
+        ? { status: 409, body: { detail: 'Тариф организации уже выбран' } }
+        : handler(url, init),
+    );
+    const user = userEvent.setup();
     renderApp('/cabinet/tariffs');
-
-    const empty = await screen.findByTestId('tariffs-empty');
-
-    expect(empty).toHaveTextContent('Тариф организации ещё не назначен');
-    expect(empty).toHaveTextContent('покупке');
-    // Покупки в этой задаче нет: в пустом состоянии не должно быть ни кнопок,
-    // ни ссылок на выбор тарифа — только объяснение.
-    expect(within(empty).queryByRole('button')).not.toBeInTheDocument();
-    expect(within(empty).queryByRole('link')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('tariff-catalog-link')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('tariff-choose')).not.toBeInTheDocument();
+    const cards = await screen.findAllByTestId('tariff-card');
+    await user.click(within(cards[0]).getByTestId('tariff-buy'));
+    expect(await screen.findByTestId('tariffs-buy-error')).toHaveTextContent(
+      'Тариф организации уже выбран',
+    );
+    expect(screen.getByTestId('tariffs-page')).toBeInTheDocument();
+    for (const button of screen.getAllByTestId('tariff-buy')) expect(button).toBeEnabled();
   });
 
-  it('удалённый адрес прайс-листа ведёт в раздел «Тариф», а не в 404', async () => {
-    mockFetch(tariffRoutes(assigned(TARIFF)));
-    renderApp('/cabinet/tariffs/catalog');
-
-    expect(await screen.findByTestId('tariff-current')).toBeInTheDocument();
-    expect(screen.queryByTestId('tariffs-table')).not.toBeInTheDocument();
-    expect(document.title).toBe('Тариф — Домовой');
-  });
-
-  it('участник без права правки видит тот же тариф без кнопок', async () => {
-    // Роль на клиент больше не приходит: ответ одинаков, и правки нет ни у кого.
-    mockFetch(tariffRoutes(assigned(TARIFF)));
+  it('не разрешает покупку, если не удалось определить организацию', async () => {
+    const handler = routes();
+    mockFetch((url, init) =>
+      url.endsWith('/api/tariffs/current') ? NOT_FOUND : handler(url, init),
+    );
     renderApp('/cabinet/tariffs');
-
-    expect(await screen.findByTestId('tariff-current-name')).toHaveTextContent('Базовый');
-    expect(screen.queryByTestId('tariff-change')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('tariff-choose')).not.toBeInTheDocument();
-  });
-
-  it('без организации показывает ошибку сервера', async () => {
-    mockFetch(tariffRoutes(NOT_FOUND));
-    renderApp('/cabinet/tariffs');
-
     expect(await screen.findByTestId('tariffs-error')).toHaveTextContent('Не найдено');
+    expect(screen.queryByTestId('tariff-buy')).not.toBeInTheDocument();
   });
 });

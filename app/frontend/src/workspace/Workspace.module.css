@@ -890,15 +890,14 @@
 .shell .trial-expired p {
   margin: 0;
 }
-/* Тариф и срок пробного периода: один блок, пока период идёт или кабинет
-   закрыт. Это важная информация о состоянии кабинета, поэтому блок выделен
-   мягким «вниманием» — не ошибкой; с выбранным тарифом выделять нечего. */
+/* Лента тарифа оформляется самостоятельно. Общая плашка нужна только
+   закрытому кабинету, чтобы выделить сообщение об окончании пробного периода. */
 .shell .trial-card-block {
   display: grid;
   gap: 14px;
   min-width: 0;
 }
-.shell .trial-card-block[data-trial='true'] {
+.shell .trial-card-block[data-locked='true'] {
   padding: 18px 20px 20px;
   border: 1px solid var(--butter-200);
   border-radius: 20px;
@@ -906,7 +905,7 @@
 }
 /* Рамку внутри выделенного блока держит он сам: у сообщения об окончании
    остаются только текст и ссылка. */
-.shell .trial-card-block[data-trial='true'] .trial-expired {
+.shell .trial-card-block[data-locked='true'] .trial-expired {
   margin-bottom: 0;
   padding: 0;
   border: 0;

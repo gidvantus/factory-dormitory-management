@@ -11,9 +11,11 @@ from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.outflow import PersonnelOutflow
+from app.outflow_fields import field_columns, outflow_fields, remember_reason
 from app.personnel import record_changed
-from app.schemas.outflow import OutflowResponse, UpdateOutflowRequest
+from app.schemas.outflow import OutflowFields, OutflowResponse, UpdateOutflowRequest
 from app.section_state import require_section_writable
+from app.table_data import ensure_columns, lock_dormitory
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/outflow",
@@ -53,7 +55,7 @@ def list_outflow(
                     PersonnelOutflow.departure_date.between(from_date, to_date),
                 ),
             )
-            .order_by(PersonnelOutflow.id)
+            .order_by(PersonnelOutflow.id.desc())
         )
     )
 
@@ -76,6 +78,13 @@ def create_outflow(
     return row
 
 
+@router.get("/fields", response_model=OutflowFields)
+def read_fields(dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession) -> OutflowFields:
+    result = outflow_fields(db, dormitory_id)
+    db.commit()
+    return result
+
+
 @router.patch("/{row_id}", response_model=OutflowResponse, summary="Сохранить строку оттока")
 def update_outflow(
     dormitory_id: DormitoryId,
@@ -86,8 +95,13 @@ def update_outflow(
 ) -> PersonnelOutflow:
     require_section_writable(db, dormitory_id, "outflow")
     require_dormitory(db, dormitory_id)
+    lock_dormitory(db, dormitory_id)
     row = get_outflow(db, dormitory_id, row_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
+        if field == "reason" and value:
+            reason, _ = field_columns(ensure_columns(db, dormitory_id, "outflow"))
+            if reason and reason.kind == "text" and reason.builtin_key == "reason":
+                value = remember_reason(db, reason, value)
         setattr(row, field, value)
     record_changed(db, row, _user.id)
     db.commit()

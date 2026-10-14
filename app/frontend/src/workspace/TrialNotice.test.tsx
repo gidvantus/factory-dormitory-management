@@ -61,7 +61,7 @@ describe('сообщение о пробном периоде на обзоре'
     expect(notice).toHaveAttribute('role', 'status');
 
     const link = screen.getByTestId('trial-expired-link');
-    expect(link).toHaveAttribute('href', '/cabinet/tariffs');
+    expect(link).toHaveAttribute('href', '/pricing');
     expect(link).toHaveTextContent('Выбрать тариф');
     expect(screen.queryByTestId('trial-days-left')).not.toBeInTheDocument();
   });
@@ -103,6 +103,7 @@ describe('выделенный блок тарифа и пробного пер�
 
     const block = screen.getByTestId('trial-tariff-block');
     expect(block).toHaveAttribute('data-trial', 'true');
+    expect(block).toHaveAttribute('data-locked', 'true');
     expect(within(block).getByTestId('trial-expired-notice')).toBeInTheDocument();
     expect(within(block).getByTestId('dashboard-tariff')).toBeInTheDocument();
   });
@@ -114,6 +115,7 @@ describe('выделенный блок тарифа и пробного пер�
 
     const block = screen.getByTestId('trial-tariff-block');
     expect(block).toHaveAttribute('data-trial', 'true');
+    expect(block).toHaveAttribute('data-locked', 'false');
     expect(within(block).getByTestId('trial-days-left')).toBeInTheDocument();
   });
 

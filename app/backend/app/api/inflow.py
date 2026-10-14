@@ -1,6 +1,6 @@
 """Записи о притоке персонала."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -10,9 +10,19 @@ from sqlalchemy.orm import Session
 from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.reports import require_dormitory
 from app.db import get_db
+from app.inflow_actions import InflowAction, prepare_inflow_action
 from app.models.inflow import PersonnelInflow
-from app.personnel import record_changed
-from app.schemas.inflow import InflowResponse, UpdateInflowRequest
+from app.models.outflow import PersonnelOutflow
+from app.models.resident import Resident
+from app.outflow_fields import apply_outflow_fields
+from app.personnel import fulfill_arrival, group_ids, record_changed
+from app.schemas.inflow import (
+    InflowActionPreview,
+    InflowActionRequest,
+    InflowActionResponse,
+    InflowResponse,
+    UpdateInflowRequest,
+)
 from app.section_state import require_section_writable
 
 router = APIRouter(
@@ -53,7 +63,7 @@ def list_inflow(
                     PersonnelInflow.settlement_date.between(from_date, to_date),
                 ),
             )
-            .order_by(PersonnelInflow.id)
+            .order_by(PersonnelInflow.id.desc())
         )
     )
 
@@ -74,6 +84,80 @@ def create_inflow(
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.post("/{row_id}/{action}/preview", response_model=InflowActionPreview)
+def preview_action(
+    dormitory_id: DormitoryId,
+    row_id: InflowId,
+    action: InflowAction,
+    _user: SubscribedUser,
+    db: DbSession,
+) -> InflowActionPreview:
+    plan = prepare_inflow_action(db, dormitory_id, row_id, action)
+    db.commit()
+    return plan.preview
+
+
+@router.post("/{row_id}/{action}", response_model=InflowActionResponse, status_code=201)
+def process_inflow(
+    dormitory_id: DormitoryId,
+    row_id: InflowId,
+    action: InflowAction,
+    payload: InflowActionRequest,
+    user: SubscribedUser,
+    db: DbSession,
+) -> InflowActionResponse:
+    plan = prepare_inflow_action(db, dormitory_id, row_id, action)
+    if payload.preview_token != plan.preview.preview_token:
+        raise HTTPException(409, "Данные или столбцы изменились. Подтвердите действие ещё раз")
+    values = payload.model_dump(exclude_unset=True, include={"reason", "departure_date"})
+    if action == "outflow":
+        available = plan.preview.fields
+        if available and available.reason_column and not values.get("reason"):
+            raise HTTPException(422, "Укажите причину оттока")
+        if available and available.departure_column and not values.get("departure_date"):
+            raise HTTPException(422, "Укажите дату оттока")
+        apply_outflow_fields(db, dormitory_id, plan.fields, plan.custom, values)
+    elif values:
+        raise HTTPException(422, "Причина и дата оттока не используются при заселении")
+    record_changed(db, plan.source, user.id)
+    if not plan.source.employee_id:
+        raise HTTPException(422, "Заполните данные сотрудника в притоке")
+    if action == "settle" and db.scalar(
+        select(Resident.id).where(Resident.employee_id.in_(group_ids(db, plan.source.employee_id)))
+    ):
+        raise HTTPException(
+            409, "Этот сотрудник уже есть в «Проживающих». Сначала оформите его выезд или перевод"
+        )
+    model = Resident if action == "settle" else PersonnelOutflow
+    target = model(
+        dormitory_id=dormitory_id,
+        employee_id=plan.source.employee_id,
+        custom_values=plan.custom,
+        **plan.fields,
+    )
+    db.add(target)
+    db.flush()
+    record_changed(db, target, user.id)
+    if isinstance(target, Resident):
+        fulfill_arrival(db, target, user.id)
+    plan.source.processed_as = plan.preview.destination
+    plan.source.processed_row_id = target.id
+    plan.source.processed_at = datetime.now(UTC)
+    record_changed(
+        db,
+        plan.source,
+        user.id,
+        kind="source",
+        title="Приток · заселён в общежитие" if action == "settle" else "Приток · записан в отток",
+    )
+    db.commit()
+    return InflowActionResponse(
+        inflow=InflowResponse.model_validate(plan.source),
+        destination=plan.preview.destination,
+        row_id=target.id,
+    )
 
 
 @router.patch("/{row_id}", response_model=InflowResponse, summary="Сохранить строку притока")

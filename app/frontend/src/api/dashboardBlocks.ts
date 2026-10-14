@@ -8,6 +8,7 @@ export interface WidgetFilter {
 export type WidgetSource =
   | { kind: 'report'; dormitory_id: number; row_id: number }
   | { kind: 'places'; dormitory_id: number; metric: PlaceMetric; hostel_id: number | null }
+  | { kind: 'arrival_plan'; dormitory_id: number }
   | {
       kind: 'table';
       dormitory_id: number;

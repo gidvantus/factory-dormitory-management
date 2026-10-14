@@ -1,8 +1,12 @@
 """Поля таблицы притока персонала."""
 
-from datetime import date
+from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.schemas.outflow import OutflowFields
+from app.schemas.resident_transfer import TransferWarning
 
 
 class UpdateInflowRequest(BaseModel):
@@ -36,3 +40,29 @@ class InflowResponse(BaseModel):
     citizenship: str | None
     notes: str | None
     shift_count: int | None
+    processed_as: Literal["residents", "outflow"] | None = None
+    processed_row_id: int | None = None
+    processed_at: datetime | None = None
+
+
+class InflowActionPreview(BaseModel):
+    destination: Literal["residents", "outflow"]
+    preview_token: str
+    matched_columns: list[str]
+    warnings: list[TransferWarning]
+    empty_columns: list[str]
+    fields: OutflowFields | None
+    departure_date: date | None
+
+
+class InflowActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    preview_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reason: str | None = Field(default=None, max_length=255)
+    departure_date: date | None = None
+
+
+class InflowActionResponse(BaseModel):
+    inflow: InflowResponse
+    destination: Literal["residents", "outflow"]
+    row_id: int

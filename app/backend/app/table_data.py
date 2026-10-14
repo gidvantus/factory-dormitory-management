@@ -65,6 +65,8 @@ DEFAULT_COLUMNS: dict[str, list[tuple[str, str, str]]] = {
         ("citizenship", "Гражданство", "text"),
         ("notes", "Примечание", "text"),
         ("shift_count", "Кол-во смен", "number"),
+        ("action_check_in", "Заселить", "action"),
+        ("action_outflow", "В отток", "action"),
         ("action_delete", "Удалить", "action"),
     ],
     "outflow": [
@@ -156,6 +158,32 @@ def ensure_columns(db: Session, dormitory_id: int, table_key: str) -> list[Table
     require_section(db, dormitory_id, table_key)
     columns = columns_for(db, dormitory_id, table_key)
     if columns:
+        if table_key == "inflow":
+            missing = [
+                (key, name)
+                for key, name in (("action_check_in", "Заселить"), ("action_outflow", "В отток"))
+                if not any(col.builtin_key == key for col in columns)
+            ]
+            if missing:
+                delete = next((col for col in columns if col.builtin_key == "action_delete"), None)
+                position = delete.position if delete else max(col.position for col in columns) + 1
+                for col in columns:
+                    if col.position >= position:
+                        col.position += len(missing)
+                for offset, (key, name) in enumerate(missing):
+                    db.add(
+                        TableColumn(
+                            dormitory_id=dormitory_id,
+                            table_key="inflow",
+                            builtin_key=key,
+                            name=name,
+                            kind="action",
+                            position=position + offset,
+                            options=[],
+                        )
+                    )
+                db.flush()
+                return columns_for(db, dormitory_id, table_key)
         if table_key == "residents" and not any(
             col.builtin_key == "action_settlement" for col in columns
         ):

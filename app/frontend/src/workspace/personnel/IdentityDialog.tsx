@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ApiError, waitForDormitoryWrites } from '../../api/client';
 import { personnelApi } from '../../api/personnel';
-import type { IdentityCheck, IdentityFields, SourceTable } from '../../api/personnel';
+import type {
+  IdentityCheck,
+  IdentityChoice,
+  IdentityFields,
+  SourceTable,
+} from '../../api/personnel';
 import { Modal } from '../../components/Modal';
 import s from './Personnel.module.css';
 
@@ -24,16 +29,16 @@ export function IdentityDialog({
   onClose: () => void;
   onSaved: (id: string) => void;
 }): JSX.Element {
+  const omitPersonnelNumber =
+    rowId === undefined && (tableKey === 'residents' || tableKey === 'inflow');
   const [fields, setFields] = useState<IdentityFields>({
     full_name: initial?.full_name ?? null,
-    personnel_number: initial?.personnel_number ?? null,
+    personnel_number: omitPersonnelNumber ? null : (initial?.personnel_number ?? null),
     phone: initial?.phone ?? null,
   });
   const [checked, setChecked] = useState<IdentityCheck | null>(null);
-  const [mode, setMode] = useState<'existing' | 'new' | 'pending'>(
-    selectedEmployeeId ? 'existing' : 'pending',
-  );
   const [selected, setSelected] = useState<string | null>(selectedEmployeeId ?? null);
+  const mode = selected ? 'existing' : 'new';
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -72,7 +77,7 @@ export function IdentityDialog({
     setError('');
     try {
       await waitForDormitoryWrites(dormitoryId);
-      const identity = {
+      const identity: IdentityChoice = {
         ...fields,
         mode,
         employee_id: mode === 'existing' ? selected : null,
@@ -115,27 +120,28 @@ export function IdentityDialog({
               ['personnel_number', 'Табельный номер'],
               ['phone', 'Телефон'],
             ] as const
-          ).map(([field, label]) => (
-            <label key={field}>
-              {label}
-              <input
-                disabled={busy}
-                maxLength={field === 'full_name' ? 255 : field === 'phone' ? 30 : 40}
-                value={fields[field] ?? ''}
-                onChange={(event) => {
-                  setChecked(null);
-                  setFields({
-                    ...fields,
-                    [field]: event.target.value.trim() ? event.target.value : null,
-                  });
-                  if (!selectedEmployeeId) {
-                    setMode('pending');
-                    setSelected(null);
-                  }
-                }}
-              />
-            </label>
-          ))}
+          )
+            .filter(([field]) => !omitPersonnelNumber || field !== 'personnel_number')
+            .map(([field, label]) => (
+              <label key={field}>
+                {label}
+                <input
+                  disabled={busy}
+                  maxLength={field === 'full_name' ? 255 : field === 'phone' ? 30 : 40}
+                  value={fields[field] ?? ''}
+                  onChange={(event) => {
+                    setChecked(null);
+                    setFields({
+                      ...fields,
+                      [field]: event.target.value.trim() ? event.target.value : null,
+                    });
+                    if (!selectedEmployeeId) {
+                      setSelected(null);
+                    }
+                  }}
+                />
+              </label>
+            ))}
         </div>
         <section className={s.softCard} aria-label="Результаты проверки">
           <h3>Возможные совпадения</h3>
@@ -152,7 +158,6 @@ export function IdentityDialog({
                 checked={mode === 'existing' && selected === candidate.id}
                 onChange={() => {
                   setSelected(candidate.id);
-                  setMode('existing');
                 }}
               />
               <span>
@@ -168,30 +173,15 @@ export function IdentityDialog({
               </span>
             </label>
           ))}
+          {selected && (
+            <button type="button" disabled={busy} onClick={() => setSelected(null)}>
+              Снять выбор
+            </button>
+          )}
         </section>
-        <label className={s.radio}>
-          <input
-            type="radio"
-            name="identity-choice"
-            disabled={busy}
-            checked={mode === 'new'}
-            onChange={() => setMode('new')}
-          />
-          Это новый человек / совпадения относятся к другим людям
-        </label>
-        <label className={s.radio}>
-          <input
-            type="radio"
-            name="identity-choice"
-            disabled={busy}
-            checked={mode === 'pending'}
-            onChange={() => setMode('pending')}
-          />
-          Пока не могу определить — оставить на проверку
-        </label>
         <p className={s.hint}>
-          Совпадение фамилии или табельного номера само по себе не объединяет людей. Новое
-          проживание продолжит историю выбранной карточки.
+          Если выберете человека из списка, запись продолжит историю его карточки. Если никого не
+          выбрать, будет создан новый сотрудник.
         </p>
         {error && (
           <p role="alert" className={s.error}>
@@ -219,84 +209,10 @@ export function IdentityDialog({
               ? 'Сохраняем…'
               : mode === 'existing'
                 ? 'Использовать карточку'
-                : mode === 'new'
-                  ? 'Создать новую карточку'
-                  : 'Сохранить на проверку'}
+                : 'Создать новую карточку'}
           </button>
         </div>
       </form>
     </Modal>
-  );
-}
-
-export function PersonnelLink({
-  dormitoryId,
-  tableKey,
-  rowId,
-  employeeId,
-  fields,
-  onChanged,
-  beforeOpen,
-}: {
-  dormitoryId: string;
-  tableKey: SourceTable;
-  rowId: number;
-  employeeId?: string | null;
-  fields?: Partial<IdentityFields>;
-  onChanged?: () => void;
-  beforeOpen?: () => Promise<unknown>;
-}): JSX.Element {
-  const [open, setOpen] = useState(false);
-  const [linkedId, setLinkedId] = useState(employeeId);
-  useEffect(() => setLinkedId(employeeId), [employeeId]);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className={s.linkControl}>
-      {linkedId && (
-        <a href={`/cabinet/personnel?employee=${encodeURIComponent(linkedId)}`}>Карточка ↗</a>
-      )}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => {
-          setBusy(true);
-          setError('');
-          void Promise.resolve()
-            .then(() => beforeOpen?.())
-            .then(() => waitForDormitoryWrites(dormitoryId))
-            .then(() => setOpen(true))
-            .catch((caught) =>
-              setError(
-                caught instanceof ApiError
-                  ? caught.message
-                  : 'Не удалось дождаться сохранения строки.',
-              ),
-            )
-            .finally(() => setBusy(false));
-        }}
-      >
-        {employeeId ? 'Изменить связь' : 'Связать с сотрудником'}
-      </button>
-      {error && (
-        <small role="alert" className={s.error}>
-          {error}
-        </small>
-      )}
-      {open && (
-        <IdentityDialog
-          dormitoryId={dormitoryId}
-          tableKey={tableKey}
-          rowId={rowId}
-          initial={fields}
-          onClose={() => setOpen(false)}
-          onSaved={(id) => {
-            setLinkedId(id);
-            setOpen(false);
-            onChanged?.();
-          }}
-        />
-      )}
-    </div>
   );
 }

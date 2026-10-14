@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.reports import read_report
+from app.arrival_plans import report_arrivals
 from app.models.custom_tab import CustomTab
 from app.models.dashboard_block import DEFAULT_DASHBOARD_ORDER, DashboardBlock, DashboardLayout
 from app.models.dormitory import Dormitory
@@ -18,6 +19,7 @@ from app.models.table_column import TableColumn
 from app.models.user import User
 from app.place_values import active_in_month, place_day_values
 from app.schemas.dashboard_block import (
+    ArrivalPlanWidgetSource,
     CatalogDormitory,
     CatalogSource,
     LayoutResponse,
@@ -97,6 +99,8 @@ def checked_column(
 def validate_source(db: Session, config: WidgetConfig, source: WidgetSource) -> None:
     if db.get(Dormitory, source.dormitory_id) is None:
         raise HTTPException(404, "Общежитие не найдено")
+    if isinstance(source, ArrivalPlanWidgetSource):
+        return
     if isinstance(source, ReportWidgetSource):
         require_section(db, source.dormitory_id, "report")
         row = db.get(ReportRow, source.row_id)
@@ -143,7 +147,7 @@ def validate_config(db: Session, config: WidgetConfig) -> WidgetConfig:
 def source_catalog(db: Session) -> list[CatalogDormitory]:
     result = []
     for dorm in db.scalars(select(Dormitory).order_by(Dormitory.id)):
-        sources = []
+        sources = [CatalogSource(key="arrival_plan", name="План заездов", kind="arrival_plan")]
 
         def exists(key: str, dorm: Dormitory = dorm) -> bool:
             return not any(
@@ -357,6 +361,16 @@ def place_daily_values(
     return daily, errors
 
 
+def widget_sources(config: WidgetConfig, dormitories: list[Dormitory]) -> dict[int, WidgetSource]:
+    sources = {source.dormitory_id: source for source in config.sources}
+    if config.source_kind == "arrival_plan" and config.all_dormitories:
+        for dorm in dormitories:
+            sources.setdefault(
+                dorm.id, ArrivalPlanWidgetSource(kind="arrival_plan", dormitory_id=dorm.id)
+            )
+    return sources
+
+
 def calculate_chart(
     db: Session,
     user: User,
@@ -371,7 +385,7 @@ def calculate_chart(
     days = [start + timedelta(days=index) for index in range((end - start).days + 1)]
     totals: dict[date, Decimal | None] = {day: Decimal(0) for day in days}
     errors: list[str] = []
-    sources = {source.dormitory_id: source for source in config.sources}
+    sources = widget_sources(config, included)
     series: list[WidgetSeries] = []
     for dorm in sorted(included, key=lambda item: item.id):
         values: dict[date, Decimal] = {}
@@ -393,6 +407,11 @@ def calculate_chart(
                         values[day] = Decimal(cell)
             elif isinstance(source, PlaceWidgetSource):
                 values, invalid = place_daily_values(db, source, days)
+            elif isinstance(source, ArrivalPlanWidgetSource):
+                values = {
+                    day: Decimal(count)
+                    for day, count in report_arrivals(db, dorm.id, start, end).items()
+                }
             else:
                 groups, invalid = table_daily_groups(db, config, source, start, end)
                 values = {day: sum(items.values(), Decimal(0)) for day, items in groups.items()}
@@ -467,7 +486,7 @@ def calculate_widget(
     reports: dict[int, ReportResponse],
 ) -> WidgetResult:
     config = block.config
-    sources = {source.dormitory_id: source for source in config.sources}
+    sources = widget_sources(config, dormitories)
     included = [
         dorm
         for dorm in dormitories
@@ -510,6 +529,8 @@ def calculate_widget(
                 value = sum((Decimal(cell) for cell in cells if cell is not None), Decimal(0))
             elif isinstance(source, PlaceWidgetSource):
                 value = place_value(db, source, days)
+            elif isinstance(source, ArrivalPlanWidgetSource):
+                value = Decimal(sum(report_arrivals(db, dorm.id, days[0], days[-1]).values()))
             else:
                 values = table_values(db, config, source, start, end)
                 value = sum(values.values(), Decimal(0))
