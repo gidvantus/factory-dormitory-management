@@ -21,6 +21,7 @@ from pwdlib.exceptions import UnknownHashError
 from pwdlib.hashers.argon2 import Argon2Hasher
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.config import get_settings
 from app.db import get_db
 from app.models.activation import ActivationToken
@@ -160,6 +161,12 @@ def get_current_user(
     user = db.get(User, int(subject))
     if user is None:
         raise unauthorized()
+
+    # Аутентификация — единственное место, где пользователь становится известен,
+    # поэтому актор для журнала действий дописывается здесь. Запись идёт в общий
+    # объект контекста запроса (`app.audit`): синхронная зависимость выполняется
+    # в threadpool, где доступна мутация объекта, но не установка `ContextVar`.
+    audit.record_actor(user.id, user.active_organization_id)
 
     return user
 
