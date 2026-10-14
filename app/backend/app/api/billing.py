@@ -1,10 +1,17 @@
-"""Счета организации: покупка тарифа, статусы и печатные формы.
+"""Счета организации: покупка тарифа или решения, статусы и печатные формы.
 
 Роутер закрытого кабинета, но **не** рабочих разделов: на закрытом пробном
 периоде покупка обязана работать (ради неё кабинет и открывается), поэтому
 вместо `SubscribedUser` здесь стоит `ActiveUser`. Правка статуса и покупка
 требуют роли с правом редактирования (`EditableMembership`), чтение счетов и
 скачивание файлов — любого участия в организации (`Membership`).
+
+Предмет счёта бывает двух видов: тариф (`item_kind = 'tariff'`) и решение
+магазина улучшений (`item_kind = 'solution'`). Вид выбирается телом запроса —
+ровно одно из полей `tariff_id`/`solution_id`, — и определяет и проверки
+покупки, и то, что происходит при оплате (`app/invoice_status.py`). Снимок
+предмета у обоих видов лежит в `tariff_name`/`tariff_period`: печатные формы
+счёта и акта читают эти колонки и о решениях ничего не знают.
 
 Коды отказа выбраны так, чтобы не подтверждать существование чужих данных:
 чужой счёт отвечает `404`, а не `403`. `403` остаётся за неактивированным
@@ -39,16 +46,20 @@ from app.invoice_status import (
     status_label,
 )
 from app.models.invoice import (
+    SOLUTION_ITEM_KIND,
+    TARIFF_ITEM_KIND,
     Invoice,
     InvoiceDocument,
     invoice_number,
     pending_invoice_number,
 )
 from app.models.organization import Organization
+from app.models.solution import Solution
 from app.models.tariff import Tariff
 from app.pricing import format_invoice_amount
 from app.schemas.invoice import (
     CreateInvoiceRequest,
+    InvoiceItemKind,
     InvoiceResponse,
     InvoiceStatus,
     UpdateInvoiceStatusRequest,
@@ -60,6 +71,7 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 DbSession = Annotated[Session, Depends(get_db)]
 
 TARIFF_NOT_FOUND_DETAIL = "Тариф не найден"
+SOLUTION_NOT_FOUND_DETAIL = "Решение не найдено"
 BUYER_REQUISITES_DETAIL = "Заполните название и ИНН организации на странице «Организация»"
 ACT_NOT_FOUND_DETAIL = "Акт по счёту ещё не сформирован"
 
@@ -67,12 +79,13 @@ ACT_NOT_FOUND_DETAIL = "Акт по счёту ещё не сформирова�
 # а BOM ломает файл при склейке и в чужом парсере.
 HTML_MEDIA_TYPE = "text/html; charset=utf-8"
 
-# 404 у этих роутов приходит с двумя разными текстами: нет организации у
-# пользователя или нет счёта у организации. Оба перечислены в описании.
+# 404 у этих роутов приходит с тремя разными текстами: нет организации у
+# пользователя, нет счёта у организации или нет предмета покупки. Все в описании.
 NOT_FOUND_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: {
         "model": ErrorResponse,
-        "description": f"{ORGANIZATION_NOT_FOUND_DETAIL}; {INVOICE_NOT_FOUND_DETAIL}",
+        "description": f"{ORGANIZATION_NOT_FOUND_DETAIL}; {INVOICE_NOT_FOUND_DETAIL}; "
+        f"{TARIFF_NOT_FOUND_DETAIL}; {SOLUTION_NOT_FOUND_DETAIL}",
     }
 }
 
@@ -134,6 +147,9 @@ def _response(invoice: Invoice, has_act: bool, can_manage: bool) -> InvoiceRespo
         # типизатору, а не ослабляет проверку.
         status=cast(InvoiceStatus, invoice.status),
         status_label=status_label(invoice.status),
+        # Набор значений держит `CHECK` по тем же видам, что объявляет
+        # `InvoiceItemKind`; приведение говорит об этом типизатору.
+        item_kind=cast(InvoiceItemKind, invoice.item_kind),
         amount=invoice.amount,
         currency=invoice.currency,
         amount_label=format_invoice_amount(invoice.amount, invoice.currency, invoice.tariff_period),
@@ -188,7 +204,7 @@ def _html_response(content: str, filename: str) -> Response:
     "/invoices",
     status_code=status.HTTP_201_CREATED,
     response_model=InvoiceResponse,
-    summary="Выставить счёт за тариф",
+    summary="Выставить счёт за тариф или решение",
     responses={
         **UNAUTHORIZED_RESPONSES,
         **FORBIDDEN_RESPONSES,
@@ -197,11 +213,11 @@ def _html_response(content: str, filename: str) -> Response:
         **CONFLICT_RESPONSES,
         status.HTTP_200_OK: {
             "model": InvoiceResponse,
-            "description": "Неоплаченный счёт уже есть — возвращается он же",
+            "description": "Неоплаченный счёт за тот же предмет уже есть — возвращается он же",
         },
         status.HTTP_422_UNPROCESSABLE_ENTITY: {
             "model": ErrorResponse,
-            "description": "Тело запроса не подходит по схеме",
+            "description": "Тело запроса не подходит по схеме: предмет не указан или указан дважды",
         },
     },
 )
@@ -212,15 +228,17 @@ def purchase_invoice(
     db: DbSession,
     response: Response,
 ) -> InvoiceResponse:
-    """«Купить» на `/pricing`: выставить организации счёт за тариф.
+    """«Купить»: выставить организации счёт за тариф или за решение.
 
     Проверки идут в порядке, который задаёт смысл отказа: сначала «тариф уже
-    куплен», потом «такого тарифа нет», потом «некуда выставлять» (нет названия
-    или ИНН) и лишь затем «счёт уже выставлен».
+    куплен» (это условие касается только тарифов), потом «такого предмета нет»,
+    потом «некуда выставлять» (нет названия или ИНН) и лишь затем «счёт уже
+    выставлен».
 
-    Повторное нажатие не плодит счета: живой неоплаченный счёт возвращается как
-    `200` с тем же телом, а новый не создаётся. Строка организации берётся под
-    блокировку, иначе два одновременных клика прошли бы проверку вместе.
+    Повторное нажатие не плодит счета: живой неоплаченный счёт **за тот же
+    предмет** возвращается как `200` с тем же телом, а новый не создаётся. Счёт
+    за тариф и счёт за решение друг другу не мешают. Строка организации берётся
+    под блокировку, иначе два одновременных клика прошли бы проверку вместе.
     """
     organization = db.scalar(
         select(Organization).where(Organization.id == membership.organization_id).with_for_update()
@@ -228,21 +246,44 @@ def purchase_invoice(
     if organization is None:  # pragma: no cover - членство без организации невозможно
         raise HTTPException(status.HTTP_404_NOT_FOUND, ORGANIZATION_NOT_FOUND_DETAIL)
 
-    if organization.tariff_id is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, TARIFF_ALREADY_CHOSEN_DETAIL)
-
-    tariff = db.get(Tariff, payload.tariff_id)
-    if tariff is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, TARIFF_NOT_FOUND_DETAIL)
+    # Предмет счёта: ровно один из двух, иначе до ручки тело не дошло бы (422).
+    tariff: Tariff | None = None
+    solution: Solution | None = None
+    item_kind: str
+    if payload.tariff_id is not None:
+        item_kind = TARIFF_ITEM_KIND
+        if organization.tariff_id is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, TARIFF_ALREADY_CHOSEN_DETAIL)
+        tariff = db.get(Tariff, payload.tariff_id)
+        if tariff is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, TARIFF_NOT_FOUND_DETAIL)
+    else:
+        # К решению запрет «тариф уже выбран» не применяется: тариф держит
+        # кабинет живым, а решение — отдельное право, и они не исключают друг
+        # друга. Скрытая строка каталога списком не продаётся, но по `id`
+        # покупается — как у тарифов.
+        item_kind = SOLUTION_ITEM_KIND
+        solution = db.get(Solution, payload.solution_id)
+        if solution is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, SOLUTION_NOT_FOUND_DETAIL)
 
     if not organization.name or not organization.inn:
         raise HTTPException(status.HTTP_409_CONFLICT, BUYER_REQUISITES_DETAIL)
 
+    # Дедупликация — по предмету, а не «любой живой счёт организации»: иначе счёт
+    # за тариф блокировал бы покупку решения и наоборот.
+    if tariff is not None:
+        same_item = (Invoice.tariff_id == tariff.id, Invoice.solution_id.is_(None))
+    else:
+        assert solution is not None  # Предмет проверен выше: до сюда без него не дойти.
+        same_item = (Invoice.solution_id == solution.id, Invoice.tariff_id.is_(None))
     existing = db.scalar(
         select(Invoice)
         .where(
             Invoice.organization_id == organization.id,
             Invoice.status == NEW_STATUS,
+            Invoice.item_kind == item_kind,
+            *same_item,
         )
         .order_by(Invoice.id.desc())
     )
@@ -250,23 +291,27 @@ def purchase_invoice(
         response.status_code = status.HTTP_200_OK
         return _one_response(db, existing, membership)
 
+    item = tariff if tariff is not None else solution
+    assert item is not None  # Предмет проверен выше: до сюда без него не дойти.
     invoice = Invoice(
         organization_id=organization.id,
-        tariff_id=tariff.id,
+        item_kind=item_kind,
+        tariff_id=tariff.id if tariff is not None else None,
+        solution_id=solution.id if solution is not None else None,
         # Номер `СЧ-<год>-<id>` требует `id`, поэтому строка сначала сохраняется
         # с временным номером и получает окончательный в том же коммите.
         number=pending_invoice_number(),
         status=NEW_STATUS,
-        amount=tariff.amount,
-        currency=tariff.currency,
+        amount=item.amount,
+        currency=item.currency,
         # Снимок покупателя и предмета на момент покупки.
         buyer_name=organization.name,
         buyer_inn=organization.inn,
         buyer_kpp=organization.kpp,
         buyer_ogrn=organization.ogrn,
         buyer_address=organization.address,
-        tariff_name=tariff.name,
-        tariff_period=tariff.period,
+        tariff_name=item.name,
+        tariff_period=item.period,
     )
     db.add(invoice)
     db.flush()

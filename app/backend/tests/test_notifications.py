@@ -21,7 +21,7 @@ from app.models.telegram import (
     TelegramLink,
 )
 from app.models.user import User
-from tests.conftest import create_user, organizations_for
+from tests.conftest import create_user, give_solution, organizations_for
 
 
 def connect(
@@ -138,6 +138,10 @@ def test_recipients_are_colleagues_with_a_live_chat(db_session: Session) -> None
     connect(db_session, colleague, chat_id="2")
     connect(db_session, inactive, chat_id="3")
     connect(db_session, stranger, chat_id="4")
+    # Без права организации на решение уведомления не уходят никому.
+    assert notifications.recipients(db_session, actor.id) == []
+
+    give_solution(db_session, organization)
 
     assert [user.id for user, _ in notifications.recipients(db_session, actor.id)] == [colleague.id]
 
@@ -157,6 +161,51 @@ def test_recipients_are_colleagues_with_a_live_chat(db_session: Session) -> None
     assert notifications.recipients(db_session, actor.id) == []
 
 
+def test_expired_right_stops_the_deliveries(db_session: Session) -> None:
+    """Просроченное право убирает получателей так же, как отсутствующее."""
+    actor = create_user(db_session, email="actor@example.com")
+    organization, _ = organizations_for(db_session, actor)
+    colleague = create_user(db_session, email="colleague@example.com")
+    db_session.add(
+        OrganizationMember(organization_id=organization.id, user_id=colleague.id, role="manager")
+    )
+    db_session.commit()
+    connect(db_session, actor, chat_id="1")
+    connect(db_session, colleague, chat_id="2")
+    give_solution(db_session, organization, expires_at=datetime.now(UTC) - timedelta(minutes=1))
+
+    assert notifications.recipients(db_session, actor.id) == []
+
+    event = notifications.ResidentOutflowEvent(
+        resident_id=9,
+        full_name="Иванов Иван",
+        personnel_number=None,
+        dormitory_name=None,
+        hostel_name=None,
+        shift_start=None,
+        shift_end=None,
+        departure_date=date(2026, 10, 9),
+    )
+    assert notifications.queue_resident_outflow(db_session, resident=event, actor_id=actor.id) == 0
+    assert list(db_session.scalars(select(NotificationDelivery))) == []
+
+
+def test_perpetual_right_keeps_the_deliveries(db_session: Session) -> None:
+    """Право без срока (`once`) действует бесконечно: получатели остаются."""
+    actor = create_user(db_session, email="actor@example.com")
+    organization, _ = organizations_for(db_session, actor)
+    colleague = create_user(db_session, email="colleague@example.com")
+    db_session.add(
+        OrganizationMember(organization_id=organization.id, user_id=colleague.id, role="manager")
+    )
+    db_session.commit()
+    connect(db_session, actor, chat_id="1")
+    connect(db_session, colleague, chat_id="2")
+    give_solution(db_session, organization, period="once")
+
+    assert [user.id for user, _ in notifications.recipients(db_session, actor.id)] == [colleague.id]
+
+
 def test_outflow_queue_is_idempotent_and_skips_the_actor(db_session: Session) -> None:
     actor = create_user(db_session, email="actor@example.com")
     organization, _ = organizations_for(db_session, actor)
@@ -167,6 +216,8 @@ def test_outflow_queue_is_idempotent_and_skips_the_actor(db_session: Session) ->
     db_session.commit()
     connect(db_session, actor, chat_id="1")
     connect(db_session, colleague, chat_id="2", username=None)
+    # Очередь доставок стоит на праве организации: без него не создаётся ничего.
+    give_solution(db_session, organization)
 
     event = notifications.ResidentOutflowEvent(
         resident_id=7,

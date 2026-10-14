@@ -91,7 +91,7 @@ export function Pricing(): JSX.Element {
     setBuying(true);
     setBuyError('');
     try {
-      await api.purchaseInvoice(tariffId);
+      await api.purchaseInvoice({ tariff_id: tariffId });
       navigate('/cabinet/documents', { state: { purchased: true } });
     } catch (caught: unknown) {
       setBuyError(purchaseErrorMessage(caught));

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionProvider } from '../auth/SessionProvider';
 import { mockFetch } from '../test/mockFetch';
+import { Notifications } from '../workspace/Notifications';
 import { Cabinet } from './Cabinet';
 
 const INACTIVE = {
@@ -144,6 +145,93 @@ describe('пункты меню учётной записи', () => {
   });
 });
 
+describe('пункт меню «Уведомления»', () => {
+  const ACTIVE = { ...INACTIVE, is_active: true };
+
+  /** Каталог решений: одна строка, право — по параметру. */
+  function solution(isOwned: boolean): Record<string, unknown> {
+    return {
+      id: 7,
+      code: 'telegram_notifications',
+      name: 'Уведомления в Telegram',
+      description: 'Сообщения о событиях, которые вас касаются',
+      amount: '500.00',
+      currency: 'RUB',
+      period: 'month',
+      price_label: '500 ₽ в месяц',
+      is_owned: isOwned,
+      expires_at: isOwned ? '2026-11-14T10:00:00Z' : null,
+    };
+  }
+
+  function renderWithSolutions(isOwned: boolean): ReturnType<typeof render> {
+    mockFetch((url) => {
+      if (url.endsWith('/api/me')) return { status: 200, body: ACTIVE };
+      if (url.endsWith('/api/solutions')) {
+        return { status: 200, body: { items: [solution(isOwned)] } };
+      }
+      return { status: 404, body: { detail: 'Не найдено' } };
+    });
+    return render(
+      <MemoryRouter initialEntries={['/cabinet']}>
+        <SessionProvider>
+          <Routes>
+            <Route path="/cabinet" element={<Cabinet />}>
+              <Route index element={<p>Обзор кабинета</p>} />
+              <Route path="notifications" element={<p>Страница уведомлений</p>} />
+              <Route path="shop" element={<p>Страница магазина</p>} />
+            </Route>
+          </Routes>
+        </SessionProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it('появляется при действующем праве организации и ведёт на свой адрес', async () => {
+    const user = userEvent.setup();
+    renderWithSolutions(true);
+
+    const notifications = await screen.findByTestId('workspace-nav-notifications');
+    expect(notifications).toHaveTextContent('Уведомления');
+    expect(notifications).toHaveAttribute('href', '/cabinet/notifications');
+
+    await user.click(notifications);
+    expect(await screen.findByText('Страница уведомлений')).toBeInTheDocument();
+  });
+
+  it('отсутствует без права', async () => {
+    // Прямой заход на адрес платной функции: экран сам сообщает, что права нет.
+    // Его состояние — положительный сигнал, что каталог уже прочитан, поэтому
+    // отсутствие пункта меню проверяется без гонки с загрузкой.
+    render(
+      <MemoryRouter initialEntries={['/cabinet/notifications']}>
+        <SessionProvider>
+          <Routes>
+            <Route path="/cabinet" element={<Cabinet />}>
+              <Route index element={<p>Обзор кабинета</p>} />
+              <Route path="notifications" element={<Notifications />} />
+            </Route>
+          </Routes>
+        </SessionProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('notifications-no-solution')).toBeInTheDocument();
+    expect(screen.queryByTestId('workspace-nav-notifications')).not.toBeInTheDocument();
+  });
+
+  it('«Магазин улучшений» есть всегда и ведёт на свой адрес', async () => {
+    const user = userEvent.setup();
+    renderWithSolutions(false);
+
+    const shop = await screen.findByTestId('workspace-nav-shop');
+    expect(shop).toHaveAttribute('href', '/cabinet/shop');
+
+    await user.click(shop);
+    expect(await screen.findByText('Страница магазина')).toBeInTheDocument();
+  });
+});
+
 describe('закрытый кабинет и пробный период', () => {
   const ACTIVE = { ...INACTIVE, is_active: true };
 
@@ -196,6 +284,7 @@ describe('закрытый кабинет и пробный период', () =>
     for (const testId of [
       'workspace-nav-overview',
       'workspace-nav-tariffs',
+      'workspace-nav-shop',
       'workspace-nav-documents',
       'workspace-nav-organization',
       'workspace-nav-profile',
