@@ -31,6 +31,7 @@ from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app import db as db_module
 from app import solutions
 from app.config import get_settings
 from app.db import get_db
@@ -47,14 +48,25 @@ TEST_PASSWORD = "unit-test-password"
 
 
 @pytest.fixture
-def db_engine() -> Iterator[Engine]:
-    """Свежая схема на каждый тест: тесты не делят состояние."""
+def db_engine(monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
+    """Свежая схема на каждый тест: тесты не делят состояние.
+
+    Служебные сессии журнала действий (`app.audit` берёт фабрику из модуля
+    `app.db`) переводятся на эту же базу. Иначе строки журнала уходили бы в
+    настоящее подключение из окружения стенда, и юнит-прогон перестал бы быть
+    герметичным.
+    """
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=engine, autoflush=False, expire_on_commit=False),
+    )
     try:
         yield engine
     finally:
