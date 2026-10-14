@@ -15,7 +15,24 @@ from tests.conftest import create_user, login
 # (`GET /api/documents`, `/api/documents/{code}`, страница `/documents/<код>`).
 # Всё это открыто анониму, и неактивированный кабинет здесь ничего не меняет.
 EXEMPT_PREFIXES = ("/api/auth", "/api/health")
-EXEMPT_PATHS = frozenset({"/api/me", "/api/tariffs", "/api/documents", "/api/documents/{code}"})
+EXEMPT_PATHS = frozenset(
+    {
+        "/api/me",
+        "/api/tariffs",
+        "/api/documents",
+        "/api/documents/{code}",
+        # Ручки бота Telegram: это не операции кабинета, а служебный интерфейс
+        # бота. Авторизация у них своя — сервисный токен в заголовке
+        # `X-Bot-Token` (401 на неверный токен), — поэтому cookie и guard
+        # неактивного кабинета к ним неприменимы. Ручки кабинета того же
+        # префикса (`/api/telegram/status`, `/connect`, `/disconnect`,
+        # `/subscriptions`, `/test-message`) остаются под guard и проверяются.
+        "/api/telegram/chat",
+        "/api/telegram/chats",
+        "/api/telegram/feed",
+        "/api/telegram/feed/{delivery_id}/failed",
+    }
+)
 
 NEW_PASSWORD = "new-password-123"
 

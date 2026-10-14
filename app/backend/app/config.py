@@ -49,6 +49,29 @@ class Settings(BaseSettings):
     dadata_url: str = "https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party"
     dadata_timeout_seconds: float = 5.0
 
+    # --- Telegram ---
+    # Токен бота от @BotFather: только окружение, в коде дефолта нет. Пустая
+    # строка — нормальное состояние: приложение работает как раньше, кабинет
+    # отвечает 503 на подключение, а бот пишет в лог и выходит.
+    telegram_bot_token: str = ""
+    # Имя бота без «@»: из него собирается ссылка t.me. Фронт имени не знает.
+    telegram_bot_username: str = ""
+    # Адрес Bot API. Отдельной настройкой, а не константой: тесты подменяют его
+    # на локальный транспорт.
+    telegram_api_base_url: str = "https://api.telegram.org"
+    # Свой случайный секрет, которым бот доказывает CRM, что он бот. Это НЕ токен
+    # BotFather, и в логи он не попадает.
+    telegram_service_token: str = ""
+    # Сколько минут живёт код привязки, выданный в кабинете.
+    telegram_link_ttl_minutes: int = 15
+    # Пауза между опросами Bot API в боте.
+    telegram_poll_interval_seconds: int = 3
+    # Потолок одного запроса к Bot API.
+    telegram_request_timeout_seconds: float = 10.0
+    # Адрес CRM для бота: бот ходит в тот же API, что и фронт, но по внутренней
+    # сети compose. Публичного адреса у бота нет.
+    telegram_crm_api_url: str = "http://api:8000"
+
 
 @lru_cache
 def get_settings() -> Settings:

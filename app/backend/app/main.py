@@ -31,6 +31,7 @@ from app.api import (
     tab_catalog,
     table_columns,
     tariffs,
+    telegram,
     trial,
     users,
 )
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     application.include_router(billing.router, prefix=API_PREFIX)
     application.include_router(trial.router, prefix=API_PREFIX)
     application.include_router(documents.router, prefix=API_PREFIX)
+    application.include_router(telegram.router, prefix=API_PREFIX)
     return application
 
 

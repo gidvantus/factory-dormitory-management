@@ -1,4 +1,4 @@
-# Стенд CRM Dormitory: db + api + web.
+# Стенд CRM Dormitory: db + api + web + bot.
 #
 # Исходники лежат в app/: app/backend — FastAPI, app/frontend — React + nginx.
 #
@@ -60,6 +60,18 @@ services:
       - api
     ports:
       - "${FRONTEND_PORT:-8080}:80"
+
+  # Бот Telegram: тонкий воркер на том же образе, что и `api`, но со своей
+  # командой запуска. Своего Dockerfile у него нет, портов тоже: наружу бот не
+  # открыт — он сам ходит в Bot API и в CRM по внутренней сети compose.
+  # Миграции применяет `api`, поэтому бот только ждёт его старта.
+  bot:
+    build: ./app/backend
+    restart: unless-stopped
+    env_file: *env-files
+    depends_on:
+      - api
+    command: ["python", "-m", "app.bot"]
 
 volumes:
   pgdata:

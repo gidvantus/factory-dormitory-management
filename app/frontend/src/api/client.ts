@@ -197,6 +197,33 @@ export interface Document extends DocumentSummary {
   updated_at: string;
 }
 
+/** Вид уведомления и состояние подписки на него. `kind` — код, `title` — подпись. */
+export interface TelegramSubscription {
+  kind: string;
+  title: string;
+  is_enabled: boolean;
+}
+
+/**
+ * Состояние подключения Telegram.
+ *
+ * `bot_username` приходит с сервера: фронт имени бота не знает и в ссылку его
+ * не подставляет.
+ */
+export interface TelegramStatus {
+  connected: boolean;
+  username: string | null;
+  bot_username: string;
+  subscriptions: TelegramSubscription[];
+}
+
+/** Код привязки и готовая ссылка на бота. Код одноразовый и живёт 15 минут. */
+export interface TelegramConnectResult {
+  code: string;
+  deep_link: string;
+  expires_at: string;
+}
+
 /** Роли, которые можно выдать приглашением. `owner` у организации один. */
 export type InviteRole = 'admin' | 'manager' | 'commandant';
 export interface OrganizationMember {
@@ -1004,6 +1031,34 @@ export const api = {
   /** Публичный документ по коду. 404 приходит как ApiError: такого документа нет. */
   document(code: string, signal?: AbortSignal): Promise<Document> {
     return request<Document>(`/documents/${encodeURIComponent(code)}`, { signal });
+  },
+
+  /** Состояние подключения Telegram и подписки. */
+  telegramStatus(signal?: AbortSignal): Promise<TelegramStatus> {
+    return request<TelegramStatus>('/telegram/status', { signal });
+  },
+
+  /** Код привязки. 503 приходит как ApiError: бот ещё не настроен. */
+  connectTelegram(): Promise<TelegramConnectResult> {
+    return request<TelegramConnectResult>('/telegram/connect', { method: 'POST' });
+  },
+
+  /** Отвязка чата: сообщения человеку больше не уходят. */
+  disconnectTelegram(): Promise<{ connected: boolean }> {
+    return request<{ connected: boolean }>('/telegram/disconnect', { method: 'POST' });
+  },
+
+  /** Переключить подписку. Возвращается обновлённый список целиком. */
+  setTelegramSubscription(kind: string, isEnabled: boolean): Promise<TelegramSubscription[]> {
+    return request<TelegramSubscription[]>('/telegram/subscriptions', {
+      method: 'PATCH',
+      body: JSON.stringify({ kind, is_enabled: isEnabled }),
+    });
+  },
+
+  /** Тестовое уведомление: проверка всей цепочки до Telegram. */
+  sendTelegramTestMessage(): Promise<{ queued: boolean }> {
+    return request<{ queued: boolean }>('/telegram/test-message', { method: 'POST' });
   },
 
   reportReadiness(id: string, signal?: AbortSignal): Promise<DailyReportReadiness> {
