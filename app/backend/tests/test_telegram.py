@@ -4,10 +4,16 @@
 `tests/test_dadata.py`), поэтому проверяется ровно разбор ответа и обработка
 сбоев. Настройки Telegram передаются в модуль явно там, где это возможно; для
 ручек они выставляются в окружении и кеш настроек сбрасывается.
+
+Ручки кабинета закрыты правом организации на решение `telegram_notifications`
+(issue #61), поэтому пользователь кабинета в тестах заводится помощником
+`cabinet_user`: он заводит организацию и выдаёт ей право. Без права все пять
+ручек отвечают 403, и это проверяется отдельным блоком.
 """
 
 import logging
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -17,9 +23,11 @@ from sqlalchemy.orm import Session
 
 from app import notifications, telegram
 from app.config import Settings, get_settings
+from app.models.activation import ActivationToken
 from app.models.telegram import RESIDENT_OUTFLOW_KIND, NotificationDelivery, TelegramLink
 from app.models.user import User
-from tests.conftest import sign_in
+from app.solutions import SOLUTION_REQUIRED_DETAIL
+from tests.conftest import give_solution, organizations_for, sign_in
 
 # Заведомо ненастоящие значения: реальные токены в тестах не нужны.
 BOT_TOKEN = "111111:unit-test-bot-token"
@@ -71,6 +79,28 @@ def client_with(handler: Callable[[httpx.Request], httpx.Response]) -> httpx.Cli
 
 def ok_response(result: object) -> httpx.Response:
     return httpx.Response(200, json={"ok": True, "result": result})
+
+
+def cabinet_user(
+    client: TestClient,
+    db_session: Session,
+    *,
+    email: str = "worker@example.com",
+    is_active: bool = True,
+    with_solution: bool = True,
+) -> User:
+    """Войти пользователем кабинета: организация и (по умолчанию) право на решение.
+
+    Ручки кабинета Telegram закрыты правом организации на решение
+    `telegram_notifications`, а `sign_in` организации не заводит вовсе. Поэтому
+    обычный пользователь кабинета в этих тестах получает её вместе с правом, а
+    `with_solution=False` оставляет только организацию — для проверок 403.
+    """
+    user = sign_in(client, db_session, email=email, is_active=is_active)
+    organization, _ = organizations_for(db_session, user)
+    if with_solution:
+        give_solution(db_session, organization)
+    return user
 
 
 # --- Клиент Bot API ---
@@ -217,7 +247,7 @@ def test_connect_is_unavailable_while_the_bot_is_not_configured(
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
     monkeypatch.setenv("TELEGRAM_BOT_USERNAME", "")
     get_settings.cache_clear()
-    sign_in(client, db_session)
+    cabinet_user(client, db_session)
 
     response = client.post("/api/telegram/connect")
 
@@ -228,7 +258,7 @@ def test_connect_is_unavailable_while_the_bot_is_not_configured(
 def test_connect_link_and_status_share_one_contract(
     client: TestClient, db_session: Session, telegram_env: None
 ) -> None:
-    user = sign_in(client, db_session)
+    user = cabinet_user(client, db_session)
 
     connect = client.post("/api/telegram/connect")
     assert connect.status_code == 200, connect.text
@@ -283,7 +313,7 @@ def test_connect_link_and_status_share_one_contract(
 def test_second_link_of_the_same_user_keeps_a_single_row(
     client: TestClient, db_session: Session, telegram_env: None
 ) -> None:
-    sign_in(client, db_session)
+    cabinet_user(client, db_session)
 
     for _ in range(2):
         code = client.post("/api/telegram/connect").json()["code"]
@@ -305,7 +335,7 @@ def test_chats_lists_only_live_links(
     """Бот обходит ленты этих чатов — иначе готовые доставки не уходят."""
     assert client.get("/api/telegram/chats").status_code == 401
 
-    sign_in(client, db_session)
+    cabinet_user(client, db_session)
     assert client.get("/api/telegram/chats", headers=BOT_HEADERS).json() == {"items": []}
 
     code = client.post("/api/telegram/connect").json()["code"]
@@ -356,6 +386,7 @@ def add_delivery(db_session: Session, user: User, *, event_key: str = "resident_
 def test_feed_gives_items_once_and_marks_them_sent(
     client: TestClient, db_session: Session, telegram_env: None
 ) -> None:
+    # Ручки бота права организации не требуют: у них своя авторизация.
     user = sign_in(client, db_session)
     delivery_id = add_delivery(db_session, user)
 
@@ -401,7 +432,7 @@ def test_failed_marks_the_delivery_and_truncates_the_error(
 def test_subscriptions_can_be_switched_and_unknown_kinds_are_rejected(
     client: TestClient, db_session: Session, telegram_env: None
 ) -> None:
-    sign_in(client, db_session)
+    cabinet_user(client, db_session)
 
     assert (
         client.patch(
@@ -427,7 +458,7 @@ def test_subscriptions_can_be_switched_and_unknown_kinds_are_rejected(
 def test_disconnect_revokes_the_link(
     client: TestClient, db_session: Session, telegram_env: None
 ) -> None:
-    sign_in(client, db_session)
+    cabinet_user(client, db_session)
     code = client.post("/api/telegram/connect").json()["code"]
     client.post(
         "/api/telegram/chat",
@@ -447,7 +478,7 @@ def test_disconnect_revokes_the_link(
 def test_test_message_requires_a_connected_chat(
     client: TestClient, db_session: Session, telegram_env: None
 ) -> None:
-    sign_in(client, db_session)
+    cabinet_user(client, db_session)
 
     response = client.post("/api/telegram/test-message")
 
@@ -459,7 +490,7 @@ def test_test_message_requires_a_connected_chat(
 def test_test_message_reaches_the_feed(
     client: TestClient, db_session: Session, telegram_env: None
 ) -> None:
-    sign_in(client, db_session)
+    cabinet_user(client, db_session)
     code = client.post("/api/telegram/connect").json()["code"]
     client.post(
         "/api/telegram/chat",
@@ -478,3 +509,73 @@ def test_test_message_reaches_the_feed(
     assert "telegram_test" not in items[0]["text"]
     assert "Проверка связи" in items[0]["text"]
     assert notifications.pending_for_chat(db_session, CHAT_ID) == []
+
+
+# --- Гейт решения `telegram_notifications` (issue #61) -------------------------
+
+# Пять ручек кабинета: без права организации все они отвечают 403, и ни одна не
+# делает того, что делает с правом. Метод, путь и тело запроса — как у рабочего
+# вызова, иначе отказ пришёл бы от валидатора, а не от гейта.
+CABINET_ROUTES = (
+    ("GET", "/api/telegram/status", None),
+    ("POST", "/api/telegram/connect", None),
+    ("POST", "/api/telegram/disconnect", None),
+    (
+        "PATCH",
+        "/api/telegram/subscriptions",
+        {"kind": RESIDENT_OUTFLOW_KIND, "is_enabled": False},
+    ),
+    ("POST", "/api/telegram/test-message", None),
+)
+
+
+def test_every_cabinet_route_requires_the_solution(
+    client: TestClient, db_session: Session, telegram_env: None
+) -> None:
+    """Организация без права: все пять ручек отвечают 403 про магазин."""
+    cabinet_user(client, db_session, with_solution=False)
+
+    for method, path, body in CABINET_ROUTES:
+        response = client.request(method, path, json=body)
+        assert response.status_code == 403, f"{method} {path}: {response.status_code}"
+        assert response.json()["detail"] == SOLUTION_REQUIRED_DETAIL, f"{method} {path}"
+
+
+def test_expired_right_closes_every_cabinet_route(
+    client: TestClient, db_session: Session, telegram_env: None
+) -> None:
+    """Истёкшее право закрывает ровно то же, что и отсутствующее."""
+    user = sign_in(client, db_session)
+    organization, _ = organizations_for(db_session, user)
+    give_solution(db_session, organization, expires_at=datetime.now(UTC) - timedelta(minutes=1))
+
+    for method, path, body in CABINET_ROUTES:
+        response = client.request(method, path, json=body)
+        assert response.status_code == 403, f"{method} {path}: {response.status_code}"
+        assert response.json()["detail"] == SOLUTION_REQUIRED_DETAIL, f"{method} {path}"
+
+
+def test_cabinet_routes_do_nothing_without_the_solution(
+    client: TestClient, db_session: Session, telegram_env: None
+) -> None:
+    """403 — это отказ, а не «выполнили и не сказали»: следов в базе нет."""
+    user = cabinet_user(client, db_session, with_solution=False)
+    assert notifications.link_status(db_session, user) == (False, None)
+
+    assert client.post("/api/telegram/connect").status_code == 403
+
+    issued = select(ActivationToken).where(ActivationToken.user_id == user.id)
+    assert db_session.scalar(issued) is None
+    assert list(db_session.scalars(select(NotificationDelivery))) == []
+
+
+def test_inactive_cabinet_keeps_the_activation_detail(
+    client: TestClient, db_session: Session, telegram_env: None
+) -> None:
+    """Порядок проверок: неактивированный получает 403 про активацию, не про магазин."""
+    cabinet_user(client, db_session, email="inactive@example.com", is_active=False)
+
+    for method, path, body in CABINET_ROUTES:
+        response = client.request(method, path, json=body)
+        assert response.status_code == 403, f"{method} {path}: {response.status_code}"
+        assert response.json()["detail"] == "Активируйте личный кабинет", f"{method} {path}"

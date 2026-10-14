@@ -5,7 +5,12 @@
 * роуты бота (`/chat`, `/feed`, `/feed/{id}/failed`) закрыты сервисным токеном в
   заголовке `X-Bot-Token`: бот не человек, cookie сессии у него нет;
 * роуты кабинета (`/status`, `/connect`, `/disconnect`, `/subscriptions`,
-  `/test-message`) закрыты обычной cookie (`ActiveUser`).
+  `/test-message`) закрыты cookie сессии и **правом организации на решение
+  `telegram_notifications`** (`app/solutions.py::require_solution`).
+
+Право проверяется после активации кабинета, а не вместо неё: неактивированный
+пользователь получает прежний 403 про письмо активации, и только активированный
+без действующего права — 403 про магазин улучшений.
 
 Публичного вебхука нет: наружу не открывается ни один роут без сервисного
 токена, `setWebhook` не вызывается вовсе. Бот сам забирает готовые доставки.
@@ -45,7 +50,12 @@ from app.schemas.telegram import (
     UpdateSubscriptionRequest,
 )
 from app.schemas.user import ErrorResponse
-from app.security import ACTIVE_USER_RESPONSES, ActiveUser, ServiceBot
+from app.security import ServiceBot
+from app.solutions import (
+    SOLUTION_REQUIRED_RESPONSES,
+    TELEGRAM_NOTIFICATIONS,
+    require_solution,
+)
 from app.telegram import render_message
 
 router = APIRouter(
@@ -59,6 +69,11 @@ router = APIRouter(
 DbSession = Annotated[Session, Depends(get_db)]
 ChatId = Annotated[str, Query(min_length=1, max_length=32)]
 FeedLimit = Annotated[int, Query(ge=1, le=100)]
+
+# Пользователь кабинета с действующим правом на уведомления в Telegram. Ручки
+# платной функции стоят на этой зависимости, а не на `ActiveUser`: без права ни
+# настроек, ни тестового сообщения быть не должно.
+SolutionUser = Annotated[User, Depends(require_solution(TELEGRAM_NOTIFICATIONS))]
 
 # Один и тот же 410 у бота: «код не подошёл». Причины не различаются, иначе по
 # ответу можно было бы узнать, существует ли код.
@@ -193,9 +208,9 @@ def mark_delivery_failed(
     "/status",
     response_model=TelegramStatusResponse,
     summary="Состояние подключения Telegram",
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={**SOLUTION_REQUIRED_RESPONSES},
 )
-def read_status(user: ActiveUser, db: DbSession) -> TelegramStatusResponse:
+def read_status(user: SolutionUser, db: DbSession) -> TelegramStatusResponse:
     """Подключение, имя бота и подписки — всё, что нужно карточке кабинета."""
     connected, username = notifications.link_status(db, user)
     return TelegramStatusResponse(
@@ -210,9 +225,9 @@ def read_status(user: ActiveUser, db: DbSession) -> TelegramStatusResponse:
     "/connect",
     response_model=TelegramConnectResponse,
     summary="Выдать код привязки Telegram",
-    responses={**ACTIVE_USER_RESPONSES, **NOT_CONFIGURED_RESPONSES},
+    responses={**SOLUTION_REQUIRED_RESPONSES, **NOT_CONFIGURED_RESPONSES},
 )
-def connect(user: ActiveUser, db: DbSession) -> TelegramConnectResponse:
+def connect(user: SolutionUser, db: DbSession) -> TelegramConnectResponse:
     """Выдать одноразовый код и ссылку на бота.
 
     Ссылку собирает сервер: фронт имени бота не знает. Пока бот не настроен
@@ -236,9 +251,9 @@ def connect(user: ActiveUser, db: DbSession) -> TelegramConnectResponse:
     "/disconnect",
     response_model=TelegramDisconnectResponse,
     summary="Отвязать Telegram",
-    responses={**ACTIVE_USER_RESPONSES},
+    responses={**SOLUTION_REQUIRED_RESPONSES},
 )
-def disconnect(user: ActiveUser, db: DbSession) -> TelegramDisconnectResponse:
+def disconnect(user: SolutionUser, db: DbSession) -> TelegramDisconnectResponse:
     """Отвязка помечает привязку `revoked_at`: сообщения человеку больше не уходят."""
     notifications.unlink(db, user)
     db.commit()
@@ -249,11 +264,11 @@ def disconnect(user: ActiveUser, db: DbSession) -> TelegramDisconnectResponse:
     "/subscriptions",
     response_model=list[SubscriptionResponse],
     summary="Включить или выключить вид уведомлений",
-    responses={**ACTIVE_USER_RESPONSES, **BAD_REQUEST_RESPONSES},
+    responses={**SOLUTION_REQUIRED_RESPONSES, **BAD_REQUEST_RESPONSES},
 )
 def update_subscription(
     payload: UpdateSubscriptionRequest,
-    user: ActiveUser,
+    user: SolutionUser,
     db: DbSession,
 ) -> list[SubscriptionResponse]:
     """Вернуть обновлённый список подписок: кабинету не нужен второй запрос."""
@@ -266,9 +281,9 @@ def update_subscription(
     "/test-message",
     response_model=TestMessageResponse,
     summary="Прислать тестовое уведомление",
-    responses={**ACTIVE_USER_RESPONSES, **NOT_CONNECTED_RESPONSES},
+    responses={**SOLUTION_REQUIRED_RESPONSES, **NOT_CONNECTED_RESPONSES},
 )
-def send_test_message(user: ActiveUser, db: DbSession) -> TestMessageResponse:
+def send_test_message(user: SolutionUser, db: DbSession) -> TestMessageResponse:
     """Проверить всю цепочку, никого не выселяя: очередь → бот → Telegram."""
     if not notifications.queue_test_message(db, user):
         raise HTTPException(status.HTTP_409_CONFLICT, TELEGRAM_NOT_CONNECTED_DETAIL)

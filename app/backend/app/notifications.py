@@ -15,7 +15,7 @@ from datetime import UTC, date, datetime, timedelta
 from secrets import token_urlsafe
 from uuid import uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -24,6 +24,7 @@ from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel
 from app.models.organization import OrganizationMember
 from app.models.resident import Resident
+from app.models.solution import OrganizationSolution, Solution
 from app.models.telegram import (
     DELIVERY_FAILED,
     DELIVERY_PENDING,
@@ -38,6 +39,7 @@ from app.models.telegram import (
 )
 from app.models.user import User
 from app.security import hash_activation_token
+from app.solutions import TELEGRAM_NOTIFICATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -201,8 +203,15 @@ def recipients(db: Session, actor_id: int) -> list[tuple[User, TelegramLink]]:
 
     Получатели — живые привязки коллег по организации актора: членство ищется в
     `organization_members`, а не по роли, и роль на выбор получателей не влияет.
-    Условия: чат не отвязан, кабинет активирован и подписка на вид события не
-    выключена. Сам актор уведомление не получает — он это только что сделал сам.
+    Условия: чат не отвязан, кабинет активирован, подписка на вид события не
+    выключена и **у организации есть действующее право на решение
+    `telegram_notifications`**. Сам актор уведомление не получает — он это
+    только что сделал сам.
+
+    Право проверяется одним запросом на всю выборку: `EXISTS` по
+    `organization_solutions` с условием «срок не истёк». Без этой проверки
+    уведомления продолжали бы уходить тем, кто решения не покупал: строки
+    `telegram_links` при включении гейта не отзываются.
     """
     actor = db.get(User, actor_id)
     if actor is None or actor.active_organization_id is None:
@@ -211,6 +220,22 @@ def recipients(db: Session, actor_id: int) -> list[tuple[User, TelegramLink]]:
     unsubscribed = select(NotificationSubscription.user_id).where(
         NotificationSubscription.kind == RESIDENT_OUTFLOW_KIND,
         NotificationSubscription.is_enabled.is_(False),
+    )
+    # Своё право организации актора: получатели — участники той же организации,
+    # поэтому проверка одна на всех. `func.now()` — «сейчас» базы: сравнение
+    # остаётся верным и на Postgres, и на SQLite.
+    entitled = (
+        select(OrganizationSolution.id)
+        .join(Solution, Solution.id == OrganizationSolution.solution_id)
+        .where(
+            OrganizationSolution.organization_id == actor.active_organization_id,
+            Solution.code == TELEGRAM_NOTIFICATIONS,
+            or_(
+                OrganizationSolution.expires_at.is_(None),
+                OrganizationSolution.expires_at > func.now(),
+            ),
+        )
+        .exists()
     )
     rows = db.execute(
         select(User, TelegramLink)
@@ -222,6 +247,7 @@ def recipients(db: Session, actor_id: int) -> list[tuple[User, TelegramLink]]:
             User.is_active.is_(True),
             User.id != actor_id,
             User.id.not_in(unsubscribed),
+            entitled,
         )
         .order_by(User.id)
     ).all()

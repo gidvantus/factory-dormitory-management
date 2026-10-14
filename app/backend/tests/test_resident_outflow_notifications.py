@@ -15,7 +15,7 @@ from app import notifications
 from app.models.organization import OrganizationMember
 from app.models.telegram import RESIDENT_OUTFLOW_KIND, NotificationDelivery
 from app.models.user import User
-from tests.conftest import create_user, organizations_for
+from tests.conftest import create_user, give_solution, organizations_for
 from tests.test_resident_outflow import move, preview
 from tests.test_resident_payments import setup
 
@@ -47,6 +47,8 @@ def test_outflow_notifies_colleagues_except_the_actor_and_only_once(
     connect(db_session, colleague, chat_id="555")
     # Актор тоже подключён: уведомление о своём же действии он получать не должен.
     connect(db_session, actor, chat_id="777")
+    # Доставки стоят на праве организации на решение: без него их не появляется.
+    give_solution(db_session, organization)
 
     plan = preview(client, dorm, resident)
     assert move(client, dorm, resident, plan).status_code == 201
@@ -77,6 +79,28 @@ def test_outflow_without_connected_colleagues_queues_nothing(
     client: TestClient, db_session: Session
 ) -> None:
     dorm, resident = setup(client, db_session)
+
+    plan = preview(client, dorm, resident)
+
+    assert move(client, dorm, resident, plan).status_code == 201
+    assert list(db_session.scalars(select(NotificationDelivery))) == []
+
+
+def test_outflow_without_the_solution_queues_nothing(
+    client: TestClient, db_session: Session
+) -> None:
+    """Подключённый чат без права организации доставок не получает."""
+    dorm, resident = setup(client, db_session)
+    actor = db_session.scalar(select(User).where(User.email == ACTOR_EMAIL))
+    assert actor is not None
+    organization, _ = organizations_for(db_session, actor)
+
+    colleague = create_user(db_session, email="colleague@example.com")
+    db_session.add(
+        OrganizationMember(organization_id=organization.id, user_id=colleague.id, role="manager")
+    )
+    db_session.commit()
+    connect(db_session, colleague, chat_id="555")
 
     plan = preview(client, dorm, resident)
 
