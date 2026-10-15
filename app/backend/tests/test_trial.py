@@ -96,7 +96,8 @@ def test_activation_fills_the_trial_end(client: TestClient, db_session: Session)
     before = datetime.now(UTC)
 
     response = client.post(
-        "/api/auth/activate", json={"token": raw_token, "password": NEW_PASSWORD}
+        "/api/auth/activate",
+        json={"token": raw_token, "password": NEW_PASSWORD, "consent": True},
     )
 
     assert response.status_code == 200, response.text

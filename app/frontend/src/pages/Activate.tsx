@@ -14,6 +14,9 @@ export const SUCCESS_REDIRECT_MS = 700;
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Текст отказа — тот же, что отдаёт сервер на 422. */
+const CONSENT_ERROR = 'Отметьте согласие на обработку персональных данных';
+
 /**
  * Экран активации кабинета. Без токена объясняет, что делать с письмом,
  * и умеет отправить его повторно; с токеном из письма — просит новый пароль.
@@ -129,6 +132,8 @@ function ActivateToken({ token }: { token: string }): JSX.Element {
   const [checkError, setCheckError] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
+  const [consent, setConsent] = useState(false);
+  const [consentError, setConsentError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -171,15 +176,23 @@ function ActivateToken({ token }: { token: string }): JSX.Element {
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setSubmitError('');
+    setConsentError('');
     const found = validate();
     if (found) {
       setSubmitError(found);
       return;
     }
+    // Согласие проверяет и сервер, но без отметки запрос не уходит вовсе:
+    // так 422 не выглядит для человека необъяснимым отказом. Проверка пароля
+    // идёт первой — она про поля, которые человек видит выше чекбокса.
+    if (info !== null && info.consent_required && !consent) {
+      setConsentError(CONSENT_ERROR);
+      return;
+    }
 
     setSubmitting(true);
     try {
-      const user = await api.activate(token, password);
+      const user = await api.activate(token, password, consent);
       setUser(user);
       // Активация меняет лежащее на сервере состояние кабинета (в том числе
       // создаёт организацию), поэтому профиль в сессии перечитываем, а не
@@ -265,6 +278,54 @@ function ActivateToken({ token }: { token: string }): JSX.Element {
             onChange={(event) => setConfirmation(event.target.value)}
           />
         </div>
+
+        {info.consent_required ? (
+          <div className="field field--consent">
+            <label className="field__consent" htmlFor="activate-consent">
+              <input
+                className="field__checkbox"
+                id="activate-consent"
+                name="consent"
+                type="checkbox"
+                data-testid="activate-consent"
+                checked={consent}
+                onChange={(event) => setConsent(event.target.checked)}
+                aria-invalid={consentError ? true : undefined}
+                aria-describedby={consentError ? 'activate-consent-error' : undefined}
+              />
+              <span className="field__consent-text">
+                Я принимаю{' '}
+                <a
+                  className="field__consent-link"
+                  href="/documents/privacy-policy"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Политику конфиденциальности
+                </a>{' '}
+                и даю{' '}
+                <a
+                  className="field__consent-link"
+                  href="/documents/personal-data-consent"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  согласие на обработку персональных данных
+                </a>
+              </span>
+            </label>
+            {consentError ? (
+              <p
+                className="field__error"
+                id="activate-consent-error"
+                role="alert"
+                data-testid="activate-consent-error"
+              >
+                {consentError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         {submitError ? (
           <p className="alert alert--error" role="alert" data-testid="activate-error">

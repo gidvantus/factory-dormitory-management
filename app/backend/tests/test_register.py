@@ -8,11 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.consent import CONSENT_DOCUMENT_CODE, CONSENT_REQUIRED_DETAIL
 from app.models.activation import ActivationToken
+from app.models.document import Document
 from app.models.user import User
 from tests.conftest import register_user
 
-PAYLOAD = {"email": "worker@example.com", "full_name": "Иванов Иван Иванович"}
+PAYLOAD = {"email": "worker@example.com", "full_name": "Иванов Иван Иванович", "consent": True}
 
 
 def as_utc(value: datetime) -> datetime:
@@ -81,14 +83,17 @@ def test_register_does_not_set_session_cookie(client: TestClient) -> None:
 
 
 def test_email_is_stored_and_compared_without_case(client: TestClient, db_session: Session) -> None:
-    client.post("/api/auth/register", json={"email": "Ivan@Example.com", "full_name": "Иванов И."})
+    client.post(
+        "/api/auth/register",
+        json={"email": "Ivan@Example.com", "full_name": "Иванов И.", "consent": True},
+    )
 
     user = db_session.scalar(select(User).where(User.email == "ivan@example.com"))
     assert user is not None
 
     duplicate = client.post(
         "/api/auth/register",
-        json={"email": "IVAN@EXAMPLE.COM", "full_name": "Петров Пётр"},
+        json={"email": "IVAN@EXAMPLE.COM", "full_name": "Петров Пётр", "consent": True},
     )
     assert duplicate.status_code == 409
 
@@ -98,7 +103,7 @@ def test_duplicate_email_returns_409(client: TestClient) -> None:
 
     response = client.post(
         "/api/auth/register",
-        json={"email": "worker@example.com", "full_name": "Петров Пётр Петрович"},
+        json={"email": "worker@example.com", "full_name": "Петров Пётр Петрович", "consent": True},
     )
 
     assert response.status_code == 409
@@ -107,7 +112,8 @@ def test_duplicate_email_returns_409(client: TestClient) -> None:
 
 def test_invalid_email_returns_422(client: TestClient) -> None:
     response = client.post(
-        "/api/auth/register", json={"email": "не-почта", "full_name": "Иванов И."}
+        "/api/auth/register",
+        json={"email": "не-почта", "full_name": "Иванов И.", "consent": True},
     )
     assert response.status_code == 422
 
@@ -115,7 +121,7 @@ def test_invalid_email_returns_422(client: TestClient) -> None:
 def test_empty_full_name_returns_422(client: TestClient) -> None:
     response = client.post(
         "/api/auth/register",
-        json={"email": "worker@example.com", "full_name": "   "},
+        json={"email": "worker@example.com", "full_name": "   ", "consent": True},
     )
     assert response.status_code == 422
 
@@ -123,7 +129,97 @@ def test_empty_full_name_returns_422(client: TestClient) -> None:
 def test_full_name_is_normalized(client: TestClient) -> None:
     response = client.post(
         "/api/auth/register",
-        json={"email": "worker@example.com", "full_name": "  Иванов   Иван  "},
+        json={"email": "worker@example.com", "full_name": "  Иванов   Иван  ", "consent": True},
     )
     assert response.status_code == 201
     assert response.json()["full_name"] == "Иванов Иван"
+
+
+# --- Согласие на обработку персональных данных (issue #67) -------------------
+#
+# Согласие требует сервер, а не только форма: иначе регистрацию без согласия
+# можно было бы провести прямым запросом к API.
+
+
+def test_register_without_consent_returns_422(client: TestClient, db_session: Session) -> None:
+    response = client.post(
+        "/api/auth/register",
+        json={"email": "worker@example.com", "full_name": "Иванов Иван Иванович"},
+    )
+
+    assert response.status_code == 422
+    assert CONSENT_REQUIRED_DETAIL in response.text
+    # Пользователь не создан: отказ не должен оставлять полуготовую строку.
+    assert db_session.scalar(select(User).where(User.email == "worker@example.com")) is None
+
+
+def test_register_with_consent_false_returns_422(client: TestClient, db_session: Session) -> None:
+    response = client.post(
+        "/api/auth/register",
+        json={"email": "worker@example.com", "full_name": "Иванов Иван Иванович", "consent": False},
+    )
+
+    assert response.status_code == 422
+    assert CONSENT_REQUIRED_DETAIL in response.text
+    assert db_session.scalar(select(User).where(User.email == "worker@example.com")) is None
+
+
+def test_register_with_a_quoted_false_consent_returns_422(
+    client: TestClient, db_session: Session
+) -> None:
+    """Строка «false» — тоже отказ: pydantic приводит её к `False`, согласие не пишется."""
+    response = client.post(
+        "/api/auth/register",
+        json={
+            "email": "worker@example.com",
+            "full_name": "Иванов Иван Иванович",
+            "consent": "false",
+        },
+    )
+
+    assert response.status_code == 422
+    assert CONSENT_REQUIRED_DETAIL in response.text
+    assert db_session.scalar(select(User).where(User.email == "worker@example.com")) is None
+
+
+def test_register_records_consent_with_the_document_revision(
+    client: TestClient, db_session: Session
+) -> None:
+    """Успешная регистрация пишет момент, код документа и снимок его редакции."""
+    document = Document(
+        code=CONSENT_DOCUMENT_CODE,
+        title="Согласие на обработку персональных данных",
+        body="Текст заготовки.",
+        position=3,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+    before = datetime.now(UTC)
+
+    assert client.post("/api/auth/register", json=PAYLOAD).status_code == 201
+
+    user = db_session.scalar(select(User).where(User.email == PAYLOAD["email"]))
+    assert user is not None
+    assert user.consent_at is not None
+    assert abs(as_utc(user.consent_at) - before) < timedelta(minutes=1)
+    assert user.consent_document_code == CONSENT_DOCUMENT_CODE
+    assert user.consent_document_updated_at is not None
+    assert as_utc(user.consent_document_updated_at) == as_utc(document.updated_at)
+
+
+def test_register_without_the_consent_document_still_succeeds(
+    client: TestClient, db_session: Session
+) -> None:
+    """Нет строки документа — согласие всё равно записано, редакция остаётся пустой.
+
+    Справочник документов не должен превращаться в зависимость регистрации:
+    код документа и момент согласия важнее снимка редакции.
+    """
+    assert client.post("/api/auth/register", json=PAYLOAD).status_code == 201
+
+    user = db_session.scalar(select(User).where(User.email == PAYLOAD["email"]))
+    assert user is not None
+    assert user.consent_at is not None
+    assert user.consent_document_code == CONSENT_DOCUMENT_CODE
+    assert user.consent_document_updated_at is None

@@ -107,10 +107,12 @@ def register_user(
     """Регистрирует пользователя через API.
 
     Открытый пароль сервер не возвращает: вход в тестах идёт через `create_user`.
+    Согласие на обработку данных обязательно, поэтому здесь оно всегда отмечено:
+    сценарии без согласия проверяет `tests/test_register.py`.
     """
     response = client.post(
         "/api/auth/register",
-        json={"email": email, "full_name": full_name},
+        json={"email": email, "full_name": full_name, "consent": True},
     )
     assert response.status_code == 201, response.text
     return response.json()

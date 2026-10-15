@@ -126,7 +126,8 @@ def test_activation_opens_the_working_endpoints(client: TestClient, db_session: 
     assert client.get("/api/dormitories").status_code == 403
 
     activated = client.post(
-        "/api/auth/activate", json={"token": raw_token, "password": NEW_PASSWORD}
+        "/api/auth/activate",
+        json={"token": raw_token, "password": NEW_PASSWORD, "consent": True},
     )
 
     assert activated.status_code == 200
