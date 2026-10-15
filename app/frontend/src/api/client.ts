@@ -53,6 +53,8 @@ export interface ActivationInfo {
   email: string;
   full_name: string;
   expires_at: string;
+  /** Согласия ещё нет: экран активации показывает обязательный чекбокс. */
+  consent_required: boolean;
 }
 
 export interface Dormitory {
@@ -941,10 +943,10 @@ export const api = {
       method: 'DELETE',
     });
   },
-  register(email: string, fullName: string): Promise<RegisterResult> {
+  register(email: string, fullName: string, consent: boolean): Promise<RegisterResult> {
     return request<RegisterResult>('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, full_name: fullName }),
+      body: JSON.stringify({ email, full_name: fullName, consent }),
     });
   },
 
@@ -954,10 +956,10 @@ export const api = {
   },
 
   /** Новый пароль по ссылке: сервер активирует кабинет и ставит cookie сессии. */
-  activate(token: string, password: string): Promise<UserProfile> {
+  activate(token: string, password: string, consent: boolean): Promise<UserProfile> {
     return request<UserProfile>('/auth/activate', {
       method: 'POST',
-      body: JSON.stringify({ token, password }),
+      body: JSON.stringify({ token, password, consent }),
     });
   },
 

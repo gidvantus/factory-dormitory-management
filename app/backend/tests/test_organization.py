@@ -55,10 +55,17 @@ def stub_lookup(
 def activate(
     client: TestClient, db_session: Session, user: User, password: str = NEW_PASSWORD
 ) -> None:
-    """Активировать кабинет выпущенным заранее токеном."""
+    """Активировать кабинет выпущенным заранее токеном.
+
+    Согласие отмечено: пользователь создан прямо в базе и согласия не давал,
+    без отметки сервер ответил бы 422 (см. `tests/test_activation.py`).
+    """
     raw_token = issue_activation_token(db_session, user.id)
     db_session.commit()
-    response = client.post("/api/auth/activate", json={"token": raw_token, "password": password})
+    response = client.post(
+        "/api/auth/activate",
+        json={"token": raw_token, "password": password, "consent": True},
+    )
     assert response.status_code == 200, response.text
 
 

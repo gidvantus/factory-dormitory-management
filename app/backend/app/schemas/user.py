@@ -1,8 +1,11 @@
 """Схемы запросов и ответов аутентификации."""
 
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+from app.consent import CONSENT_REQUIRED_DETAIL
 
 
 def normalize_email(email: str) -> str:
@@ -23,15 +26,48 @@ def normalize_full_name(value: str) -> str:
 
 
 class RegisterRequest(BaseModel):
-    """Регистрация: пароль придумывает сервер, пользователь вводит только email и ФИО."""
+    """Регистрация: пароль придумывает сервер, пользователь вводит email, ФИО и согласие.
+
+    `consent` обязателен и без значения по умолчанию: клиент обязан прислать его
+    явно, а `false` — не «поле не пришло», а осознанный отказ, который так же
+    ведёт к 422. Без этого старый клиент зарегистрировал бы пользователя без
+    согласия.
+    """
 
     email: EmailStr
     full_name: str = Field(min_length=1, max_length=255)
+    consent: bool
 
     @field_validator("full_name")
     @classmethod
     def validate_full_name(cls, value: str) -> str:
         return normalize_full_name(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_consent(cls, data: Any) -> Any:
+        """422 с одним и тем же текстом и когда согласие не отмечено, и когда поля нет.
+
+        Проверка стоит до разбора полей: на пропущенное обязательное поле
+        pydantic отвечает своим «Field required», а человеку под чекбоксом
+        нужен текст про согласие — тот же, что и при `consent: false`.
+        """
+        if isinstance(data, dict) and not data.get("consent"):
+            raise ValueError(CONSENT_REQUIRED_DETAIL)
+        return data
+
+    @field_validator("consent")
+    @classmethod
+    def validate_consent(cls, value: bool) -> bool:
+        """Ложь после приведения типов — тоже отказ.
+
+        `consent: "false"` проходит первую проверку (непустая строка — истина),
+        а `bool` приводит её к `False`: без этого валидатора согласие
+        записалось бы по строке, которая означает отказ.
+        """
+        if not value:
+            raise ValueError(CONSENT_REQUIRED_DETAIL)
+        return value
 
 
 class RegisterResponse(BaseModel):

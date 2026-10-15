@@ -27,6 +27,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** Заполнить форму и (по умолчанию) отметить согласие — иначе запрос не уходит. */
+async function fillForm(
+  user: ReturnType<typeof userEvent.setup>,
+  { consent = true }: { consent?: boolean } = {},
+): Promise<void> {
+  await user.type(await screen.findByTestId('register-email'), REGISTERED.email);
+  await user.type(screen.getByTestId('register-full-name'), REGISTERED.full_name);
+  if (consent) {
+    await user.click(screen.getByTestId('register-consent'));
+  }
+}
+
 describe('страница регистрации', () => {
   it('не отправляет форму и показывает ошибки, если поля пусты', async () => {
     const fetchMock = mockFetch(routes());
@@ -37,6 +49,9 @@ describe('страница регистрации', () => {
 
     expect(await screen.findByTestId('register-email-error')).toHaveTextContent('Укажите email');
     expect(screen.getByTestId('register-full-name-error')).toHaveTextContent('Укажите ФИО');
+    expect(screen.getByTestId('register-consent-error')).toHaveTextContent(
+      'Отметьте согласие на обработку персональных данных',
+    );
     expect(callsTo(fetchMock, '/api/auth/register')).toHaveLength(0);
   });
 
@@ -58,8 +73,7 @@ describe('страница регистрации', () => {
     const user = userEvent.setup();
     renderApp('/register');
 
-    await user.type(await screen.findByTestId('register-email'), REGISTERED.email);
-    await user.type(screen.getByTestId('register-full-name'), REGISTERED.full_name);
+    await fillForm(user);
     await user.click(screen.getByTestId('register-submit'));
 
     expect(await screen.findByTestId('register-mail-notice')).toHaveTextContent('письмо');
@@ -82,8 +96,7 @@ describe('страница регистрации', () => {
     const user = userEvent.setup();
     renderApp('/register');
 
-    await user.type(await screen.findByTestId('register-email'), REGISTERED.email);
-    await user.type(screen.getByTestId('register-full-name'), REGISTERED.full_name);
+    await fillForm(user);
     await user.click(screen.getByTestId('register-submit'));
 
     expect(await screen.findByTestId('register-mail-warning')).toHaveTextContent(
@@ -100,11 +113,55 @@ describe('страница регистрации', () => {
     const user = userEvent.setup();
     renderApp('/register');
 
-    await user.type(await screen.findByTestId('register-email'), REGISTERED.email);
-    await user.type(screen.getByTestId('register-full-name'), REGISTERED.full_name);
+    await fillForm(user);
     await user.click(screen.getByTestId('register-submit'));
 
     expect(await screen.findByTestId('register-error')).toHaveTextContent('уже зарегистрирован');
     expect(screen.queryByTestId('register-mail-notice')).not.toBeInTheDocument();
+  });
+
+  it('без согласия не отправляет запрос и показывает ошибку под чекбоксом', async () => {
+    const fetchMock = mockFetch(routes());
+    const user = userEvent.setup();
+    renderApp('/register');
+
+    await fillForm(user, { consent: false });
+    await user.click(screen.getByTestId('register-submit'));
+
+    expect(await screen.findByTestId('register-consent-error')).toHaveTextContent(
+      'Отметьте согласие на обработку персональных данных',
+    );
+    expect(callsTo(fetchMock, '/api/auth/register')).toHaveLength(0);
+  });
+
+  it('отправляет согласие в теле запроса', async () => {
+    const fetchMock = mockFetch(
+      routes({ '/api/auth/register': { status: 201, body: REGISTERED } }),
+    );
+    const user = userEvent.setup();
+    renderApp('/register');
+
+    await fillForm(user);
+    await user.click(screen.getByTestId('register-submit'));
+
+    await screen.findByTestId('register-mail-notice');
+    const [call] = callsTo(fetchMock, '/api/auth/register');
+    const init = call[1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({ consent: true });
+  });
+
+  it('ведёт на документы в новой вкладке, чтобы не потерять заполненную форму', async () => {
+    mockFetch(routes());
+    renderApp('/register');
+
+    const privacy = await screen.findByRole('link', { name: 'Политику конфиденциальности' });
+    const consent = screen.getByRole('link', { name: 'согласие на обработку персональных данных' });
+
+    expect(privacy).toHaveAttribute('href', '/documents/privacy-policy');
+    expect(privacy).toHaveAttribute('target', '_blank');
+    expect(privacy).toHaveAttribute('rel', 'noreferrer');
+    expect(consent).toHaveAttribute('href', '/documents/personal-data-consent');
+    expect(consent).toHaveAttribute('target', '_blank');
+    expect(consent).toHaveAttribute('rel', 'noreferrer');
   });
 });
