@@ -8,6 +8,7 @@ import { SolutionsProvider, useSolutions } from '../workspace/SolutionsProvider'
 import { TELEGRAM_NOTIFICATIONS_CODE } from '../workspace/solutions';
 import { userInitials } from '../workspace/userInitials';
 import { WorkspaceIcon } from '../workspace/WorkspaceIcon';
+import type { WorkspaceIconName } from '../workspace/WorkspaceIcon';
 import styles from '../workspace/Workspace.module.css';
 
 const sectionTitles: Record<string, string> = {
@@ -42,6 +43,32 @@ const CLOSED_SECTIONS = [
 function isClosedSection(path: string): boolean {
   return CLOSED_SECTIONS.some((section) => path === section || path.startsWith(`${section}/`));
 }
+
+interface SolutionNavItem {
+  /** Код решения из каталога: пункт виден при действующем праве на него. */
+  code: string;
+  to: string;
+  testId: string;
+  label: string;
+  icon: WorkspaceIconName;
+}
+
+/**
+ * Пункты меню платных решений: право на решение включает свой раздел кабинета.
+ *
+ * Порядок этих пунктов в боковом меню задаётся одним списком, а разворачивается
+ * он сразу после «Магазина улучшений»: купленное решение обязано появляться
+ * после магазина, а не в середине меню. Новое решение добавляется сюда строкой.
+ */
+const SOLUTION_NAV_ITEMS: readonly SolutionNavItem[] = [
+  {
+    code: TELEGRAM_NOTIFICATIONS_CODE,
+    to: '/cabinet/notifications',
+    testId: 'workspace-nav-notifications',
+    label: 'Уведомления',
+    icon: 'people',
+  },
+];
 
 /**
  * Оболочка кабинета вместе с состоянием пробного периода и правами на решения.
@@ -240,35 +267,6 @@ function CabinetShell(): JSX.Element {
               </NavLink>
             </li>
             <li>
-              {/* «Магазин улучшений» открыт всегда: решения покупают именно на
-                  закрытом пробном кабинете, когда тарифа ещё нет. */}
-              <NavLink
-                className={styles['nav-link']}
-                to="/cabinet/shop"
-                onClick={closeMenu}
-                data-testid="workspace-nav-shop"
-              >
-                <WorkspaceIcon name="info" />
-                Магазин улучшений
-              </NavLink>
-            </li>
-            <li>
-              {/* «Уведомления» — платная функция: пункт появляется только при
-                  действующем праве организации на решение. Прямой заход по
-                  адресу показывает состояние «решение не подключено». */}
-              {ownedCodes.has(TELEGRAM_NOTIFICATIONS_CODE) && (
-                <NavLink
-                  className={styles['nav-link']}
-                  to="/cabinet/notifications"
-                  onClick={closeMenu}
-                  data-testid="workspace-nav-notifications"
-                >
-                  <WorkspaceIcon name="people" />
-                  Уведомления
-                </NavLink>
-              )}
-            </li>
-            <li>
               {/* «Документы» не перечислены в `CLOSED_SECTIONS`: счета и акты
                   нужны именно на закрытом пробном периоде. */}
               <NavLink
@@ -313,6 +311,36 @@ function CabinetShell(): JSX.Element {
                 Статистика
               </NavLink>
             </li>
+            <li>
+              {/* «Магазин улучшений» открыт всегда: решения покупают именно на
+                  закрытом пробном кабинете, когда тарифа ещё нет. Стоит после
+                  «Статистики»: за ним идут разделы купленных решений. */}
+              <NavLink
+                className={styles['nav-link']}
+                to="/cabinet/shop"
+                onClick={closeMenu}
+                data-testid="workspace-nav-shop"
+              >
+                <WorkspaceIcon name="info" />
+                Магазин улучшений
+              </NavLink>
+            </li>
+            {SOLUTION_NAV_ITEMS.filter((item) => ownedCodes.has(item.code)).map((item) => (
+              <li key={item.code}>
+                {/* Раздел платной функции виден только при действующем праве
+                    организации. Прямой заход по адресу без права показывает
+                    состояние «решение не подключено». */}
+                <NavLink
+                  className={styles['nav-link']}
+                  to={item.to}
+                  onClick={closeMenu}
+                  data-testid={item.testId}
+                >
+                  <WorkspaceIcon name={item.icon} />
+                  {item.label}
+                </NavLink>
+              </li>
+            ))}
           </ul>
         </nav>
         <div className={styles['sidebar-bottom']}>

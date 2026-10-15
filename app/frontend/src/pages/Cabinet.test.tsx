@@ -230,6 +230,22 @@ describe('пункт меню «Уведомления»', () => {
     await user.click(shop);
     expect(await screen.findByText('Страница магазина')).toBeInTheDocument();
   });
+
+  it('ставит магазин после «Статистики», а разделы решений — после магазина', async () => {
+    renderWithSolutions(true);
+
+    await screen.findByTestId('workspace-nav-notifications');
+    const order = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-testid^="workspace-nav-"]'),
+    ).map((node) => node.dataset.testid);
+
+    // Порядок чтения меню, а не порядок в разметке: позиции сравниваются по
+    // документному порядку ссылок в боковой панели.
+    expect(order.indexOf('workspace-nav-shop')).toBe(order.indexOf('workspace-nav-statistics') + 1);
+    expect(order.indexOf('workspace-nav-notifications')).toBe(
+      order.indexOf('workspace-nav-shop') + 1,
+    );
+  });
 });
 
 describe('закрытый кабинет и пробный период', () => {
