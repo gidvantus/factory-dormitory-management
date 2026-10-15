@@ -459,9 +459,9 @@ describe('шапка и подвал страницы тарифов', () => {
     expect(header.getByRole('link', { name: 'Возможности' })).toHaveAttribute('href', '/#features');
     expect(header.getByRole('link', { name: 'Как работает' })).toHaveAttribute('href', '/#how');
     expect(header.getByRole('link', { name: 'Интерфейс' })).toHaveAttribute('href', '/#interface');
+    // Список один и тот же на всех публичных страницах: на прайсе «Тарифы» тоже есть.
+    expect(header.getByRole('link', { name: 'Тарифы' })).toHaveAttribute('href', '/pricing');
     expect(header.getByRole('link', { name: 'Вопросы' })).toHaveAttribute('href', '/#faq');
-    // Пользователь уже на прайсе: пункт «Тарифы» здесь лишний.
-    expect(header.queryByRole('link', { name: 'Тарифы' })).not.toBeInTheDocument();
   });
 
   it('ведёт ссылками подвала на главную', async () => {

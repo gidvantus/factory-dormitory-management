@@ -19,7 +19,7 @@ import { siteNav } from '../components/siteNav';
 import { useSession } from '../auth/SessionProvider';
 
 /** Меню главной: якоря её разделов плюс отдельный адрес тарифов. */
-const NAV = siteNav({ onHome: true, withPricing: true });
+const NAV = siteNav({ onHome: true });
 
 /** Маршрут открывает окно входа или регистрации: так форма доступна по прямой ссылке. */
 function dialogFromPath(pathname: string): AuthMode | null {
