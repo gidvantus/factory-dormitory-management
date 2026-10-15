@@ -331,6 +331,8 @@ input {
   display: inline-flex;
   align-items: center;
   gap: 0.625rem;
+  /* Логотип не сжимается: место в шапке уступают меню и отступы. */
+  flex: none;
   font-family: var(--font-display);
   font-weight: 900;
   font-size: 1.25rem;
@@ -355,6 +357,9 @@ input {
   align-items: center;
   gap: clamp(0.75rem, 2vw, 1.75rem);
   margin-inline-start: auto;
+  /* Меню ужимается первым: без этого оно держит ширину по содержимому и
+     выдавливает кнопки правого блока за вьюпорт. */
+  min-width: 0;
 }
 
 .nav__links a {
@@ -364,6 +369,8 @@ input {
   font-size: var(--text-sm);
   padding: 0.5rem 0.25rem;
   border-radius: var(--radius-sm);
+  /* Подпись пункта не переносится никогда: две строки в шапке — дефект. */
+  white-space: nowrap;
 }
 
 .nav__links a:hover {
@@ -373,6 +380,9 @@ input {
   text-decoration-color: var(--mint-200);
 }
 
+/* Правый блок намеренно без `min-width: 0`: с ним кнопка вылезала из своего
+   бокса и тянула за собой горизонтальную прокрутку всей страницы на 769-900px.
+   Место уступает меню, а не кнопки. */
 .nav__actions {
   display: flex;
   align-items: center;
@@ -392,6 +402,10 @@ input {
   min-height: 48px;
   padding: 0.75rem 1.5rem;
   border-radius: var(--radius-pill);
+  /* Подпись кнопки не переносится, сама кнопка не сжимается.
+     Класс общий для всего приложения — здесь только эти два свойства. */
+  white-space: nowrap;
+  flex: none;
   border: 2px solid transparent;
   background: none;
   font-family: var(--font-display);
@@ -2004,6 +2018,27 @@ tbody tr:last-child td {
 /* ==========================================================================
    Адаптив
    ========================================================================== */
+
+/* Шесть пунктов меню в шапке не помещаются в 1140px контейнер при полных
+   отступах: с 1119px шапка остаётся одной строкой за счёт сжатых отступов,
+   а не за счёт переноса подписей. Порог посчитан по токенам, поэтому правится
+   значение здесь, а не суть. */
+@media (max-width: 1119px) {
+  .nav {
+    gap: 1rem;
+  }
+
+  .nav__links {
+    gap: 0.5rem;
+    /* Страховка на 768-860px: если сжатых отступов не хватит, меню
+       прокручивается по горизонтали, а не ломает подписи. */
+    overflow-x: auto;
+  }
+
+  .nav__links a {
+    padding: 0.25rem 0.125rem;
+  }
+}
 
 @media (max-width: 1024px) {
   .hero__grid {
