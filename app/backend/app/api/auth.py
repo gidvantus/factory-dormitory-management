@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.consent import record_consent
 from app.db import get_db
 from app.mail import activation_email_ready, send_activation_email_task
 from app.models.user import User
@@ -56,6 +57,10 @@ GENERATED_PASSWORD_BYTES = 12
             "model": ErrorResponse,
             "description": "Email уже занят",
         },
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "model": ErrorResponse,
+            "description": "Неверный email, пустое ФИО или нет согласия на обработку данных",
+        },
     },
 )
 def register(
@@ -79,6 +84,9 @@ def register(
         password_hash=hash_password(secrets.token_urlsafe(GENERATED_PASSWORD_BYTES)),
         is_active=False,
     )
+    # Согласие пишется в той же транзакции, что и сам пользователь: отказ на
+    # уникальном индексе не должен оставить согласие без пользователя.
+    record_consent(db, user)
     db.add(user)
     try:
         db.flush()

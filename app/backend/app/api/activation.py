@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.api.organization import create_organization_for_user
 from app.api.recovery import RECOVERY_LIMIT_LOG, identifier_hash, try_consume_request
+from app.consent import CONSENT_REQUIRED_DETAIL, record_consent
 from app.db import get_db
 from app.mail import send_activation_email_task
 from app.models.activation import ActivationToken
@@ -108,6 +109,7 @@ def read_activation(
         email=user.email,
         full_name=user.full_name,
         expires_at=record.expires_at,
+        consent_required=user.consent_at is None,
     )
 
 
@@ -119,12 +121,23 @@ def read_activation(
         **GONE_RESPONSES,
         status.HTTP_422_UNPROCESSABLE_ENTITY: {
             "model": ErrorResponse,
-            "description": "Пароль короче восьми символов",
+            "description": "Пароль короче восьми символов или нет согласия на обработку данных",
         },
     },
 )
 def activate(payload: ActivateRequest, response: Response, db: DbSession) -> UserResponse:
     record, user = load_activation_token(db, payload.token)
+
+    # Приглашённый сотрудник регистрацию не проходил — согласия у него нет, и
+    # требует его именно эта ручка. Проверка стоит до правок пользователя:
+    # отказ не должен оставлять аккаунт полуактивированным, и токен остаётся
+    # живым, чтобы человек мог отметить чекбокс и повторить.
+    if user.consent_at is None:
+        if not payload.consent:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, CONSENT_REQUIRED_DETAIL)
+        record_consent(db, user)
+    # Согласие уже записано (регистрация или прошлая активация) — не трогаем:
+    # момент и редакция документа фиксируются один раз.
 
     user.password_hash = hash_password(payload.password)
     user.is_active = True

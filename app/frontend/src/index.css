@@ -1648,6 +1648,37 @@ tbody tr:last-child td {
   font-weight: 700;
 }
 
+/* Строка согласия: чекбокс и текст с ссылками в одну строку, переносы — по тексту. */
+.field__consent {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2);
+  align-items: start;
+  cursor: pointer;
+}
+
+.field__checkbox {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0.15rem 0 0;
+  accent-color: var(--color-accent);
+}
+
+.field__checkbox[aria-invalid='true'] {
+  outline: 2px solid var(--color-danger);
+  outline-offset: 2px;
+}
+
+.field__consent-text {
+  font-size: var(--text-sm);
+  color: var(--color-text-body);
+}
+
+.field__consent-link {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
 .alert {
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-sm);

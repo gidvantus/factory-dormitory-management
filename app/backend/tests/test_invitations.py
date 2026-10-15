@@ -164,7 +164,10 @@ def count(db_session: Session, model: Any) -> int:
 
 
 def activate(client: TestClient, token: str, password: str = NEW_PASSWORD) -> Response:
-    return client.post("/api/auth/activate", json={"token": token, "password": password})
+    """Тело с согласием: приглашённый регистрацию не проходил и согласия не давал."""
+    return client.post(
+        "/api/auth/activate", json={"token": token, "password": password, "consent": True}
+    )
 
 
 # --- 1. Приглашение создаёт неактивного сотрудника в организации владельца ---

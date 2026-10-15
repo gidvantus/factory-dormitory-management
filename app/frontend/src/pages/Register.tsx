@@ -10,12 +10,17 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 interface FieldErrors {
   email?: string;
   fullName?: string;
+  consent?: string;
 }
+
+/** Текст отказа — тот же, что отдаёт сервер на 422. */
+const CONSENT_ERROR = 'Отметьте согласие на обработку персональных данных';
 
 /** Форма регистрации. Живёт внутри модального окна на главной странице. */
 export function Register(): JSX.Element {
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
+  const [consent, setConsent] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [requestError, setRequestError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -31,6 +36,9 @@ export function Register(): JSX.Element {
     if (!fullName.trim()) {
       found.fullName = 'Укажите ФИО';
     }
+    if (!consent) {
+      found.consent = CONSENT_ERROR;
+    }
     return found;
   }
 
@@ -45,7 +53,7 @@ export function Register(): JSX.Element {
 
     setSubmitting(true);
     try {
-      setResult(await api.register(email.trim(), fullName.trim()));
+      setResult(await api.register(email.trim(), fullName.trim(), consent));
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         setRequestError('Пользователь с таким email уже зарегистрирован');
@@ -150,6 +158,52 @@ export function Register(): JSX.Element {
             data-testid="register-full-name-error"
           >
             {errors.fullName}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="field field--consent">
+        <label className="field__consent" htmlFor="register-consent">
+          <input
+            className="field__checkbox"
+            id="register-consent"
+            name="consent"
+            type="checkbox"
+            data-testid="register-consent"
+            checked={consent}
+            onChange={(event) => setConsent(event.target.checked)}
+            aria-invalid={errors.consent ? true : undefined}
+            aria-describedby={errors.consent ? 'register-consent-error' : undefined}
+          />
+          <span className="field__consent-text">
+            Я принимаю{' '}
+            <a
+              className="field__consent-link"
+              href="/documents/privacy-policy"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Политику конфиденциальности
+            </a>{' '}
+            и даю{' '}
+            <a
+              className="field__consent-link"
+              href="/documents/personal-data-consent"
+              target="_blank"
+              rel="noreferrer"
+            >
+              согласие на обработку персональных данных
+            </a>
+          </span>
+        </label>
+        {errors.consent ? (
+          <p
+            className="field__error"
+            id="register-consent-error"
+            role="alert"
+            data-testid="register-consent-error"
+          >
+            {errors.consent}
           </p>
         ) : null}
       </div>

@@ -35,6 +35,14 @@ class User(Base):
     # Конец пробного периода: заполняется активацией кабинета. NULL или прошлое
     # при отсутствии тарифа = пробный период истёк (см. `app.trial`).
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Согласие на обработку персональных данных: момент, код документа и снимок
+    # его редакции. Nullable намеренно — этим и выражается «согласия нет»:
+    # у пользователей, заведённых до появления согласия, все три поля пусты.
+    consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    consent_document_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    consent_document_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
