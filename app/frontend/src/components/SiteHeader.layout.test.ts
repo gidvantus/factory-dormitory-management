@@ -69,28 +69,40 @@ describe('шапка публичных страниц держит одну с�
     expect(ruleBody(INDEX_CSS, '.nav__actions')).not.toContain('min-width: 0');
   });
 
-  it('с 1119px сжимает отступы шапки и разрешает прокрутку меню', () => {
-    const block = mediaBody(INDEX_CSS, '(max-width: 1119px)');
-    expect(block, 'нужен медиа-блок @media (max-width: 1119px)').not.toBe('');
+  it('с 1159px ужимает отступы шапки и не прячет обрез за прокруткой', () => {
+    const block = mediaBody(INDEX_CSS, '(max-width: 1159px)');
+    expect(block, 'нужен медиа-блок @media (max-width: 1159px)').not.toBe('');
 
     expect(ruleBody(block, '.nav')).toContain('gap: 1rem');
-    const links = ruleBody(block, '.nav__links');
-    expect(links).toContain('gap: 0.5rem');
-    expect(links).toContain('overflow-x: auto');
+    expect(ruleBody(block, '.nav__links')).toContain('gap: 0.5rem');
     expect(ruleBody(block, '.nav__links a')).toContain('padding: 0.25rem 0.125rem');
+    // Прокрутка меню скрывала обрез: «Тарифы» превращались в одну букву
+    // «Т», а следов прокрутки на экране не было. Такого правила быть не должно.
+    expect(ruleBodies(INDEX_CSS, '.nav__links').join('\n')).not.toContain('overflow-x');
   });
 
-  it('идёт в блоке адаптива перед правилом 1024px, а не вразброс', () => {
-    const compact = INDEX_CSS.indexOf('@media (max-width: 1119px)');
+  it('ниже 1119px меню скрыто целиком, а не обрезано посреди слова', () => {
+    const block = mediaBody(INDEX_CSS, '(max-width: 1118px)');
+    expect(block, 'нужен медиа-блок @media (max-width: 1118px)').not.toBe('');
+    expect(ruleBody(block, '.nav__links')).toContain('display: none');
+    // Кнопки уходят к правому краю, как и на мобильной ширине.
+    expect(ruleBody(block, '.nav__actions')).toContain('margin-inline-start: auto');
+  });
+
+  it('медиа-блоки адаптива идут по убыванию ширины, а не вразброс', () => {
+    const compact = INDEX_CSS.indexOf('@media (max-width: 1159px)');
+    const hidden = INDEX_CSS.indexOf('@media (max-width: 1118px)');
     const tablet = INDEX_CSS.indexOf('@media (max-width: 1024px)');
     const menusHidden = INDEX_CSS.indexOf('@media (max-width: 768px)');
     expect(compact).toBeGreaterThan(-1);
+    expect(hidden).toBeGreaterThan(-1);
     expect(tablet).toBeGreaterThan(-1);
-    expect(compact).toBeLessThan(tablet);
+    expect(compact).toBeLessThan(hidden);
+    expect(hidden).toBeLessThan(tablet);
     expect(tablet).toBeLessThan(menusHidden);
   });
 
-  it('ниже 768px меню по-прежнему скрыто целиком', () => {
+  it('на 768px меню тоже остаётся скрытым', () => {
     const block = mediaBody(INDEX_CSS, '(max-width: 768px)');
     expect(ruleBody(block, '.nav__links')).toContain('display: none');
   });
