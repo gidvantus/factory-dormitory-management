@@ -131,19 +131,22 @@ describe('шапка и подвал страницы документа — к�
 
     const header = within(await screen.findByTestId('site-header'));
 
-    // Якоря ведут на разделы главной (`/#roles`), а не ищут их на самом документе.
-    const anchors: Array<[string, string]> = [
+    // Пункты идут в том же порядке, что на главной и на прайсе: якоря ведут на
+    // разделы главной (`/#roles`), а не ищут их на самом документе, а «Тарифы» —
+    // отдельный адрес между «Интерфейс» и «Вопросы».
+    const items: Array<[string, string]> = [
       ['Кому подходит', '/#roles'],
       ['Возможности', '/#features'],
       ['Как работает', '/#how'],
       ['Интерфейс', '/#interface'],
+      ['Тарифы', '/pricing'],
       ['Вопросы', '/#faq'],
     ];
-    for (const [label, href] of anchors) {
+    const links = within(header.getByRole('navigation')).getAllByRole('link');
+    expect(links.map((link) => link.textContent)).toEqual(items.map(([label]) => label));
+    for (const [label, href] of items) {
       expect(header.getByRole('link', { name: label })).toHaveAttribute('href', href);
     }
-    // «Тарифы» — отдельный адрес, он остаётся на месте.
-    expect(header.getByRole('link', { name: 'Тарифы' })).toHaveAttribute('href', '/pricing');
   });
 
   it('анониму показывает вход и регистрацию, как на главной', async () => {
