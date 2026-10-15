@@ -54,7 +54,7 @@ function mediaBody(css: string, condition: string): string {
   return '';
 }
 
-describe('шапка публичных страниц держит одну строку до 768px', () => {
+describe('шапка публичных страниц: меню читается целиком или скрыто целиком', () => {
   it('не переносит подписи пунктов меню и кнопок', () => {
     expect(ruleBody(INDEX_CSS, '.nav__links a')).toContain('white-space: nowrap');
     expect(ruleBody(INDEX_CSS, '.btn')).toContain('white-space: nowrap');
@@ -73,7 +73,8 @@ describe('шапка публичных страниц держит одну с�
     const block = mediaBody(INDEX_CSS, '(max-width: 1159px)');
     expect(block, 'нужен медиа-блок @media (max-width: 1159px)').not.toBe('');
 
-    expect(ruleBody(block, '.nav')).toContain('gap: 1rem');
+    // Отступы сжаты ровно настолько, чтобы шесть пунктов помещались на 1024px.
+    expect(ruleBody(block, '.nav')).toContain('gap: 0.625rem');
     expect(ruleBody(block, '.nav__links')).toContain('gap: 0.5rem');
     expect(ruleBody(block, '.nav__links a')).toContain('padding: 0.25rem 0.125rem');
     // Прокрутка меню скрывала обрез: «Тарифы» превращались в одну букву
@@ -81,9 +82,11 @@ describe('шапка публичных страниц держит одну с�
     expect(ruleBodies(INDEX_CSS, '.nav__links').join('\n')).not.toContain('overflow-x');
   });
 
-  it('ниже 1119px меню скрыто целиком, а не обрезано посреди слова', () => {
-    const block = mediaBody(INDEX_CSS, '(max-width: 1118px)');
-    expect(block, 'нужен медиа-блок @media (max-width: 1118px)').not.toBe('');
+  it('ниже 1024px меню скрыто целиком, а не обрезано посреди слова', () => {
+    // 1024px — ширина из приёмки: там меню ещё помещается целиком, поэтому
+    // порог скрытия стоит сразу под ней, а не раньше.
+    const block = mediaBody(INDEX_CSS, '(max-width: 1023px)');
+    expect(block, 'нужен медиа-блок @media (max-width: 1023px)').not.toBe('');
     expect(ruleBody(block, '.nav__links')).toContain('display: none');
     // Кнопки уходят к правому краю, как и на мобильной ширине.
     expect(ruleBody(block, '.nav__actions')).toContain('margin-inline-start: auto');
@@ -91,7 +94,7 @@ describe('шапка публичных страниц держит одну с�
 
   it('медиа-блоки адаптива идут по убыванию ширины, а не вразброс', () => {
     const compact = INDEX_CSS.indexOf('@media (max-width: 1159px)');
-    const hidden = INDEX_CSS.indexOf('@media (max-width: 1118px)');
+    const hidden = INDEX_CSS.indexOf('@media (max-width: 1023px)');
     const tablet = INDEX_CSS.indexOf('@media (max-width: 1024px)');
     const menusHidden = INDEX_CSS.indexOf('@media (max-width: 768px)');
     expect(compact).toBeGreaterThan(-1);
