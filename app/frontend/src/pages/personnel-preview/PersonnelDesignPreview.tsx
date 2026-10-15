@@ -25,9 +25,6 @@ import { listNames, matches, selectSavedList, usePersonnelOperations } from './o
 import { PersonnelOperationsProvider } from './PersonnelOperationsProvider';
 import type { ListFilter, ProfileTab, SavedList, WorkspaceView } from './operations';
 import {
-  DecisionBadge,
-  DecisionCard,
-  ExportDialog,
   FavoriteButton,
   MatchesBoard,
   NextShift,
@@ -355,7 +352,6 @@ function BlockBody({
                   {deadline(person)}
                 </span>
               )}
-              {block.kind === 'ending' && <DecisionBadge personId={person.id} />}
               {block.kind === 'missing' && (
                 <small className={styles.missing}>
                   {[
@@ -576,7 +572,6 @@ function PersonDrawer({
                 </p>
               )}
             </section>
-            <DecisionCard person={person} />
             <section className={styles.historySummary}>
               <Icon name="history" />
               <div>
@@ -998,7 +993,6 @@ function PersonnelPreviewContent(): JSX.Element {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [savingList, setSavingList] = useState(false);
-  const [exportMode, setExportMode] = useState<'all' | 'departure' | null>(null);
   useEffect(() => {
     const old = document.title;
     document.title = 'Персонал — тестовая страница · Домовой';
@@ -1019,8 +1013,7 @@ function PersonnelPreviewContent(): JSX.Element {
     const timeout = window.setTimeout(() => setToast(''), 3500);
     return () => window.clearTimeout(timeout);
   }, [toast]);
-  const modalOpen =
-    editor !== undefined || !!selected || guide || reset || savingList || !!exportMode;
+  const modalOpen = editor !== undefined || !!selected || guide || reset || savingList;
   useEffect(() => {
     if (!modalOpen) return;
     const previous = document.body.style.overflow;
@@ -1051,7 +1044,6 @@ function PersonnelPreviewContent(): JSX.Element {
   );
   const currentPage = Math.min(page, Math.max(0, Math.ceil(filtered.length / 10) - 1));
   const checkedPeople = filtered.filter((person) => selectedIds.includes(person.id));
-  const actionPeople = checkedPeople.length ? checkedPeople : filtered;
   function openSavedList(list: SavedList): void {
     setFilter(list.filter);
     setDormitory(list.dormitory);
@@ -1501,49 +1493,11 @@ function PersonnelPreviewContent(): JSX.Element {
                       ? `Выбрано: ${checkedPeople.length}`
                       : `Список: ${filtered.length}`}
                   </strong>
-                  <small>
-                    {checkedPeople.length
-                      ? 'Действия с отмеченными сотрудниками'
-                      : 'Действия со всем отфильтрованным списком'}
-                  </small>
                   {checkedPeople.length > 0 && (
                     <button className={styles.textButton} onClick={() => setSelectedIds([])}>
                       Снять выбор
                     </button>
                   )}
-                </div>
-                <div className={ops.actions}>
-                  <button
-                    className={styles.secondary}
-                    disabled={!actionPeople.some((person) => person.phone)}
-                    onClick={() => {
-                      const phones = [
-                        ...new Set(
-                          actionPeople.flatMap((person) => (person.phone ? [person.phone] : [])),
-                        ),
-                      ];
-                      void copyPhone(
-                        phones.join('\n'),
-                        `Скопировано телефонов: ${phones.length}${actionPeople.some((person) => !person.phone) ? ' · пустые пропущены' : ''}`,
-                      );
-                    }}
-                  >
-                    Копировать телефоны
-                  </button>
-                  <button
-                    className={styles.secondary}
-                    disabled={!actionPeople.length}
-                    onClick={() => setExportMode('all')}
-                  >
-                    Экспорт для Excel
-                  </button>
-                  <button
-                    className={styles.secondary}
-                    disabled={!actionPeople.length}
-                    onClick={() => setExportMode('departure')}
-                  >
-                    Список выездов
-                  </button>
                 </div>
               </div>
               <div className={styles.tableScroll}>
@@ -1610,11 +1564,6 @@ function PersonnelPreviewContent(): JSX.Element {
                             {person.end ? dateLabel(person.end) : 'Не указано'}
                           </span>
                           <small>{person.current ? deadline(person) : 'Вахта завершена'}</small>
-                          {person.current && (
-                            <button className={ops.decisionLink} onClick={() => openPerson(person)}>
-                              <DecisionBadge personId={person.id} />
-                            </button>
-                          )}
                         </td>
                         <td>
                           <span
@@ -1633,14 +1582,7 @@ function PersonnelPreviewContent(): JSX.Element {
                         </td>
                         <td>
                           {person.phone ? (
-                            <button
-                              className={styles.phoneButton}
-                              onClick={() => void copyPhone(person.phone!)}
-                              title={`Скопировать телефон ${person.name}`}
-                            >
-                              {person.phone}
-                              <Icon name="copy" />
-                            </button>
+                            person.phone
                           ) : (
                             <span className={styles.missing}>Не указан</span>
                           )}
@@ -1745,17 +1687,6 @@ function PersonnelPreviewContent(): JSX.Element {
           }}
         />
       )}
-      {exportMode && (
-        <ExportDialog
-          mode={exportMode}
-          people={actionPeople}
-          onClose={() => setExportMode(null)}
-          onDone={() => {
-            setExportMode(null);
-            setToast('CSV подготовлен для Excel');
-          }}
-        />
-      )}
       {guide && (
         <Modal
           title="Как будет устроен «Персонал»"
@@ -1821,7 +1752,7 @@ function PersonnelPreviewContent(): JSX.Element {
             </p>
           </div>
           <p className={styles.smallMuted}>
-            Сейчас все записи вымышлены. Настройки блоков, заметки, планы и решения сохраняются в
+            Сейчас все записи вымышлены. Настройки блоков, заметки и планы сохраняются в
             этом браузере. Рабочие данные доступны в основном разделе «Персонал».
           </p>
           <button className={styles.primary} onClick={() => setGuide(false)}>

@@ -6,6 +6,7 @@ import type { InflowActionPreview, InflowRow } from '../../api/client';
 import { mockTableFetch } from '../../test/tableColumns';
 import { InflowActionDialog } from './InflowActionDialog';
 import { InflowTable } from './InflowTable';
+import { SettingsContext } from './settingsContext';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -76,8 +77,9 @@ it('заселяет и оставляет строку притока с заб
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   expect(process).toHaveBeenCalledWith('7', 5, 'settle', plan.preview_token, {});
   expect(source).toHaveTextContent('Заселён');
-  expect(within(source).getByRole('button', { name: 'Заселить' })).toBeDisabled();
-  expect(within(source).getByRole('button', { name: 'В отток' })).toBeDisabled();
+  expect(within(source).queryByRole('button', { name: 'Заселить' })).not.toBeInTheDocument();
+  expect(within(source).queryByRole('button', { name: 'В отток' })).not.toBeInTheDocument();
+  expect(within(source).queryByRole('button', { name: 'Удалить' })).not.toBeInTheDocument();
 });
 
 it('запрашивает причину и дату, сохраняет черновик после ошибки и обновляет изменённый снимок', async () => {
@@ -130,6 +132,30 @@ it('запрашивает причину и дату, сохраняет чер
     departure_date: '2026-10-20',
   });
 });
+
+it.each([
+  ['residents', 'Заселён'],
+  ['outflow', 'Выселен'],
+] as const)(
+  'при загрузке обработанного притока %s показывает только результат',
+  async (processed_as, label) => {
+    mockTableFetch((url) =>
+      url.includes('/inflow?')
+        ? { status: 200, body: [{ ...row, processed_as }] }
+        : { status: 404 },
+    );
+    render(
+      <SettingsContext.Provider value={{ open: vi.fn(), revision: 0, readOnly: false }}>
+        <InflowTable dormitoryId="7" range={{ from: '2026-10-01', to: '2026-10-31' }} />
+      </SettingsContext.Provider>,
+    );
+    const source = await screen.findByTestId('inflow-row-5');
+    expect(source).toHaveTextContent(label);
+    expect(
+      within(source).queryByRole('button', { name: /Действия|Заселить|В отток|Удалить/ }),
+    ).not.toBeInTheDocument();
+  },
+);
 
 it('при отсутствии столбцов скрывает поля оттока и объясняет, что добавить', async () => {
   vi.spyOn(api, 'previewInflowAction').mockResolvedValue({

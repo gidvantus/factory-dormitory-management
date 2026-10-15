@@ -37,6 +37,21 @@ const DashboardTariffDesignPreview = lazy(() =>
     default: module.DashboardTariffDesignPreview,
   })),
 );
+const ShopDesignPreview = lazy(() =>
+  import('./pages/ShopDesignPreview').then((module) => ({
+    default: module.ShopDesignPreview,
+  })),
+);
+const PersonnelWorkspaceDesignPreview = lazy(() =>
+  import('./pages/personnel-workspace-preview/PersonnelWorkspaceDesignPreview').then((module) => ({
+    default: module.PersonnelWorkspaceDesignPreview,
+  })),
+);
+const PersonnelTabsDesignPreview = lazy(() =>
+  import('./pages/personnel-tabs-preview/PersonnelTabsDesignPreview').then((module) => ({
+    default: module.PersonnelTabsDesignPreview,
+  })),
+);
 const Statistics = lazy(() =>
   import('./workspace/Statistics').then((module) => ({ default: module.Statistics })),
 );
@@ -71,6 +86,30 @@ export function App(): JSX.Element {
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/preview/dormitory-settings" element={<DormitoryDesignPreview />} />
+        <Route
+          path="/preview/personnel-tabs"
+          element={
+            <Suspense fallback={<p role="status">Загрузка вариантов персонала…</p>}>
+              <PersonnelTabsDesignPreview />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/personnel-workspace"
+          element={
+            <Suspense fallback={<p role="status">Загрузка вариантов рабочей поверхности…</p>}>
+              <PersonnelWorkspaceDesignPreview />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/shop"
+          element={
+            <Suspense fallback={<p role="status">Загрузка вариантов магазина…</p>}>
+              <ShopDesignPreview />
+            </Suspense>
+          }
+        />
         <Route
           path="/preview/overview-tariff"
           element={

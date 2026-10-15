@@ -21,7 +21,6 @@ from app.models.payment import PaymentEntry
 from app.models.personnel import (
     Employee,
     EmployeeAlias,
-    EmployeeDecision,
     EmployeeEvent,
     EmployeeMerge,
     EmployeeNote,
@@ -57,7 +56,6 @@ __all__ = [
     "DormitoryTemplate",
     "Employee",
     "EmployeeAlias",
-    "EmployeeDecision",
     "EmployeeEvent",
     "EmployeeMerge",
     "EmployeeNote",

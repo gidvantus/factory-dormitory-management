@@ -233,21 +233,11 @@ def test_transfer_outflow_and_reentry_keep_one_identity_and_close_departure_plan
     )
     assert result.status_code == 200, result.text
     assert result.json()["employee_id"] == employee
-    decision = client.put(
-        f"{API}/employees/{employee}/decision",
-        json={
-            "resident_id": resident,
-            "status": "departure",
-            "date": str(today() + timedelta(days=3)),
-        },
-    )
-    assert decision.status_code == 200, decision.text
-    assert workspace(client)["plans"][0]["kind"] == "departure"
     result = move(client, b, resident, preview(client, b, resident))
     assert result.status_code == 201, result.text
     assert result.json()["employee_id"] == employee
     assert db_session.get(Resident, resident) is None
-    assert not workspace(client)["plans"] and not workspace(client)["decisions"]
+    assert not workspace(client)["plans"]
     arrival = client.put(
         f"{API}/employees/{employee}/next-shift",
         json={
@@ -334,43 +324,66 @@ def test_bulk_matches_removed_but_identity_check_remains(
     assert {item["id"] for item in check(client, FIELDS)["candidates"]} == {a, b}
 
 
-def test_extend_writes_source_and_rejects_overlap(client: TestClient, db_session: Session) -> None:
+def test_decisions_removed_but_residence_dates_and_history_remain_editable(
+    client: TestClient, db_session: Session
+) -> None:
     sign_in(client, db_session)
     dorm = create_dormitory(client)
     end = today() + timedelta(days=3)
-    row = create(
-        client,
-        dorm,
-        values={"shift_start": str(today() - timedelta(days=5)), "shift_end": str(end)},
-    )
-    employee = row["employee_id"]
-    decision = {
-        "resident_id": row["row_id"],
-        "status": "extend",
-        "date": str(end + timedelta(days=5)),
-    }
-    assert client.put(f"{API}/employees/{employee}/decision", json=decision).status_code == 200
-    assert db_session.get(Resident, row["row_id"]).shift_end == end + timedelta(days=5)
+    row = create(client, dorm, values={"shift_end": str(end)})
+    employee, resident = row["employee_id"], row["row_id"]
     assert (
         client.put(
-            f"{API}/employees/{employee}/next-shift", json={"date": str(end), "dormitory_id": dorm}
+            f"{API}/employees/{employee}/decision",
+            json={
+                "resident_id": resident,
+                "status": "extend",
+                "date": str(end + timedelta(days=5)),
+            },
+        ).status_code
+        == 404
+    )
+    assert "employee_decisions" not in Employee.metadata.tables
+    assert "decisions" not in workspace(client)
+    paths = client.get("/openapi.json").json()["paths"]
+    assert f"{API}/employees/{{employee_id}}/decision" not in paths
+    assert db_session.get(Resident, resident).shift_end == end
+    response = client.patch(
+        f"/api/dormitories/{dorm}/residents/{resident}?month={today().replace(day=1)}",
+        json={"shift_end": str(end + timedelta(days=5))},
+    )
+    assert response.status_code == 200, response.text
+    person = workspace(client)["employees"][0]
+    assert person["current"][0]["values"]["shift_end"] == str(end + timedelta(days=5))
+    assert person["sources"][0]["row_id"] == resident
+    detail = client.get(f"{API}/employees/{employee}").json()
+    assert any(
+        item["snapshot"].get("shift_end") == str(end + timedelta(days=5))
+        for item in detail["events"]
+    )
+    assert (
+        client.put(
+            API + "/preferences",
+            json={
+                "revision": 0,
+                "blocks": [],
+                "lists": [
+                    {
+                        "id": "old",
+                        "name": "Продления",
+                        "column_filters": [
+                            {
+                                "field": "shift_decision",
+                                "operator": "equals",
+                                "value": "Продление согласовано",
+                            }
+                        ],
+                    }
+                ],
+            },
         ).status_code
         == 422
     )
-    assert (
-        client.put(
-            f"{API}/employees/{employee}/next-shift",
-            json={
-                "date": str(end + timedelta(days=10)),
-                "end": str(end + timedelta(days=40)),
-                "dormitory_id": dorm,
-            },
-        ).status_code
-        == 200
-    )
-    decision["date"] = str(end + timedelta(days=15))
-    assert client.put(f"{API}/employees/{employee}/decision", json=decision).status_code == 409
-    assert db_session.get(Resident, row["row_id"]).shift_end == end + timedelta(days=5)
 
 
 def test_preferences_are_personal_and_use_revision_check(
@@ -485,22 +498,13 @@ def test_custom_binding_uses_column_id_and_does_not_merge(
     assert db_session.get(Employee, other["id"]) is not None  # история не стирается физически
 
 
-def test_relink_residence_keeps_its_departure_decision_with_new_card(
+def test_relink_residence_keeps_source_and_history_with_new_card(
     client: TestClient, db_session: Session
 ) -> None:
     sign_in(client, db_session)
     dorm = create_dormitory(client)
     row = create(client, dorm)
     other = create(client, dorm, table="outflow", fields={"full_name": "Петров Пётр"})
-    response = client.put(
-        f"{API}/employees/{row['employee_id']}/decision",
-        json={
-            "resident_id": row["row_id"],
-            "status": "departure",
-            "date": str(today() + timedelta(days=3)),
-        },
-    )
-    assert response.status_code == 200, response.text
     fields = {"full_name": "Петров Пётр"}
     response = client.post(
         API + "/link",
@@ -518,8 +522,10 @@ def test_relink_residence_keeps_its_departure_decision_with_new_card(
     )
     assert response.status_code == 200, response.text
     data = workspace(client)
-    assert data["decisions"][0]["employee_id"] == other["employee_id"]
-    assert data["plans"][0]["employee_id"] == other["employee_id"]
+    person = next(item for item in data["employees"] if item["id"] == other["employee_id"])
+    assert person["current"][0]["row_id"] == row["row_id"]
+    detail = client.get(f"{API}/employees/{other['employee_id']}").json()
+    assert any(item["source_table"] == "residents" for item in detail["events"])
 
 
 def test_existing_merge_uses_missing_primary_fields_without_changing_them_on_undo(

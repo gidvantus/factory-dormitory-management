@@ -89,21 +89,6 @@ class EmployeePlan(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class EmployeeDecision(Base):
-    __tablename__ = "employee_decisions"
-    resident_id: Mapped[int] = mapped_column(
-        ForeignKey("residents.id", ondelete="CASCADE"), primary_key=True
-    )
-    employee_id: Mapped[str] = mapped_column(ForeignKey("employees.id"), index=True)
-    status: Mapped[str] = mapped_column(String(12))
-    date: Mapped[CalendarDate | None] = mapped_column(Date)
-    original_end: Mapped[CalendarDate | None] = mapped_column(Date)
-    comment: Mapped[str] = mapped_column(Text, default="", server_default="")
-    plan_id: Mapped[str | None] = mapped_column(
-        ForeignKey("employee_plans.id", ondelete="SET NULL")
-    )
-
-
 class EmployeeMerge(Base):
     __tablename__ = "employee_merges"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)

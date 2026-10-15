@@ -42,7 +42,7 @@ def delete_tabs(db: Session, tabs: list[CustomTab]) -> None:
 
 def copy_columns(
     db: Session, source_dormitory: int, source_key: str, target_dormitory: int, target_key: str
-) -> None:
+) -> dict[int, int]:
     columns = list(
         db.scalars(
             select(TableColumn)
@@ -52,22 +52,24 @@ def copy_columns(
             .order_by(TableColumn.position, TableColumn.id)
         )
     )
+    mapping: dict[int, int] = {}
     for column in columns:
-        db.add(
-            TableColumn(
-                dormitory_id=target_dormitory,
-                table_key=target_key,
-                builtin_key=column.builtin_key,
-                name=column.name,
-                kind=column.kind,
-                position=column.position,
-                options=[
-                    {**deepcopy(option), "id": str(uuid4())}
-                    if not column.builtin_key
-                    else deepcopy(option)
-                    for option in column.options
-                ],
-                archived=column.archived,
-            )
+        copied = TableColumn(
+            dormitory_id=target_dormitory,
+            table_key=target_key,
+            builtin_key=column.builtin_key,
+            name=column.name,
+            kind=column.kind,
+            position=column.position,
+            options=[
+                {**deepcopy(option), "id": str(uuid4())}
+                if not column.builtin_key
+                else deepcopy(option)
+                for option in column.options
+            ],
+            archived=column.archived,
         )
-    db.flush()
+        db.add(copied)
+        db.flush()
+        mapping[column.id] = copied.id
+    return mapping

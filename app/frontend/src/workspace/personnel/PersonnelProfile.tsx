@@ -1,24 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { personnelApi } from '../../api/personnel';
 import type { Employee, EmployeeDetail, PersonnelData, Source } from '../../api/personnel';
 import { Modal } from '../../components/Modal';
-import { DecisionForm, EmployeeEditForm, NoteForm } from './Forms';
+import { EmployeeEditForm, NoteForm } from './Forms';
 import type { Mutate } from './Forms';
-import { dateLabel, dormName, message, personName, sourceUrl, value } from './helpers';
-import { IdentityDialog } from './IdentityDialog';
+import { dateLabel, dormName, message, personName, value } from './helpers';
 import s from './Personnel.module.css';
 
 export type ProfileTab = 'overview' | 'history' | 'shifts' | 'notes';
-export function SourceCard({
-  source,
-  data,
-  onRelink,
-}: {
-  source: Source;
-  data: PersonnelData;
-  onRelink?: (source: Source) => void;
-}): JSX.Element {
+function ResidenceCard({ source, data }: { source: Source; data: PersonnelData }): JSX.Element {
   return (
     <article className={s.source}>
       <strong>
@@ -29,23 +19,10 @@ export function SourceCard({
         {value(source, 'personnel_number') || '—'}
       </p>
       {value(source, 'phone') && <p>{value(source, 'phone')}</p>}
-      {source.table_key === 'residents' && (
-        <p>
-          {value(source, 'hostel_name') || 'Место не указано'} ·{' '}
-          {dateLabel(value(source, 'shift_start'))} — {dateLabel(value(source, 'shift_end'))}
-        </p>
-      )}
-      {source.table_key === 'outflow' && (
-        <p>
-          {dateLabel(value(source, 'departure_date'), true)} ·{' '}
-          {value(source, 'reason') || 'Причина не указана'}
-        </p>
-      )}
-      {source.table_key === 'inflow' && (
-        <p>Заселение: {dateLabel(value(source, 'settlement_date'), true)}</p>
-      )}
-      <Link to={sourceUrl(source)}>Открыть исходную таблицу →</Link>
-      {onRelink && <button onClick={() => onRelink(source)}>Изменить связь</button>}
+      <p>
+        {value(source, 'hostel_name') || 'Место не указано'} ·{' '}
+        {dateLabel(value(source, 'shift_start'))} — {dateLabel(value(source, 'shift_end'))}
+      </p>
     </article>
   );
 }
@@ -107,34 +84,11 @@ export function PersonnelProfile({
       });
     return () => controller.abort();
   }, [employee.id, data, attempt]);
-  const [residentId, setResidentId] = useState(employee.current[0]?.row_id ?? 0);
-  const [relink, setRelink] = useState<Source | null>(null);
-  const resident =
-    employee.current.find((source) => source.row_id === residentId) ?? employee.current[0];
   const shifts = new Map<string, EmployeeDetail['events'][number]>();
   for (const event of [...(detail?.events ?? [])].sort((a, b) => a.id - b.id)) {
     if (event.snapshot.shift_start && (event.snapshot.shift_end || event.snapshot.departure_date))
       shifts.set(`${event.source_table}:${event.source_id}:${event.dormitory_id}`, event);
   }
-  if (relink)
-    return (
-      <IdentityDialog
-        dormitoryId={String(relink.dormitory_id)}
-        tableKey={relink.table_key}
-        rowId={relink.row_id}
-        selectedEmployeeId={employee.id}
-        initial={{
-          full_name: value(relink, 'full_name') || null,
-          personnel_number: value(relink, 'personnel_number') || null,
-          phone: value(relink, 'phone') || null,
-        }}
-        onClose={() => setRelink(null)}
-        onSaved={() => {
-          setRelink(null);
-          onReload();
-        }}
-      />
-    );
   return (
     <Modal
       title="Карточка сотрудника"
@@ -244,66 +198,18 @@ export function PersonnelProfile({
                 </>
               )}
             </section>
-            {resident ? (
-              <>
-                <section>
-                  <h4>Текущее проживание</h4>
-                  {employee.current.map((source) => (
-                    <SourceCard
-                      key={source.row_id}
-                      source={source}
-                      data={data}
-                      onRelink={setRelink}
-                    />
-                  ))}
-                </section>
-                {employee.current.length > 1 && (
-                  <label>
-                    Проживание для решения
-                    <select
-                      value={resident.row_id}
-                      onChange={(event) => setResidentId(Number(event.target.value))}
-                    >
-                      {employee.current.map((source) => (
-                        <option key={source.row_id} value={source.row_id}>
-                          {dormName(data, source.dormitory_id)} · строка {source.row_id}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                <DecisionForm
-                  key={`${resident.row_id}-${data.decisions.find((d) => d.resident_id === resident.row_id)?.status ?? 'waiting'}`}
-                  employee={employee}
-                  source={resident}
-                  data={data}
-                  mutate={mutate}
-                />
-              </>
+            {employee.current.length ? (
+              <section>
+                <h4>Текущее проживание</h4>
+                {employee.current.map((source) => (
+                  <ResidenceCard key={source.row_id} source={source} data={data} />
+                ))}
+              </section>
             ) : (
               <p className={s.notice}>
-                Активного проживания нет. Следующий приезд можно подготовить во вкладке «Следующая
-                вахта».
+                Активного проживания нет. Предыдущие события доступны во вкладке «История».
               </p>
             )}
-            <section>
-              <h4>Связанные записи · {employee.sources.length}</h4>
-              {employee.sources
-                .filter((source) => source.table_key !== 'residents')
-                .map((source) => (
-                  <SourceCard
-                    key={`${source.table_key}-${source.row_id}`}
-                    source={source}
-                    data={data}
-                    onRelink={setRelink}
-                  />
-                ))}
-              {!employee.sources.length && (
-                <p className={s.hint}>
-                  Исходные строки удалены. Сохранённая история доступна во вкладке «История».
-                </p>
-              )}
-            </section>
           </>
         )}
         {tab === 'history' && (

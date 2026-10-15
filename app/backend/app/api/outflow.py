@@ -1,6 +1,6 @@
 """Записи об оттоке персонала."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -11,9 +11,17 @@ from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.models.outflow import PersonnelOutflow
+from app.notifications import capture_resident_outflow, queue_resident_outflow
+from app.outflow_eviction import prepare_eviction
 from app.outflow_fields import field_columns, outflow_fields, remember_reason
 from app.personnel import record_changed
-from app.schemas.outflow import OutflowFields, OutflowResponse, UpdateOutflowRequest
+from app.schemas.outflow import (
+    OutflowEvictionPreview,
+    OutflowEvictionRequest,
+    OutflowFields,
+    OutflowResponse,
+    UpdateOutflowRequest,
+)
 from app.section_state import require_section_writable
 from app.table_data import ensure_columns, lock_dormitory
 
@@ -118,7 +126,53 @@ def delete_outflow(
 ) -> None:
     require_section_writable(db, dormitory_id, "outflow")
     require_dormitory(db, dormitory_id)
+    lock_dormitory(db, dormitory_id)
     row = get_outflow(db, dormitory_id, row_id)
+    if row.evicted_at:
+        raise HTTPException(409, "Сотрудник уже выселен. Действия по этой строке недоступны")
     record_changed(db, row, _user.id, kind="deleted", title="Удалена исходная запись оттока")
     db.delete(row)
     db.commit()
+
+
+@router.post("/{row_id}/evict/preview", response_model=OutflowEvictionPreview)
+def preview_eviction(
+    dormitory_id: DormitoryId, row_id: OutflowId, _user: SubscribedUser, db: DbSession
+) -> OutflowEvictionPreview:
+    plan = prepare_eviction(db, dormitory_id, row_id)
+    db.commit()
+    return plan.preview
+
+
+@router.post("/{row_id}/evict", response_model=OutflowResponse, summary="Выселить сотрудника")
+def evict_employee(
+    dormitory_id: DormitoryId,
+    row_id: OutflowId,
+    payload: OutflowEvictionRequest,
+    _user: SubscribedUser,
+    db: DbSession,
+) -> PersonnelOutflow:
+    plan = prepare_eviction(db, dormitory_id, row_id)
+    if payload.preview_token != plan.preview.preview_token:
+        raise HTTPException(409, "Проживание или выплаты изменились. Повторно проверьте выселение")
+    notifications = []
+    for resident in plan.residents:
+        record_changed(
+            db, resident, _user.id, kind="outflow", title="Проживание завершено · выселение"
+        )
+        notifications.append(
+            capture_resident_outflow(db, resident, departure_date=plan.row.departure_date)
+        )
+    for payment in plan.payments:
+        db.delete(payment)
+    # Удаляем выплаты до проживающих, чтобы сохранить порядок внешних ключей.
+    db.flush()
+    for resident in plan.residents:
+        db.delete(resident)
+    plan.row.evicted_at = datetime.now(UTC)
+    record_changed(db, plan.row, _user.id, kind="outflow", title="Сотрудник выселен")
+    db.commit()
+    for notification in notifications:
+        queue_resident_outflow(db, resident=notification, actor_id=_user.id)
+    db.refresh(plan.row)
+    return plan.row

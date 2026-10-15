@@ -438,6 +438,12 @@ export type InflowField = keyof Omit<
 >;
 
 export type InflowAction = 'settle' | 'outflow';
+export interface InflowEntryForm {
+  columns: TableColumn[];
+  hostels: { id: number; name: string }[];
+  month: string;
+  schema_token: string;
+}
 export interface InflowActionPreview {
   destination: 'residents' | 'outflow';
   preview_token: string;
@@ -455,6 +461,7 @@ export interface InflowActionResponse {
 
 export interface OutflowRow {
   employee_id?: string | null;
+  evicted_at?: string | null;
   custom_values?: Record<string, CellValue>;
   id: number;
   departure_date: string | null;
@@ -466,7 +473,10 @@ export interface OutflowRow {
   additional_info: string | null;
 }
 
-export type OutflowField = keyof Omit<OutflowRow, 'id' | 'custom_values' | 'employee_id'>;
+export type OutflowField = keyof Omit<
+  OutflowRow,
+  'id' | 'custom_values' | 'employee_id' | 'evicted_at'
+>;
 
 export type PaymentKind = 'advance' | 'settlement';
 
@@ -701,6 +711,15 @@ export interface ArchiveRow {
   created_at: string;
   custom_values: Record<string, CellValue>;
 }
+export interface CustomTabOptions {
+  table_format: 'list' | 'calendar';
+  period_mode: 'none' | 'range' | 'month';
+  date_column_id: number | null;
+  add_row: boolean;
+  clear_list: boolean;
+  row_actions: boolean;
+  show_dates: boolean;
+}
 export interface CustomTab {
   id: number;
   dormitory_id: number;
@@ -709,6 +728,7 @@ export interface CustomTab {
   parent_section?: string | null;
   is_group?: boolean;
   table_key: `custom_${number}`;
+  options?: CustomTabOptions;
   table_created: boolean;
   is_active: boolean;
   has_data: boolean;
@@ -719,6 +739,7 @@ export interface CustomTabTemplate extends CustomTab {
   client_name: string;
 }
 export interface CustomTabRow {
+  calendar_values?: Record<string, string>;
   employee_id?: string | null;
   id: number;
   custom_values: Record<string, CellValue>;
@@ -764,7 +785,14 @@ export interface DormitorySettings {
 export interface SettingsInput {
   revision: string;
   tables: { key: string; columns: (ColumnInput & { id?: number; archived: boolean })[] }[];
-  tabs: { key: string; name: string; parent_key: string | null; is_active: boolean }[];
+  tabs: {
+    key: string;
+    name: string;
+    parent_key: string | null;
+    is_active: boolean;
+    options?: CustomTabOptions;
+    date_column_name?: string | null;
+  }[];
   sections: Record<string, 'active' | 'hidden'>;
   deleted: string[];
 }
@@ -850,12 +878,14 @@ export const api = {
     subtabs: string[] = [],
     parentId: number | null = null,
     parentSection: string | null = null,
+    options?: CustomTabOptions,
   ): Promise<CustomTab> {
     return request(`/dormitories/${encodeURIComponent(id)}/tabs`, {
       method: 'POST',
       body: JSON.stringify({
         name,
         source_tab_id: sourceTabId,
+        ...(options ? { options } : {}),
         ...(subtabs.length ? { subtabs } : {}),
         ...(parentId ? { parent_id: parentId } : {}),
         ...(parentSection ? { parent_section: parentSection } : {}),
@@ -868,11 +898,37 @@ export const api = {
       body: JSON.stringify({ columns }),
     });
   },
-  customTabRows(id: string, tabId: number, signal?: AbortSignal): Promise<CustomTabRow[]> {
-    return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/rows`, { signal });
+  customTabRows(
+    id: string,
+    tabId: number,
+    signal?: AbortSignal,
+    range?: { from: string; to: string },
+  ): Promise<CustomTabRow[]> {
+    const query = range ? `?from=${range.from}&to=${range.to}` : '';
+    return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/rows${query}`, { signal });
   },
-  createCustomTabRow(id: string, tabId: number): Promise<CustomTabRow> {
-    return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/rows`, { method: 'POST' });
+  createCustomTabRow(id: string, tabId: number, date?: string): Promise<CustomTabRow> {
+    return request(
+      `/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/rows${date ? `?entry_date=${date}` : ''}`,
+      { method: 'POST' },
+    );
+  },
+  clearCustomTab(id: string, tabId: number): Promise<{ deleted: number }> {
+    return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/clear`, {
+      method: 'POST',
+    });
+  },
+  saveCustomDay(
+    id: string,
+    tabId: number,
+    rowId: number,
+    day: string,
+    value: string,
+  ): Promise<{ value: string }> {
+    return request(
+      `/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/rows/${rowId}/days/${day}`,
+      { method: 'PUT', body: JSON.stringify({ value }) },
+    );
   },
   deleteCustomTabRow(id: string, tabId: number, rowId: number): Promise<void> {
     return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/rows/${rowId}`, {
@@ -1385,6 +1441,28 @@ export const api = {
     });
   },
 
+  inflowEntryForm(id: string, month: string, signal?: AbortSignal): Promise<InflowEntryForm> {
+    return request(
+      `/dormitories/${encodeURIComponent(id)}/inflow/entry-form?${new URLSearchParams({ month })}`,
+      { signal },
+    );
+  },
+
+  createInflowEntry(
+    id: string,
+    payload: {
+      identity: import('./personnel').IdentityChoice;
+      month: string;
+      schema_token: string;
+      values: Record<string, CellValue>;
+    },
+  ): Promise<InflowRow> {
+    return request(`/dormitories/${encodeURIComponent(id)}/inflow/entries`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   processInflow(
     id: string,
     rowId: number,
@@ -1444,6 +1522,24 @@ export const api = {
   deleteOutflowRow(id: string, rowId: number): Promise<void> {
     return request<void>(`/dormitories/${encodeURIComponent(id)}/outflow/${rowId}`, {
       method: 'DELETE',
+    });
+  },
+
+  previewOutflowEviction(
+    id: string,
+    rowId: number,
+    signal?: AbortSignal,
+  ): Promise<{ preview_token: string }> {
+    return request(`/dormitories/${encodeURIComponent(id)}/outflow/${rowId}/evict/preview`, {
+      method: 'POST',
+      signal,
+    });
+  },
+
+  evictOutflowEmployee(id: string, rowId: number, previewToken: string): Promise<OutflowRow> {
+    return request(`/dormitories/${encodeURIComponent(id)}/outflow/${rowId}/evict`, {
+      method: 'POST',
+      body: JSON.stringify({ preview_token: previewToken }),
     });
   },
 

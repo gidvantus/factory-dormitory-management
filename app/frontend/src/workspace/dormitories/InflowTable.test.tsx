@@ -20,7 +20,7 @@ const blank: InflowRow = {
 };
 
 describe('Приток', () => {
-  it('создаёт строку по ФИО и телефону без табельного номера, сохраняет поля и использует верхний период', async () => {
+  it('создаёт строку по полям проживающих, сохраняет поля и использует верхний период', async () => {
     let row: InflowRow | null = null;
     const created: IdentityChoice[] = [];
     const fetchMock = mockFetch((url, init) => {
@@ -29,17 +29,38 @@ describe('Приток', () => {
       }
       if (url.endsWith('/api/personnel/check'))
         return { status: 200, body: { candidates: [], check_token: 'a'.repeat(64) } };
-      if (url.endsWith('/api/personnel/records') && init?.method === 'POST') {
+      if (url.includes('/inflow/entry-form?'))
+        return {
+          status: 200,
+          body: {
+            schema_token: 'b'.repeat(64),
+            month: '2026-10-01',
+            hostels: [],
+            columns: [
+              { id: 1, builtin_key: 'full_name', name: 'ФИО', kind: 'text' },
+              { id: 2, builtin_key: 'phone', name: 'Номер телефона', kind: 'text' },
+              { id: 3, builtin_key: 'personnel_number', name: 'Т/н', kind: 'text' },
+            ].map((column, position) => ({
+              ...column,
+              table_key: 'residents',
+              position,
+              archived: false,
+              options: [],
+            })),
+          },
+        };
+      if (url.endsWith('/inflow/entries') && init?.method === 'POST') {
         const { identity } = JSON.parse(String(init.body)) as { identity: IdentityChoice };
         created.push(identity);
         row = {
           ...blank,
+          employee_id: '00000000-0000-4000-8000-000000000001',
           full_name: identity.full_name,
           personnel_number: identity.personnel_number,
         };
         return {
           status: 201,
-          body: { row_id: 5, employee_id: '00000000-0000-4000-8000-000000000001' },
+          body: row,
         };
       }
       if (url.endsWith('/api/dormitories/7/inflow/5') && init?.method === 'PATCH') {
@@ -55,10 +76,10 @@ describe('Приток', () => {
     const user = userEvent.setup();
     render(<InflowTable dormitoryId="7" range={{ from: '2026-10-01', to: '2026-10-31' }} />);
     await user.click(await screen.findByRole('button', { name: /Добавить строку/ }));
-    const identity = await screen.findByRole('dialog');
-    expect(within(identity).queryByLabelText('Табельный номер')).not.toBeInTheDocument();
+    const identity = await screen.findByTestId('personnel-identity');
+    expect(within(identity).getByLabelText('Т/н')).not.toBeRequired();
     await user.type(within(identity).getByLabelText('ФИО'), 'Иванов Иван');
-    await user.type(within(identity).getByLabelText('Телефон'), '+7 (900) 123-45-67');
+    await user.type(within(identity).getByLabelText('Номер телефона'), '+7 (900) 123-45-67');
     const saveIdentity = within(identity).getByRole('button', {
       name: 'Создать новую карточку',
     });

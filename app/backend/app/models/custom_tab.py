@@ -1,8 +1,9 @@
 """Пользовательские вкладки и строки их таблиц внутри одного общежития."""
 
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, false, func, true
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, false, func, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -24,6 +25,7 @@ class CustomTab(Base):
     parent_section: Mapped[str | None] = mapped_column(String(24), nullable=True)
     table_created: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    options: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")
 
     @property
     def table_key(self) -> str:
@@ -42,3 +44,4 @@ class CustomTabEntry(CustomValuesMixin, Base):
         ForeignKey("custom_tabs.id", ondelete="CASCADE"), index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    calendar_values: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, server_default="{}")

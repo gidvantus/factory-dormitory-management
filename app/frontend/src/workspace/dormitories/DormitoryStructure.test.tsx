@@ -7,6 +7,7 @@ import { defaultTabCatalog } from '../../test/tableColumns';
 import { CreateDormitoryDialog } from './CreateDormitoryDialog';
 import { CreateCustomTabDialog } from './CreateCustomTabDialog';
 import { renderApp } from '../../test/renderApp';
+import { defaultTabOptions } from './customTabOptions';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -96,6 +97,7 @@ it('создаёт подвкладку внутри стандартной вк
         source_tab_id: null,
         parent_section: 'residents',
         subtabs: ['Проверки'],
+        options: defaultTabOptions,
       });
       return { status: 201, body: { id: 10 } };
     }

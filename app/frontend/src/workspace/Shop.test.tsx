@@ -71,6 +71,7 @@ function renderShop(handler: MockHandler): ReturnType<typeof mockFetch> {
         <Routes>
           <Route path="/cabinet/shop" element={<Shop />} />
           <Route path="/cabinet/documents" element={<p>Страница документов</p>} />
+          <Route path="/cabinet/notifications" element={<p>Настройки уведомлений</p>} />
         </Routes>
       </SolutionsProvider>
     </MemoryRouter>,
@@ -94,6 +95,12 @@ describe('магазин улучшений', () => {
       'Сообщения о событиях, которые вас касаются',
     );
     expect(within(card).getByTestId('solution-buy')).toBeInTheDocument();
+    expect(within(card).getByTestId('solution-telegram-example')).toHaveTextContent(
+      'Пример уведомления',
+    );
+    expect(
+      within(card).queryByRole('link', { name: 'Настроить уведомления' }),
+    ).not.toBeInTheDocument();
     // Права нет — метки «Подключено» и срока быть не должно.
     expect(screen.queryByTestId('solution-owned')).not.toBeInTheDocument();
     expect(screen.queryByTestId('solution-expiry')).not.toBeInTheDocument();
@@ -167,7 +174,8 @@ describe('магазин улучшений', () => {
   });
 
   it('помечает подключённое решение сроком и оставляет кнопку для продления', async () => {
-    renderShop(
+    const user = userEvent.setup();
+    const fetchMock = renderShop(
       shopRoutes({
         status: 200,
         body: {
@@ -182,6 +190,16 @@ describe('магазин улучшений', () => {
     expect(within(card).getByTestId('solution-expiry')).toHaveTextContent('Действует до');
     // Кнопка покупки остаётся доступной: вторая покупка — это продление.
     expect(within(card).getByTestId('solution-buy')).toBeEnabled();
+    expect(within(card).getByTestId('solution-buy')).toHaveAccessibleName(
+      `Продлить: ${SOLUTION.name}`,
+    );
+    await user.click(within(card).getByTestId('solution-buy'));
+    expect(await screen.findByText('Страница документов')).toBeInTheDocument();
+    const calls = callsTo(fetchMock, '/api/billing/invoices');
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(String((calls[0][1] as RequestInit).body))).toEqual({
+      solution_id: SOLUTION.id,
+    });
   });
 
   it('пишет «Действует бессрочно», когда срока у права нет', async () => {
@@ -193,5 +211,49 @@ describe('магазин улучшений', () => {
     );
 
     expect(await screen.findByTestId('solution-expiry')).toHaveTextContent('Действует бессрочно');
+  });
+
+  it('открывает настройки подключённого Telegram без покупки и отправки сообщений', async () => {
+    const user = userEvent.setup();
+    const fetchMock = renderShop(
+      shopRoutes({
+        status: 200,
+        body: { items: [{ ...SOLUTION, is_owned: true }] },
+      }),
+    );
+    const link = await screen.findByRole('link', { name: 'Настроить уведомления' });
+    expect(link).toHaveAttribute('href', '/cabinet/notifications');
+    await user.click(link);
+    expect(await screen.findByText('Настройки уведомлений')).toBeInTheDocument();
+    expect(callsTo(fetchMock, '/api/billing/invoices')).toHaveLength(0);
+    expect(fetchMock.mock.calls.every((call) => !(call[1] as RequestInit)?.method)).toBe(true);
+  });
+
+  it('показывает другие решения с их ценой и ID без чужих возможностей Telegram', async () => {
+    const other = {
+      ...SOLUTION,
+      id: 91,
+      code: 'additional_solution',
+      name: 'Дополнительное решение',
+      description: 'Описание другого решения из каталога.',
+      price_label: '1 250 ₽ в год',
+      period: 'year',
+    };
+    const user = userEvent.setup();
+    const fetchMock = renderShop(shopRoutes({ status: 200, body: { items: [SOLUTION, other] } }));
+    const cards = await screen.findAllByTestId('solution-card');
+    const second = within(cards[1]);
+    expect(second.getByTestId('solution-name')).toHaveTextContent(other.name);
+    expect(second.getByTestId('solution-description')).toHaveTextContent(other.description);
+    expect(second.getByTestId('solution-price')).toHaveTextContent(other.price_label);
+    expect(second.queryByTestId('solution-telegram-example')).not.toBeInTheDocument();
+    expect(second.queryByText('Выбор нужных уведомлений')).not.toBeInTheDocument();
+    expect(second.queryByRole('link')).not.toBeInTheDocument();
+    await user.click(second.getByTestId('solution-buy'));
+    expect(await screen.findByText('Страница документов')).toBeInTheDocument();
+    const calls = callsTo(fetchMock, '/api/billing/invoices');
+    expect(JSON.parse(String((calls[0][1] as RequestInit).body))).toEqual({
+      solution_id: other.id,
+    });
   });
 });

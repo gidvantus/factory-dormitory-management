@@ -166,6 +166,13 @@ def delete_column(
             + ", ".join(names)
             + ". Сначала измените их связь.",
         )
+    if table_key.startswith("custom_"):
+        from app.custom_tab_options import options_for
+        from app.models.custom_tab import CustomTab
+
+        tab = db.get(CustomTab, int(table_key.removeprefix("custom_")))
+        if tab and options_for(tab).date_column_id == column.id:
+            raise HTTPException(409, "Сначала измените столбец даты в настройках периода вкладки")
     column.archived = True
     db.commit()
 

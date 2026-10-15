@@ -119,7 +119,6 @@ function fixtures(
     employees: [employee],
     plans: [],
     arrival_plans: [],
-    decisions: [],
     preferences: { revision: 0, blocks: [], lists: [] },
   };
   vi.spyOn(personnelApi, 'workspace').mockResolvedValue(data);
@@ -140,7 +139,7 @@ function renderTable(table: SourceTable): void {
     ) : table === 'archive' ? (
       <ArchiveTable dormitoryId="7" range={range} />
     ) : (
-      <CustomTabTable dormitoryId="7" tab={tab} onChanged={vi.fn()} />
+      <CustomTabTable range={range} dormitoryId="7" tab={tab} onChanged={vi.fn()} />
     );
   function Location(): JSX.Element {
     return <output data-testid="location">{useLocation().pathname}</output>;
@@ -175,7 +174,8 @@ it.each(['inflow', 'outflow', 'archive', 'custom_9'] as const)(
     await user.click(name);
     const card = await screen.findByTestId('personnel-profile');
     expect(within(card).getByRole('heading', { name: identity.full_name })).toBeInTheDocument();
-    expect(within(card).getByRole('button', { name: 'Изменить связь' })).toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'Изменить связь' })).not.toBeInTheDocument();
+    expect(within(card).queryByRole('link', { name: /исходную таблицу/ })).not.toBeInTheDocument();
     expect(tableRow).toBeInTheDocument();
     expect(screen.getByTestId('location')).toHaveTextContent('/table');
     await user.click(within(card).getByRole('button', { name: /Закрыть/ }));

@@ -23,7 +23,6 @@ from app.models.outflow import PersonnelOutflow
 from app.models.personnel import (
     Employee,
     EmployeeAlias,
-    EmployeeDecision,
     EmployeeEvent,
     EmployeeMerge,
     EmployeeNote,
@@ -32,7 +31,7 @@ from app.models.personnel import (
     PersonnelPreferences,
 )
 from app.models.resident import Resident
-from app.models.table_column import ArchiveEntry
+from app.models.table_column import ArchiveEntry, TableColumn
 from app.models.user import User
 from app.schemas.personnel import IdentityChoice, IdentityFields
 
@@ -279,11 +278,6 @@ def record_changed(
         db.flush()
         row.employee_id = employee.id
     employee = get_employee(db, row.employee_id)
-    if isinstance(row, Resident):
-        decision = db.get(EmployeeDecision, row.id)
-        plan = db.get(EmployeePlan, decision.plan_id) if decision and decision.plan_id else None
-        if plan:
-            plan.dormitory_id = row.dormitory_id
     sole_source = (
         employee.id == row.employee_id
         and len(group_ids(db, employee.id)) == 1
@@ -344,26 +338,6 @@ def record_changed(
         happened_on=happened,
     )
     db.flush()
-
-
-def close_residence(db: Session, resident: Resident, actor_id: int) -> None:
-    decision = db.get(EmployeeDecision, resident.id)
-    if decision:
-        plan = db.get(EmployeePlan, decision.plan_id) if decision.plan_id else None
-        if plan:
-            event(
-                db,
-                plan.employee_id,
-                "plan",
-                "План выезда закрыт после завершения проживания",
-                actor_id,
-                dormitory_id=resident.dormitory_id,
-                snapshot={"date": plan.date.isoformat(), "comment": plan.comment},
-            )
-            decision.plan_id = None
-            db.delete(plan)
-        db.delete(decision)
-        db.flush()
 
 
 def fulfill_arrival(db: Session, resident: Resident, actor_id: int) -> None:
@@ -584,6 +558,24 @@ def workspace(db: Session, user: User) -> dict[str, Any]:
             for d in dormitories
         ],
         "employees": result,
+        "source_columns": [
+            {
+                "id": column.id,
+                "dormitory_id": column.dormitory_id,
+                "table_key": column.table_key,
+                "source_name": tabs.get(column.table_key, SOURCE_NAMES.get(column.table_key)),
+                "name": column.name,
+                "kind": column.kind,
+                "builtin_key": column.builtin_key,
+                "options": column.options,
+            }
+            for column in db.scalars(
+                select(TableColumn)
+                .where(TableColumn.archived.is_(False), TableColumn.kind != "action")
+                .order_by(TableColumn.dormitory_id, TableColumn.table_key, TableColumn.position)
+            )
+            if column.table_key in SOURCE_NAMES or column.table_key in tabs
+        ],
         "arrival_plans": active_arrivals(db),
         "plans": [
             {
@@ -597,16 +589,6 @@ def workspace(db: Session, user: User) -> dict[str, Any]:
                 "comment": p.comment,
             }
             for p in db.scalars(select(EmployeePlan).order_by(EmployeePlan.date, EmployeePlan.id))
-        ],
-        "decisions": [
-            {
-                "employee_id": person(d.employee_id),
-                "resident_id": d.resident_id,
-                "status": d.status,
-                "date": d.date,
-                "comment": d.comment,
-            }
-            for d in db.scalars(select(EmployeeDecision))
         ],
         "preferences": {"revision": preferences.revision, **preferences.settings}
         if preferences

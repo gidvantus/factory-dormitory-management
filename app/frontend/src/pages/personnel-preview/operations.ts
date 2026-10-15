@@ -16,11 +16,6 @@ export type ListFilter =
   | 'no-phone';
 export type ProfileTab = 'overview' | 'history' | 'shifts' | 'notes' | 'next';
 export type WorkspaceView = 'workspace' | 'list' | 'planning' | 'matches';
-export type Decision = {
-  status: 'waiting' | 'extend' | 'departure';
-  date: string;
-  comment: string;
-};
 export type Note = { id: string; personId: string; text: string; date: string; author: string };
 export type Plan = {
   id: string;
@@ -42,7 +37,6 @@ export type SavedList = {
   query: string;
 };
 export type OperationsState = {
-  decisions: Record<string, Decision>;
   notes: Note[];
   plans: Plan[];
   favorites: string[];
@@ -62,11 +56,6 @@ export const listNames: Record<ListFilter, string> = {
   returned: 'Вернулись после оттока',
   arrivals: 'Ожидают заезда',
   'no-phone': 'Без телефона',
-};
-export const decisionNames = {
-  waiting: 'Ожидаем решение',
-  extend: 'Продление согласовано',
-  departure: 'Планируется выезд',
 };
 export const addDays = (date: string, days: number): string =>
   new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
@@ -109,18 +98,6 @@ export const matches = [
   },
 ];
 const seed: OperationsState = {
-  decisions: {
-    'person-3': {
-      status: 'extend',
-      date: '2026-10-25',
-      comment: 'Продление согласовано с сотрудником до 25 октября.',
-    },
-    'person-2': {
-      status: 'departure',
-      date: '2026-10-10',
-      comment: 'Выезд сегодня, сбор у корпуса в 18:00.',
-    },
-  },
   notes: [
     {
       id: 'note-1',
@@ -232,7 +209,6 @@ function validState(value: unknown): value is OperationsState {
   if (!value || typeof value !== 'object') return false;
   const s = value as OperationsState;
   if (
-    !s.decisions ||
     !s.events ||
     !s.resolutions ||
     !Array.isArray(s.notes) ||
@@ -242,14 +218,6 @@ function validState(value: unknown): value is OperationsState {
   )
     return false;
   return (
-    Object.entries(s.decisions).every(
-      ([id, d]) =>
-        isId(id) &&
-        d &&
-        Object.hasOwn(decisionNames, d.status) &&
-        (d.status === 'waiting' || isDate(d.date)) &&
-        isText(d.comment),
-    ) &&
     s.notes.every(
       (n) =>
         n &&
@@ -329,7 +297,6 @@ export function readState(): OperationsState {
             )
           : raw.events;
       const state = {
-        decisions: raw.decisions,
         notes: raw.notes,
         plans: raw.plans,
         favorites: raw.favorites,
@@ -346,8 +313,7 @@ export function readState(): OperationsState {
 }
 export function materializePeople(state: OperationsState): Person[] {
   return demoPeople.map((person) => {
-    const decision = state.decisions[person.id];
-    const end = decision?.status === 'extend' ? decision.date : person.end;
+    const end = person.end;
     return {
       ...person,
       end,
@@ -434,7 +400,6 @@ export type OperationsContextValue = {
   people: Person[];
   storageError: boolean;
   toggleFavorite: (id: string) => void;
-  saveDecision: (person: Person, decision: Decision) => void;
   savePlan: (plan: Plan) => void;
   removePlan: (id: string) => void;
   confirmPlan: (id: string) => void;

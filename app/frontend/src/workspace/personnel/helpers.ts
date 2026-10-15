@@ -8,6 +8,7 @@ import type {
   Source,
 } from '../../api/personnel';
 import { ApiError } from '../../api/client';
+import { columnFilterPredicate } from './employeeListFilters';
 
 export const names: Record<Filter, string> = {
   all: 'Все сотрудники',
@@ -20,11 +21,6 @@ export const blockNames: Record<BlockKind, string> = {
   contacts: 'Контакты сотрудников',
   plans: 'План заездов',
   saved: 'Сохранённый список',
-};
-export const decisionNames = {
-  waiting: 'Ожидаем решение',
-  extend: 'Продление согласовано',
-  departure: 'Планируется выезд',
 };
 export const defaultBlocks: Block[] = (['plans', 'residents', 'ending', 'contacts'] as const).map(
   (kind, index) => ({
@@ -91,6 +87,7 @@ export function filterPeople(
   const allowed = (id: number): boolean =>
     (list.dormitory == null || id === list.dormitory) &&
     (!list.scope.length || list.scope.includes(id));
+  const matchesColumns = columnFilterPredicate(data, list);
   return data.employees
     .filter((person) => {
       const inLocation =
@@ -113,6 +110,7 @@ export function filterPeople(
       return (
         inLocation &&
         matches(scopedPerson, list.filter, data, list.days) &&
+        matchesColumns(person) &&
         (!query ||
           text.includes(query) ||
           (/^[+\d\s()-]+$/.test(query) &&
@@ -136,15 +134,4 @@ export function filterPeople(
         a.id.localeCompare(b.id)
       );
     });
-}
-export function sourceUrl(source: Source): string {
-  const path = source.table_key.startsWith('custom_')
-    ? `custom/${source.table_key.slice(7)}`
-    : source.table_key;
-  const rawDate = value(
-    source,
-    source.table_key === 'outflow' ? 'departure_date' : 'settlement_date',
-  );
-  const period = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? `&from=${rawDate}&to=${rawDate}` : '';
-  return `/cabinet/dormitories/${source.dormitory_id}/${path}?row=${source.row_id}${period}`;
 }

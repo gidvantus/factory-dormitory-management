@@ -7,6 +7,7 @@ import type { Mutate } from './Forms';
 import { addDays, dateLabel, message } from './helpers';
 import s from './Personnel.module.css';
 import p from './ArrivalPlanningBoard.module.css';
+import f from './PersonnelFocus.module.css';
 
 type Draft = { dormitory_id: number; date: string; plan?: ArrivalPlan };
 
@@ -20,6 +21,7 @@ export function ArrivalPlanningBoard({
   mutate: Mutate;
 }): JSX.Element {
   const [start, setStart] = useState(data.today);
+  const [selectedDate, setSelectedDate] = useState(data.today);
   const [draft, setDraft] = useState<Draft | null>(null);
   const dormitories = data.dormitories.filter(
     (item) => !item.is_archived && (dormitory == null || item.id === dormitory),
@@ -31,17 +33,20 @@ export function ArrivalPlanningBoard({
   );
   const cells = new Map(plans.map((plan) => [`${plan.dormitory_id}:${plan.date}`, plan]));
   const total = plans.reduce((sum, plan) => sum + plan.count, 0);
+  const activeDay = days.includes(selectedDate) ? selectedDate : start;
+  const dayPlans = plans.filter((plan) => plan.date === activeDay);
+  const dayTotal = dayPlans.reduce((sum, plan) => sum + plan.count, 0);
   return (
-    <section className={s.board} data-testid="personnel-planning">
+    <section className={f.planning} data-testid="personnel-planning">
       <div className={s.toolbar}>
         <div>
           <h2>План заездов</h2>
           <p className={s.hint}>Укажите количество приезжающих и, если известны, их ФИО.</p>
         </div>
         <button
-          className={s.primary}
+          className="btn btn--primary btn--compact"
           disabled={!dormitories.length}
-          onClick={() => setDraft({ dormitory_id: dormitories[0].id, date: start })}
+          onClick={() => setDraft({ dormitory_id: dormitories[0].id, date: activeDay })}
         >
           Добавить заезд
         </button>
@@ -66,91 +71,126 @@ export function ArrivalPlanningBoard({
           <button aria-label="Следующие 7 дней" onClick={() => setStart(addDays(start, 7))}>
             →
           </button>
-          <button onClick={() => setStart(data.today)}>Сегодня</button>
+          <button
+            onClick={() => {
+              setStart(data.today);
+              setSelectedDate(data.today);
+            }}
+          >
+            Сегодня
+          </button>
         </div>
         <strong>Ожидается за период: {total} чел.</strong>
       </div>
       {dormitories.length ? (
-        <div className={p.scroll}>
-          <table className={p.table}>
-            <caption className={p.caption}>Количество приезжающих по общежитиям и датам</caption>
-            <thead>
-              <tr>
-                <th scope="col">Общежитие</th>
-                {days.map((day) => (
-                  <th scope="col" key={day} data-today={day === data.today}>
-                    {dateLabel(day)}
+        <div className={f.focusLayout}>
+          <div className={f.days} role="group" aria-label="Даты заездов">
+            {days.map((day) => {
+              const arrivals = plans.filter((plan) => plan.date === day);
+              const count = arrivals.reduce((sum, plan) => sum + plan.count, 0);
+              const weekday = new Intl.DateTimeFormat('ru-RU', {
+                weekday: 'long',
+                timeZone: 'UTC',
+              }).format(new Date(`${day}T00:00:00Z`));
+              return (
+                <button
+                  type="button"
+                  key={day}
+                  className={f.dayChoice}
+                  aria-label={`Выбрать дату: ${day}`}
+                  aria-pressed={activeDay === day}
+                  onClick={() => setSelectedDate(day)}
+                >
+                  <span className={f.dateTile}>
+                    <b>{Number(day.slice(8))}</b>
                     <small>
-                      {new Intl.DateTimeFormat('ru-RU', {
-                        weekday: 'short',
-                        timeZone: 'UTC',
-                      }).format(new Date(`${day}T00:00:00Z`))}
+                      {new Intl.DateTimeFormat('ru-RU', { month: 'short', timeZone: 'UTC' }).format(
+                        new Date(`${day}T00:00:00Z`),
+                      )}
                     </small>
-                  </th>
-                ))}
-                <th scope="col">Всего</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dormitories.map((item) => (
-                <tr key={item.id}>
-                  <th scope="row">
-                    {item.name}
-                    <small>{item.client_name}</small>
-                  </th>
-                  {days.map((day) => {
-                    const plan = cells.get(`${item.id}:${day}`);
-                    return (
-                      <td key={day} data-today={day === data.today}>
-                        <button
-                          className={p.cell}
-                          data-filled={!!plan}
-                          aria-label={`${plan ? 'Изменить' : 'Добавить'} заезд: ${item.name}, ${day}`}
-                          onClick={() => setDraft({ dormitory_id: item.id, date: day, plan })}
-                        >
-                          <strong>{plan ? `${plan.count} чел.` : '+'}</strong>
-                          {plan &&
-                            (plan.names.length ? (
-                              <small>
-                                {plan.names.slice(0, 2).join(', ')}
-                                {plan.names.length > 2 ? ` · ещё ${plan.names.length - 2}` : ''}
-                              </small>
-                            ) : (
-                              <small>ФИО не указаны</small>
-                            ))}
-                        </button>
-                      </td>
-                    );
-                  })}
-                  <td className={p.total}>
-                    {plans
-                      .filter((plan) => plan.dormitory_id === item.id)
-                      .reduce((sum, plan) => sum + plan.count, 0)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th scope="row">Всего людей</th>
-                {days.map((day) => (
-                  <td key={day}>
-                    {plans
-                      .filter((plan) => plan.date === day)
-                      .reduce((sum, plan) => sum + plan.count, 0)}
-                  </td>
-                ))}
-                <td>{total}</td>
-              </tr>
-            </tfoot>
-          </table>
+                  </span>
+                  <span>
+                    <strong>
+                      {weekday}
+                      {day === data.today ? ' · сегодня' : ''}
+                    </strong>
+                    <small>
+                      {arrivals.length
+                        ? arrivals
+                            .map(
+                              (plan) =>
+                                dormitories.find((item) => item.id === plan.dormitory_id)?.name,
+                            )
+                            .join(' · ')
+                        : 'Заезды не запланированы'}
+                    </small>
+                  </span>
+                  <b>{count ? `${count} чел.` : '—'}</b>
+                </button>
+              );
+            })}
+          </div>
+          <aside className={f.dayDetail} aria-label="Заезды на выбранную дату">
+            <span className={f.kicker}>ВЫБРАННЫЙ ДЕНЬ</span>
+            <h3>{dateLabel(activeDay, true)}</h3>
+            <div className={f.daySummary}>
+              <strong>{dayTotal}</strong>
+              <span>
+                человек ожидается
+                <br />
+                {dayPlans.length
+                  ? `Общежитий: ${dayPlans.length}`
+                  : 'Добавьте первый заезд на эту дату'}
+              </span>
+            </div>
+            {dormitories.map((item) => {
+              const plan = cells.get(`${item.id}:${activeDay}`);
+              return (
+                <article key={item.id} className={plan ? f.arrival : f.emptyArrival}>
+                  <div className={f.arrivalHead}>
+                    <h4>{item.name}</h4>
+                    {plan && <b>{plan.count} чел.</b>}
+                  </div>
+                  {plan ? (
+                    <>
+                      {plan.names.length ? (
+                        <ul>
+                          {plan.names.slice(0, 5).map((name, index) => (
+                            <li key={index}>{name}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>ФИО не указаны</p>
+                      )}
+                      {plan.names.length > 5 && (
+                        <p>Ещё {plan.names.length - 5} — в записи заезда</p>
+                      )}
+                      {plan.count > plan.names.length && plan.names.length > 0 && (
+                        <p>Без ФИО: {plan.count - plan.names.length} чел.</p>
+                      )}
+                    </>
+                  ) : (
+                    <p>Заезд пока не запланирован</p>
+                  )}
+                  <button
+                    type="button"
+                    className={`btn btn--outline btn--compact ${f.arrivalAction}`}
+                    aria-label={`${plan ? 'Изменить' : 'Добавить'} заезд: ${item.name}, ${activeDay}`}
+                    onClick={() => setDraft({ dormitory_id: item.id, date: activeDay, plan })}
+                  >
+                    {plan ? 'Изменить заезд' : '+ Добавить заезд'}
+                  </button>
+                </article>
+              );
+            })}
+          </aside>
         </div>
       ) : (
         <p className={s.empty}>Нет действующих общежитий для планирования заездов.</p>
       )}
       <p className={s.hint}>
-        Нажмите на дату в строке общежития, чтобы заполнить или изменить план. Данные доступны в
-        «Общем отчёте» как источник «План заездов».
+        Выберите дату, чтобы заполнить или изменить план. Данные доступны в «Общем отчёте» как
+        источник «План заездов».
       </p>
       {draft && (
         <ArrivalDialog
@@ -159,6 +199,7 @@ export function ArrivalPlanningBoard({
           mutate={mutate}
           onClose={() => setDraft(null)}
           onSaved={(day) => {
+            setSelectedDate(day);
             if (day < start || day > days[6]) setStart(day);
             setDraft(null);
           }}

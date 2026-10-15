@@ -1,13 +1,15 @@
 """Вкладки одного общежития с независимым копированием структуры из другого."""
 
+from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.table_columns import prepare_options
+from app.custom_tab_options import initialize_options, mapped_options, options_for
 from app.db import get_db
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
@@ -15,6 +17,7 @@ from app.models.report import ReportRow
 from app.models.table_column import TableColumn
 from app.personnel import record_changed
 from app.schemas.custom_tab import (
+    CalendarCellRequest,
     CreateTabRequest,
     CreateTabTableRequest,
     TabEntryResponse,
@@ -186,11 +189,13 @@ def create_tab(
         and not payload.parent_id
         and section_status(dorm, key) != "deleted"
     }
-    names = db.scalars(
-        select(CustomTab.name).where(
-            CustomTab.dormitory_id == dormitory_id,
-            CustomTab.parent_id == payload.parent_id,
-            CustomTab.parent_section == payload.parent_section,
+    names = list(
+        db.scalars(
+            select(CustomTab.name).where(
+                CustomTab.dormitory_id == dormitory_id,
+                CustomTab.parent_id == payload.parent_id,
+                CustomTab.parent_section == payload.parent_section,
+            )
         )
     )
     if (
@@ -213,8 +218,13 @@ def create_tab(
     db.flush()
 
     if source and source.table_created:
-        copy_columns(db, source.dormitory_id, source.table_key, dormitory_id, tab.table_key)
+        mapping = copy_columns(
+            db, source.dormitory_id, source.table_key, dormitory_id, tab.table_key
+        )
+        tab.options = mapped_options(source, mapping)
     if source:
+        if not source.table_created:
+            tab.options = options_for(source).model_dump()
         copied_ids = {source.id: tab.id}
         for child in source_tree:
             if child.id == source.id:
@@ -229,10 +239,19 @@ def create_tab(
             db.add(copied)
             db.flush()
             copied_ids[child.id] = copied.id
-            copy_columns(db, child.dormitory_id, child.table_key, dormitory_id, copied.table_key)
+            mapping = copy_columns(
+                db, child.dormitory_id, child.table_key, dormitory_id, copied.table_key
+            )
+            copied.options = mapped_options(child, mapping)
     else:
         for name in payload.subtabs:
-            db.add(CustomTab(dormitory_id=dormitory_id, parent_id=tab.id, name=name))
+            child = CustomTab(dormitory_id=dormitory_id, parent_id=tab.id, name=name)
+            db.add(child)
+            db.flush()
+            if payload.options:
+                initialize_options(db, child, payload.options)
+        if payload.options:
+            initialize_options(db, tab, payload.options)
     db.commit()
     db.refresh(tab)
     return tab
@@ -290,11 +309,17 @@ def create_table(
 
 @router.get(TAB_PATH + "/{tab_id}/rows", response_model=list[TabEntryResponse])
 def list_rows(
-    dormitory_id: EntityId, tab_id: EntityId, _user: SubscribedUser, db: DbSession
+    dormitory_id: EntityId,
+    tab_id: EntityId,
+    _user: SubscribedUser,
+    db: DbSession,
+    from_date: Annotated[date | None, Query(alias="from")] = None,
+    to_date: Annotated[date | None, Query(alias="to")] = None,
 ) -> list[CustomTabEntry]:
     lock_dormitory(db, dormitory_id)
-    get_custom_tab(db, dormitory_id, tab_id, require_table=True)
-    return list(
+    tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True)
+    validate_period(from_date, to_date)
+    rows = list(
         db.scalars(
             select(CustomTabEntry)
             .where(
@@ -304,15 +329,48 @@ def list_rows(
             .order_by(CustomTabEntry.id)
         )
     )
+    options = options_for(tab)
+    if from_date and to_date and options.table_format == "list" and options.period_mode != "none":
+        if options.date_column_id is None:
+            raise HTTPException(409, "Выберите столбец даты в настройках вкладки")
+        key = str(options.date_column_id)
+        rows = [
+            row
+            for row in rows
+            if isinstance(row.custom_values.get(key), str)
+            and from_date.isoformat() <= row.custom_values[key] <= to_date.isoformat()
+        ]
+    return rows
+
+
+def validate_period(start: date | None, end: date | None) -> None:
+    if (start is None) != (end is None) or (
+        start and end and (end < start or (end - start).days > 365)
+    ):
+        raise HTTPException(422, "Укажите период от 1 до 366 дней")
 
 
 @router.post(TAB_PATH + "/{tab_id}/rows", response_model=TabEntryResponse, status_code=201)
 def create_row(
-    dormitory_id: EntityId, tab_id: EntityId, _user: SubscribedUser, db: DbSession
+    dormitory_id: EntityId,
+    tab_id: EntityId,
+    _user: SubscribedUser,
+    db: DbSession,
+    entry_date: date | None = None,
 ) -> CustomTabEntry:
     lock_dormitory(db, dormitory_id)
-    get_custom_tab(db, dormitory_id, tab_id, require_table=True, require_active=True)
+    tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True, require_active=True)
+    if not options_for(tab).add_row:
+        raise HTTPException(409, "Добавление строк отключено в настройках вкладки")
+    options = options_for(tab)
     row = CustomTabEntry(dormitory_id=dormitory_id, tab_id=tab_id)
+    if (
+        entry_date
+        and options.table_format == "list"
+        and options.period_mode != "none"
+        and options.date_column_id
+    ):
+        row.custom_values = {str(options.date_column_id): entry_date.isoformat()}
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -325,6 +383,8 @@ def delete_row(
 ) -> None:
     lock_dormitory(db, dormitory_id)
     tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True, require_active=True)
+    if not options_for(tab).row_actions:
+        raise HTTPException(409, "Действия со строками отключены в настройках вкладки")
     row = get_record(db, dormitory_id, tab.table_key, row_id)
     assert isinstance(row, CustomTabEntry)
     record_changed(
@@ -332,3 +392,52 @@ def delete_row(
     )
     db.delete(row)
     db.commit()
+
+
+@router.post(TAB_PATH + "/{tab_id}/clear")
+def clear_rows(
+    dormitory_id: EntityId, tab_id: EntityId, _user: SubscribedUser, db: DbSession
+) -> dict[str, int]:
+    lock_dormitory(db, dormitory_id)
+    tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True, require_active=True)
+    if not options_for(tab).clear_list:
+        raise HTTPException(409, "Очистка списка отключена в настройках вкладки")
+    rows = list(
+        db.scalars(
+            select(CustomTabEntry).where(
+                CustomTabEntry.dormitory_id == dormitory_id, CustomTabEntry.tab_id == tab_id
+            )
+        )
+    )
+    for row in rows:
+        record_changed(db, row, _user.id, kind="deleted", title="Очищена пользовательская таблица")
+        db.delete(row)
+    db.commit()
+    return {"deleted": len(rows)}
+
+
+@router.put(TAB_PATH + "/{tab_id}/rows/{row_id}/days/{day}")
+def update_calendar_cell(
+    dormitory_id: EntityId,
+    tab_id: EntityId,
+    row_id: EntityId,
+    day: date,
+    payload: CalendarCellRequest,
+    _user: SubscribedUser,
+    db: DbSession,
+) -> dict[str, str]:
+    lock_dormitory(db, dormitory_id)
+    tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True, require_active=True)
+    if options_for(tab).table_format != "calendar":
+        raise HTTPException(409, "Включите формат с датами в столбцах")
+    row = get_record(db, dormitory_id, tab.table_key, row_id)
+    assert isinstance(row, CustomTabEntry)
+    values = dict(row.calendar_values)
+    value = payload.value.strip()
+    if value:
+        values[day.isoformat()] = value
+    else:
+        values.pop(day.isoformat(), None)
+    row.calendar_values = values
+    db.commit()
+    return {"value": value}

@@ -1,6 +1,6 @@
 """Поля таблицы оттока персонала."""
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -44,6 +44,7 @@ class OutflowResponse(BaseModel):
 
     id: int
     employee_id: str | None = None
+    evicted_at: datetime | None = None
     departure_date: date | None
     personnel_number: str | None
     full_name: str | None
@@ -51,3 +52,13 @@ class OutflowResponse(BaseModel):
     reason: str | None
     notes: str | None
     additional_info: str | None
+
+
+class OutflowEvictionPreview(BaseModel):
+    preview_token: str
+
+
+class OutflowEvictionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    preview_token: str = Field(pattern=r"^[0-9a-f]{64}$")

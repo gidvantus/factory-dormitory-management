@@ -2,17 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, waitForDormitoryWrites } from '../../api/client';
 import type {
   ColumnKind,
+  CustomTabOptions,
   DormitorySettings,
   ReportRow,
   SettingsColumn,
   SettingsInput,
   StructureTemplate,
 } from '../../api/client';
+import { CustomTabOptionsEditor } from './CustomTabOptionsEditor';
+import { defaultTabOptions } from './customTabOptions';
 import { Modal } from '../../components/Modal';
 import { columnKinds } from './columnKinds';
 import { RowDialog } from './ReportTable';
 import { CreateCustomTabDialog } from './CreateCustomTabDialog';
 import { RuleSummary } from './RuleSummary';
+import { BindingDialog } from '../personnel/BindingDialog';
+import type { SourceTable } from '../../api/personnel';
 import styles from './DormitorySettingsDialog.module.css';
 
 type Page = 'structure' | 'links' | 'templates';
@@ -24,6 +29,8 @@ interface Node {
   status: 'active' | 'hidden' | 'deleted';
   custom: boolean;
   reason: string | null;
+  options?: CustomTabOptions;
+  dateColumnName?: string | null;
 }
 const errorText = (error: unknown): string =>
   error instanceof ApiError ? error.message : 'Не удалось выполнить действие. Попробуйте ещё раз.';
@@ -60,6 +67,7 @@ export function DormitorySettingsDialog({
   const [attempt, setAttempt] = useState(0);
   const [creating, setCreating] = useState<{ parent: string | null } | null>(null);
   const [editingRule, setEditingRule] = useState<ReportRow | 'new' | null>(null);
+  const [binding, setBinding] = useState<SourceTable | null>(null);
   const [templates, setTemplates] = useState<StructureTemplate[]>([]);
   const [templateName, setTemplateName] = useState('');
   const [templateError, setTemplateError] = useState('');
@@ -83,6 +91,7 @@ export function DormitorySettingsDialog({
         parent: item.parent_id ? `custom_${item.parent_id}` : (item.parent_section ?? null),
         status: item.is_active ? ('active' as const) : ('hidden' as const),
         custom: true,
+        options: { ...defaultTabOptions, ...item.options },
         reason: item.delete_block_reason,
       })),
     ]);
@@ -225,6 +234,8 @@ export function DormitorySettingsDialog({
             name: item.name.trim(),
             parent_key: item.parent,
             is_active: item.status === 'active',
+            options: item.options,
+            date_column_name: item.dateColumnName,
           })),
         sections: Object.fromEntries(
           nodes
@@ -349,7 +360,20 @@ export function DormitorySettingsDialog({
       containerClassName={styles.overlay}
       testId="dormitory-settings-modal"
     >
-      {creating ? (
+      {binding ? (
+        <BindingDialog
+          inline
+          dormitoryId={dormitoryId}
+          tableKey={binding}
+          onBusyChange={setBusy}
+          onClose={() => setBinding(null)}
+          onSaved={() => {
+            setBinding(null);
+            if (snapshot) onChanged(snapshot);
+            setMessage('Связь с персоналом сохранена');
+          }}
+        />
+      ) : creating ? (
         <CreateCustomTabDialog
           inline
           onBusyChange={setBusy}
@@ -509,12 +533,38 @@ export function DormitorySettingsDialog({
                         изменением таблицы.
                       </p>
                     )}
+                    {node.custom && (
+                      <CustomTabOptionsEditor
+                        value={node.options ?? defaultTabOptions}
+                        onChange={(options) => updateNode({ options })}
+                        columns={columns}
+                        dateColumnName={node.dateColumnName}
+                        onDateColumnName={(dateColumnName) => updateNode({ dateColumnName })}
+                        disabled={blocked || busy}
+                      />
+                    )}
                     {selected in tables ? (
                       <fieldset disabled={busy || blocked} className={styles.columnEditor}>
                         <div className={styles.columnHeading}>
                           <h4>Столбцы таблицы</h4>
                           <span>Название · формат · порядок</span>
                         </div>
+                        {(selected === 'archive' || node.custom) && (
+                          <div className={styles.toolbar} style={{ marginBottom: 14 }}>
+                            <button
+                              type="button"
+                              disabled={dirty}
+                              onClick={() => setBinding(selected as SourceTable)}
+                            >
+                              Связь с персоналом
+                            </button>
+                            {dirty && (
+                              <small>
+                                Сохраните изменения, чтобы настроить связь с персоналом.
+                              </small>
+                            )}
+                          </div>
+                        )}
                         {!columns.length && (
                           <p className={styles.empty}>
                             Таблица ещё не создана. Добавьте столбцы и сохраните изменения.

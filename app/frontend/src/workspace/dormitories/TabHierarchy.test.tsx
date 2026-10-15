@@ -7,6 +7,7 @@ import { renderApp } from '../../test/renderApp';
 import { CreateCustomTabDialog } from './CreateCustomTabDialog';
 import { StandardSectionsManager } from './StandardSectionsManager';
 import { ReportLinkEditor } from './ReportLinkEditor';
+import { defaultTabOptions } from './customTabOptions';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -42,6 +43,7 @@ it('создаёт несколько именованных подвкладо�
         name: 'Документы',
         source_tab_id: null,
         subtabs: ['Паспорта', 'Допуски'],
+        options: defaultTabOptions,
       });
       return { status: 201, body: root };
     }

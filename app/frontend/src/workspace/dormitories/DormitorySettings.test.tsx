@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../../api/client';
+import { personnelApi } from '../../api/personnel';
 import type { DormitorySettings, StructureTemplateDetail, TableColumn } from '../../api/client';
 import { mockFetch } from '../../test/mockFetch';
 import { defaultTabCatalog } from '../../test/tableColumns';
@@ -93,6 +94,53 @@ it('собирает несколько столбцов и порядок в о
     ['Причина', 'select'],
   ]);
   expect(save.mock.calls[0][1].tables[0].columns[2].options[0].label).toBe('Сбежал');
+});
+
+it('настраивает связь пользовательской таблицы в её параметрах, сохраняя правильный ID вкладки', async () => {
+  const data = snapshot();
+  data.tabs = [
+    {
+      id: 9,
+      dormitory_id: 7,
+      name: 'Документы',
+      table_key: 'custom_9',
+      table_created: true,
+      is_active: true,
+      has_data: true,
+      delete_block_reason: null,
+    },
+  ];
+  data.tables.custom_9 = [
+    { ...data.tables.residents[0], id: 101, table_key: 'custom_9', builtin_key: null, used_by: [] },
+  ];
+  vi.spyOn(api, 'dormitorySettings').mockResolvedValue(data);
+  const loadBinding = vi.spyOn(personnelApi, 'binding').mockResolvedValue({
+    fields: { full_name: 101 },
+    columns: data.tables.custom_9,
+  });
+  const saveBinding = vi.spyOn(personnelApi, 'saveBinding').mockResolvedValue({ ok: true });
+  const changed = vi.fn();
+  render(
+    <DormitorySettingsDialog
+      dormitoryId="7"
+      initialKey="custom_9"
+      onClose={vi.fn()}
+      onChanged={changed}
+      onOpen={vi.fn()}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Связь с персоналом' }));
+  const name = await screen.findByRole('combobox', { name: /^ФИО/ });
+  expect(name).toHaveValue('101');
+  expect(loadBinding).toHaveBeenCalledWith('7', 'custom_9');
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  await user.click(screen.getByRole('button', { name: 'Сохранить связь' }));
+  expect(await screen.findByText('Связь с персоналом сохранена')).toBeInTheDocument();
+  expect(saveBinding).toHaveBeenCalledWith('7', 'custom_9', { full_name: 101 });
+  expect(changed).toHaveBeenCalledWith(data);
+  await user.type(screen.getByLabelText('Название столбца 1'), ' сотрудника');
+  expect(screen.getByRole('button', { name: 'Связь с персоналом' })).toBeDisabled();
 });
 
 it('не теряет черновик при конфликте и требует явного отказа от несохранённых изменений', async () => {

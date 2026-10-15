@@ -2,24 +2,14 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
-import type { Solution } from '../api/client';
+import { ShopSolutionCard } from './ShopSolutionCard';
 import { useSolutions } from './SolutionsProvider';
 import styles from './Workspace.module.css';
+import shopStyles from './Shop.module.css';
 
 const LOAD_ERROR = 'Не удалось загрузить магазин. Проверьте соединение и попробуйте ещё раз.';
 const PURCHASE_ERROR = 'Не удалось выставить счёт. Проверьте соединение и попробуйте ещё раз.';
 const EMPTY_NOTICE = 'Решения ещё не опубликованы';
-
-/**
- * Подпись срока права. `expires_at = null` — бессрочное право (`period = 'once'`),
- * а не «срок не задан»: поэтому у него своя формулировка, а не пустая дата.
- */
-function expiryLabel(solution: Solution): string {
-  if (!solution.expires_at) return 'Действует бессрочно';
-  const date = new Date(solution.expires_at);
-  if (Number.isNaN(date.getTime())) return `Действует до ${solution.expires_at}`;
-  return `Действует до ${date.toLocaleDateString('ru-RU')}`;
-}
 
 /** Текст отказа покупки: 401 — конец сессии, остальное объясняет сервер. */
 function purchaseErrorMessage(error: unknown): string {
@@ -36,10 +26,9 @@ function purchaseErrorMessage(error: unknown): string {
  * входит: покупка нужна именно на закрытом пробном кабинете, когда кабинет и
  * открывается оплатой.
  *
- * Вид списка повторяет прайс: те же глобальные классы `pricing__*`, тот же
- * порядок «название — цена — описание — кнопка». Цена приходит строкой с
- * сервера (`price_label`), клиент её не считает. Кнопка покупки у уже
- * подключённого решения остаётся доступной — это продление.
+ * Оформление «01 Витрина»: описание и пример решения над строкой покупки.
+ * Цена приходит строкой с сервера (`price_label`), клиент её не считает.
+ * Кнопка покупки у уже подключённого решения доступна для продления.
  */
 export function Shop(): JSX.Element {
   const { status, items, reload } = useSolutions();
@@ -73,7 +62,7 @@ export function Shop(): JSX.Element {
     <section aria-labelledby="shop-title" data-testid="shop-page">
       <div className={styles['page-heading']}>
         <div>
-          <p className={styles.eyebrow}>Рабочее пространство</p>
+          <p className={styles.eyebrow}>Больше возможностей для вашей команды</p>
           <h1 id="shop-title" tabIndex={-1}>
             Магазин улучшений
           </h1>
@@ -82,16 +71,16 @@ export function Shop(): JSX.Element {
       </div>
 
       {status === 'loading' && (
-        <p className="pricing__note" role="status" data-testid="shop-loading">
+        <p className={styles['view-note']} role="status" data-testid="shop-loading">
           Загружаем решения…
         </p>
       )}
 
       {status === 'error' && (
-        <div className="pricing__error" role="alert" data-testid="shop-error">
+        <div className={shopStyles.error} role="alert" data-testid="shop-error">
           <p>{LOAD_ERROR}</p>
           <button
-            className="btn btn--outline btn--sm"
+            className="btn btn--ghost btn--compact"
             type="button"
             data-testid="shop-retry"
             onClick={reload}
@@ -102,64 +91,27 @@ export function Shop(): JSX.Element {
       )}
 
       {status === 'ready' && items.length === 0 && (
-        <p className="pricing__note" data-testid="shop-empty">
+        <p className={styles['view-note']} data-testid="shop-empty">
           {EMPTY_NOTICE}
         </p>
       )}
 
       {status === 'ready' && items.length > 0 && (
-        <ul className="pricing__grid">
+        <ul className={shopStyles.catalog}>
           {items.map((solution) => (
-            <li
-              className={
-                solution.is_owned ? 'card pricing__card pricing__card--owned' : 'card pricing__card'
-              }
-              key={solution.id}
-              data-testid="solution-card"
-              data-owned={solution.is_owned ? 'true' : undefined}
-            >
-              <div className="pricing__card-head">
-                <h3 data-testid="solution-name">{solution.name}</h3>
-                {/* Право помечается здесь же, в списке: отдельного блока про
-                    купленное решение на странице нет. */}
-                {solution.is_owned && (
-                  <span className="tag tag--ok" data-testid="solution-owned">
-                    Подключено
-                  </span>
-                )}
-              </div>
-              {/* Цену собирает сервер: карточка показывает `price_label` как есть. */}
-              <p className="pricing__price" data-testid="solution-price">
-                {solution.price_label}
-              </p>
-              <p className="pricing__description" data-testid="solution-description">
-                {solution.description}
-              </p>
-              {solution.is_owned && (
-                <p className="pricing__note" data-testid="solution-expiry">
-                  {expiryLabel(solution)}
-                </p>
-              )}
-              <button
-                className="btn btn--primary btn--block"
-                type="button"
-                data-testid="solution-buy"
-                // Доступное имя не сводится к «Купить»: на странице несколько
-                // кнопок с одинаковым текстом, и без названия решения они
-                // неразличимы для скринридера.
-                aria-label={`Купить: ${solution.name}`}
-                disabled={buying !== null}
-                onClick={() => void buySolution(solution.id)}
-              >
-                Купить
-              </button>
+            <li key={solution.id}>
+              <ShopSolutionCard
+                solution={solution}
+                buying={buying}
+                onBuy={(id) => void buySolution(id)}
+              />
             </li>
           ))}
         </ul>
       )}
 
       {buyError && (
-        <p className="pricing__error" role="alert" data-testid="shop-buy-error">
+        <p className={shopStyles.purchaseError} role="alert" data-testid="shop-buy-error">
           {buyError}
         </p>
       )}

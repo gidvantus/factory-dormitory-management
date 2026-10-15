@@ -6,7 +6,6 @@ import {
   OperationsContext,
   readState,
   materializePeople,
-  decisionNames,
   matches,
   MY_NAME,
   storageKey,
@@ -56,36 +55,6 @@ export function PersonnelOperationsProvider({ children }: { children: ReactNode 
           ? old.favorites.filter((p) => p !== id)
           : [...old.favorites, id],
       })),
-    saveDecision: (person, decision) =>
-      setState((old) => ({
-        ...old,
-        decisions: { ...old.decisions, [person.id]: decision },
-        plans: [
-          ...old.plans.filter((p) => !(p.personId === person.id && p.kind === 'departure')),
-          ...(decision.status === 'departure'
-            ? [
-                {
-                  id: `departure-${person.id}`,
-                  personId: person.id,
-                  kind: 'departure' as const,
-                  date: decision.date,
-                  end: '',
-                  dormitoryId: person.dormitoryId,
-                  confirmed: true,
-                  comment: decision.comment,
-                },
-              ]
-            : []),
-        ],
-        events: addEvent(
-          old,
-          person.id,
-          decisionNames[decision.status],
-          `${decision.status === 'waiting' ? 'Решение ещё не принято' : `Дата: ${decision.date}`}${decision.comment ? ` · ${decision.comment}` : ''}`,
-          'shift',
-          'Решение по вахте',
-        ),
-      })),
     savePlan: (plan) =>
       setState((old) => ({
         ...old,
@@ -106,13 +75,6 @@ export function PersonnelOperationsProvider({ children }: { children: ReactNode 
         return {
           ...old,
           plans: old.plans.filter((p) => p.id !== id),
-          decisions:
-            plan.kind === 'departure'
-              ? {
-                  ...old.decisions,
-                  [plan.personId]: { status: 'waiting', date: '', comment: 'План выезда отменён.' },
-                }
-              : old.decisions,
           events: addEvent(
             old,
             plan.personId,

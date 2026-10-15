@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { api, ApiError } from '../../api/client';
@@ -16,6 +15,7 @@ import { ReportTable } from './ReportTable';
 import { ResidentsTable } from './ResidentsTable';
 import { ArchiveTable } from './ArchiveTable';
 import { CustomTabTable } from './CustomTabTable';
+import { DormitoryPeriod } from './DormitoryPeriod';
 import { DormitorySettingsDialog } from './DormitorySettingsDialog';
 import { SettingsContext } from './settingsContext';
 import { ReportReadiness } from './ReportReadiness';
@@ -37,7 +37,6 @@ export function DormitoryDetails(): JSX.Element {
   const [dormitory, setDormitory] = useState<Dormitory | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [range, setRange] = useState<DateRange>(() => currentMonth());
-  const [draft, setDraft] = useState<DateRange>(range);
   useEffect(() => {
     const from = sourceParams.get('from');
     const to = sourceParams.get('to');
@@ -49,11 +48,9 @@ export function DormitoryDetails(): JSX.Element {
       !rangeError({ from, to })
     ) {
       setRange({ from, to });
-      setDraft({ from, to });
     }
   }, [sourceParams]);
   const [placesMonth, setPlacesMonth] = useState(() => currentMonth().from.slice(0, 7));
-  const [periodError, setPeriodError] = useState('');
   const [customTabs, setCustomTabs] = useState<CustomTab[]>([]);
   const [tabsLoading, setTabsLoading] = useState(true);
   const [tabsError, setTabsError] = useState('');
@@ -151,18 +148,21 @@ export function DormitoryDetails(): JSX.Element {
       navigate('/cabinet/dormitories/' + dormitoryId + '/' + fallbackPath, { replace: true });
   }, [status, primaryPath, fallbackPath, dormitoryId, navigate]);
 
-  function applyPeriod(event: FormEvent<HTMLFormElement>): void {
-    event.preventDefault();
-    const message = rangeError(draft);
-    setPeriodError(message);
-    if (!message) setRange({ ...draft });
-  }
+  const customPeriodMode = selectedCustomTab?.options?.period_mode ?? 'none';
+  const periodMode = primaryPath === 'custom' ? customPeriodMode : 'range';
+  const periodRange = useMemo(() => {
+    if (periodMode !== 'month') return range;
+    const prefix = range.from.slice(0, 7);
+    const [year, month] = prefix.split('-').map(Number);
+    return {
+      from: `${prefix}-01`,
+      to: `${prefix}-${new Date(Date.UTC(year, month, 0)).getUTCDate()}`,
+    };
+  }, [range, periodMode]);
 
-  function resetPeriod(): void {
-    const month = currentMonth();
-    setDraft(month);
-    setRange(month);
-    setPeriodError('');
+  async function changePeriod(next: DateRange): Promise<void> {
+    if (primaryPath === 'custom') await waitForTabSaves.current?.();
+    setRange(next);
   }
 
   useEffect(() => {
@@ -200,7 +200,7 @@ export function DormitoryDetails(): JSX.Element {
       </Link>
       {status === 'ready' && dormitory && (
         <>
-          <div className={styles.detailsHeading}>
+          <div className={styles.detailsHeading} data-testid="dormitory-details-heading">
             <div className={styles.detailsHeadingCopy}>
               <p className={styles.detailsClient}>Клиент: {dormitory.client_name}</p>
               <h1 tabIndex={-1}>Общежитие «{dormitory.name}»</h1>
@@ -215,62 +215,17 @@ export function DormitoryDetails(): JSX.Element {
             >
               Настроить
             </button>
-            {section?.path !== 'places' && primaryPath !== 'custom' && (
-              <form
-                className={styles.periodForm}
-                aria-label="Период общежития"
-                onSubmit={applyPeriod}
-                noValidate
-              >
-                <div className={styles.periodFields}>
-                  <label className={styles.periodField} htmlFor="dormitory-period-from">
-                    От
-                    <input
-                      id="dormitory-period-from"
-                      data-testid="dormitory-period-from"
-                      type="date"
-                      value={draft.from}
-                      onChange={(event) => {
-                        setDraft({ ...draft, from: event.target.value });
-                        setPeriodError('');
-                      }}
-                      aria-invalid={!!periodError}
-                      aria-describedby={periodError ? 'dormitory-period-error' : undefined}
-                    />
-                  </label>
-                  <label className={styles.periodField} htmlFor="dormitory-period-to">
-                    До
-                    <input
-                      id="dormitory-period-to"
-                      data-testid="dormitory-period-to"
-                      type="date"
-                      value={draft.to}
-                      onChange={(event) => {
-                        setDraft({ ...draft, to: event.target.value });
-                        setPeriodError('');
-                      }}
-                      aria-invalid={!!periodError}
-                      aria-describedby={periodError ? 'dormitory-period-error' : undefined}
-                    />
-                  </label>
-                  <button className="btn btn--primary btn--compact" type="submit">
-                    Применить
-                  </button>
-                  <button
-                    className="btn btn--ghost btn--compact"
-                    type="button"
-                    onClick={resetPeriod}
-                  >
-                    Текущий месяц
-                  </button>
-                </div>
-                {periodError && (
-                  <p className={styles.periodError} id="dormitory-period-error" role="alert">
-                    {periodError}
-                  </p>
-                )}
-              </form>
-            )}
+            {(primaryPath === 'custom'
+              ? selectedCustomTab && customPeriodMode !== 'none'
+              : section?.path !== 'places') &&
+              periodMode !== 'none' && (
+                <DormitoryPeriod
+                  key={`${dormitoryId}:${selectedCustomTab?.id ?? 'standard'}:${periodMode}`}
+                  mode={periodMode}
+                  range={periodRange}
+                  onChange={changePeriod}
+                />
+              )}
           </div>
           <ReportReadiness key={dormitoryId} dormitoryId={dormitoryId} />
           <nav ref={tabScroller} className={styles.tabScroller} aria-label="Разделы общежития">
@@ -428,6 +383,7 @@ export function DormitoryDetails(): JSX.Element {
                     <CustomTabTable
                       key={`${dormitoryId}:${selectedCustomTab.id}`}
                       dormitoryId={dormitoryId}
+                      range={periodRange}
                       tab={
                         customReadOnly
                           ? { ...selectedCustomTab, is_active: false }
