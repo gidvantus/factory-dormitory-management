@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { personnelApi } from '../../api/personnel';
-import type { Decision, Employee, PersonnelData, Source } from '../../api/personnel';
-import { addDays, decisionNames, dormName, message, value } from './helpers';
+import type { Employee } from '../../api/personnel';
+import { message } from './helpers';
 import s from './Personnel.module.css';
 
 export type Mutate = (action: () => Promise<unknown>) => Promise<void>;
@@ -140,84 +140,5 @@ export function EmployeeEditForm({
         Данные сотрудника проверены
       </label>
     </SubmitForm>
-  );
-}
-export function DecisionForm({
-  employee,
-  source,
-  data,
-  mutate,
-}: {
-  employee: Employee;
-  source: Source;
-  data: PersonnelData;
-  mutate: Mutate;
-}): JSX.Element {
-  const current = data.decisions.find((decision) => decision.resident_id === source.row_id);
-  const [status, setStatus] = useState<Decision['status']>(current?.status ?? 'waiting');
-  const sourceEnd = value(source, 'shift_end');
-  const defaultDate =
-    current?.status === status && current.date
-      ? current.date
-      : status === 'extend'
-        ? addDays(sourceEnd >= data.today ? sourceEnd : data.today, 14)
-        : sourceEnd >= data.today
-          ? sourceEnd
-          : data.today;
-  return (
-    <section className={s.softCard}>
-      <h4>Решение по окончанию вахты · {dormName(data, source.dormitory_id)}</h4>
-      <SubmitForm
-        label="Сохранить решение"
-        onSubmit={(form) =>
-          mutate(() =>
-            personnelApi.saveDecision(employee.id, {
-              resident_id: source.row_id,
-              status,
-              date: status === 'waiting' ? null : String(form.get('date')),
-              comment: String(form.get('comment')).trim(),
-            }),
-          )
-        }
-      >
-        <label>
-          Решение
-          <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value as Decision['status'])}
-          >
-            {Object.entries(decisionNames).map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-        {status !== 'waiting' && (
-          <label>
-            {status === 'extend' ? 'Новая дата окончания' : 'Дата выезда'}
-            <input
-              key={`${status}-${defaultDate}`}
-              type="date"
-              name="date"
-              required
-              min={data.today}
-              defaultValue={defaultDate}
-            />
-          </label>
-        )}
-        <label>
-          Комментарий
-          <textarea name="comment" maxLength={1000} defaultValue={current?.comment ?? ''} />
-        </label>
-        <p className={s.hint}>
-          {status === 'extend'
-            ? 'Дата изменится в исходной строке «Проживающих» и в списках ближайших окончаний.'
-            : status === 'departure'
-              ? 'Проживание завершится после оформления оттока.'
-              : 'Договорённости можно сохранить во вкладке «Заметки».'}
-        </p>
-      </SubmitForm>
-    </section>
   );
 }

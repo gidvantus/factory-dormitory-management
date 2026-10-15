@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.inflow_entry import saved_resident_data
 from app.models.inflow import PersonnelInflow
 from app.outflow_fields import outflow_fields
 from app.personnel import digest
@@ -50,11 +51,12 @@ def prepare_inflow_action(
         raise HTTPException(409, "Эта строка притока уже обработана. Обновите список")
     sources = ensure_columns(db, dormitory_id, "inflow")
     targets = ensure_columns(db, dormitory_id, destination)
-    fields: dict[str, Any] = {}
-    custom: dict[str, Any] = {}
+    fields, custom = saved_resident_data(db, row, targets) if action == "settle" else ({}, {})
     matched: list[str] = []
     warnings: list[TransferWarning] = []
-    used: set[int] = set()
+    used = {
+        column.id for column in targets if column.builtin_key in fields or str(column.id) in custom
+    }
     title = "Проживающие" if action == "settle" else "Отток"
     schema = UpdateResidentRequest if action == "settle" else UpdateOutflowRequest
     for source in sources:
@@ -88,8 +90,11 @@ def prepare_inflow_action(
             if target.builtin_key:
                 validated = schema.model_validate({target.builtin_key: value})
                 fields[target.builtin_key] = getattr(validated, target.builtin_key)
-            elif value is not None:
-                custom[str(target.id)] = value
+            else:
+                if value is None:
+                    custom.pop(str(target.id), None)
+                else:
+                    custom[str(target.id)] = value
             used.add(target.id)
             matched.append(source.name)
         except (HTTPException, ValidationError):
@@ -104,7 +109,7 @@ def prepare_inflow_action(
         and fields["shift_end"] < fields["shift_start"]
     ):
         raise HTTPException(422, "Конец вахты раньше начала. Исправьте даты в притоке")
-    # Место проживания не выводится из даты заселения; оно переносится лишь при совпадении столбцов.
+    # Место проживания берётся из формы добавления, а не из даты заселения.
     token = digest(
         {
             "dormitory": dormitory_id,
@@ -113,6 +118,7 @@ def prepare_inflow_action(
             "employee_id": row.employee_id,
             "source": {key: getattr(row, key) for key in UpdateInflowRequest.model_fields},
             "custom_values": row.custom_values,
+            "resident_values": row.resident_values,
             "sources": [ColumnResponse.model_validate(col).model_dump() for col in sources],
             "targets": [ColumnResponse.model_validate(col).model_dump() for col in targets],
             "fields": fields,

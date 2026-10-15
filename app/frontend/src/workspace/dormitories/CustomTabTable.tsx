@@ -13,19 +13,40 @@ import { useColumns } from './tableColumnsContext';
 import styles from './OutflowTable.module.css';
 import { CreateTableDialog } from './CreateTableDialog';
 import { useSettingsNavigation } from './settingsContext';
+import { CustomDayCell } from './CustomDayCell';
 import { PersonnelTableCells } from './PersonnelTableCells';
-import { PersonnelBindingButton } from '../personnel/BindingDialog';
+import { defaultTabOptions } from './customTabOptions';
+import { dateNumber, formatDate, todayDate } from '../dashboard/dates';
+import type { DateRange } from '../dashboard/dates';
+import optionStyles from './CustomTabOptionsEditor.module.css';
 
 function CustomTableContent({
   dormitoryId,
   tab,
+  range,
   waitForSavesRef,
 }: {
   dormitoryId: string;
   tab: CustomTab;
+  range: DateRange;
   waitForSavesRef?: MutableRefObject<(() => Promise<void>) | null>;
 }): JSX.Element {
-  const { loading: columnsLoading, error: columnsError, waitForRowSaves, reload } = useColumns();
+  const {
+    loading: columnsLoading,
+    error: columnsError,
+    waitForRowSaves,
+    personnelFields,
+  } = useColumns();
+  const options = { ...defaultTabOptions, ...tab.options };
+  const [clearing, setClearing] = useState(false);
+  const days =
+    options.table_format === 'calendar'
+      ? Array.from(
+          { length: Math.round((dateNumber(range.to) - dateNumber(range.from)) / 86400000) + 1 },
+          (_, index) =>
+            new Date(dateNumber(range.from) + index * 86400000).toISOString().slice(0, 10),
+        )
+      : [];
   const [rows, setRows] = useState<CustomTabRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -49,7 +70,12 @@ function CustomTableContent({
     setLoaded(false);
     setError('');
     void api
-      .customTabRows(dormitoryId, tab.id, controller.signal)
+      .customTabRows(
+        dormitoryId,
+        tab.id,
+        controller.signal,
+        options.period_mode === 'none' ? undefined : range,
+      )
       .then((items) => {
         if (!controller.signal.aborted) {
           setRows(items);
@@ -64,14 +90,45 @@ function CustomTableContent({
         }
       });
     return () => controller.abort();
-  }, [dormitoryId, tab.id, attempt]);
+  }, [
+    dormitoryId,
+    tab.id,
+    attempt,
+    personnelFields,
+    range,
+    options.period_mode,
+    options.date_column_id,
+    options.table_format,
+  ]);
 
+  async function clear(): Promise<void> {
+    if (busy || !tab.is_active) return;
+    setBusy(true);
+    setError('');
+    try {
+      await Promise.all(rows.map((row) => waitForRowSaves(row.id)));
+      await api.clearCustomTab(dormitoryId, tab.id);
+      setRows([]);
+      setClearing(false);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Не удалось очистить список.');
+    } finally {
+      setBusy(false);
+    }
+  }
   async function add(): Promise<void> {
     if (busy || !tab.is_active) return;
     setBusy(true);
     setError('');
     try {
-      const row = await api.createCustomTabRow(dormitoryId, tab.id);
+      const today = todayDate();
+      const date =
+        options.period_mode !== 'none' && options.table_format === 'list'
+          ? today >= range.from && today <= range.to
+            ? today
+            : range.from
+          : undefined;
+      const row = await api.createCustomTabRow(dormitoryId, tab.id, date);
       setRows((current) => [...current, row]);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось добавить строку.');
@@ -99,26 +156,36 @@ function CustomTableContent({
       <div className="toolbar">
         <h2>{tab.name}</h2>
         {tab.is_active && <ColumnsControls />}
-        {tab.is_active && (
-          <PersonnelBindingButton
-            dormitoryId={dormitoryId}
-            tableKey={`custom_${tab.id}`}
-            onSaved={() => {
-              reload();
-              setAttempt((n) => n + 1);
+        {options.clear_list && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--compact"
+            disabled={busy || !tab.is_active || !loaded}
+            onClick={() => {
+              setError('');
+              setClearing(true);
             }}
-          />
+          >
+            Очистить список
+          </button>
         )}
-        <button
-          type="button"
-          className="btn btn--primary btn--compact"
-          aria-busy={busy}
-          disabled={!tab.is_active || !loaded || columnsLoading || !!columnsError || busy}
-          onClick={() => void add()}
-        >
-          + Добавить строку
-        </button>
+        {options.add_row && (
+          <button
+            type="button"
+            className={`btn btn--primary btn--compact ${optionStyles.add}`}
+            aria-busy={busy}
+            disabled={!tab.is_active || !loaded || columnsLoading || !!columnsError || busy}
+            onClick={() => void add()}
+          >
+            + Добавить строку
+          </button>
+        )}
       </div>
+      {options.table_format === 'list' && options.period_mode !== 'none' && (
+        <p className={optionStyles.hint}>
+          Показаны строки по выбранному столбцу даты. Строки без даты не входят в период.
+        </p>
+      )}
       {!tab.is_active && (
         <p role="status">
           Вкладка скрыта. Данные доступны только для просмотра и продолжают учитываться в «Общем
@@ -126,7 +193,7 @@ function CustomTableContent({
         </p>
       )}
       {loading && <p role="status">Загружаем таблицу…</p>}
-      {error && !deleting && (
+      {error && !deleting && !clearing && (
         <p role="alert" className={styles.error}>
           {error}{' '}
           <button type="button" onClick={() => setAttempt((n) => n + 1)}>
@@ -136,10 +203,15 @@ function CustomTableContent({
       )}
       {loaded && (
         <div className={styles.tableScroll}>
-          <ConfiguredTable className={styles.table}>
+          <ConfiguredTable className={styles.table} trailingColumns={days.length}>
             <thead>
               <tr>
                 <ConfiguredHeaders />
+                {days.map((day) => (
+                  <th scope="col" key={day}>
+                    {formatDate(day, false)}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -171,12 +243,49 @@ function CustomTableContent({
                       </button>
                     </td>
                   </PersonnelTableCells>
+                  {days.map((day) => (
+                    <CustomDayCell
+                      key={day}
+                      tabId={tab.id}
+                      rowId={row.id}
+                      day={day}
+                      initial={row.calendar_values?.[day] ?? ''}
+                      readOnly={!tab.is_active}
+                    />
+                  ))}
                 </tr>
               ))}
             </tbody>
           </ConfiguredTable>
           {!rows.length && <p className={styles.empty}>В таблице пока нет записей.</p>}
         </div>
+      )}
+      {clearing && (
+        <Modal
+          title="Очистить список?"
+          testId="clear-custom-tab-modal"
+          onClose={() => setClearing(false)}
+          closeDisabled={busy}
+        >
+          <p>
+            Будут удалены все строки вкладки «{tab.name}» за всё время, включая значения по дням.
+            Выбранный период не ограничивает очистку.
+          </p>
+          {error && <p role="alert">{error}</p>}
+          <div className="dialog-actions">
+            <button type="button" disabled={busy} onClick={() => setClearing(false)}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="btn btn--danger btn--compact"
+              disabled={busy}
+              onClick={() => void clear()}
+            >
+              Очистить список
+            </button>
+          </div>
+        </Modal>
       )}
       {deleting && (
         <Modal
@@ -216,11 +325,13 @@ export function CustomTabTable({
   dormitoryId,
   tab,
   onChanged,
+  range,
   waitForSavesRef,
 }: {
   dormitoryId: string;
   tab: CustomTab;
   onChanged: (tab: CustomTab) => void;
+  range: DateRange;
   waitForSavesRef?: MutableRefObject<(() => Promise<void>) | null>;
 }): JSX.Element {
   const [creating, setCreating] = useState(false);
@@ -231,22 +342,31 @@ export function CustomTabTable({
         key={`${dormitoryId}:${tab.id}`}
         dormitoryId={dormitoryId}
         table={tab.table_key}
+        showActions={tab.options?.row_actions ?? true}
+        showDates={tab.options?.show_dates ?? true}
       >
-        <CustomTableContent dormitoryId={dormitoryId} tab={tab} waitForSavesRef={waitForSavesRef} />
+        <CustomTableContent
+          dormitoryId={dormitoryId}
+          tab={tab}
+          range={range}
+          waitForSavesRef={waitForSavesRef}
+        />
       </TableColumnsProvider>
     );
   return (
     <section className={styles.page} data-testid="custom-tab-empty">
       <div className="toolbar">
         <h2>{tab.name}</h2>
-        <button
-          type="button"
-          className="btn btn--primary btn--compact"
-          disabled
-          title="Сначала создайте таблицу"
-        >
-          + Добавить строку
-        </button>
+        {(tab.options?.add_row ?? true) && (
+          <button
+            type="button"
+            className="btn btn--primary btn--compact"
+            disabled
+            title="Сначала создайте таблицу"
+          >
+            + Добавить строку
+          </button>
+        )}
       </div>
       <p>Во вкладке пока нет таблицы. Создайте её и настройте столбцы, чтобы добавлять записи.</p>
       <div>

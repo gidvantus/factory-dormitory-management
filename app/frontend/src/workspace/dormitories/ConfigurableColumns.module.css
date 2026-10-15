@@ -203,3 +203,13 @@
   margin-top: 8px;
   white-space: normal;
 }
+.rowActions > .rowActionResult {
+  display: inline-block;
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: var(--mint-100);
+  color: var(--mint-700);
+  font-size: 12px;
+  font-weight: 700;
+}

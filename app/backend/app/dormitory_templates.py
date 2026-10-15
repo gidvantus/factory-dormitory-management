@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.custom_tab_options import mapped_options, options_for
 from app.models.custom_tab import CustomTab
 from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel
@@ -35,6 +36,7 @@ def take_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
         "tabs": [
             {
                 "key": tab.table_key,
+                "options": options_for(tab).model_dump(),
                 "name": tab.name,
                 "is_active": tab.is_active,
                 "table_created": tab.table_created,
@@ -144,6 +146,7 @@ def apply_snapshot(
                 table_created=item["table_created"],
                 is_group=item["is_group"],
                 is_active=True,
+                options=item.get("options", {}),
                 parent_id=int(tables[parent].removeprefix("custom_"))
                 if parent and parent.startswith("custom_")
                 else None,
@@ -168,6 +171,8 @@ def apply_snapshot(
             db.add(col)
             db.flush()
             columns[original_id] = col.id
+    for tab, _ in created:
+        tab.options = mapped_options(tab, columns)
     hostels: dict[int, int] = {}
     for item in data["hostels"]:
         original_id = item.pop("id")

@@ -6,7 +6,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.outflow import OutflowFields
+from app.schemas.personnel import IdentityChoice
+from app.schemas.resident import HostelOption
 from app.schemas.resident_transfer import TransferWarning
+from app.schemas.table_column import ColumnResponse
 
 
 class UpdateInflowRequest(BaseModel):
@@ -66,3 +69,19 @@ class InflowActionResponse(BaseModel):
     inflow: InflowResponse
     destination: Literal["residents", "outflow"]
     row_id: int
+
+
+class InflowEntryForm(BaseModel):
+    columns: list[ColumnResponse]
+    hostels: list[HostelOption]
+    month: date
+    schema_token: str
+
+
+class InflowEntryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identity: IdentityChoice
+    month: date
+    schema_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+    values: dict[str, str | bool | int | float | None] = Field(default_factory=dict, max_length=200)

@@ -13,7 +13,6 @@ import {
 import styles from './OutflowTable.module.css';
 import { PersonnelTableCells } from './PersonnelTableCells';
 import { useColumns } from './tableColumnsContext';
-import { PersonnelBindingButton } from '../personnel/BindingDialog';
 
 function ArchiveContent({
   dormitoryId,
@@ -22,7 +21,7 @@ function ArchiveContent({
   dormitoryId: string;
   range: DateRange;
 }): JSX.Element {
-  const { reload } = useColumns();
+  const { personnelFields } = useColumns();
   const [rows, setRows] = useState<ArchiveRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -48,7 +47,7 @@ function ArchiveContent({
         }
       });
     return () => controller.abort();
-  }, [dormitoryId, range.from, range.to, attempt]);
+  }, [dormitoryId, range.from, range.to, attempt, personnelFields]);
   async function add(): Promise<void> {
     setBusy(true);
     setError('');
@@ -80,14 +79,6 @@ function ArchiveContent({
       <div className="toolbar">
         <h2>Архив</h2>
         <ColumnsControls />
-        <PersonnelBindingButton
-          dormitoryId={dormitoryId}
-          tableKey="archive"
-          onSaved={() => {
-            reload();
-            setAttempt((n) => n + 1);
-          }}
-        />
         <button
           type="button"
           className="btn btn--primary btn--compact"

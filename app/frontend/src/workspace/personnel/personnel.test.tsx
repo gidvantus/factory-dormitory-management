@@ -39,13 +39,12 @@ const data = (employees: Employee[]): PersonnelData => ({
   employees,
   plans: [],
   arrival_plans: [],
-  decisions: [],
   preferences: { revision: 0, blocks: null, lists: [] },
 });
 const criteria = { filter: 'current' as const, dormitory: null, scope: [], days: 5, query: '' };
 afterEach(() => vi.restoreAllMocks());
 
-it('оставляет три фильтра, убирает избранное и сохраняет поиск, карточку и экспорт', async () => {
+it('оставляет три фильтра, поиск и карточку без массовых действий со списком', async () => {
   const user = userEvent.setup();
   const employees = [
     { ...person('ending', [source(1)]), full_name: 'Иванов Иван' },
@@ -91,25 +90,43 @@ it('оставляет три фильтра, убирает избранное 
     'Без телефона',
     'Требуют проверки',
     'Проверить записи →',
+    'Копировать телефоны',
+    'Экспорт для Excel',
+    'Список выездов',
   ])
     expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/Добавить в мои сотрудники/)).not.toBeInTheDocument();
   const table = screen.getByRole('table');
+  await user.click(within(table).getByRole('checkbox', { name: 'Выбрать весь список: 4' }));
+  expect(screen.getByText('Выбрано: 4')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Снять выбор' }));
+  expect(within(table).queryAllByRole('checkbox', { checked: true })).toHaveLength(0);
   expect(within(table).getAllByRole('row')).toHaveLength(5);
   await user.click(screen.getByRole('button', { name: 'Проживают' }));
   expect(within(table).getAllByRole('row')).toHaveLength(4);
   await user.click(screen.getByRole('button', { name: 'Заканчивается вахта' }));
   expect(within(table).getAllByRole('row')).toHaveLength(2);
-  await user.click(screen.getByRole('button', { name: 'Экспорт для Excel' }));
-  expect(screen.getByRole('dialog')).toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: /Закрыть/ }));
   await user.click(screen.getByRole('button', { name: 'Все сотрудники' }));
   await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Иванов');
   expect(within(table).getAllByRole('row')).toHaveLength(2);
   await user.click(within(table).getByRole('button', { name: /^Иванов Иван/ }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.getByRole('complementary', { name: 'Выбранный сотрудник' })).toHaveTextContent(
+    'Иванов Иван',
+  );
+  await user.click(screen.getByRole('button', { name: 'Открыть полную карточку' }));
   expect(screen.getByRole('dialog')).toHaveTextContent('Карточка сотрудника');
+  expect(screen.queryByText(/Решение по окончанию вахты|Связанные записи/)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Изменить связь' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: /исходную таблицу/ })).not.toBeInTheDocument();
+  expect(screen.queryByText('Ожидаем решение')).not.toBeInTheDocument();
   expect(screen.getByRole('tab', { name: /^История/ })).toBeInTheDocument();
   expect(screen.queryByLabelText(/Добавить в мои сотрудники/)).not.toBeInTheDocument();
+  await user.click(
+    within(screen.getByRole('dialog')).getByRole('button', { name: 'Закрыть окно' }),
+  );
+  await user.click(screen.getByRole('button', { name: '+ Добавить фильтр' }));
+  expect(screen.queryByRole('option', { name: 'Решение по вахте' })).not.toBeInTheDocument();
 });
 
 it('не предлагает блоки, связанные с удалёнными фильтрами', () => {
@@ -123,6 +140,100 @@ it('не предлагает блоки, связанные с удалённы
     'План заездов',
     'Сохранённый список',
   ]);
+});
+
+it('фильтрует по двум статусам, собирает выбранных из разных выборок и сохраняет условия списка', async () => {
+  const user = userEvent.setup();
+  const allowed = { ...source(1), values: { ...source(1).values, custom_values: { '101': 'ok' } } };
+  const waiting = {
+    ...source(1),
+    row_id: 2,
+    values: { ...source(1).values, custom_values: { '101': 'wait' } },
+  };
+  const payload = data([
+    { ...person('allowed', [allowed]), full_name: 'Иванов Иван' },
+    { ...person('waiting', [waiting]), full_name: 'Петров Пётр' },
+    { ...person('away'), full_name: 'Сидоров Сергей' },
+  ]);
+  payload.dormitories = [{ id: 1, name: 'Северное', client_name: 'Клиент', is_archived: false }];
+  payload.source_columns = [
+    {
+      id: 101,
+      dormitory_id: 1,
+      table_key: 'residents',
+      source_name: 'Проживающие',
+      name: 'Статус',
+      kind: 'select',
+      builtin_key: null,
+      options: [
+        { id: 'ok', label: 'Допущен', archived: false },
+        { id: 'wait', label: 'Ожидает', archived: false },
+      ],
+    },
+  ];
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  vi.spyOn(personnelApi, 'workspace').mockImplementation(async () => ({ ...payload }));
+  const save = vi.spyOn(personnelApi, 'preferences').mockImplementation(async (preferences) => {
+    payload.preferences = { ...preferences, revision: preferences.revision + 1 };
+    return payload.preferences;
+  });
+  render(
+    <MemoryRouter>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+  const table = screen.getByRole('table');
+  await user.click(
+    within(table).getByRole('checkbox', { name: 'Выбрать сотрудника Сидоров Сергей' }),
+  );
+  await user.click(screen.getByRole('button', { name: '+ Добавить фильтр' }));
+  await user.selectOptions(screen.getByLabelText('Значение фильтра 1'), 'Проживает');
+  expect(within(table).getAllByRole('row')).toHaveLength(3);
+  expect(screen.getByText('Выбрано: 1')).toBeInTheDocument();
+  await user.click(within(table).getByRole('checkbox', { name: 'Выбрать сотрудника Иванов Иван' }));
+  await user.click(screen.getByRole('button', { name: '+ Добавить фильтр' }));
+  await user.selectOptions(
+    screen.getByLabelText('Столбец фильтра 2'),
+    within(screen.getByLabelText('Столбец фильтра 2')).getByRole('option', {
+      name: 'Проживающие · Статус',
+    }),
+  );
+  await user.selectOptions(screen.getByLabelText('Значение фильтра 2'), 'Допущен');
+  expect(within(table).getAllByRole('row')).toHaveLength(2);
+  expect(
+    within(table).getByRole('columnheader', { name: 'Проживающие · Статус' }),
+  ).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Список выбранных (2)' }));
+  const selected = screen.getByTestId('personnel-selected-list');
+  expect(within(selected).getByRole('button', { name: 'Выгрузить' })).toBeDisabled();
+  expect(within(selected).getByText('Сидоров Сергей')).toBeInTheDocument();
+  expect(within(selected).queryByText('Петров Пётр')).not.toBeInTheDocument();
+  await user.clear(within(selected).getByLabelText('Название списка'));
+  await user.type(within(selected).getByLabelText('Название списка'), 'Мой список');
+  expect(within(selected).getByRole('table')).toHaveAccessibleName('Мой список · 2');
+  await user.click(within(selected).getByRole('button', { name: 'Закрыть окно' }));
+  expect(screen.getByText('Выбрано: 2')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: '+ Сохранить текущий список' }));
+  const saving = screen.getByTestId('personnel-save-list');
+  await user.clear(within(saving).getByLabelText('Название списка'));
+  await user.type(within(saving).getByLabelText('Название списка'), 'Допущенные');
+  await user.click(within(saving).getByLabelText('Закрепить блоком на рабочей поверхности'));
+  await user.click(within(saving).getByRole('button', { name: 'Сохранить список' }));
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  await waitFor(() => expect(screen.queryByTestId('personnel-save-list')).not.toBeInTheDocument());
+  expect(save.mock.calls[0][0].lists[0].column_filters).toHaveLength(2);
+  await user.click(screen.getByRole('button', { name: 'Сбросить условия' }));
+  expect(within(table).getAllByRole('row')).toHaveLength(4);
+  await user.click(screen.getByRole('button', { name: /^Допущенные/ }));
+  expect(within(table).getAllByRole('row')).toHaveLength(2);
+  expect(screen.getByLabelText('Значение фильтра 2')).toHaveValue('Допущен');
 });
 
 it('открывает простой план из источника отчёта и сохраняет заезд без сотрудников', async () => {
@@ -200,6 +311,7 @@ describe('Персонал без задач', () => {
     expect(screen.queryByText('Задачи по сотрудникам')).not.toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: /Сотрудники/ }));
     await user.click(screen.getByRole('button', { name: /^Иванов Иван/ }));
+    await user.click(screen.getByRole('button', { name: 'Открыть полную карточку' }));
     await user.click(screen.getByRole('tab', { name: 'Заметки' }));
     expect(await screen.findByText('Договорились о следующей вахте')).toBeInTheDocument();
     expect(screen.queryByText('Новая задача')).not.toBeInTheDocument();

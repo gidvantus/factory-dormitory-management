@@ -2,208 +2,47 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { personnelApi } from '../api/personnel';
-import type { Block, Filter, PersonnelData, Preferences, SavedList } from '../api/personnel';
+import type {
+  Block,
+  EmployeeColumnFilter,
+  Filter,
+  PersonnelData,
+  Preferences,
+  SavedList,
+} from '../api/personnel';
 import { useSession } from '../auth/SessionProvider';
 import { usePageRefresh } from './usePageRefresh';
 import { ArrivalPlanningBoard } from './personnel/ArrivalPlanningBoard';
-import { BlockDialog, ExportDialog, SaveListDialog } from './personnel/Dialogs';
+import { PersonnelEmployeeFocus } from './personnel/PersonnelEmployeeFocus';
+import { BlockDialog, SaveListDialog } from './personnel/Dialogs';
 import type { Mutate } from './personnel/Forms';
 import { PersonnelProfile } from './personnel/PersonnelProfile';
 import type { ProfileTab } from './personnel/PersonnelProfile';
+import { PersonnelWorkspaceBlock } from './personnel/PersonnelWorkspaceBlock';
+import { PersonnelBlockIcon } from './personnel/PersonnelBlockIcon';
+import { EmployeeListFilters } from './personnel/EmployeeListFilterPanel';
+import { SelectedEmployeesDialog } from './personnel/SelectedEmployeesDialog';
+import { employeeListFields, sourceInScope } from './personnel/employeeListFilters';
+import plant from '../assets/plant.svg';
+import resident from '../assets/avatar-rezident.svg';
+import personnel from '../assets/avatar-kadrovik.svg';
+import manager from '../assets/avatar-komendant.svg';
 import {
-  addDays,
-  currentSources,
   dateLabel,
-  dayDiff,
-  decisionNames,
   defaultBlocks,
   dormName,
   filterPeople,
   message,
   names,
-  personName,
-  value,
 } from './personnel/helpers';
 import s from './personnel/Personnel.module.css';
+import w from './personnel/PersonnelWorkspace.module.css';
+import listStyles from './personnel/EmployeeList.module.css';
+import f from './personnel/PersonnelFocus.module.css';
 
 type View = 'workspace' | 'list' | 'planning';
 type OpenPerson = (id: string, tab?: ProfileTab) => void;
 type Criteria = Omit<SavedList, 'id' | 'name'>;
-
-function blockCriteria(block: Block, dormitory: number | null, data: PersonnelData): Criteria {
-  const list =
-    block.kind === 'saved'
-      ? data.preferences.lists.find((list) => list.id === block.saved_list_id)
-      : undefined;
-  return {
-    filter:
-      block.kind === 'saved'
-        ? (list?.filter ?? 'all')
-        : block.kind === 'residents' || block.kind === 'contacts'
-          ? 'current'
-          : 'ending',
-    dormitory: dormitory ?? list?.dormitory ?? null,
-    days: list?.days ?? block.days,
-    query: list?.query ?? '',
-    scope: block.scope.length ? block.scope : (list?.scope ?? []),
-  };
-}
-function WorkspaceBlock({
-  block,
-  data,
-  dormitory,
-  onPerson,
-  onList,
-  onView,
-}: {
-  block: Block;
-  data: PersonnelData;
-  dormitory: number | null;
-  onPerson: OpenPerson;
-  onList: (criteria: Criteria) => void;
-  onView: (view: View) => void;
-}): JSX.Element {
-  const scope = (id: number): boolean =>
-    (dormitory == null || id === dormitory) && (!block.scope.length || block.scope.includes(id));
-  const criteria = blockCriteria(block, dormitory, data);
-  const rows = filterPeople(data, criteria);
-  if (block.kind === 'plans') {
-    const plans = data.arrival_plans
-      .filter(
-        (plan) =>
-          scope(plan.dormitory_id) &&
-          plan.date >= data.today &&
-          plan.date <= addDays(data.today, block.days),
-      )
-      .sort((a, b) => a.date.localeCompare(b.date));
-    return (
-      <>
-        <p className={s.hint}>Ближайшие {block.days} дней</p>
-        <div className={s.rows}>
-          {plans.slice(0, block.limit).map((plan) => (
-            <button key={plan.id} onClick={() => onView('planning')}>
-              <span>
-                <strong>
-                  {plan.count} чел. · {dormName(data, plan.dormitory_id)}
-                </strong>
-                <small>{plan.names.length ? plan.names.join(', ') : 'ФИО не указаны'}</small>
-              </span>
-              <time>{dateLabel(plan.date)}</time>
-            </button>
-          ))}
-        </div>
-        {!plans.length && <p className={s.empty}>На выбранный период планов нет.</p>}
-        <div className={s.footer}>
-          <span>Ожидается: {plans.reduce((total, plan) => total + plan.count, 0)} чел.</span>
-          <button className={s.linkButton} onClick={() => onView('planning')}>
-            Открыть план заездов →
-          </button>
-        </div>
-      </>
-    );
-  }
-  if (block.kind === 'residents')
-    return (
-      <>
-        <button className={s.linkButton} onClick={() => onList(criteria)}>
-          <div className={s.bigNumber}>
-            <strong>{rows.length}</strong>
-            <span>проживают сейчас</span>
-          </div>
-        </button>
-        <div className={s.rows}>
-          {data.dormitories
-            .filter((dorm) => scope(dorm.id))
-            .map((dorm) => (
-              <button key={dorm.id} onClick={() => onList({ ...criteria, dormitory: dorm.id })}>
-                <span>
-                  <strong>{dorm.name}</strong>
-                  <small>
-                    {dorm.client_name}
-                    {dorm.is_archived ? ' · архив' : ''}
-                  </small>
-                </span>
-                <span className={s.count}>
-                  {
-                    rows.filter((person) =>
-                      person.current.some((source) => source.dormitory_id === dorm.id),
-                    ).length
-                  }
-                </span>
-              </button>
-            ))}
-        </div>
-        <div className={s.footer}>
-          <span>Одна карточка — один человек в сводке</span>
-          <button className={s.linkButton} onClick={() => onList(criteria)}>
-            Посмотреть сотрудников →
-          </button>
-        </div>
-      </>
-    );
-  if (
-    block.kind === 'saved' &&
-    !data.preferences.lists.some((list) => list.id === block.saved_list_id)
-  )
-    return <p className={s.empty}>Выберите сохранённый список в настройках блока.</p>;
-  return (
-    <>
-      <p className={s.hint}>
-        {block.kind === 'ending'
-          ? `Сегодня и следующие ${block.days} дней`
-          : block.kind === 'contacts'
-            ? 'Телефоны проживающих сотрудников'
-            : names[criteria.filter]}
-      </p>
-      <div className={s.rows}>
-        {rows.slice(0, block.limit).map((person) => {
-          const source = currentSources(person, criteria.dormitory)
-            .filter((source) => scope(source.dormitory_id))
-            .sort((a, b) => value(a, 'shift_end').localeCompare(value(b, 'shift_end')))[0];
-          const end = value(source, 'shift_end');
-          const decision = data.decisions.find(
-            (decision) => decision.resident_id === source?.row_id,
-          );
-          return (
-            <button key={person.id} onClick={() => onPerson(person.id)}>
-              <span>
-                <strong>{personName(person)}</strong>
-                <small>
-                  {source
-                    ? dormName(data, source.dormitory_id)
-                    : person.sources
-                        .map((source) => dormName(data, source.dormitory_id))
-                        .filter((name, index, all) => all.indexOf(name) === index)
-                        .join(' · ')}{' '}
-                  · Т/н {person.personnel_number ?? '—'}
-                </small>
-                {block.kind === 'ending' && (
-                  <small>{decisionNames[decision?.status ?? 'waiting']}</small>
-                )}
-              </span>
-              {block.kind === 'contacts' ? (
-                <span>{person.phone ?? 'Телефон не указан'}</span>
-              ) : block.kind === 'ending' ? (
-                <time>
-                  {end === data.today ? 'Сегодня' : `Через ${dayDiff(data.today, end)} дн.`}
-                </time>
-              ) : (
-                <span>→</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-      {!rows.length && <p className={s.empty}>По выбранным условиям сотрудников нет.</p>}
-      <div className={s.footer}>
-        <span>Всего сотрудников: {rows.length}</span>
-        <button className={s.linkButton} onClick={() => onList(criteria)}>
-          Открыть список →
-        </button>
-      </div>
-    </>
-  );
-}
 
 export function Personnel(): JSX.Element {
   const { user } = useSession();
@@ -215,7 +54,11 @@ export function Personnel(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
   const [view, setView] = useState<View>(
-    params.get('view') === 'planning' ? 'planning' : 'workspace',
+    params.get('view') === 'planning'
+      ? 'planning'
+      : params.get('view') === 'list'
+        ? 'list'
+        : 'workspace',
   );
   const [dormitory, setDormitory] = useState<number | null>(() => {
     const id = Number(params.get('dormitory'));
@@ -226,12 +69,12 @@ export function Personnel(): JSX.Element {
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<number[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
+  const [columnFilters, setColumnFilters] = useState<EmployeeColumnFilter[]>([]);
+  const [selectedList, setSelectedList] = useState<string[] | null>(null);
   const [page, setPage] = useState(0);
   const [configuring, setConfiguring] = useState(false);
   const [blockEditor, setBlockEditor] = useState<Block | 'new' | null>(null);
   const [savingList, setSavingList] = useState(false);
-  const [exporting, setExporting] = useState<'people' | 'departures' | null>(null);
-  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const mutating = useRef(false);
   const refresh = usePageRefresh();
@@ -260,14 +103,8 @@ export function Personnel(): JSX.Element {
   }, [attempt, refresh, user?.is_active]);
   useEffect(() => {
     setPage(0);
-    setSelected([]);
-  }, [filter, query, dormitory, days, scope]);
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(''), 5000);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
-  const modalOpen = !!selectedId || !!blockEditor || savingList || !!exporting;
+  }, [filter, query, dormitory, days, scope, columnFilters]);
+  const modalOpen = !!selectedId || !!blockEditor || savingList || selectedList !== null;
   useEffect(() => {
     if (!modalOpen) return;
     const previous = document.body.style.overflow;
@@ -325,13 +162,31 @@ export function Personnel(): JSX.Element {
       </section>
     );
   const blocks = data.preferences.blocks ?? defaultBlocks;
-  const criteria: Criteria = { filter, dormitory, days, query, scope };
+  const criteria: Criteria = {
+    filter,
+    dormitory,
+    days,
+    query,
+    scope,
+    column_filters: columnFilters,
+  };
   const rows = filterPeople(data, criteria);
   const pages = Math.max(1, Math.ceil(rows.length / 20));
   const actualPage = Math.min(page, pages - 1);
-  const visible = rows.slice(actualPage * 20, actualPage * 20 + 20);
-  const selectedRows = rows.filter((person) => selected.includes(person.id));
-  const actionRows = selectedRows.length ? selectedRows : rows;
+  const visible = rows.slice(actualPage * 20, actualPage * 20 + 20).map((person) => ({
+    ...person,
+    current: person.current.filter((source) => sourceInScope(source, criteria)),
+  }));
+  const selectedRows = data.employees.filter((person) => selected.includes(person.id));
+  const selectedInRows = rows.filter((person) => selected.includes(person.id));
+  const listFields = employeeListFields(data, criteria);
+  const extraFields = listFields.filter(
+    (field) => field.table && columnFilters.some((rule) => rule.field === field.id),
+  );
+  const fullCriteria = { ...criteria, dormitory: null, scope: [] };
+  const previewFields = employeeListFields(data, fullCriteria).filter((field) =>
+    extraFields.some((item) => item.id === field.id),
+  );
   const employee = selectedId
     ? data.employees.find(
         (person) => person.id === selectedId || person.member_ids.includes(selectedId),
@@ -359,38 +214,22 @@ export function Personnel(): JSX.Element {
     setDays(list.days);
     setQuery(list.query);
     setScope(list.scope);
+    setColumnFilters(list.column_filters ?? []);
     setView('list');
   };
-  async function copyPhones(): Promise<void> {
-    const phones = [
-      ...new Map(
-        actionRows
-          .filter((person) => person.phone)
-          .map((person) => [person.phone!.replace(/\D/g, ''), person.phone!]),
-      ).values(),
-    ];
-    if (!phones.length) {
-      setNotice('В выбранном списке нет заполненных телефонов.');
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(phones.join('\n'));
-      setNotice(
-        `Скопировано телефонов: ${phones.length}. Без телефона: ${actionRows.filter((person) => !person.phone).length}.`,
-      );
-    } catch {
-      setError(
-        'Браузер не разрешил копирование. Можно выгрузить телефоны через «Экспорт для Excel».',
-      );
-    }
-  }
   const summary = (id: Filter): number =>
     filterPeople(data, { filter: id, dormitory, days, query: '', scope: [] }).length;
+  const listSummary = (id: Filter): number =>
+    filterPeople({ ...data, employees: rows }, { ...criteria, filter: id }).length;
   return (
-    <section className={s.page} data-testid="personnel-workspace" aria-busy={busy}>
-      <div className={s.heading}>
+    <section
+      className={view === 'workspace' ? w.surface : `${s.page} ${w.surface} ${f.surface}`}
+      data-testid="personnel-workspace"
+      aria-busy={busy}
+    >
+      <div className={`${s.heading} ${w.heading}`}>
         <div>
-          <span className={s.eyebrow}>ЛЮДИ И ИХ ИСТОРИЯ</span>
+          <span className={`${s.eyebrow} ${w.eyebrow}`}>ЛЮДИ И ИХ ИСТОРИЯ</span>
           <h1>
             Персонал <small>{data.employees.length}</small>
           </h1>
@@ -398,13 +237,18 @@ export function Personnel(): JSX.Element {
         </div>
         {view === 'workspace' && (
           <div className={s.actions}>
-            <button disabled={busy || blocks.length >= 20} onClick={() => setBlockEditor('new')}>
-              + Добавить блок
+            <button
+              type="button"
+              className="btn btn--primary btn--compact"
+              disabled={busy || blocks.length >= 20}
+              onClick={() => setBlockEditor('new')}
+            >
+              <PersonnelBlockIcon name="plus" /> Добавить блок
             </button>
           </div>
         )}
       </div>
-      <div className={s.tabs} role="tablist" aria-label="Раздел персонала">
+      <div className={`${s.tabs} ${w.tabs}`} role="tablist" aria-label="Раздел персонала">
         {(
           [
             ['workspace', 'Рабочая поверхность'],
@@ -430,7 +274,33 @@ export function Personnel(): JSX.Element {
           </button>
         ))}
       </div>
-      <div className={s.toolbar}>
+      {view === 'list' && (
+        <div className={f.hero}>
+          <div>
+            <h2>Сотрудники</h2>
+            <p>Люди, проживание и вахты — всё под рукой.</p>
+            <div className={f.stats}>
+              <span>
+                <b>{rows.length}</b> В списке
+              </span>
+              <span>
+                <i aria-hidden="true" />
+                <b>{listSummary('current')}</b> Проживает
+              </span>
+              <span>
+                <PersonnelBlockIcon name="ending" />
+                <b>{listSummary('ending')}</b> Завершают вахту
+              </span>
+            </div>
+          </div>
+          <div className={f.heroArt} aria-hidden="true">
+            <img src={resident} alt="" />
+            <img src={personnel} alt="" />
+            <img src={manager} alt="" />
+          </div>
+        </div>
+      )}
+      <div className={`${s.toolbar} ${w.toolbar}`}>
         <div className={s.actions}>
           <label>
             Общежитие
@@ -473,7 +343,13 @@ export function Personnel(): JSX.Element {
           )}
         </div>
         {view === 'workspace' ? (
-          <button onClick={() => setConfiguring((value) => !value)}>
+          <button
+            type="button"
+            className={`btn btn--compact ${configuring ? 'btn--primary' : 'btn--outline'}`}
+            aria-pressed={configuring}
+            onClick={() => setConfiguring((value) => !value)}
+          >
+            <PersonnelBlockIcon name="settings" />
             {configuring ? 'Завершить настройку' : 'Настроить поверхность'}
           </button>
         ) : view !== 'planning' ? (
@@ -483,11 +359,6 @@ export function Personnel(): JSX.Element {
       {error && (
         <p role="alert" className={s.error}>
           {error} <button onClick={() => setAttempt((n) => n + 1)}>Обновить данные</button>
-        </p>
-      )}
-      {notice && (
-        <p role="status" className={s.notice}>
-          {notice}
         </p>
       )}
       {selectedId && !employee && (
@@ -501,8 +372,8 @@ export function Personnel(): JSX.Element {
           сотрудника в его таблицу.
         </p>
       )}
-      {view !== 'planning' && (
-        <div className={s.metrics}>
+      {view === 'workspace' && (
+        <div className={view === 'workspace' ? w.metrics : s.metrics}>
           {(
             [
               ['current', 'Проживают сейчас'],
@@ -511,98 +382,69 @@ export function Personnel(): JSX.Element {
           ).map(([id, label]) => (
             <button
               key={id}
-              onClick={() => onList({ ...criteria, filter: id, query: '', scope: [] })}
+              className={view === 'workspace' ? `link-button ${w.summaryLink}` : undefined}
+              onClick={() =>
+                onList({ ...criteria, filter: id, query: '', scope: [], column_filters: [] })
+              }
             >
+              {view === 'workspace' &&
+                (id === 'current' ? (
+                  <i aria-hidden="true" />
+                ) : (
+                  <PersonnelBlockIcon name="ending" />
+                ))}
               <strong>{summary(id)}</strong>
               <span>{label}</span>
             </button>
           ))}
+          {view === 'workspace' && (
+            <span className={w.blockCount}>{blocks.length} / 20 блоков</span>
+          )}
         </div>
       )}
       {view === 'workspace' && (
         <>
-          <div className={s.grid}>
+          <div className={w.grid}>
             {blocks.map((block, index) => (
-              <article
+              <PersonnelWorkspaceBlock
                 key={block.id}
-                className={`${s.card} ${block.wide ? s.wide : ''}`}
-                data-testid={`personnel-block-${block.id}`}
-              >
-                <div className={s.cardHead}>
-                  <div>
-                    <h2>{block.title}</h2>
-                    <small>
-                      {block.scope.length
-                        ? block.scope.map((id) => dormName(data, id)).join(' · ')
-                        : 'Все общежития'}
-                    </small>
-                  </div>
-                  {configuring ? (
-                    <div className={s.blockTools}>
-                      <button
-                        disabled={busy || index === 0}
-                        aria-label={`Поднять блок «${block.title}»`}
-                        onClick={() => {
-                          const next = [...blocks];
-                          [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                          void savePreferences({ blocks: next }).catch(() => {});
-                        }}
-                      >
-                        ↑
-                      </button>
-                      <button
-                        disabled={busy || index === blocks.length - 1}
-                        aria-label={`Опустить блок «${block.title}»`}
-                        onClick={() => {
-                          const next = [...blocks];
-                          [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                          void savePreferences({ blocks: next }).catch(() => {});
-                        }}
-                      >
-                        ↓
-                      </button>
-                      <button
-                        disabled={busy}
-                        aria-label={`Убрать блок «${block.title}»`}
-                        onClick={() =>
-                          void savePreferences({
-                            blocks: blocks.filter((item) => item.id !== block.id),
-                          }).catch(() => {})
-                        }
-                      >
-                        ×
-                      </button>
-                      <button disabled={busy} onClick={() => setBlockEditor(block)}>
-                        Изменить
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      aria-label={`Настроить блок «${block.title}»`}
-                      onClick={() => setBlockEditor(block)}
-                    >
-                      ⚙
-                    </button>
-                  )}
-                </div>
-                <WorkspaceBlock
-                  block={block}
-                  data={data}
-                  dormitory={dormitory}
-                  onPerson={onPerson}
-                  onList={onList}
-                  onView={setView}
-                />
-              </article>
+                block={block}
+                data={data}
+                dormitory={dormitory}
+                configuring={configuring}
+                busy={busy}
+                first={index === 0}
+                last={index === blocks.length - 1}
+                onPerson={onPerson}
+                onList={onList}
+                onPlanning={() => setView('planning')}
+                onEdit={() => setBlockEditor(block)}
+                onMove={(direction) => {
+                  const next = [...blocks];
+                  [next[index], next[index + direction]] = [next[index + direction], next[index]];
+                  void savePreferences({ blocks: next }).catch(() => {});
+                }}
+                onRemove={() =>
+                  void savePreferences({
+                    blocks: blocks.filter((item) => item.id !== block.id),
+                  }).catch(() => {})
+                }
+              />
             ))}
-            <button
-              className={s.addCard}
-              disabled={blocks.length >= 20 || busy}
-              onClick={() => setBlockEditor('new')}
-            >
-              + Добавить свой блок
-            </button>
           </div>
+          <button
+            type="button"
+            className={`btn btn--outline btn--compact ${w.addCard}`}
+            disabled={blocks.length >= 20 || busy}
+            onClick={() => setBlockEditor('new')}
+          >
+            <PersonnelBlockIcon name="plus" />
+            <span>
+              <strong>{blocks.length >= 20 ? 'Добавлено 20 блоков' : 'Добавить свой блок'}</strong>
+              <small>Список, контакты или отдельное общежитие</small>
+            </span>
+            <img src={plant} alt="" />
+          </button>
           {configuring && (
             <div className={s.toolbar}>
               <span className={s.hint}>
@@ -610,6 +452,7 @@ export function Personnel(): JSX.Element {
               </span>
               <button
                 disabled={busy}
+                className="btn btn--outline btn--compact"
                 onClick={() => void savePreferences({ blocks: defaultBlocks }).catch(() => {})}
               >
                 Вернуть стандартные блоки
@@ -622,7 +465,7 @@ export function Personnel(): JSX.Element {
         <ArrivalPlanningBoard data={data} dormitory={dormitory} mutate={mutate} />
       )}
       {view === 'list' && (
-        <section className={s.board}>
+        <section className={`${s.board} ${f.employeeBoard}`}>
           <div className={s.saved}>
             <span className={s.eyebrow}>МОИ СПИСКИ</span>
             {data.preferences.lists.map((list) => (
@@ -679,112 +522,44 @@ export function Personnel(): JSX.Element {
               </button>
             </p>
           )}
+          <EmployeeListFilters
+            data={data}
+            criteria={criteria}
+            fields={listFields}
+            onChange={setColumnFilters}
+          />
           <div className={s.bulk}>
             <strong>
               {selectedRows.length ? `Выбрано: ${selectedRows.length}` : `Список: ${rows.length}`}
             </strong>
+            <button
+              type="button"
+              className={s.primary}
+              disabled={!selectedRows.length}
+              onClick={() => setSelectedList(selectedRows.map((person) => person.id))}
+            >
+              Список выбранных{selectedRows.length ? ` (${selectedRows.length})` : ''}
+            </button>
             {selectedRows.length > 0 && (
               <button onClick={() => setSelected([])}>Снять выбор</button>
             )}
-            <button disabled={!actionRows.length} onClick={() => void copyPhones()}>
-              Копировать телефоны
-            </button>
-            <button disabled={!actionRows.length} onClick={() => setExporting('people')}>
-              Экспорт для Excel
-            </button>
-            <button disabled={!actionRows.length} onClick={() => setExporting('departures')}>
-              Список выездов
-            </button>
+            {selectedRows.length > 0 && (
+              <span className={listStyles.selectionHint}>
+                В текущей выборке: {selectedInRows.length} из {selectedRows.length} выбранных. Выбор
+                сохраняется при смене фильтров.
+              </span>
+            )}
           </div>
-          <div className={s.tableScroll}>
-            <table className={s.table}>
-              <thead>
-                <tr>
-                  <th>
-                    <input
-                      type="checkbox"
-                      aria-label={`Выбрать весь список: ${rows.length}`}
-                      checked={rows.length > 0 && selectedRows.length === rows.length}
-                      aria-checked={
-                        selectedRows.length > 0 && selectedRows.length < rows.length
-                          ? 'mixed'
-                          : selectedRows.length === rows.length && rows.length > 0
-                      }
-                      onChange={(event) =>
-                        setSelected(event.target.checked ? rows.map((person) => person.id) : [])
-                      }
-                    />
-                  </th>
-                  <th>Сотрудник</th>
-                  <th>Проживание</th>
-                  <th>Период вахты</th>
-                  <th>Статус</th>
-                  <th>Телефон</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((person) => (
-                  <tr key={person.id}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        aria-label={`Выбрать сотрудника ${personName(person)}`}
-                        checked={selected.includes(person.id)}
-                        onChange={(event) =>
-                          setSelected(
-                            event.target.checked
-                              ? [...selected, person.id]
-                              : selected.filter((id) => id !== person.id),
-                          )
-                        }
-                      />
-                    </td>
-                    <td>
-                      <button className={s.name} onClick={() => onPerson(person.id)}>
-                        {personName(person)}
-                        <small>Т/н {person.personnel_number ?? '—'}</small>
-                      </button>
-                    </td>
-                    <td>
-                      {person.current.length
-                        ? person.current.map((source) => (
-                            <div key={source.row_id}>
-                              {dormName(data, source.dormitory_id)}
-                              <small>{value(source, 'hostel_name') || 'Место не указано'}</small>
-                            </div>
-                          ))
-                        : 'Сейчас не проживает'}
-                    </td>
-                    <td>
-                      {person.current.map((source) => {
-                        const decision = data.decisions.find(
-                          (item) => item.resident_id === source.row_id,
-                        );
-                        return (
-                          <div key={source.row_id}>
-                            {dateLabel(value(source, 'shift_start'))} —{' '}
-                            {dateLabel(value(source, 'shift_end'))}
-                            <small>
-                              <button className={s.linkButton} onClick={() => onPerson(person.id)}>
-                                {decisionNames[decision?.status ?? 'waiting']}
-                              </button>
-                            </small>
-                          </div>
-                        );
-                      })}
-                    </td>
-                    <td>
-                      <span className={s.badge}>
-                        {person.current.length ? 'Проживает' : 'Вне общежитий'}
-                      </span>
-                    </td>
-                    <td>{person.phone ?? 'Не указан'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {!rows.length && <p className={s.empty}>Сотрудников по выбранным условиям нет.</p>}
+          <PersonnelEmployeeFocus
+            people={visible}
+            rows={rows}
+            selected={selected}
+            onSelection={setSelected}
+            data={data}
+            criteria={criteria}
+            fields={extraFields}
+            onPerson={onPerson}
+          />
           <div className={s.pagination}>
             <span>
               {rows.length ? actualPage * 20 + 1 : 0}–{Math.min(rows.length, (actualPage + 1) * 20)}{' '}
@@ -805,6 +580,16 @@ export function Personnel(): JSX.Element {
           {busy ? 'Сохраняем изменения…' : 'Настройки рабочей поверхности сохраняются в аккаунте'}
         </span>
       </div>
+      {selectedList !== null && (
+        <SelectedEmployeesDialog
+          people={data.employees.filter((person) => selectedList.includes(person.id))}
+          data={data}
+          criteria={fullCriteria}
+          fields={previewFields}
+          onPerson={onPerson}
+          onClose={() => setSelectedList(null)}
+        />
+      )}
       {employee && (
         <PersonnelProfile
           key={employee.id}
@@ -861,14 +646,6 @@ export function Personnel(): JSX.Element {
                 : blocks,
             });
           }}
-        />
-      )}
-      {exporting && (
-        <ExportDialog
-          people={actionRows}
-          data={data}
-          departures={exporting === 'departures'}
-          onClose={() => setExporting(null)}
         />
       )}
     </section>

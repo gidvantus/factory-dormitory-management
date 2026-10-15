@@ -17,7 +17,6 @@ from app.models.inflow import PersonnelInflow
 from app.models.outflow import PersonnelOutflow
 from app.models.personnel import (
     Employee,
-    EmployeeDecision,
     EmployeeEvent,
     EmployeeMerge,
     EmployeeNote,
@@ -48,7 +47,6 @@ from app.schemas.inflow import UpdateInflowRequest
 from app.schemas.outflow import UpdateOutflowRequest
 from app.schemas.personnel import (
     BindingInput,
-    DecisionInput,
     EmployeeUpdate,
     IdentityFields,
     NoteInput,
@@ -199,13 +197,6 @@ def link_record(payload: RecordLink, user: SubscribedUser, db: DbSession) -> dic
     for entry in previous:
         entry.employee_id = employee.id
     row.employee_id = employee.id
-    if isinstance(row, Resident):
-        decision = db.get(EmployeeDecision, row.id)
-        if decision:
-            decision.employee_id = employee.id
-            plan = db.get(EmployeePlan, decision.plan_id) if decision.plan_id else None
-            if plan:
-                plan.employee_id = employee.id
     record_changed(db, row, user.id, kind="identity", title="Запись связана с карточкой сотрудника")
     event(
         db,
@@ -348,8 +339,6 @@ def cancel_plan(plan_id: UUID, user: SubscribedUser, db: DbSession) -> None:
     plan = db.get(EmployeePlan, str(plan_id))
     if plan is None:
         raise HTTPException(404, "План не найден")
-    for decision in db.scalars(select(EmployeeDecision).where(EmployeeDecision.plan_id == plan.id)):
-        decision.status, decision.date, decision.plan_id = "waiting", None, None
     event(
         db,
         plan.employee_id,
@@ -361,95 +350,6 @@ def cancel_plan(plan_id: UUID, user: SubscribedUser, db: DbSession) -> None:
     )
     db.delete(plan)
     db.commit()
-
-
-@router.put("/employees/{employee_id}/decision")
-def save_decision(
-    employee_id: UUID, payload: DecisionInput, user: SubscribedUser, db: DbSession
-) -> dict[str, bool]:
-    resident = db.get(Resident, payload.resident_id)
-    if resident is None:
-        raise HTTPException(404, "Запись проживания не найдена")
-    lock_dormitory(db, resident.dormitory_id)
-    require_writable_table(db, resident.dormitory_id, "residents")
-    identity_lock(db)
-    employee = get_employee(db, str(employee_id))
-    if resident.employee_id not in group_ids(db, employee.id):
-        raise HTTPException(409, "Запись проживания относится к другому сотруднику")
-    decision = db.get(EmployeeDecision, resident.id)
-    if not decision:
-        decision = EmployeeDecision(
-            resident_id=resident.id,
-            employee_id=resident.employee_id,
-            original_end=resident.shift_end,
-            status="waiting",
-        )
-        db.add(decision)
-    if payload.status != "waiting" and payload.date and payload.date < today():
-        raise HTTPException(422, "Укажите сегодняшнюю или будущую дату")
-    if payload.status == "extend":
-        if (
-            payload.date is None
-            or (resident.shift_start and payload.date < resident.shift_start)
-            or (decision.original_end and payload.date <= decision.original_end)
-        ):
-            raise HTTPException(422, "Продление должно быть позже первоначального окончания вахты")
-        next_plans = list(
-            db.scalars(
-                select(EmployeePlan).where(
-                    EmployeePlan.employee_id.in_(group_ids(db, employee.id)),
-                    EmployeePlan.kind == "arrival",
-                )
-            )
-        )
-        if any(plan.date <= payload.date for plan in next_plans):
-            raise HTTPException(
-                409, "Продление пересекается со следующим заездом. Сначала измените план приезда"
-            )
-        resident.shift_end = payload.date
-        record_changed(
-            db, resident, user.id, kind="shift", title="Согласовано продление текущей вахты"
-        )
-    old_plan = db.get(EmployeePlan, decision.plan_id) if decision.plan_id else None
-    if payload.status == "departure":
-        assert payload.date is not None
-        plan = old_plan or EmployeePlan(
-            employee_id=resident.employee_id,
-            kind="departure",
-            dormitory_id=resident.dormitory_id,
-            created_by_id=user.id,
-        )
-        plan.date, plan.end, plan.comment, plan.confirmed = (
-            payload.date,
-            None,
-            payload.comment,
-            True,
-        )
-        plan.dormitory_id = resident.dormitory_id
-        db.add(plan)
-        db.flush()
-        decision.plan_id = plan.id
-    elif old_plan:
-        decision.plan_id = None
-        db.delete(old_plan)
-    decision.status, decision.date, decision.comment = payload.status, payload.date, payload.comment
-    event(
-        db,
-        resident.employee_id,
-        "decision",
-        {
-            "waiting": "Ожидаем решение по вахте",
-            "extend": "Продление согласовано",
-            "departure": "Согласован выезд",
-        }[payload.status],
-        user.id,
-        dormitory_id=resident.dormitory_id,
-        source_table="residents",
-        source_id=resident.id,
-        snapshot=payload.model_dump(mode="json"),
-    )
-    db.commit()
-    return {"ok": True}
 
 
 @router.post("/merges/{merge_id}/undo")

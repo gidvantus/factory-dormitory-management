@@ -1,8 +1,9 @@
 """Строки притока персонала по общежитию."""
 
 from datetime import date, datetime
+from typing import Any
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -23,6 +24,7 @@ class PersonnelInflow(CustomValuesMixin, Base):
     citizenship: Mapped[str | None] = mapped_column(String(120))
     notes: Mapped[str | None] = mapped_column(Text)
     shift_count: Mapped[int | None] = mapped_column(Integer)
+    resident_values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")
     processed_as: Mapped[str | None] = mapped_column(String(16))
     processed_row_id: Mapped[int | None] = mapped_column(Integer)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -227,15 +227,6 @@ function PaymentsContent({
         <ColumnsControls />
         <button
           type="button"
-          className="btn btn--primary btn--compact"
-          aria-busy={adding}
-          disabled={adding || clearing || status !== 'ready'}
-          onClick={() => void add()}
-        >
-          {adding ? 'Добавляем…' : '+ Добавить строку'}
-        </button>
-        <button
-          type="button"
           className={styles.clearButton}
           aria-busy={clearing}
           disabled={adding || removing || clearing || status !== 'ready'}
@@ -245,6 +236,15 @@ function PaymentsContent({
           }}
         >
           {clearing ? 'Очищаем…' : 'Очистить список'}
+        </button>
+        <button
+          type="button"
+          className={`btn btn--primary btn--compact ${styles.addButton}`}
+          aria-busy={adding}
+          disabled={adding || clearing || status !== 'ready'}
+          onClick={() => void add()}
+        >
+          {adding ? 'Добавляем…' : '+ Добавить строку'}
         </button>
       </div>
       {status === 'loading' && <p role="status">Загружаем список…</p>}

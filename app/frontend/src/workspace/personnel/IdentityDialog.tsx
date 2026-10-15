@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { ApiError, waitForDormitoryWrites } from '../../api/client';
 import { personnelApi } from '../../api/personnel';
 import type {
@@ -15,19 +16,29 @@ export function IdentityDialog({
   tableKey,
   rowId,
   initial,
-  selectedEmployeeId,
   values = {},
   onClose,
   onSaved,
+  title,
+  renderFields,
+  saveRecord,
+  panelClassName,
 }: {
   dormitoryId: string;
   tableKey: SourceTable;
   rowId?: number;
   initial?: Partial<IdentityFields>;
-  selectedEmployeeId?: string;
   values?: Record<string, unknown>;
   onClose: () => void;
   onSaved: (id: string) => void;
+  title?: string;
+  renderFields?: (
+    fields: IdentityFields,
+    busy: boolean,
+    onChange: (field: keyof IdentityFields, value: string | null) => void,
+  ) => ReactNode;
+  saveRecord?: (identity: IdentityChoice) => Promise<string>;
+  panelClassName?: string;
 }): JSX.Element {
   const omitPersonnelNumber =
     rowId === undefined && (tableKey === 'residents' || tableKey === 'inflow');
@@ -37,17 +48,22 @@ export function IdentityDialog({
     phone: initial?.phone ?? null,
   });
   const [checked, setChecked] = useState<IdentityCheck | null>(null);
-  const [selected, setSelected] = useState<string | null>(selectedEmployeeId ?? null);
+  const [selected, setSelected] = useState<string | null>(null);
   const mode = selected ? 'existing' : 'new';
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  function changeIdentity(field: keyof IdentityFields, value: string | null): void {
+    setError('');
+    setChecked(null);
+    setFields((current) => ({ ...current, [field]: value?.trim() ? value : null }));
+    setSelected(null);
+  }
   useEffect(() => {
     const controller = new AbortController();
     setChecked(null);
     setChecking(true);
-    setError('');
     const timer = window.setTimeout(() => {
       void personnelApi
         .check(fields, controller.signal)
@@ -83,10 +99,15 @@ export function IdentityDialog({
         employee_id: mode === 'existing' ? selected : null,
         check_token: checked.check_token,
       };
-      const result = rowId
-        ? await personnelApi.link(Number(dormitoryId), tableKey, rowId, identity)
-        : await personnelApi.createRecord(Number(dormitoryId), tableKey, identity, values);
-      onSaved(result.employee_id);
+      const employeeId =
+        saveRecord && !rowId
+          ? await saveRecord(identity)
+          : (
+              await (rowId
+                ? personnelApi.link(Number(dormitoryId), tableKey, rowId, identity)
+                : personnelApi.createRecord(Number(dormitoryId), tableKey, identity, values))
+            ).employee_id;
+      onSaved(employeeId);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось сохранить сотрудника.');
       if (caught instanceof ApiError && caught.status === 409) setAttempt((n) => n + 1);
@@ -96,11 +117,11 @@ export function IdentityDialog({
   }
   return (
     <Modal
-      title={rowId ? 'Связать запись с сотрудником' : 'Добавить сотрудника'}
+      title={title ?? (rowId ? 'Связать запись с сотрудником' : 'Добавить сотрудника')}
       testId="personnel-identity"
       onClose={onClose}
       closeDisabled={busy}
-      panelClassName={s.modal}
+      panelClassName={`${s.modal} ${panelClassName ?? ''}`}
     >
       <form
         className={s.form}
@@ -113,36 +134,31 @@ export function IdentityDialog({
           Введите известные данные и проверьте, есть ли уже карточка этого человека. Исходные
           сведения в других общежитиях сохранятся.
         </p>
-        <div className={s.formGrid}>
-          {(
-            [
-              ['full_name', 'ФИО'],
-              ['personnel_number', 'Табельный номер'],
-              ['phone', 'Телефон'],
-            ] as const
-          )
-            .filter(([field]) => !omitPersonnelNumber || field !== 'personnel_number')
-            .map(([field, label]) => (
-              <label key={field}>
-                {label}
-                <input
-                  disabled={busy}
-                  maxLength={field === 'full_name' ? 255 : field === 'phone' ? 30 : 40}
-                  value={fields[field] ?? ''}
-                  onChange={(event) => {
-                    setChecked(null);
-                    setFields({
-                      ...fields,
-                      [field]: event.target.value.trim() ? event.target.value : null,
-                    });
-                    if (!selectedEmployeeId) {
-                      setSelected(null);
-                    }
-                  }}
-                />
-              </label>
-            ))}
-        </div>
+        {renderFields ? (
+          renderFields(fields, busy, changeIdentity)
+        ) : (
+          <div className={s.formGrid}>
+            {(
+              [
+                ['full_name', 'ФИО'],
+                ['personnel_number', 'Табельный номер'],
+                ['phone', 'Телефон'],
+              ] as const
+            )
+              .filter(([field]) => !omitPersonnelNumber || field !== 'personnel_number')
+              .map(([field, label]) => (
+                <label key={field}>
+                  {label}
+                  <input
+                    disabled={busy}
+                    maxLength={field === 'full_name' ? 255 : field === 'phone' ? 30 : 40}
+                    value={fields[field] ?? ''}
+                    onChange={(event) => changeIdentity(field, event.target.value)}
+                  />
+                </label>
+              ))}
+          </div>
+        )}
         <section className={s.softCard} aria-label="Результаты проверки">
           <h3>Возможные совпадения</h3>
           {checking && <p role="status">Проверяем данные…</p>}

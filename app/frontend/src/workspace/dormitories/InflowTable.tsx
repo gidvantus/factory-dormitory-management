@@ -4,7 +4,7 @@ import { api, ApiError } from '../../api/client';
 import type { InflowAction, InflowField, InflowRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
-import { IdentityDialog } from '../personnel/IdentityDialog';
+import { InflowEntryDialog } from './InflowEntryDialog';
 import { EmployeeNameCell } from './EmployeeNameCell';
 import { InflowActionDialog } from './InflowActionDialog';
 import { useTableSaves } from './tableColumnsContext';
@@ -111,6 +111,9 @@ function InflowEntry({
     <tr data-testid={`inflow-row-${row.id}`}>
       <ConfiguredCells
         row={row}
+        actionResult={
+          row.processed_as ? (row.processed_as === 'residents' ? 'Заселён' : 'Выселен') : undefined
+        }
         fields={[
           'settlement_date',
           'personnel_number',
@@ -202,16 +205,13 @@ function InflowEntry({
             type="button"
             className="btn btn--ghost btn--compact"
             aria-busy={saving}
-            disabled={saving}
-            onClick={() => onDelete(draft)}
+            disabled={saving || !!row.processed_as}
+            onClick={() => {
+              if (!row.processed_as) onDelete(draft);
+            }}
           >
             Удалить
           </button>
-          {row.processed_as && (
-            <span className={styles.result}>
-              {row.processed_as === 'residents' ? 'Заселён' : 'В оттоке'}
-            </span>
-          )}
           {(saving || error) && (
             <span role={error ? 'alert' : 'status'} className={error ? styles.error : undefined}>
               {error || 'Сохраняем…'}
@@ -296,9 +296,9 @@ function InflowContent({
         />
       )}
       {adding && (
-        <IdentityDialog
+        <InflowEntryDialog
           dormitoryId={dormitoryId}
-          tableKey="inflow"
+          month={`${range.from.slice(0, 7)}-01`}
           onClose={() => setAdding(false)}
           onSaved={() => {
             setAdding(false);

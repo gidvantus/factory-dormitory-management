@@ -7,6 +7,7 @@ import { mockFetch } from '../../test/mockFetch';
 import { renderApp } from '../../test/renderApp';
 import { ManageCustomTabsDialog } from './ManageCustomTabsDialog';
 import { CustomTabTable } from './CustomTabTable';
+import { currentMonth } from '../dashboard/dates';
 
 const empty: CustomTab = {
   id: 9,
@@ -179,7 +180,12 @@ it('открывает скрытую таблицу без возможност
       : { status: 200, body: [{ id: 20, custom_values: { '101': 'ready' } }] };
   });
   render(
-    <CustomTabTable dormitoryId="7" tab={{ ...populated, is_active: false }} onChanged={vi.fn()} />,
+    <CustomTabTable
+      range={currentMonth()}
+      dormitoryId="7"
+      tab={{ ...populated, is_active: false }}
+      onChanged={vi.fn()}
+    />,
   );
   expect(await screen.findByLabelText('Статус, строка 20')).toHaveValue('ready');
   expect(screen.getByLabelText('Статус, строка 20')).toBeDisabled();

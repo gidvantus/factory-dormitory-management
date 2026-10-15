@@ -94,40 +94,6 @@
 .softCard > strong {
   font-size: 13px;
 }
-.decisionCard {
-  padding: 18px;
-  background: #fcf8ee;
-  border: 1px solid #e9dfc9;
-  border-radius: 11px;
-}
-.decisionCard h4 {
-  font-size: 13px;
-}
-.decisionCard p {
-  color: #776446;
-  font-size: 12px;
-  line-height: 1.7;
-}
-.decisionCard > small {
-  display: block;
-  font-size: 11px;
-  line-height: 1.7;
-  color: #796f5b;
-  margin-top: 7px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.decisionCard > button {
-  margin-top: 10px;
-}
-.decisionLink {
-  display: block;
-  border: 0;
-  background: none;
-  padding: 0;
-  margin-top: 6px;
-  cursor: pointer;
-}
 .favorite {
   display: grid;
   place-items: center;
@@ -535,18 +501,9 @@
   font-size: 12px;
   color: #466338;
 }
-.bulkBar small {
-  font-size: 10px;
-  color: #647759;
-}
 .bulkBar button {
   min-height: 32px;
   padding: 7px 10px;
-}
-.exportColumns {
-  display: grid;
-  gap: 13px;
-  padding: 8px 0 16px;
 }
 .widgetRows {
   padding: 0 22px 12px;
@@ -649,9 +606,6 @@
   .formRow {
     grid-template-columns: 1fr;
   }
-  .decisionCard .formRow {
-    grid-template-columns: 1fr;
-  }
   .notes article > div {
     flex-wrap: wrap;
   }
@@ -672,12 +626,6 @@
   }
   .bulkBar {
     padding: 13px 15px;
-  }
-  .bulkBar .actions {
-    gap: 6px;
-  }
-  .bulkBar .actions button {
-    font-size: 10px !important;
   }
   .widgetRows {
     padding-inline: 15px;

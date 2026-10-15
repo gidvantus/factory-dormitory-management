@@ -11,7 +11,7 @@ export type Source = {
   row_id: number;
   dormitory_id: number;
   source_name: string;
-  values: Record<string, string | number | null | Record<string, unknown>>;
+  values: Record<string, string | number | boolean | null | Record<string, unknown>>;
 };
 export type Employee = IdentityFields & {
   id: string;
@@ -37,6 +37,21 @@ export type IdentityChoice = IdentityFields & {
   check_token: string;
 };
 export type Filter = 'all' | 'current' | 'ending';
+export type EmployeeColumnFilter = {
+  field: string;
+  operator: 'contains' | 'equals' | 'empty' | 'filled' | 'from' | 'to';
+  value: string;
+};
+export type PersonnelSourceColumn = {
+  id: number;
+  dormitory_id: number;
+  table_key: SourceTable;
+  source_name: string;
+  name: string;
+  kind: 'text' | 'number' | 'date' | 'select' | 'checkbox';
+  builtin_key: string | null;
+  options: { id: string; label: string; archived: boolean }[];
+};
 export type SavedList = {
   id: string;
   name: string;
@@ -45,6 +60,7 @@ export type SavedList = {
   days: number;
   query: string;
   scope: number[];
+  column_filters?: EmployeeColumnFilter[];
 };
 export type BlockKind = 'residents' | 'ending' | 'contacts' | 'plans' | 'saved';
 export type Block = {
@@ -81,20 +97,13 @@ export type ArrivalPlan = {
   revision: number;
 };
 export type ArrivalInput = Omit<ArrivalPlan, 'id' | 'revision'>;
-export type Decision = {
-  employee_id: string;
-  resident_id: number;
-  status: 'waiting' | 'extend' | 'departure';
-  date: string | null;
-  comment: string;
-};
 export type PersonnelData = {
   today: string;
   dormitories: { id: number; name: string; client_name: string; is_archived: boolean }[];
   employees: Employee[];
+  source_columns?: PersonnelSourceColumn[];
   plans: Plan[];
   arrival_plans: ArrivalPlan[];
-  decisions: Decision[];
   preferences: Preferences;
 };
 export type EmployeeDetail = {
@@ -162,8 +171,6 @@ export const personnelApi = {
     send<ArrivalPlan>(`/arrivals/${id}`, 'PUT', values),
   deleteArrival: (id: string, revision: number) =>
     send<void>(`/arrivals/${id}?revision=${revision}`, 'DELETE'),
-  saveDecision: (id: string, values: Omit<Decision, 'employee_id'>) =>
-    send(`/employees/${id}/decision`, 'PUT', values),
   undoMerge: (id: string) => send(`/merges/${id}/undo`, 'POST'),
   preferences: (values: Preferences): Promise<Preferences> => send('/preferences', 'PUT', values),
   binding: (id: string, table: SourceTable, signal?: AbortSignal): Promise<Binding> =>

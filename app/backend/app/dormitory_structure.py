@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.custom_tab_options import mapped_options
 from app.models.custom_tab import CustomTab
 from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel
@@ -89,7 +90,10 @@ def initialize_structure(
             )
             db.add(tab)
             db.flush()
-            copy_columns(db, source.dormitory_id, source.table_key, dorm.id, tab.table_key)
+            mapping = copy_columns(
+                db, source.dormitory_id, source.table_key, dorm.id, tab.table_key
+            )
+            tab.options = mapped_options(source, mapping)
             targets[normalized_name(item.name)] = tab.table_key
             pending.remove(item)
             progress = True

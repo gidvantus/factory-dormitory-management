@@ -8,6 +8,7 @@ import { IdentityDialog } from '../personnel/IdentityDialog';
 import { EmployeeNameCell } from './EmployeeNameCell';
 import { useColumns } from './tableColumnsContext';
 import { OutflowReasonInput } from './OutflowReasonInput';
+import { OutflowEvictionDialog } from './OutflowEvictionDialog';
 import styles from './OutflowTable.module.css';
 import {
   ColumnsControls,
@@ -21,16 +22,29 @@ function OutflowEntry({
   row,
   dormitoryId,
   onDelete,
+  onEvict,
 }: {
   row: OutflowRow;
   dormitoryId: string;
   onDelete: (row: OutflowRow) => void;
+  onEvict: (row: OutflowRow) => void;
 }): JSX.Element {
   const [draft, setDraft] = useState(row);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const saved = useRef(row);
   const { trackSave, waitForRowSaves, outflowFields, reload } = useColumns();
+
+  async function evict(): Promise<void> {
+    if (row.evicted_at) return;
+    setError('');
+    try {
+      await waitForRowSaves(row.id);
+      onEvict(saved.current);
+    } catch {
+      setError('Сначала сохраните изменения в строке.');
+    }
+  }
 
   function change(field: OutflowField, value: string | null): void {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -114,6 +128,7 @@ function OutflowEntry({
     <tr data-testid={`outflow-row-${row.id}`}>
       <ConfiguredCells
         row={row}
+        actionResult={row.evicted_at ? 'Выселен' : undefined}
         fields={[
           'departure_date',
           'personnel_number',
@@ -171,8 +186,8 @@ function OutflowEntry({
           <button
             type="button"
             className="btn btn--ghost btn--compact"
-            disabled
-            title="Функция появится позже"
+            disabled={saving || !!row.evicted_at}
+            onClick={() => void evict()}
           >
             Выселение
           </button>
@@ -182,8 +197,10 @@ function OutflowEntry({
             type="button"
             className="btn btn--ghost btn--compact"
             aria-busy={saving}
-            disabled={saving}
-            onClick={() => onDelete(draft)}
+            disabled={saving || !!row.evicted_at}
+            onClick={() => {
+              if (!row.evicted_at) onDelete(draft);
+            }}
           >
             Удалить
           </button>
@@ -211,6 +228,7 @@ function OutflowContent({
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<OutflowRow | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [evicting, setEvicting] = useState<OutflowRow | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -314,6 +332,7 @@ function OutflowContent({
                   row={row}
                   dormitoryId={dormitoryId}
                   onDelete={setDeleting}
+                  onEvict={setEvicting}
                 />
               ))}
             </tbody>
@@ -359,6 +378,17 @@ function OutflowContent({
             </button>
           </div>
         </Modal>
+      )}
+      {evicting && (
+        <OutflowEvictionDialog
+          dormitoryId={dormitoryId}
+          row={evicting}
+          onClose={() => setEvicting(null)}
+          onEvicted={(updated) => {
+            setRows((current) => current.map((row) => (row.id === updated.id ? updated : row)));
+            setEvicting(null);
+          }}
+        />
       )}
     </section>
   );

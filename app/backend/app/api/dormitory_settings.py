@@ -13,11 +13,17 @@ from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.custom_tabs import RESERVED_NAMES, tab_responses
 from app.api.sections import metadata, section_keys
 from app.api.table_columns import prepare_options
+from app.custom_tab_options import (
+    initialize_options,
+    options_for,
+    resolve_date_name,
+    validate_options,
+)
 from app.db import get_db
 from app.models.custom_tab import CustomTab
 from app.models.report import ReportRow
 from app.models.table_column import TableColumn
-from app.schemas.custom_tab import CreateTabRequest
+from app.schemas.custom_tab import CreateTabRequest, TabOptions
 from app.schemas.table_column import ColumnRequest, ColumnResponse
 from app.section_state import (
     SECTIONS,
@@ -62,6 +68,8 @@ class TabSetting(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     parent_key: str | None = None
     is_active: bool = True
+    options: TabOptions | None = None
+    date_column_name: str | None = Field(default=None, max_length=120)
 
     @field_validator("name")
     @classmethod
@@ -308,7 +316,21 @@ def write_settings(
                 ensure_columns(db, dormitory_id, key)
             save_table(db, dormitory_id, key, table)
         for item in payload.tabs:
-            by_key[aliases.get(item.key, item.key)].is_active = item.is_active
+            tab = by_key[aliases.get(item.key, item.key)]
+            if item.options is not None:
+                options = item.options
+                if not tab.table_created:
+                    initialize_options(db, tab, options)
+                    options = options_for(tab)
+                if item.date_column_name:
+                    options = options.model_copy(
+                        update={"date_column_id": resolve_date_name(db, tab, item.date_column_name)}
+                    )
+                validate_options(db, tab, options)
+                tab.options = options.model_dump()
+            tab.is_active = item.is_active
+        for tab in by_key.values():
+            validate_options(db, tab, options_for(tab))
         dorm.section_states = {**dorm.section_states, **payload.sections}
         db.flush()
         # Validate sibling names against both built-in and custom tabs.

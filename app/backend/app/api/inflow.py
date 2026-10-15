@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -11,19 +12,32 @@ from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
 from app.api.reports import require_dormitory
 from app.db import get_db
 from app.inflow_actions import InflowAction, prepare_inflow_action
+from app.inflow_entry import copy_entry_to_inflow, entry_form, resident_data
 from app.models.inflow import PersonnelInflow
 from app.models.outflow import PersonnelOutflow
 from app.models.resident import Resident
 from app.outflow_fields import apply_outflow_fields
-from app.personnel import fulfill_arrival, group_ids, record_changed
+from app.personnel import (
+    IDENTITY_FIELDS,
+    choose_identity,
+    event,
+    fulfill_arrival,
+    group_ids,
+    identity_lock,
+    record_changed,
+)
 from app.schemas.inflow import (
     InflowActionPreview,
     InflowActionRequest,
     InflowActionResponse,
+    InflowEntryForm,
+    InflowEntryRequest,
     InflowResponse,
     UpdateInflowRequest,
 )
+from app.schemas.resident import UpdateResidentRequest
 from app.section_state import require_section_writable
+from app.table_data import ensure_columns, lock_dormitory
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/inflow",
@@ -97,6 +111,94 @@ def preview_action(
     plan = prepare_inflow_action(db, dormitory_id, row_id, action)
     db.commit()
     return plan.preview
+
+
+@router.get("/entry-form", response_model=InflowEntryForm)
+def read_entry_form(
+    dormitory_id: DormitoryId,
+    month: Annotated[date, Query()],
+    _user: SubscribedUser,
+    db: DbSession,
+) -> InflowEntryForm:
+    result = entry_form(db, dormitory_id, month)
+    db.commit()
+    return result
+
+
+@router.post("/entries", response_model=InflowResponse, status_code=201)
+def create_entry(
+    dormitory_id: DormitoryId,
+    payload: InflowEntryRequest,
+    user: SubscribedUser,
+    db: DbSession,
+) -> PersonnelInflow:
+    lock_dormitory(db, dormitory_id)
+    require_section_writable(db, dormitory_id, "inflow")
+    form = entry_form(db, dormitory_id, payload.month)
+    if form.schema_token != payload.schema_token:
+        raise HTTPException(409, "Столбцы или места проживания изменились. Проверьте форму ещё раз")
+    columns = ensure_columns(db, dormitory_id, "residents")
+    fields, custom, saved = resident_data(columns, payload.values, {h.id for h in form.hostels})
+    for field in IDENTITY_FIELDS:
+        if field in fields and fields[field] != getattr(payload.identity, field):
+            raise HTTPException(422, "Данные сотрудника изменились. Повторите проверку совпадений")
+    identity_lock(db)
+    employee = choose_identity(db, payload.identity)
+    # Из выбранной карточки можно подставить известные данные в оставленные пустыми поля.
+    for column in columns:
+        identity_field = column.builtin_key
+        if (
+            not column.archived
+            and identity_field is not None
+            and identity_field in IDENTITY_FIELDS
+            and not fields.get(identity_field)
+        ):
+            fields[identity_field] = getattr(payload.identity, identity_field) or getattr(
+                employee, identity_field
+            )
+    try:
+        resident_fields = UpdateResidentRequest.model_validate(fields)
+    except ValidationError as exc:
+        raise HTTPException(422, "Проверьте данные сотрудника и формат телефона") from exc
+    for column in columns:
+        if str(column.id) in saved and column.builtin_key:
+            saved[str(column.id)]["value"] = resident_fields.model_dump(mode="json")[
+                column.builtin_key
+            ]
+    resident = Resident(custom_values=custom, **resident_fields.model_dump(exclude_unset=True))
+    inflow_columns = ensure_columns(db, dormitory_id, "inflow")
+    inflow_fields, inflow_custom = copy_entry_to_inflow(resident, columns, inflow_columns)
+    for field in ("full_name", "personnel_number"):
+        if any(not col.archived and col.builtin_key == field for col in inflow_columns):
+            inflow_fields.setdefault(
+                field, getattr(payload.identity, field) or getattr(employee, field)
+            )
+    row = PersonnelInflow(
+        dormitory_id=dormitory_id,
+        employee_id=employee.id,
+        custom_values=inflow_custom,
+        resident_values={"month": payload.month.isoformat(), "columns": saved},
+        **inflow_fields,
+    )
+    db.add(row)
+    db.flush()
+    record_changed(db, row, user.id)
+    event(
+        db,
+        employee.id,
+        "identity",
+        "Выбрана существующая карточка"
+        if payload.identity.mode == "existing"
+        else "Создана карточка сотрудника",
+        user.id,
+        dormitory_id=dormitory_id,
+        source_table="inflow",
+        source_id=row.id,
+        snapshot={"choice": payload.identity.mode},
+    )
+    db.commit()
+    db.refresh(row)
+    return row
 
 
 @router.post("/{row_id}/{action}", response_model=InflowActionResponse, status_code=201)
@@ -190,7 +292,10 @@ def delete_inflow(
 ) -> None:
     require_section_writable(db, dormitory_id, "inflow")
     require_dormitory(db, dormitory_id)
+    lock_dormitory(db, dormitory_id)
     row = get_inflow(db, dormitory_id, row_id)
+    if row.processed_as:
+        raise HTTPException(409, "Строка притока уже обработана. Действия по ней недоступны")
     record_changed(db, row, _user.id, kind="deleted", title="Удалена исходная запись притока")
     db.delete(row)
     db.commit()

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { CustomTab, CustomTabTemplate } from '../../api/client';
+import { CustomTabOptionsEditor } from './CustomTabOptionsEditor';
+import { defaultTabOptions } from './customTabOptions';
 import { Modal } from '../../components/Modal';
 import styles from './ConfigurableColumns.module.css';
 
@@ -23,6 +25,7 @@ export function CreateCustomTabDialog({
   onBusyChange?: (busy: boolean) => void;
 }): JSX.Element {
   const [mode, setMode] = useState('blank');
+  const [options, setOptions] = useState({ ...defaultTabOptions });
   const [name, setName] = useState('');
   const [withSubtabs, setWithSubtabs] = useState(false);
   const [subtabs, setSubtabs] = useState(['']);
@@ -82,6 +85,7 @@ export function CreateCustomTabDialog({
         mode === 'blank' && withSubtabs ? subtabs.map((item) => item.trim()) : [],
         parentId,
         parentSection,
+        mode === 'blank' ? options : undefined,
       );
       onCreated(tab);
     } catch (caught) {
@@ -211,6 +215,14 @@ export function CreateCustomTabDialog({
             </>
           )}
         </>
+      )}
+      {mode === 'blank' && (
+        <CustomTabOptionsEditor value={options} onChange={setOptions} disabled={saving} />
+      )}
+      {mode === 'blank' && withSubtabs && (
+        <p className={styles.help}>
+          Эти настройки применятся и к подвкладкам. Позже каждую можно настроить отдельно.
+        </p>
       )}
       {error && (
         <p role="alert" className={styles.error}>

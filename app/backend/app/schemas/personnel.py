@@ -101,19 +101,6 @@ class PlanUpdate(StrictModel):
     confirmed: bool
 
 
-class DecisionInput(StrictModel):
-    resident_id: int = Field(ge=1)
-    status: Literal["waiting", "extend", "departure"]
-    date: CalendarDate | None = None
-    comment: str = Field(default="", max_length=1000)
-
-    @model_validator(mode="after")
-    def date_required(self) -> "DecisionInput":
-        if self.status != "waiting" and self.date is None:
-            raise ValueError("Укажите согласованную дату")
-        return self
-
-
 class BindingInput(StrictModel):
     fields: dict[
         Literal["full_name", "personnel_number", "phone", "shift_start", "shift_end", "reason"], int
@@ -121,6 +108,19 @@ class BindingInput(StrictModel):
 
 
 ListFilter = Literal["all", "current", "ending"]
+
+
+class EmployeeColumnFilter(StrictModel):
+    field: str = Field(min_length=1, max_length=255)
+    operator: Literal["contains", "equals", "empty", "filled", "from", "to"]
+    value: str = Field(default="", max_length=255)
+
+    @field_validator("field")
+    @classmethod
+    def supported_field(cls, value: str) -> str:
+        if value == "shift_decision":
+            raise ValueError("Фильтр по решению об окончании вахты больше не поддерживается")
+        return value
 
 
 class SavedList(StrictModel):
@@ -131,6 +131,7 @@ class SavedList(StrictModel):
     days: int = Field(default=5, ge=1, le=365)
     query: str = Field(default="", max_length=255)
     scope: list[int] = Field(default_factory=list, max_length=1000)
+    column_filters: list[EmployeeColumnFilter] = Field(default_factory=list, max_length=10)
 
 
 class Block(StrictModel):

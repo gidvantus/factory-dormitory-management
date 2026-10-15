@@ -1,0 +1,110 @@
+.filters {
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid #e5e8df;
+  border-radius: 12px;
+  background: #fafbf7;
+}
+.filterHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.filterHeading strong {
+  margin-right: auto;
+  font-size: 12px;
+}
+.filterHeading button {
+  font-size: 11px;
+}
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+.filterRow label {
+  display: grid;
+  gap: 5px;
+  flex: 1 1 180px;
+  min-width: 0;
+  font-size: 11px;
+  color: #627067;
+}
+.filterRow select,
+.filterRow input {
+  width: 100%;
+}
+.remove {
+  flex: none;
+}
+.hint {
+  margin-top: 10px !important;
+  color: #6a756f;
+  font-size: 11px;
+}
+.selectionHint {
+  flex: 1 1 100%;
+  color: #6a756f;
+  font-size: 11px;
+}
+.extraCell {
+  min-width: 160px;
+  max-width: 300px;
+  overflow-wrap: anywhere;
+}
+.selectedDialog {
+  width: min(1120px, calc(100vw - 32px)) !important;
+  max-width: 1120px !important;
+}
+.selectedToolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.selectedToolbar label {
+  display: grid;
+  flex: 1 1 220px;
+  gap: 6px;
+  max-width: 420px;
+  font-size: 12px;
+}
+.selectedToolbar input {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #e1e7dd;
+  border-radius: 8px;
+  padding: 10px 11px;
+}
+.selectedTable td:first-child {
+  width: auto;
+}
+.selectedTable th,
+.selectedTable td {
+  min-width: 140px;
+}
+.selectedTable td small {
+  margin-top: 3px;
+}
+.selectedTableCaption {
+  text-align: left;
+  padding: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+@media (max-width: 760px) {
+  .filters {
+    padding: 12px;
+  }
+  .filterRow label {
+    flex-basis: 100%;
+  }
+  .selectedDialog {
+    width: calc(100vw - 24px) !important;
+  }
+}

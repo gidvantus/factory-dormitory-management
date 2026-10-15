@@ -118,6 +118,7 @@ def test_settle_keeps_source_identity_and_only_matching_active_columns(
     assert kept.processed_row_id == resident.id
     assert process(client, dorm, row, "settle", plan).status_code == 409
     assert process(client, dorm, row, "outflow", plan).status_code == 409
+    assert client.delete(f"/api/dormitories/{dorm}/inflow/{row}").status_code == 409
     assert len(list(db_session.scalars(sa.select(Resident)))) == 1
     assert client.delete(f"/api/dormitories/{dorm}/residents/{resident.id}").status_code == 204
     assert process(client, dorm, row, "settle", plan).status_code == 409
@@ -143,6 +144,7 @@ def test_outflow_uses_reason_dictionary_date_and_general_report_without_touching
     assert response.status_code == 201, response.text
     result = response.json()
     assert result["inflow"]["processed_as"] == "outflow"
+    assert client.delete(f"/api/dormitories/{dorm}/inflow/{row}").status_code == 409
     db_session.expire_all()
     target = db_session.get(PersonnelOutflow, result["row_id"])
     kept = db_session.get(PersonnelInflow, row)

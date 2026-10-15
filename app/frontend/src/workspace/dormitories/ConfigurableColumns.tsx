@@ -21,6 +21,7 @@ import type {
 } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { personnelApi } from '../../api/personnel';
+import { BindingDialog } from '../personnel/BindingDialog';
 import type { SourceTable } from '../../api/personnel';
 import { EmployeeNameCell } from './EmployeeNameCell';
 import { personnelCellFields } from './personnelCellFields';
@@ -36,10 +37,14 @@ export function TableColumnsProvider({
   dormitoryId,
   table,
   children,
+  showActions = true,
+  showDates = true,
 }: {
   dormitoryId: string;
   table: TableKey;
   children: ReactNode;
+  showActions?: boolean;
+  showDates?: boolean;
 }): JSX.Element {
   const [columns, setColumns] = useState<TableColumn[]>([]);
   const settings = useSettingsNavigation();
@@ -120,7 +125,9 @@ export function TableColumnsProvider({
   const context: TableColumnsContext = {
     dormitoryId,
     table,
-    columns,
+    columns: columns.filter(
+      (column) => (showActions || !isRowAction(column)) && (showDates || column.kind !== 'date'),
+    ),
     loading,
     error,
     values,
@@ -180,6 +187,7 @@ export function ColumnsControls(): JSX.Element {
 
 function ManageColumns(): JSX.Element {
   const { columns, dormitoryId, table, reload, edit } = useColumns();
+  const [binding, setBinding] = useState<SourceTable | null>(null);
   const [pending, setPending] = useState(false);
   const [confirm, setConfirm] = useState<number | null>(null);
   const [error, setError] = useState('');
@@ -204,53 +212,78 @@ function ManageColumns(): JSX.Element {
       closeDisabled={pending}
       testId="manage-columns-modal"
     >
-      <p className={styles.help}>
-        При удалении столбец исчезнет из таблицы. Его значения сохранятся и будут доступны после
-        восстановления.
-      </p>
-      <ul className={styles.columnList}>
-        {columns.map((column) => (
-          <li key={column.id}>
-            <span>
-              <strong>{column.name}</strong>
-              <small>
-                {kinds[column.kind]}
-                {column.archived ? ' · удалён' : ''}
-              </small>
-            </span>
-            {!column.archived && (
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() => edit(column)}
-                aria-label={`Настроить столбец ${column.name}`}
-              >
-                Изменить
-              </button>
-            )}
+      {binding ? (
+        <BindingDialog
+          inline
+          dormitoryId={dormitoryId}
+          tableKey={binding}
+          onBusyChange={setPending}
+          onClose={() => setBinding(null)}
+          onSaved={() => {
+            setBinding(null);
+            reload();
+          }}
+        />
+      ) : (
+        <>
+          <p className={styles.help}>
+            При удалении столбец исчезнет из таблицы. Его значения сохранятся и будут доступны после
+            восстановления.
+          </p>
+          {(table === 'archive' || table.startsWith('custom_')) && (
             <button
               type="button"
               disabled={pending}
-              aria-label={`${column.archived ? 'Восстановить' : confirm === column.id ? 'Подтвердить удаление' : 'Удалить'} столбец ${column.name}`}
-              onClick={() =>
-                column.archived || confirm === column.id
-                  ? void change(column)
-                  : setConfirm(column.id)
-              }
+              onClick={() => setBinding(table as SourceTable)}
             >
-              {column.archived
-                ? 'Восстановить'
-                : confirm === column.id
-                  ? 'Подтвердить удаление'
-                  : 'Удалить'}
+              Связь с персоналом
             </button>
-          </li>
-        ))}
-      </ul>
-      {error && (
-        <p role="alert" className={styles.error}>
-          {error}
-        </p>
+          )}
+          <ul className={styles.columnList}>
+            {columns.map((column) => (
+              <li key={column.id}>
+                <span>
+                  <strong>{column.name}</strong>
+                  <small>
+                    {kinds[column.kind]}
+                    {column.archived ? ' · удалён' : ''}
+                  </small>
+                </span>
+                {!column.archived && (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => edit(column)}
+                    aria-label={`Настроить столбец ${column.name}`}
+                  >
+                    Изменить
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={pending}
+                  aria-label={`${column.archived ? 'Восстановить' : confirm === column.id ? 'Подтвердить удаление' : 'Удалить'} столбец ${column.name}`}
+                  onClick={() =>
+                    column.archived || confirm === column.id
+                      ? void change(column)
+                      : setConfirm(column.id)
+                  }
+                >
+                  {column.archived
+                    ? 'Восстановить'
+                    : confirm === column.id
+                      ? 'Подтвердить удаление'
+                      : 'Удалить'}
+                </button>
+              </li>
+            ))}
+          </ul>
+          {error && (
+            <p role="alert" className={styles.error}>
+              {error}
+            </p>
+          )}
+        </>
       )}
     </Modal>
   );
@@ -481,9 +514,11 @@ function columnWidth(column: TableColumn): number {
 export function ConfiguredTable({
   className,
   children,
+  trailingColumns = 0,
 }: {
   className: string;
   children: ReactNode;
+  trailingColumns?: number;
 }): JSX.Element {
   const { columns } = useColumns();
   const tableRef = useRef<HTMLTableElement>(null);
@@ -505,7 +540,7 @@ export function ConfiguredTable({
   const actions = !!settings && columns.some((column) => !column.archived && isRowAction(column));
   const baseWidth = visibleColumns.reduce(
     (sum, column) => sum + columnWidth(column),
-    actions ? 150 : 0,
+    (actions ? 150 : 0) + trailingColumns * 110,
   );
   const flexibleColumns = visibleColumns.filter(
     (column) => column.kind === 'text' && columnWidth(column) >= 200,
@@ -529,6 +564,9 @@ export function ConfiguredTable({
           />
         ))}
         {actions && <col style={{ width: 150 }} />}
+        {Array.from({ length: trailingColumns }, (_, index) => (
+          <col key={`day-${index}`} style={{ width: 110 }} />
+        ))}
       </colgroup>
       {children}
     </table>
@@ -560,12 +598,14 @@ export function ConfiguredCells({
   children,
   readOnly = false,
   onPersonnelLinked,
+  actionResult,
 }: {
   fields: string[];
   row: { id: number; custom_values?: Record<string, CellValue>; employee_id?: string | null };
   children: ReactNode;
   readOnly?: boolean;
   onPersonnelLinked?: (id: string) => void;
+  actionResult?: string | undefined;
 }): JSX.Element {
   const { columns } = useColumns();
   const settings = useSettingsNavigation();
@@ -575,7 +615,13 @@ export function ConfiguredCells({
       {columns
         .filter((column) => !column.archived && (!settings || !isRowAction(column)))
         .map((column) =>
-          column.builtin_key ? (
+          actionResult && isRowAction(column) ? (
+            <td key={column.id} className={styles.rowActions}>
+              {column.id === columns.find((item) => !item.archived && isRowAction(item))?.id && (
+                <span className={styles.rowActionResult}>{actionResult}</span>
+              )}
+            </td>
+          ) : column.builtin_key ? (
             <Fragment key={column.id}>{cells[fields.indexOf(column.builtin_key)]}</Fragment>
           ) : (
             <td key={column.id} className={styles.customCell}>
@@ -590,20 +636,24 @@ export function ConfiguredCells({
         )}
       {settings && columns.some((column) => !column.archived && isRowAction(column)) && (
         <td className={styles.rowActions}>
-          <RowActionsMenu label={`Действия, строка ${row.id}`}>
-            {columns
-              .filter((column) => !column.archived && isRowAction(column))
-              .map((column) => (
-                <Fragment key={column.id}>
-                  {actionParts(
-                    cells[fields.indexOf(column.builtin_key ?? '')],
-                    column,
-                    readOnly || settings.readOnly,
-                    true,
-                  )}
-                </Fragment>
-              ))}
-          </RowActionsMenu>
+          {actionResult ? (
+            <span className={styles.rowActionResult}>{actionResult}</span>
+          ) : (
+            <RowActionsMenu label={`Действия, строка ${row.id}`}>
+              {columns
+                .filter((column) => !column.archived && isRowAction(column))
+                .map((column) => (
+                  <Fragment key={column.id}>
+                    {actionParts(
+                      cells[fields.indexOf(column.builtin_key ?? '')],
+                      column,
+                      readOnly || settings.readOnly,
+                      true,
+                    )}
+                  </Fragment>
+                ))}
+            </RowActionsMenu>
+          )}
           {columns
             .filter((column) => !column.archived && isRowAction(column))
             .map((column) => (

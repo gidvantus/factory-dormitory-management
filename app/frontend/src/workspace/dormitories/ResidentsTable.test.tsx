@@ -31,7 +31,7 @@ const blank: Resident = {
 };
 
 describe('Проживающие', () => {
-  it('открывает карточку по ФИО поверх таблицы и сохраняет исправление связи внутри карточки', async () => {
+  it('открывает карточку по ФИО поверх таблицы без решений и изменения связи', async () => {
     const resident = { ...blank, full_name: 'Иванов Иван', employee_id: 'first' };
     const record: Source = {
       dormitory_id: 7,
@@ -52,13 +52,12 @@ describe('Проживающие', () => {
       history_dormitory_ids: [7],
       variants: {},
     });
-    let data: PersonnelData = {
+    const data: PersonnelData = {
       today: '2026-10-14',
       dormitories: [{ id: 7, name: 'Северное', client_name: 'Завод', is_archived: false }],
       employees: [person('first', 'Иванов Иван', [record]), person('second', 'Иванов Илья', [])],
       plans: [],
       arrival_plans: [],
-      decisions: [],
       preferences: { revision: 0, blocks: [], lists: [] },
     };
     vi.spyOn(api, 'tableColumns').mockResolvedValue(defaultColumns('residents'));
@@ -70,23 +69,6 @@ describe('Проживающие', () => {
       notes: [],
       merges: [],
     }));
-    vi.spyOn(personnelApi, 'check').mockResolvedValue({
-      check_token: 'a'.repeat(64),
-      candidates: data.employees.map((employee) => ({
-        ...employee,
-        dormitories: ['Северное'],
-        score: 40,
-        evidence: ['Совпадает фамилия'],
-        differences: [],
-      })),
-    });
-    const link = vi.spyOn(personnelApi, 'link').mockImplementation(async () => {
-      data = {
-        ...data,
-        employees: [person('first', 'Иванов Иван', []), person('second', 'Иванов Илья', [record])],
-      };
-      return { employee_id: 'second' };
-    });
     function Location(): JSX.Element {
       return <output data-testid="location">{useLocation().pathname}</output>;
     }
@@ -102,26 +84,25 @@ describe('Проживающие', () => {
       within(row).queryByText(/Карточка|Изменить связь|Связать с сотрудником/),
     ).not.toBeInTheDocument();
     await user.click(within(row).getByRole('link', { name: 'Иванов Иван' }));
-    let dialog = await screen.findByTestId('personnel-profile');
+    const dialog = await screen.findByTestId('personnel-profile');
     expect(row).toBeInTheDocument();
     expect(screen.getByTestId('location')).toHaveTextContent('/cabinet/dormitories/7/residents');
-    await user.click(within(dialog).getByRole('button', { name: 'Изменить связь' }));
-    dialog = screen.getByTestId('personnel-identity');
-    await user.click(await within(dialog).findByRole('radio', { name: /Иванов Илья/ }));
-    await user.click(within(dialog).getByRole('button', { name: 'Использовать карточку' }));
-    await screen.findByRole('heading', { name: 'Иванов Илья' });
-    expect(link).toHaveBeenCalledWith(
-      7,
-      'residents',
-      3,
-      expect.objectContaining({ mode: 'existing', employee_id: 'second' }),
-    );
+    expect(
+      within(dialog).queryByRole('button', { name: 'Изменить связь' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole('link', { name: /исходную таблицу/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByText(/Решение по окончанию вахты|Связанные записи/),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).getByText('Текущее проживание')).toBeInTheDocument();
     await user.click(
       within(screen.getByTestId('personnel-profile')).getByRole('button', { name: /Закрыть/ }),
     );
     expect(within(row).getByRole('link', { name: 'Иванов Иван' })).toHaveAttribute(
       'href',
-      '/cabinet/personnel?employee=second',
+      '/cabinet/personnel?employee=first',
     );
   });
 

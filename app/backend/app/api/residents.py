@@ -16,7 +16,7 @@ from app.models.payment import PaymentEntry
 from app.models.resident import Resident
 from app.notifications import capture_resident_outflow, queue_resident_outflow
 from app.outflow_fields import apply_outflow_fields
-from app.personnel import close_residence, record_changed
+from app.personnel import record_changed
 from app.resident_outflow import prepare_outflow
 from app.resident_payments import copy_payment_values, existing_payment
 from app.resident_transfer import prepare_transfer
@@ -254,7 +254,6 @@ def move_to_outflow(
     db.add(row)
     db.flush()
     record_changed(db, row, _user.id)
-    close_residence(db, plan.resident, _user.id)
     for payment in plan.payments:
         db.delete(payment)
     db.delete(plan.resident)
@@ -320,6 +319,5 @@ def delete_resident(
     record_changed(
         db, resident, _user.id, kind="deleted", title="Удалена исходная запись проживания"
     )
-    close_residence(db, resident, _user.id)
     db.delete(resident)
     db.commit()

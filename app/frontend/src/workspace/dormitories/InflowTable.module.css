@@ -68,17 +68,6 @@
   margin-top: 3px;
   font-size: 11px;
 }
-.result {
-  display: inline-block;
-  width: fit-content;
-  padding: 3px 7px;
-  border-radius: 6px;
-  background: var(--mint-100);
-  color: var(--mint-700);
-  font-weight: 700;
-  font-size: 11px;
-  white-space: nowrap;
-}
 .error {
   color: var(--color-danger);
   font-size: 13px;
