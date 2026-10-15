@@ -20,6 +20,13 @@ PostgreSQL неквалифицированное имя и так разреш�
 Тело запроса лежит в `request_body` уже очищенным: секреты вырезаны
 (`app.audit.redact`), персональные данные заменены маской и отпечатком
 (`app.audit.mask`), тело обрезано (`app.audit.truncate`).
+
+Снимок «было → стало» лежит в `changes`: список записей по одной изменённой
+колонке (`{"entity", "id", "op", "field", "old", "new"}`), собранный слушателем
+`before_commit` по `session.new` / `dirty` / `deleted`. Значения проходят ту же
+очистку, что и тело запроса, поэтому маска и отпечаток ПДн видны и здесь. Тип
+колонки — `JSON`, а не `JSONB`: юнит-тесты создают таблицы из моделей на SQLite,
+где `JSONB` не существует. `NULL` означает, что изменений в коммите не было.
 """
 
 from datetime import datetime
@@ -78,3 +85,6 @@ class AuditEvent(Base):
     request_body: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     path_params: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Снимок «было → стало» по изменённым колонкам этого коммита. `NULL` — коммит
+    # без изменений. Значения уже очищены так же, как тело запроса.
+    changes: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
