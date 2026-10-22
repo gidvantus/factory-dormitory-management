@@ -12,7 +12,7 @@ from app.access import (
     SUBSCRIBED_USER_RESPONSES,
     OwnDormitory,
     SubscribedUser,
-    organization_dormitory_ids,
+    scoped_dormitories,
 )
 from app.api.organization import Membership
 from app.db import get_db
@@ -155,7 +155,9 @@ def create_entry(
             raise HTTPException(422, "Данные сотрудника изменились. Повторите проверку совпадений")
     identity_lock(db)
     employee = choose_identity(
-        db, payload.identity, organization_dormitory_ids(db, membership.organization_id)
+        db,
+        payload.identity,
+        [item.id for item in scoped_dormitories(db, membership.organization_id)],
     )
     # Из выбранной карточки можно подставить известные данные в оставленные пустыми поля.
     for column in columns:

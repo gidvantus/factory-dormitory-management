@@ -7,7 +7,6 @@
 намеренно — он остаётся за неактивированным кабинетом и ролью без права правки.
 """
 
-from collections.abc import Iterator
 from dataclasses import dataclass
 
 import pytest
@@ -290,6 +289,93 @@ def test_isolation_is_one_way(client: TestClient, cabinets: Cabinets) -> None:
     assert client.get(f"/api/dormitories/{cabinets.own}").status_code == 404
 
 
-def iter_foreign_reads() -> Iterator[str]:
-    """Публичный список для тестов, которым нужен обход ручек кабинета."""
-    yield from FOREIGN_READS
+def as_cabinet(client: TestClient, cabinets: Cabinets, which: str) -> None:
+    """Сменить активный кабинет в тесте: клиент хранит cookie сам."""
+    client.post("/api/auth/logout")
+    user = cabinets.second if which == "second" else cabinets.first
+    assert login(client, user.email).status_code == 200
+
+
+def test_foreign_tab_cannot_be_a_copy_source(client: TestClient, cabinets: Cabinets) -> None:
+    """Образец вкладки приходит телом (`source_tab_id`), поэтому гейт пути его не закрывает."""
+    as_cabinet(client, cabinets, "second")
+    created = client.post(
+        f"/api/dormitories/{cabinets.foreign}/tabs", json={"name": "Чужая вкладка"}
+    )
+    assert created.status_code == 201, created.text
+    foreign_tab = created.json()["id"]
+
+    as_cabinet(client, cabinets, "first")
+    response = client.post(
+        f"/api/dormitories/{cabinets.own}/tabs",
+        json={"name": "Скопировано", "source_tab_id": foreign_tab},
+    )
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == DORMITORY_NOT_FOUND
+    names = [tab["name"] for tab in client.get(f"/api/dormitories/{cabinets.own}/tabs").json()]
+    assert "Скопировано" not in names
+
+
+def test_structure_of_a_foreign_dormitory_is_not_copied(
+    client: TestClient, cabinets: Cabinets
+) -> None:
+    """`source_id` вида `standard:<чужое id>:<раздел>` не должен находить образец."""
+    foreign_variant = f"standard:{cabinets.foreign}:residents"
+
+    rejected = client.post(
+        "/api/dormitories",
+        json={
+            "name": "Новое из чужого",
+            "client_name": "Клиент",
+            "tabs": [{"source_id": foreign_variant}],
+        },
+    )
+
+    # Тот же ответ, что и на несуществующий образец: чужое и отсутствующее неразличимы.
+    assert rejected.status_code == 409, rejected.text
+    assert [item["id"] for item in client.get("/api/dormitories").json()] == [cabinets.own]
+
+    # Свой образец при этом работает — проверка про принадлежность, а не про формат.
+    own_variant = f"standard:{cabinets.own}:residents"
+    accepted = client.post(
+        "/api/dormitories",
+        json={
+            "name": "Новое из своего",
+            "client_name": "Клиент",
+            "tabs": [{"source_id": own_variant}],
+        },
+    )
+    assert accepted.status_code == 201, accepted.text
+
+
+def test_foreign_structure_templates_are_invisible(client: TestClient, cabinets: Cabinets) -> None:
+    """Библиотека шаблонов структуры: чужой шаблон не читается и не удаляется."""
+    as_cabinet(client, cabinets, "second")
+    created = client.post(
+        "/api/dormitory-templates",
+        json={"name": "Чужая структура", "dormitory_id": cabinets.foreign},
+    )
+    assert created.status_code == 201, created.text
+    foreign_template = created.json()["id"]
+
+    as_cabinet(client, cabinets, "first")
+    assert [item["id"] for item in client.get("/api/dormitory-templates").json()] == []
+    assert client.get(f"/api/dormitory-templates/{foreign_template}").status_code == 404
+    applied = client.post(
+        "/api/dormitories",
+        json={
+            "name": "Из чужого шаблона",
+            "client_name": "Клиент",
+            "structure_template_id": foreign_template,
+        },
+    )
+    assert applied.status_code == 404, applied.text
+    assert client.delete(f"/api/dormitory-templates/{foreign_template}").status_code == 404
+    assert [item["id"] for item in client.get("/api/dormitories").json()] == [cabinets.own]
+
+    # Шаблон на месте: чужая библиотека не изменилась.
+    as_cabinet(client, cabinets, "second")
+    assert [item["id"] for item in client.get("/api/dormitory-templates").json()] == [
+        foreign_template
+    ]

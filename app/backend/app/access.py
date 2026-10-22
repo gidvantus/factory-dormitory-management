@@ -99,26 +99,14 @@ def require_own_dormitory(
 OwnDormitory = Annotated[Dormitory, Depends(require_own_dormitory)]
 
 
-def organization_dormitories(db: Session, organization_id: int) -> list[Dormitory]:
-    """Общежития организации — единственная выборка для «всех общежитий»."""
-    return list(
-        db.scalars(
-            select(Dormitory)
-            .where(Dormitory.organization_id == organization_id)
-            .order_by(Dormitory.created_at.desc(), Dormitory.id.desc())
-        )
-    )
-
-
-def organization_dormitory_ids(db: Session, organization_id: int) -> list[int]:
-    """Те же общежития, но только `id`: фильтр для выборок «по всем»."""
-    return list(
-        db.scalars(select(Dormitory.id).where(Dormitory.organization_id == organization_id))
-    )
-
-
 def scoped_dormitories(db: Session, organization_id: int) -> list[Dormitory]:
-    """Общежития организации в порядке `id` — для расчётов «по всем общежитиям»."""
+    """Общежития организации — единственная выборка «всех общежитий».
+
+    Правило принадлежности живёт здесь в одном месте: список общежитий и расчёт
+    «по всем общежитиям» обязаны видеть один и тот же набор. Нужный вызывающему
+    порядок и `id` он получает сам (`[item.id for item in scoped]`, сортировка в
+    ручке) — так у набора остаётся один владелец, а не три копии правила.
+    """
     return list(
         db.scalars(
             select(Dormitory)

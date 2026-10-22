@@ -104,9 +104,10 @@ def validate_source(
 ) -> None:
     """Проверить источник блока; с `organization_id` — ещё и принадлежность.
 
-    Принадлежность проверяется там, где конфигурацию присылает клиент. При
-    расчёте уже сохранённого блока список общежитий приходит отфильтрованным по
-    организации, поэтому повторная проверка не нужна.
+    Принадлежность проверяется там, где конфигурацию присылает клиент
+    (`validate_config` передаёт организацию обязательно). При расчёте уже
+    сохранённого блока `organization_id` не передаётся намеренно: список
+    общежитий там уже отфильтрован по организации, и второй проверки не нужно.
     """
     dormitory = db.get(Dormitory, source.dormitory_id)
     if dormitory is None or (
@@ -152,20 +153,23 @@ def validate_source(
                     raise HTTPException(422, "Укажите значение условия")
 
 
-def validate_config(
-    db: Session, config: WidgetConfig, organization_id: int | None = None
-) -> WidgetConfig:
+def validate_config(db: Session, config: WidgetConfig, organization_id: int) -> WidgetConfig:
+    """Проверить конфигурацию блока, пришедшую от клиента: источники — свои.
+
+    Организация обязательна: `None`, означающий «без ограничения», — ловушка,
+    из-за которой проверка принадлежности однажды уже потерялась.
+    """
     for source in config.sources:
         validate_source(db, config, source, organization_id)
     return config
 
 
-def source_catalog(db: Session, organization_id: int | None = None) -> list[CatalogDormitory]:
+def source_catalog(db: Session, organization_id: int) -> list[CatalogDormitory]:
+    """Каталог источников: только общежития организации."""
     result = []
-    query = select(Dormitory).order_by(Dormitory.id)
-    if organization_id is not None:
-        query = query.where(Dormitory.organization_id == organization_id)
-    for dorm in db.scalars(query):
+    for dorm in db.scalars(
+        select(Dormitory).where(Dormitory.organization_id == organization_id).order_by(Dormitory.id)
+    ):
         sources = [CatalogSource(key="arrival_plan", name="План заездов", kind="arrival_plan")]
 
         def exists(key: str, dorm: Dormitory = dorm) -> bool:

@@ -21,16 +21,21 @@ def plan_response(plan: ArrivalPlan) -> dict[str, Any]:
     }
 
 
-def active_arrivals(db: Session, dormitory_ids: list[int] | None = None) -> list[dict[str, Any]]:
-    """Планы заездов по действующим общежитиям; область — список `dormitory_ids`."""
+def active_arrivals(db: Session, dormitory_ids: list[int]) -> list[dict[str, Any]]:
+    """Планы заездов по действующим общежитиям области `dormitory_ids`.
+
+    Область обязательна: `None` здесь означал бы «все общежития всех
+    организаций», а такой выборки у кабинета быть не должно.
+    """
     statement = (
         select(ArrivalPlan)
         .join(Dormitory)
-        .where(Dormitory.is_archived.is_(False))
+        .where(
+            Dormitory.is_archived.is_(False),
+            ArrivalPlan.dormitory_id.in_(dormitory_ids),
+        )
         .order_by(ArrivalPlan.date, ArrivalPlan.dormitory_id)
     )
-    if dormitory_ids is not None:
-        statement = statement.where(ArrivalPlan.dormitory_id.in_(dormitory_ids))
     return [plan_response(plan) for plan in db.scalars(statement)]
 
 

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser, own_dormitory
 from app.api.organization import Membership
 from app.api.table_columns import prepare_options
 from app.custom_tab_options import initialize_options, mapped_options, options_for
@@ -172,13 +172,18 @@ def create_tab(
     dormitory_id: EntityId,
     payload: CreateTabRequest,
     _user: SubscribedUser,
+    membership: Membership,
     db: DbSession,
     _dormitory: OwnDormitory,
 ) -> CustomTab:
     source = db.get(CustomTab, payload.source_tab_id) if payload.source_tab_id else None
     if payload.source_tab_id is not None and source is None:
         raise HTTPException(404, "Вкладка для шаблона не найдена")
-    # Lock both schemas in the same order, including copies in opposite directions.
+    if source is not None:
+        # Образец приходит телом (`source_tab_id`), а не путём, поэтому гейт
+        # маршрута его не закрывает: копировать можно только свою вкладку.
+        own_dormitory(db, source.dormitory_id, membership)
+        # Lock both schemas in the same order, including copies in opposite directions.
     for identifier in sorted({dormitory_id, source.dormitory_id if source else dormitory_id}):
         lock_dormitory(db, identifier)
     if source:

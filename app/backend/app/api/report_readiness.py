@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from app import report_readiness as readiness
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
-from app.models.dormitory import Dormitory
 from app.models.report_readiness import ReportReadiness
 from app.schemas.report_readiness import ReportReadinessRequest, ReportReadinessResponse
 
@@ -30,8 +29,6 @@ def read_readiness(
     db: DbSession,
     _dormitory: OwnDormitory,
 ) -> ReportReadinessResponse:
-    if db.get(Dormitory, dormitory_id) is None:
-        raise HTTPException(404, "Общежитие не найдено")
     day = readiness.today_moscow()
     return readiness.readiness_for_day(db, day, dormitory_id).get(
         dormitory_id, ReportReadinessResponse(report_date=day, is_ready=False)
@@ -44,11 +41,11 @@ def update_readiness(
     payload: ReportReadinessRequest,
     user: SubscribedUser,
     db: DbSession,
-    _dormitory: OwnDormitory,
+    dormitory: OwnDormitory,
 ) -> ReportReadinessResponse:
-    dormitory = db.scalar(select(Dormitory).where(Dormitory.id == dormitory_id).with_for_update())
-    if dormitory is None:
-        raise HTTPException(404, "Общежитие не найдено")
+    # Гейт уже проверил принадлежность; блокировка берётся повторно, чтобы
+    # изменение шло под ней, а не по прочитанной до неё строке.
+    db.refresh(dormitory, with_for_update=True)
     day = readiness.today_moscow()
     if payload.report_date != day:
         raise HTTPException(409, "Дата изменилась. Обновите отметку отчёта за сегодня.")

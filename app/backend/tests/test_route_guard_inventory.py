@@ -56,9 +56,21 @@ BODY_GUARDED: dict[tuple[str, str], str] = {
 def api_routes() -> Iterator[tuple[str, APIRoute]]:
     """Все маршруты приложения с полным путём.
 
-    Включённые роутеры лежат в приложении отдельными объектами, поэтому обход
-    рекурсивный: у такого объекта берётся его роутер и префикс включения.
+    Обход рекурсивный, потому что форма хранения зависит от версии FastAPI:
+
+    * начиная с 0.14x `include_router` кладёт в `app.routes` **обёртку**
+      включённого роутера (`_IncludedRouter` с `original_router` и
+      `include_context`), а сами `APIRoute` лежат внутри неё. Проверено на
+      FastAPI 0.159 (образ стенда): `app.routes` — 33 обёртки и ни одного
+      `APIRoute`, поэтому обход без рекурсии не нашёл бы ни одной доменной ручки;
+    * в более старых версиях `include_router` копирует маршруты в приложение
+      сразу с уже склеенным путём, и тогда срабатывает ветка `isinstance`.
+
+    Что обход не протух, сторожит `test_walked_paths_match_the_documented_ones`:
+    множество путей обязано совпасть с `openapi.json`. Тихая деградация обхода
+    (ноль маршрутов, удвоенный префикс) валит тест, а не проходит незамеченной.
     """
+
     yield from _walk(app, "")
 
 
@@ -66,6 +78,7 @@ def _walk(node: Any, prefix: str) -> Iterator[tuple[str, APIRoute]]:
     for route in getattr(node, "routes", []):
         inner = getattr(route, "original_router", None)
         if inner is not None:
+            # Префикс включения уже содержит префикс самого роутера.
             captured = getattr(route, "include_context", None)
             own_prefix = getattr(captured, "prefix", None) or prefix + inner.prefix
             yield from _walk(inner, own_prefix)
@@ -131,6 +144,19 @@ def guarded_body_operations() -> set[tuple[str, str]]:
             if body_has_dormitory_id(operation, schemas):
                 operations.add((method, path))
     return operations
+
+
+def test_walked_paths_match_the_documented_ones() -> None:
+    """Обход маршрутов не протух: пути совпадают с `openapi.json` целиком.
+
+    Проверка нужна потому, что форма хранения маршрутов в `app.routes` зависит от
+    версии FastAPI: если обход перестанет видеть вложенные роутеры, остальные
+    проверки этого файла станут пустыми и «зелёными». Расхождение с публичной
+    схемой — единственный признак, который это ловит.
+    """
+    walked = {path for path, _ in api_routes()}
+
+    assert walked == set(app.openapi()["paths"])
 
 
 def test_every_dormitory_path_route_declares_the_gate() -> None:

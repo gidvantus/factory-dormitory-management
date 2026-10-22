@@ -11,18 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import (
-    SUBSCRIBED_USER_RESPONSES,
-    OwnDormitory,
-    SubscribedUser,
-    organization_dormitories,
-)
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser, scoped_dormitories
 from app.api.organization import Membership
 from app.db import get_db
 from app.dormitory_structure import initialize_structure
-from app.dormitory_templates import apply_snapshot
+from app.dormitory_templates import apply_snapshot, own_template
 from app.models.dormitory import Dormitory
-from app.models.dormitory_template import DormitoryTemplate
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
 from app.report_defaults import DEFAULT_REPORT_FORMULA, REQUIRED_REPORT_ROW_NAMES, required_row_name
@@ -45,10 +39,10 @@ DbSession = Annotated[Session, Depends(get_db)]
 def list_dormitories(
     _user: SubscribedUser, membership: Membership, db: DbSession
 ) -> list[DormitoryResponse]:
-    return [
-        DormitoryResponse.model_validate(dormitory)
-        for dormitory in organization_dormitories(db, membership.organization_id)
-    ]
+    organization = scoped_dormitories(db, membership.organization_id)
+    # Порядок витрины задаёт ручка: свежие и большие id сверху.
+    ordered = sorted(organization, key=lambda item: (item.created_at, item.id), reverse=True)
+    return [DormitoryResponse.model_validate(dormitory) for dormitory in ordered]
 
 
 @router.post(
@@ -84,10 +78,12 @@ def create_dormitory(
     db.add(dormitory)
     db.flush()
     if payload.structure_template_id:
-        structure = db.get(DormitoryTemplate, payload.structure_template_id)
-        if structure is None:
+        try:
+            # Библиотека шаблонов структуры видна организации автора шаблона.
+            structure = own_template(db, payload.structure_template_id, membership.organization_id)
+        except HTTPException:
             db.rollback()
-            raise HTTPException(404, "Шаблон структуры не найден")
+            raise
         try:
             apply_snapshot(db, dormitory, structure.snapshot, payload.structure_template_keys)
         except HTTPException:
@@ -98,7 +94,9 @@ def create_dormitory(
         return DormitoryResponse.model_validate(dormitory)
     if payload.tabs is not None:
         try:
-            initialize_structure(db, dormitory, payload.tabs, template_rows)
+            initialize_structure(
+                db, dormitory, payload.tabs, template_rows, membership.organization_id
+            )
         except HTTPException:
             db.rollback()
             raise

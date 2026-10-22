@@ -69,9 +69,10 @@ def response_for(report: StatisticsReport, user: User, db: Session) -> Statistic
 def validate_blocks(
     db: Session,
     blocks: list[StatisticsBlock],
+    organization_id: int,
     old: list[dict] | None = None,
-    organization_id: int | None = None,
 ) -> None:
+    """Проверить блоки отчёта: источники и общежития — только своей организации."""
     previous = {item["id"]: item for item in old or []}
     catalog = source_catalog(db, organization_id) if blocks else []
     for block in blocks:
@@ -81,9 +82,10 @@ def validate_blocks(
         if not block.query.all_dormitories:
             # Выбор общежитий — только из своей организации: чужое общежитие
             # отвечает так же, как несуществующее.
-            statement = select(Dormitory.id).where(Dormitory.id.in_(block.selected_dormitory_ids))
-            if organization_id is not None:
-                statement = statement.where(Dormitory.organization_id == organization_id)
+            statement = select(Dormitory.id).where(
+                Dormitory.id.in_(block.selected_dormitory_ids),
+                Dormitory.organization_id == organization_id,
+            )
             ids = set(db.scalars(statement))
             if ids != set(block.selected_dormitory_ids) and block.id not in previous:
                 raise HTTPException(422, "Выбранное общежитие не найдено")
@@ -134,7 +136,7 @@ def create_report(
     membership: Membership,
     db: DbSession,
 ) -> StatisticsReportResponse:
-    validate_blocks(db, payload.blocks, organization_id=membership.organization_id)
+    validate_blocks(db, payload.blocks, membership.organization_id)
     report = StatisticsReport(
         name=payload.name,
         description=payload.description,
@@ -167,7 +169,7 @@ def update_report(
     check_revision(report, payload.revision)
     if report.visibility != payload.visibility and report.created_by_id != user.id:
         raise HTTPException(403, "Изменить доступ может только создатель отчёта")
-    validate_blocks(db, payload.blocks, report.blocks, membership.organization_id)
+    validate_blocks(db, payload.blocks, membership.organization_id, report.blocks)
     report.name, report.description, report.visibility = (
         payload.name,
         payload.description,
