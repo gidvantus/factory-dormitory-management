@@ -1,0 +1,2202 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Журнал действий — макет по issue #74</title>
+    <!--
+      Макет раздела «Журнал» в кабинете «Домовой» (issue #74).
+      Статичный прототип: ни сборки, ни внешних зависимостей.
+
+      Значения взяты из продукта, а не придуманы:
+      · токены — app/frontend/src/index.css (:root), состав и имена совпадают;
+      · каркас кабинета — app/frontend/src/workspace/Workspace.module.css
+        (.shell, .sidebar, .topbar, .nav-link, .empty-state), здесь записан
+        без CSS-модулей теми же селекторами и значениями;
+      · компоненты — глобальный слой index.css (.btn, .tag, .page-head,
+        .toolbar, .panel, .data-table, .field, .alert);
+      · поля периода — app/frontend/src/workspace/dormitories/Dormitories.module.css
+        (.periodField: метка 11px, поле 37px, радиус 9px).
+
+      Гарнитуры продукта — Nunito и Nunito Sans. В приложении они приходят
+      ссылкой на Google Fonts (app/frontend/index.html); макет открывается без
+      сети, поэтому здесь стоит тот же стек шрифтов, но без загрузки по сети:
+      машина без установленного Nunito отрисует Segoe UI.
+    -->
+    <style>
+      /* ===================================================================
+         Слой 1–2: токены из app/frontend/src/index.css
+         =================================================================== */
+      :root {
+        --cream-50: #fffdf9;
+        --cream-100: #fbf6ec;
+        --cream-200: #f4ebdc;
+        --cream-300: #e8dcc7;
+
+        --ink-900: #27313d;
+        --ink-700: #3f4c5c;
+        --ink-500: #4a5a6b;
+        --ink-300: #7b8794;
+
+        --mint-100: #dceee4;
+        --mint-200: #a9d6c1;
+        --mint-600: #2f7d62;
+        --mint-700: #26654f;
+
+        --peach-100: #fbe0d2;
+        --clay-700: #97431f;
+
+        --butter-100: #fcefc7;
+        --butter-700: #7a5c0d;
+
+        --sky-100: #dce9f7;
+        --blue-600: #34679e;
+
+        --color-bg-page: var(--cream-50);
+        --color-bg-alt: var(--cream-100);
+        --color-bg-surface: #ffffff;
+        --color-bg-tint: var(--cream-200);
+        --color-border: var(--cream-200);
+        --color-border-strong: var(--cream-300);
+
+        --color-text: var(--ink-900);
+        --color-text-body: var(--ink-500);
+        --color-text-muted: #5c6a78;
+        --color-text-subtle: #9ba3a9;
+
+        --color-accent: var(--mint-600);
+        --color-accent-hover: var(--mint-700);
+        --color-on-accent: #ffffff;
+        --color-text-on-accent: var(--color-on-accent);
+        --color-focus: var(--blue-600);
+        --focus-outline-width: 1px;
+        --color-danger: #9c3d24;
+
+        --color-status-neutral: #909ba4;
+        --color-status-ok: var(--mint-600);
+        --color-status-missing: #c34d4d;
+
+        --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        --font-body: 'Nunito Sans', 'Nunito', 'Segoe UI', system-ui, sans-serif;
+        --font-mono: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
+
+        --text-body: 1rem;
+        --text-sm: 0.9375rem;
+        --text-xs: 0.8125rem;
+        --leading-body: 1.65;
+
+        --radius-xs: 6px;
+        --radius-2xs: 7px;
+        --radius-3xs: 8px;
+        --radius-4xs: 9px;
+        --radius-5xs: 10px;
+        --radius-sm: 12px;
+        --radius-md: 18px;
+        --radius-pill: 999px;
+
+        --control-h-sm: 32px;
+        --control-h-md: 39px;
+        --control-px-sm: 13px;
+        --control-px-md: 15px;
+
+        --shadow-sm: 0 1px 2px rgba(39, 49, 61, 0.05);
+        --shadow-md: 0 10px 24px -14px rgba(39, 49, 61, 0.22);
+
+        --gap-4: 4px;
+        --gap-6: 6px;
+        --gap-8: 8px;
+        --gap-10: 10px;
+        --gap-12: 12px;
+        --gap-14: 14px;
+        --gap-16: 16px;
+        --gap-18: 18px;
+        --gap-20: 20px;
+        --gap-24: 24px;
+        --gap-28: 28px;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--color-bg-page);
+        color: var(--color-text);
+        font-family: var(--font-body);
+        font-size: var(--text-body);
+        line-height: var(--leading-body);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      h1,
+      h2,
+      h3,
+      h4 {
+        font-family: var(--font-display);
+        font-weight: 800;
+        color: var(--color-text);
+        margin: 0;
+        letter-spacing: -0.015em;
+        text-wrap: balance;
+      }
+
+      p {
+        margin: 0;
+        text-wrap: pretty;
+      }
+
+      ul,
+      ol {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      svg {
+        display: block;
+        max-width: 100%;
+      }
+
+      a {
+        color: var(--color-accent);
+        text-decoration-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+        text-underline-offset: 3px;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+
+      :focus-visible {
+        outline: var(--focus-outline-width) solid var(--color-focus);
+        outline-offset: 3px;
+        border-radius: var(--radius-sm);
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* ===================================================================
+         Слой 3: кнопки и теги — index.css без изменений
+         =================================================================== */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 48px;
+        padding: 0.75rem 1.5rem;
+        border-radius: var(--radius-pill);
+        white-space: nowrap;
+        flex: none;
+        border: 2px solid transparent;
+        background: none;
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: var(--text-sm);
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          background-color 180ms ease,
+          color 180ms ease,
+          border-color 180ms ease,
+          transform 180ms ease;
+      }
+
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .btn--primary {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+        box-shadow: var(--shadow-md);
+      }
+
+      .btn--primary:hover:not(:disabled) {
+        background: var(--color-accent-hover);
+        transform: translateY(-2px);
+      }
+
+      .btn--ghost {
+        background: var(--color-bg-surface);
+        border-color: var(--color-border-strong);
+        color: var(--color-text);
+      }
+
+      .btn--ghost:hover:not(:disabled) {
+        background: var(--color-bg-alt);
+        border-color: var(--ink-900);
+      }
+
+      .btn--compact {
+        min-height: var(--control-h-md);
+        padding: 8px 15px;
+        border-radius: var(--radius-4xs);
+        font-size: var(--text-xs);
+      }
+
+      .btn:active:not(:disabled) {
+        transform: translateY(0);
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: var(--radius-pill);
+        font-size: 0.75rem;
+        font-weight: 700;
+        white-space: nowrap;
+        line-height: 1.5;
+      }
+
+      /* «Данные» — существующий `.tag--neutral`. «Безопасность» и «Служебное» —
+         два новых модификатора на уже существующих примитивах: sky/blue и
+         butter. Значения не изобретены, а взяты из :root index.css. */
+      .tag--data {
+        background: var(--color-bg-tint);
+        color: var(--color-text-body);
+      }
+
+      .tag--security {
+        background: var(--sky-100);
+        color: var(--blue-600);
+      }
+
+      .tag--noise {
+        background: var(--butter-100);
+        color: var(--butter-700);
+      }
+
+      /* ===================================================================
+         Каркас кабинета — Workspace.module.css
+         =================================================================== */
+      .shell {
+        margin: 0;
+        background: var(--color-bg-surface);
+        color: var(--color-text);
+        font: 15px/1.55 var(--font-body);
+        -webkit-font-smoothing: antialiased;
+        display: grid;
+        grid-template-columns: 248px minmax(0, 1fr);
+        min-height: 100dvh;
+      }
+
+      .shell .icon {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .shell .sidebar,
+      .nav-sample {
+        display: flex;
+        flex-direction: column;
+        background: var(--color-bg-alt);
+      }
+
+      .shell .sidebar {
+        position: sticky;
+        top: 0;
+        height: 100dvh;
+        padding: 28px 18px 18px;
+        border-right: 1px solid var(--color-border);
+        overflow-y: auto;
+      }
+
+      .shell .brand {
+        display: flex;
+        gap: 11px;
+        align-items: center;
+        padding: 0 12px;
+        text-decoration: none;
+        width: fit-content;
+      }
+
+      .shell .brand-mark {
+        width: 42px;
+        height: 42px;
+      }
+
+      .shell .brand-name {
+        font: 900 24px/1.15 var(--font-display);
+        letter-spacing: -0.6px;
+        color: var(--color-text);
+      }
+
+      .shell .brand-note {
+        margin: 12px 12px 34px;
+        color: var(--color-text-muted);
+        font-size: 12px;
+      }
+
+      .shell .nav-label {
+        margin: 0 12px 12px;
+        color: var(--color-text-muted);
+        font-size: 11px;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+
+      .shell .nav-list {
+        display: grid;
+        gap: 5px;
+      }
+
+      .shell .nav-link {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        width: 100%;
+        min-height: 46px;
+        padding: 11px 13px;
+        border-radius: 12px;
+        border: 1px solid transparent;
+        color: var(--color-text-body);
+        text-align: left;
+        text-decoration: none;
+        background: transparent;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      .shell .nav-link:hover {
+        background: rgb(255 255 255 / 65%);
+      }
+
+      .shell .nav-link[aria-current='page'] {
+        background: var(--color-bg-surface);
+        border-color: var(--color-border);
+        box-shadow: var(--shadow-sm);
+        color: var(--color-text);
+        font-weight: 800;
+      }
+
+      .shell .nav-link[aria-current='page'] .icon {
+        color: var(--mint-700);
+      }
+
+      .shell .sidebar-bottom {
+        margin-top: auto;
+        padding-top: 32px;
+      }
+
+      .shell .account-nav {
+        padding-top: 17px;
+        border-top: 1px solid var(--color-border-strong);
+        display: grid;
+        gap: 5px;
+      }
+
+      .shell .account {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 20px;
+        padding: 16px 10px 2px;
+        border-top: 1px solid var(--color-border);
+      }
+
+      .shell .account-avatar {
+        width: 36px;
+        height: 36px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        border-radius: 50%;
+        background: var(--mint-100);
+        color: var(--mint-700);
+        font: 900 13px var(--font-display);
+      }
+
+      .shell .account-info {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .shell .account-name {
+        font-weight: 700;
+        font-size: 13px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .shell .account-email {
+        font-size: 11px;
+        color: var(--color-text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .shell .logout {
+        display: grid;
+        place-items: center;
+        padding: 5px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--color-text-muted);
+        cursor: pointer;
+      }
+
+      .shell .logout:hover {
+        background: var(--mint-100);
+        color: var(--mint-700);
+      }
+
+      .shell .workspace {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .shell .topbar {
+        height: 76px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 0 40px;
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-bg-page);
+      }
+
+      .shell .breadcrumbs {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 13px;
+        color: var(--color-text-muted);
+      }
+
+      .shell .breadcrumbs .icon {
+        width: 14px;
+        height: 14px;
+        color: var(--color-text-subtle);
+      }
+
+      .shell .breadcrumbs strong {
+        color: var(--color-text);
+        font-weight: 700;
+      }
+
+      .shell .menu-toggle {
+        display: none;
+        border: 1px solid var(--color-border);
+        background: var(--color-bg-surface);
+        border-radius: 10px;
+        padding: 9px;
+        cursor: pointer;
+      }
+
+      .shell .mobile-backdrop {
+        display: none;
+      }
+
+      .shell main,
+      .state-shell {
+        width: 100%;
+        min-width: 0;
+        padding: 36px 40px 48px;
+      }
+
+      .shell h1,
+      .state-shell h1 {
+        font-size: clamp(23px, 2.2vw, 30px);
+        font-weight: 800;
+        letter-spacing: -0.6px;
+        line-height: 1.25;
+      }
+
+      .shell .eyebrow,
+      .state-shell .eyebrow {
+        margin-bottom: 6px;
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+
+      .shell .subtitle,
+      .state-shell .subtitle {
+        margin-top: 7px;
+        color: var(--color-text-body);
+        font-size: 14px;
+      }
+
+      /* Шапка страницы, полоса фильтров и карточка-таблица — index.css. */
+      .page-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 20px;
+        margin-bottom: 28px;
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .toolbar h2 {
+        font: 800 20px/1.3 var(--font-display);
+      }
+
+      .panel {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        background: var(--color-bg-surface);
+      }
+
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+        font-size: 13px;
+      }
+
+      .data-table th,
+      .data-table td {
+        padding: 17px 20px;
+        border-bottom: 1px solid var(--color-border);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .data-table th:first-child,
+      .data-table td:first-child {
+        padding-left: 24px;
+      }
+
+      .data-table th:last-child,
+      .data-table td:last-child {
+        padding-right: 24px;
+      }
+
+      .data-table th {
+        color: var(--color-text-body);
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.065em;
+        font-weight: 700;
+        padding-top: 14px;
+        padding-bottom: 14px;
+      }
+
+      .data-table tbody tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .data-table tbody tr:hover {
+        background: var(--color-bg-page);
+      }
+
+      .table-scroll {
+        overflow-x: auto;
+      }
+
+      /* Пустое состояние — Workspace.module.css (.empty-state). */
+      .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        min-height: 260px;
+        padding: 32px 24px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-page);
+        text-align: center;
+      }
+
+      .empty-state-icon {
+        display: grid;
+        place-items: center;
+        width: 48px;
+        height: 48px;
+        margin-bottom: 6px;
+        border-radius: 14px;
+        background: var(--mint-100);
+        color: var(--mint-700);
+      }
+
+      .empty-state h2 {
+        font-size: 18px;
+        max-width: 44ch;
+      }
+
+      .empty-state p {
+        color: var(--color-text-muted);
+        font-size: 13px;
+        max-width: 52ch;
+      }
+
+      .empty-state[data-tone='locked'] .empty-state-icon {
+        background: var(--sky-100);
+        color: var(--blue-600);
+      }
+
+      /* Ошибка загрузки — значения из Workspace.module.css (.organization-error). */
+      .state-error {
+        margin: 0;
+        padding: 14px 18px;
+        border-radius: 12px;
+        background: var(--peach-100);
+        color: var(--color-danger);
+        font-size: 13px;
+      }
+
+      .state-error button {
+        margin-top: 10px;
+        padding: 7px 14px;
+        border: 1px solid currentColor;
+        border-radius: 8px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      /* Заметка «идёт загрузка» — Workspace.module.css (.view-note). */
+      .state-note {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-bottom: 14px;
+        color: var(--color-text-muted);
+        font-size: 12px;
+      }
+
+      /* ===================================================================
+         Журнал: полоса фильтров
+         =================================================================== */
+      .journal-filters {
+        align-items: flex-end;
+        margin-bottom: 18px;
+      }
+
+      .journal-filter-fields {
+        display: flex;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      /* Поле периода — Dormitories.module.css (.periodField). */
+      .filter-field {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+        color: var(--color-text-muted);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .filter-field input,
+      .filter-field select {
+        width: 140px;
+        min-width: 0;
+        min-height: 37px;
+        padding: 7px 9px;
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-4xs);
+        background: var(--color-bg-surface);
+        color: var(--color-text);
+        font: 600 12px var(--font-body);
+      }
+
+      .filter-field select {
+        width: 170px;
+        padding-right: 6px;
+      }
+
+      .filter-field input:hover,
+      .filter-field select:hover {
+        border-color: var(--ink-900);
+      }
+
+      .filter-field input:focus-visible,
+      .filter-field select:focus-visible {
+        outline: var(--focus-outline-width) solid var(--color-focus);
+        outline-offset: 3px;
+      }
+
+      /* ===================================================================
+         Журнал: лента
+         =================================================================== */
+      .journal-table td {
+        vertical-align: middle;
+      }
+
+      .journal-when {
+        width: 134px;
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        white-space: nowrap;
+      }
+
+      .journal-date {
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+
+      .journal-time {
+        color: var(--color-text-muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      /* `.data-table td` ставит `white-space: nowrap`; длинное название
+         действия обязано переноситься, поэтому селектор посильнее. */
+      .journal-table .journal-action {
+        white-space: normal;
+        overflow-wrap: anywhere;
+        max-width: 52ch;
+        line-height: 1.4;
+      }
+
+      .journal-action[data-unknown='true'] {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--color-text-body);
+      }
+
+      .journal-kind {
+        width: 168px;
+      }
+
+      .journal-status {
+        width: 152px;
+      }
+
+      .status-value {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--color-status-neutral);
+      }
+
+      .status-value[data-state='ok'] .status-dot {
+        background: var(--color-status-ok);
+      }
+
+      .status-value[data-state='error'] .status-dot {
+        background: var(--color-status-missing);
+      }
+
+      .status-ms {
+        color: var(--color-text-muted);
+        font-size: 12px;
+        font-weight: 400;
+      }
+
+      .status-value[data-state='none'] {
+        color: var(--color-text-muted);
+        font-weight: 400;
+      }
+
+      /* Полоса раскрытия записи: второй `<tr>` с `<td colspan="4">`.
+         Нативный `<details>` — работает без скриптов и с клавиатуры. */
+      .journal-details > td {
+        padding: 0;
+        border-bottom: 1px solid var(--color-border);
+        white-space: normal;
+      }
+
+      .journal-details details > summary {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 27px;
+        padding: 4px 24px;
+        color: var(--color-text-muted);
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+        list-style: none;
+      }
+
+      .journal-details summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .journal-details summary:hover {
+        background: var(--color-bg-page);
+        color: var(--color-text);
+      }
+
+      .journal-details summary .chev {
+        width: 12px;
+        height: 12px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2.4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: transform 160ms ease;
+      }
+
+      .journal-details details[open] summary .chev {
+        transform: rotate(90deg);
+      }
+
+      .journal-details .summary-open {
+        display: none;
+      }
+
+      .journal-details details[open] .summary-open {
+        display: inline;
+      }
+
+      .journal-details details[open] .summary-closed {
+        display: none;
+      }
+
+      .journal-entry-id {
+        margin-left: auto;
+        /* `--color-text-subtle` — только иконки и разделители, текст им писать
+           нельзя (DESIGN.md §1), поэтому номер записи — `--color-text-muted`. */
+        color: var(--color-text-muted);
+        font-weight: 400;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .journal-json-wrap {
+        padding: 0 24px 16px;
+      }
+
+      /* Сырая запись прокручивается по высоте, длинное значение переносится,
+         а не уезжает за край: у `user_agent` и `changes` строки длинные. */
+      .journal-json {
+        max-height: 208px;
+        overflow: auto;
+        margin: 0;
+        padding: 12px 14px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-5xs);
+        background: var(--color-bg-alt);
+        color: var(--ink-700);
+        font: 400 11px/1.4 var(--font-mono);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        tab-size: 2;
+      }
+
+      /* ===================================================================
+         Журнал: подвал ленты
+         =================================================================== */
+      .journal-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 12px 24px;
+        border-top: 1px solid var(--color-border);
+        background: var(--color-bg-surface);
+      }
+
+      .journal-count {
+        color: var(--color-text-muted);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ===================================================================
+         Загрузка: скелет строк в той же таблице
+         =================================================================== */
+      .skeleton {
+        display: block;
+        height: 12px;
+        border-radius: var(--radius-xs);
+        background: var(--color-bg-tint);
+        animation: skeleton-pulse 1.5s ease-in-out infinite;
+      }
+
+      .skeleton-row td {
+        padding-top: 21px;
+        padding-bottom: 21px;
+      }
+
+      @keyframes skeleton-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.45;
+        }
+      }
+
+      /* ===================================================================
+         Лист макета: кадры состояний и подписи к ним
+         =================================================================== */
+      .sheet {
+        background: var(--color-bg-alt);
+        border-top: 1px solid var(--color-border-strong);
+      }
+
+      .spec {
+        max-width: 1264px;
+        margin: 0 auto;
+        padding: 44px 28px 64px;
+        display: grid;
+        gap: 44px;
+      }
+
+      .spec-title {
+        font-size: 22px;
+        line-height: 1.3;
+      }
+
+      .spec-lede {
+        margin-top: 10px;
+        max-width: 78ch;
+        color: var(--color-text-body);
+        font-size: 13px;
+      }
+
+      figure.frame {
+        margin: 0;
+      }
+
+      figcaption {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 10px;
+        margin-bottom: 10px;
+        color: var(--color-text-muted);
+        font-size: 12px;
+      }
+
+      figcaption strong {
+        color: var(--color-text);
+        font-weight: 800;
+        font-size: 13px;
+      }
+
+      .state-frame {
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        background: var(--color-bg-surface);
+      }
+
+      .state-shell {
+        max-width: 1192px;
+        font: 15px/1.55 var(--font-body);
+        color: var(--color-text);
+      }
+
+      .state-shell .page-head {
+        margin-bottom: 24px;
+      }
+
+      /* Образцы меню: тот же .nav-link, но не в sticky-колонке на всю высоту. */
+      .nav-samples {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+      }
+
+      .nav-sample {
+        width: 248px;
+        padding: 18px 12px;
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-md);
+      }
+
+      .nav-sample .nav-link {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        width: 100%;
+        min-height: 46px;
+        padding: 11px 13px;
+        border: 1px solid transparent;
+        border-radius: 12px;
+        background: transparent;
+        color: var(--color-text-body);
+        text-decoration: none;
+        font-size: 14px;
+      }
+
+      .nav-sample .nav-link:hover {
+        background: rgb(255 255 255 / 65%);
+      }
+
+      .nav-sample .nav-link[aria-current='page'] {
+        background: var(--color-bg-surface);
+        border-color: var(--color-border);
+        box-shadow: var(--shadow-sm);
+        color: var(--color-text);
+        font-weight: 800;
+      }
+
+      .nav-sample .nav-link[aria-current='page'] .icon {
+        color: var(--mint-700);
+      }
+
+      .nav-sample .nav-list {
+        display: grid;
+        gap: 5px;
+      }
+
+      /* Подпись образца — аннотация макета, а не `.nav-label` продукта:
+         строчными, чтобы её не путали с разделом меню. */
+      .nav-sample .nav-label {
+        margin: 0 12px 10px;
+        color: var(--color-text-muted);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: normal;
+        text-transform: none;
+      }
+
+      .nav-sample .nav-link .icon {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .spec-note-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        max-width: 78ch;
+        color: var(--color-text-body);
+        font-size: 13px;
+      }
+
+      .spec-note-list li {
+        padding-left: 16px;
+        position: relative;
+      }
+
+      .spec-note-list li::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 9px;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--color-text-subtle);
+      }
+
+      /* ===================================================================
+         Точки перелома кабинета: 1700 / 1100 / 760 — Workspace.module.css
+         =================================================================== */
+      @media (max-width: 1100px) {
+        .shell {
+          grid-template-columns: 220px minmax(0, 1fr);
+        }
+
+        .shell .sidebar {
+          padding-inline: 12px;
+        }
+
+        .shell .topbar {
+          padding-inline: 28px;
+        }
+
+        .shell main,
+        .state-shell {
+          padding: 28px;
+        }
+
+        .data-table th,
+        .data-table td {
+          padding-inline: 16px;
+        }
+
+        .journal-details details > summary {
+          padding-inline: 20px;
+        }
+
+        .journal-json-wrap {
+          padding-inline: 20px;
+        }
+
+        .journal-foot {
+          padding-inline: 20px;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .shell {
+          display: block;
+        }
+
+        .shell .sidebar {
+          position: fixed;
+          left: 0;
+          top: 0;
+          width: 248px;
+          z-index: 50;
+          transform: translateX(-100%);
+          visibility: hidden;
+        }
+
+        .shell .menu-toggle {
+          display: grid;
+        }
+
+        .shell .topbar {
+          height: 68px;
+          padding-inline: 20px;
+          gap: 12px;
+        }
+
+        .shell .breadcrumbs {
+          margin-right: auto;
+          gap: 7px;
+        }
+
+        .shell .breadcrumbs > span,
+        .shell .breadcrumbs > .icon {
+          display: none;
+        }
+
+        .shell main,
+        .state-shell {
+          padding: 26px 20px 36px;
+        }
+
+        .page-head {
+          align-items: flex-start;
+          flex-wrap: wrap;
+          gap: 14px;
+          margin-bottom: 23px;
+        }
+
+        .shell h1,
+        .state-shell h1 {
+          font-size: 25px;
+        }
+
+        .shell .subtitle,
+        .state-shell .subtitle {
+          font-size: 13px;
+        }
+
+        /* Фильтры в две колонки: даты рядом, вид и кнопка на всю ширину. */
+        .journal-filters {
+          align-items: stretch;
+          gap: 10px;
+          margin-bottom: 16px;
+        }
+
+        .journal-filter-fields {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 10px;
+        }
+
+        .filter-field input,
+        .filter-field select {
+          width: 100%;
+        }
+
+        .filter-field--kind {
+          grid-column: 1 / -1;
+        }
+
+        .journal-filters > .btn {
+          width: 100%;
+        }
+
+        /* Лента перестаёт быть таблицей: строка — карточка в две колонки. */
+        .journal-table,
+        .journal-table tbody,
+        .journal-table tr,
+        .journal-table td {
+          display: block;
+          width: auto;
+        }
+
+        .journal-table thead {
+          display: none;
+        }
+
+        .journal-table .journal-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas:
+            'when kind'
+            'action action'
+            'status status';
+          gap: 6px 12px;
+          padding: 14px 16px;
+          border-bottom: 1px solid var(--color-border);
+        }
+
+        .journal-table .journal-row.skeleton-row {
+          grid-template-areas: none;
+          grid-template-columns: 1fr;
+          gap: 10px;
+          padding: 16px;
+        }
+
+        .journal-table td {
+          padding: 0;
+          border: 0;
+        }
+
+        .journal-when {
+          grid-area: when;
+          display: flex;
+          flex-wrap: wrap;
+          align-items: baseline;
+          gap: 6px;
+          width: auto;
+        }
+
+        .journal-date {
+          font-size: 12px;
+          font-weight: 700;
+          color: var(--color-text-muted);
+        }
+
+        .journal-time {
+          font-size: 12px;
+        }
+
+        .journal-kind {
+          grid-area: kind;
+          width: auto;
+        }
+
+        .journal-table .journal-action {
+          grid-area: action;
+          font-size: 14px;
+          font-weight: 700;
+          line-height: 1.35;
+          max-width: none;
+        }
+
+        .journal-status {
+          grid-area: status;
+          width: auto;
+        }
+
+        .journal-details > td {
+          padding: 0;
+        }
+
+        .journal-details details > summary {
+          padding: 7px 16px;
+        }
+
+        .journal-json-wrap {
+          padding: 0 16px 16px;
+        }
+
+        .journal-json {
+          max-height: 208px;
+          padding: 12px 13px;
+        }
+
+        .journal-foot {
+          flex-direction: column-reverse;
+          align-items: stretch;
+          gap: 10px;
+          padding: 14px 16px 16px;
+        }
+
+        .journal-foot .btn {
+          width: 100%;
+        }
+
+        .journal-count {
+          text-align: center;
+        }
+
+        .spec {
+          padding: 28px 20px 48px;
+          gap: 32px;
+        }
+
+        .nav-samples {
+          gap: 14px;
+        }
+
+        .nav-sample {
+          width: 100%;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          transition: none !important;
+          animation: none !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ================================================================
+         Кадр 1. Экран как он есть: владелец организации, последние 7 дней,
+         первая запись раскрыта.
+         ================================================================ -->
+    <div class="shell">
+      <aside class="sidebar" aria-label="Боковая панель">
+        <a class="brand" href="#" aria-label="Домовой — главная">
+          <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+            <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+            <g
+              fill="none"
+              stroke="#27313D"
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+            </g>
+          </svg>
+          <span class="brand-name">Домовой</span>
+        </a>
+        <p class="brand-note">Учёт проживающих в общежитиях</p>
+        <nav aria-label="Основные разделы">
+          <p class="nav-label">Рабочее пространство</p>
+          <ul class="nav-list">
+            <li>
+              <a class="nav-link" href="#" data-testid="workspace-nav-overview">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="3" width="8" height="8" rx="2" />
+                  <rect x="13" y="3" width="8" height="5" rx="2" />
+                  <rect x="13" y="10" width="8" height="11" rx="2" />
+                  <rect x="3" y="13" width="8" height="8" rx="2" />
+                </svg>
+                Обзор
+              </a>
+            </li>
+            <li>
+              <a class="nav-link" href="#" data-testid="workspace-nav-dormitories">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 21h18M5 21V8l7-5 7 5v13M10 21v-5h4v5M9 11h.01M15 11h.01" />
+                </svg>
+                Общежития
+              </a>
+            </li>
+            <li>
+              <a class="nav-link" href="#">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 3v18h18" />
+                  <rect x="6" y="12" width="3.2" height="6" rx="1" />
+                  <rect x="11" y="8" width="3.2" height="10" rx="1" />
+                  <rect x="16" y="14" width="3.2" height="4" rx="1" />
+                </svg>
+                Тарифы
+              </a>
+            </li>
+            <li>
+              <a class="nav-link" href="#">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
+                  <path d="M14 3v5h5M9 13h6M9 17h6" />
+                </svg>
+                Документы
+              </a>
+            </li>
+            <li>
+              <a class="nav-link" href="#">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                </svg>
+                Персонал
+              </a>
+            </li>
+            <li>
+              <a class="nav-link" href="#">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 3v18h18" />
+                  <rect x="6" y="12" width="3.2" height="6" rx="1" />
+                  <rect x="11" y="8" width="3.2" height="10" rx="1" />
+                  <rect x="16" y="14" width="3.2" height="4" rx="1" />
+                </svg>
+                Статистика
+              </a>
+            </li>
+            <li>
+              <!-- Новый пункт: тот же .nav-link, иконка «журнал» — квитанция
+                   с рваным низом, чтобы не путаться с «Документами». -->
+              <a
+                class="nav-link"
+                href="#"
+                aria-current="page"
+                data-testid="workspace-nav-journal"
+              >
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 4h14a1 1 0 0 1 1 1v15l-3-2-3 2-3-2-3 2V5a1 1 0 0 1 1-1Z" />
+                  <path d="M9 9h6M9 13h4" />
+                </svg>
+                Журнал
+              </a>
+            </li>
+            <li>
+              <a class="nav-link" href="#">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 11v6M12 7h.01" />
+                </svg>
+                Магазин улучшений
+              </a>
+            </li>
+          </ul>
+        </nav>
+        <div class="sidebar-bottom">
+          <nav aria-label="Учётная запись" class="account-nav">
+            <a class="nav-link" href="#" data-testid="workspace-nav-organization">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h3a1 1 0 0 1 1 1v11M2 21h20"
+                />
+                <path d="M8 7h1M8 11h1M8 15h1M12 7h1M12 11h1M12 15h1" />
+              </svg>
+              Организация
+            </a>
+            <a class="nav-link" href="#">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+              </svg>
+              Сотрудники
+            </a>
+            <a class="nav-link" href="#">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2" />
+              </svg>
+              Личные данные
+            </a>
+          </nav>
+          <div class="account">
+            <span class="account-avatar" aria-hidden="true">АК</span>
+            <div class="account-info">
+              <p class="account-name">Анна Ковалёва</p>
+              <p class="account-email">a.kovaleva@domovoy.ru</p>
+            </div>
+            <button class="logout" type="button" aria-label="Выйти" title="Выйти">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div class="workspace">
+        <header class="topbar">
+          <button
+            class="menu-toggle"
+            type="button"
+            aria-label="Открыть меню"
+            aria-expanded="false"
+            aria-controls="workspace-sidebar"
+          >
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <div class="breadcrumbs">
+            <span>Рабочее пространство</span>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m9 5 7 7-7 7" />
+            </svg>
+            <strong>Журнал действий</strong>
+          </div>
+        </header>
+
+        <main>
+          <section aria-labelledby="journal-title">
+            <div class="page-head">
+              <div>
+                <p class="eyebrow">Рабочее пространство</p>
+                <h1 id="journal-title" tabindex="-1">Журнал действий</h1>
+                <p class="subtitle">Что делали вы и сотрудники организации за выбранный период</p>
+              </div>
+            </div>
+
+            <form class="toolbar journal-filters" aria-label="Период и вид записей" novalidate>
+              <div class="journal-filter-fields">
+                <label class="filter-field" for="journal-from">
+                  От
+                  <input
+                    id="journal-from"
+                    data-testid="journal-from"
+                    type="date"
+                    value="2026-10-22"
+                  />
+                </label>
+                <label class="filter-field" for="journal-to">
+                  До
+                  <input id="journal-to" data-testid="journal-to" type="date" value="2026-10-28" />
+                </label>
+                <label class="filter-field filter-field--kind" for="journal-kind">
+                  Вид
+                  <select id="journal-kind" data-testid="journal-kind">
+                    <option value="">Все действия</option>
+                    <option value="security">Безопасность</option>
+                    <option value="data">Данные</option>
+                    <option value="noise">Служебное</option>
+                  </select>
+                </label>
+              </div>
+              <button class="btn btn--primary btn--compact" type="submit">Применить</button>
+            </form>
+
+            <section class="panel" aria-labelledby="journal-list-title">
+              <h2 class="visually-hidden" id="journal-list-title">Записи журнала</h2>
+              <div class="table-scroll">
+                <table class="data-table journal-table">
+                  <caption class="visually-hidden">
+                    Записи журнала действий организации
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Когда</th>
+                      <th scope="col">Действие</th>
+                      <th scope="col">Вид</th>
+                      <th scope="col">Статус</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="journal-row" data-testid="journal-row">
+                      <td class="journal-when">
+                        <span class="journal-date">28.10.2026</span>
+                        <span class="journal-time">14:32</span>
+                      </td>
+                      <td class="journal-action">
+                        Изменить названия или статус архива общежития
+                      </td>
+                      <td class="journal-kind"><span class="tag tag--data">Данные</span></td>
+                      <td class="journal-status">
+                        <span class="status-value" data-state="ok">
+                          <span class="status-dot"></span>
+                          200
+                          <span class="status-ms">84 мс</span>
+                        </span>
+                      </td>
+                    </tr>
+                    <tr class="journal-details">
+                      <td colspan="4" data-testid="journal-detail">
+                        <details open>
+                          <summary>
+                            <svg class="chev" viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="m9 5 7 7-7 7" />
+                            </svg>
+                            <span class="summary-closed">Запись журнала</span>
+                            <span class="summary-open">Скрыть запись</span>
+                            <span class="journal-entry-id">№ 1048573</span>
+                          </summary>
+                          <div class="journal-json-wrap">
+                            <pre class="journal-json">{
+  "id": 1048573,
+  "created_at": "2026-10-28T14:32:11+00:00",
+  "changes": [
+    {
+      "entity": "dormitories",
+      "id": 4,
+      "op": "update",
+      "field": "name",
+      "old": "Общежитие №2",
+      "new": "Общежитие №2 на Строителей"
+    }
+  ],
+  "action": "patch_dormitories",
+  "action_title": "Изменить названия или статус архива общежития",
+  "kind": "data",
+  "status": 200,
+  "duration_ms": 84,
+  "path": "/api/dormitories/4",
+  "path_params": { "dormitory_id": "4" },
+  "request_body": {
+    "name": "Общежитие №2 на Строителей",
+    "is_archived": false
+  },
+  "ip": "10.8.0.14",
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/141.0",
+  "request_id": "8f21c0d4b7e94a1c"
+}</pre>
+                          </div>
+                        </details>
+                      </td>
+                    </tr>
+
+                    <tr class="journal-row" data-testid="journal-row">
+                      <td class="journal-when">
+                        <span class="journal-date">28.10.2026</span>
+                        <span class="journal-time">13:05</span>
+                      </td>
+                      <td class="journal-action" data-unknown="true">
+                        put_dormitories_hostels_cells
+                      </td>
+                      <td class="journal-kind"><span class="tag tag--noise">Служебное</span></td>
+                      <td class="journal-status">
+                        <span class="status-value" data-state="none">
+                          <span class="status-dot"></span>
+                          —
+                        </span>
+                      </td>
+                    </tr>
+                    <tr class="journal-details">
+                      <td colspan="4">
+                        <details>
+                          <summary>
+                            <svg class="chev" viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="m9 5 7 7-7 7" />
+                            </svg>
+                            <span class="summary-closed">Запись журнала</span>
+                            <span class="summary-open">Скрыть запись</span>
+                            <span class="journal-entry-id">№ 1048572</span>
+                          </summary>
+                          <div class="journal-json-wrap">
+                            <pre class="journal-json">{
+  "id": 1048572,
+  "created_at": "2026-10-28T13:05:19+00:00",
+  "changes": [
+    {
+      "entity": "hostel_cells",
+      "id": 917,
+      "op": "update",
+      "field": "value",
+      "old": "3",
+      "new": "5"
+    }
+  ],
+  "action": "put_dormitories_hostels_cells",
+  "action_title": "put_dormitories_hostels_cells",
+  "kind": "noise",
+  "status": null,
+  "duration_ms": null,
+  "path": "/api/dormitories/4/hostels/12/cells",
+  "path_params": { "dormitory_id": "4", "hostel_id": "12" },
+  "ip": "10.8.0.14",
+  "request_id": "b4570e1d9c3a48f2"
+}</pre>
+                          </div>
+                        </details>
+                      </td>
+                    </tr>
+
+                    <tr class="journal-row" data-testid="journal-row">
+                      <td class="journal-when">
+                        <span class="journal-date">27.10.2026</span>
+                        <span class="journal-time">18:44</span>
+                      </td>
+                      <td class="journal-action">Изменить статус счёта</td>
+                      <td class="journal-kind">
+                        <span class="tag tag--security">Безопасность</span>
+                      </td>
+                      <td class="journal-status">
+                        <span class="status-value" data-state="error">
+                          <span class="status-dot"></span>
+                          422
+                          <span class="status-ms">38 мс</span>
+                        </span>
+                      </td>
+                    </tr>
+                    <tr class="journal-details">
+                      <td colspan="4">
+                        <details>
+                          <summary>
+                            <svg class="chev" viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="m9 5 7 7-7 7" />
+                            </svg>
+                            <span class="summary-closed">Запись журнала</span>
+                            <span class="summary-open">Скрыть запись</span>
+                            <span class="journal-entry-id">№ 1048566</span>
+                          </summary>
+                          <div class="journal-json-wrap">
+                            <pre class="journal-json">{
+  "id": 1048566,
+  "created_at": "2026-10-27T16:44:57+00:00",
+  "changes": null,
+  "action": "patch_billing_invoices",
+  "action_title": "Изменить статус счёта",
+  "kind": "security",
+  "status": 422,
+  "duration_ms": 38,
+  "path": "/api/billing/invoices/88",
+  "path_params": { "invoice_id": "88" },
+  "request_body": { "status": "archived" },
+  "ip": "10.8.0.14",
+  "request_id": "c81e75a4b0d2496f"
+}</pre>
+                          </div>
+                        </details>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="journal-foot">
+                <button class="btn btn--ghost btn--compact" type="button" data-testid="journal-more">
+                  Показать ещё
+                </button>
+                <p class="journal-count">За этот период — 132 записи</p>
+              </div>
+            </section>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <!-- ================================================================
+         Лист состояний: тот же экран в остальных состояниях и образцы меню.
+         ================================================================ -->
+    <div class="sheet">
+      <div class="spec">
+        <section aria-labelledby="states-title">
+          <h2 class="spec-title" id="states-title">Состояния раздела</h2>
+          <p class="spec-lede">
+            Макет к issue #74: раздел «Журнал» в кабинете владельца организации. Кадры ниже
+            показывают тот же экран в остальных состояниях. Цвета, шрифты, радиусы и отступы —
+            токены продукта (<code>app/frontend/src/index.css</code>), каркас кабинета — как в
+            <code>Workspace.module.css</code>.
+          </p>
+        </section>
+
+        <!-- Пусто -->
+        <figure class="frame">
+          <figcaption>
+            <strong>Пусто</strong>
+            за выбранный период записей нет — приглашение выбрать другой период, без кнопки
+          </figcaption>
+          <div class="state-frame">
+            <div class="state-shell">
+              <div class="page-head">
+                <div>
+                  <p class="eyebrow">Рабочее пространство</p>
+                  <h1>Журнал действий</h1>
+                  <p class="subtitle">Что делали вы и сотрудники организации за выбранный период</p>
+                </div>
+              </div>
+
+              <form class="toolbar journal-filters" aria-label="Период и вид записей" novalidate>
+                <div class="journal-filter-fields">
+                  <label class="filter-field" for="empty-from">
+                    От
+                    <input id="empty-from" type="date" value="2026-10-22" />
+                  </label>
+                  <label class="filter-field" for="empty-to">
+                    До
+                    <input id="empty-to" type="date" value="2026-10-28" />
+                  </label>
+                  <label class="filter-field filter-field--kind" for="empty-kind">
+                    Вид
+                    <select id="empty-kind">
+                      <option>Все действия</option>
+                    </select>
+                  </label>
+                </div>
+                <button class="btn btn--primary btn--compact" type="submit">Применить</button>
+              </form>
+
+              <div class="empty-state" data-testid="journal-empty">
+                <span class="empty-state-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="24"
+                    height="24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M5 4h14a1 1 0 0 1 1 1v15l-3-2-3 2-3-2-3 2V5a1 1 0 0 1 1-1Z" />
+                    <path d="M9 9h6M9 13h4" />
+                  </svg>
+                </span>
+                <h2>За выбранный период записей нет</h2>
+                <p>
+                  За 22.10.2026 — 28.10.2026 действий в организации не записано. Выберите другой
+                  период или вид действия в фильтрах выше.
+                </p>
+              </div>
+            </div>
+          </div>
+        </figure>
+
+        <!-- Загрузка -->
+        <figure class="frame">
+          <figcaption>
+            <strong>Загрузка</strong>
+            полоса фильтров остаётся на месте, лента показывает скелет строк
+          </figcaption>
+          <div class="state-frame">
+            <div class="state-shell">
+              <div class="page-head">
+                <div>
+                  <p class="eyebrow">Рабочее пространство</p>
+                  <h1>Журнал действий</h1>
+                  <p class="subtitle">Что делали вы и сотрудники организации за выбранный период</p>
+                </div>
+              </div>
+
+              <form class="toolbar journal-filters" aria-label="Период и вид записей" novalidate>
+                <div class="journal-filter-fields">
+                  <label class="filter-field" for="loading-from">
+                    От
+                    <input id="loading-from" type="date" value="2026-10-22" />
+                  </label>
+                  <label class="filter-field" for="loading-to">
+                    До
+                    <input id="loading-to" type="date" value="2026-10-28" />
+                  </label>
+                  <label class="filter-field filter-field--kind" for="loading-kind">
+                    Вид
+                    <select id="loading-kind">
+                      <option>Все действия</option>
+                    </select>
+                  </label>
+                </div>
+                <button class="btn btn--primary btn--compact" type="submit" disabled>Применить</button>
+              </form>
+
+              <p class="state-note" role="status">Загружаем журнал…</p>
+
+              <section class="panel" aria-label="Записи журнала загружаются">
+                <div class="table-scroll">
+                  <table class="data-table journal-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Когда</th>
+                        <th scope="col">Действие</th>
+                        <th scope="col">Вид</th>
+                        <th scope="col">Статус</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr class="journal-row skeleton-row">
+                        <td>
+                          <span class="skeleton" style="width: 86px"></span>
+                        </td>
+                        <td>
+                          <span class="skeleton" style="width: 320px"></span>
+                        </td>
+                        <td>
+                          <span class="skeleton" style="width: 78px"></span>
+                        </td>
+                        <td>
+                          <span class="skeleton" style="width: 64px"></span>
+                        </td>
+                      </tr>
+                      <tr class="journal-row skeleton-row">
+                        <td>
+                          <span class="skeleton" style="width: 86px"></span>
+                        </td>
+                        <td>
+                          <span class="skeleton" style="width: 250px"></span>
+                        </td>
+                        <td>
+                          <span class="skeleton" style="width: 96px"></span>
+                        </td>
+                        <td>
+                          <span class="skeleton" style="width: 64px"></span>
+                        </td>
+                      </tr>
+                      <tr class="journal-row skeleton-row">
+                        <td>
+                          <span class="skeleton" style="width: 86px"></span>
+                        </td>
+                        <td>
+                          <span class="skeleton" style="width: 380px"></span>
+                        </td>
+                        <td>
+                          <span class="skeleton" style="width: 78px"></span>
+                        </td>
+                        <td>
+                          <span class="skeleton" style="width: 64px"></span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </div>
+        </figure>
+
+        <!-- Ошибка -->
+        <figure class="frame">
+          <figcaption>
+            <strong>Ошибка загрузки</strong>
+            текст говорит, что случилось и что делать; рядом кнопка «Повторить»
+          </figcaption>
+          <div class="state-frame">
+            <div class="state-shell">
+              <div class="page-head">
+                <div>
+                  <p class="eyebrow">Рабочее пространство</p>
+                  <h1>Журнал действий</h1>
+                  <p class="subtitle">Что делали вы и сотрудники организации за выбранный период</p>
+                </div>
+              </div>
+
+              <form class="toolbar journal-filters" aria-label="Период и вид записей" novalidate>
+                <div class="journal-filter-fields">
+                  <label class="filter-field" for="error-from">
+                    От
+                    <input id="error-from" type="date" value="2026-10-22" />
+                  </label>
+                  <label class="filter-field" for="error-to">
+                    До
+                    <input id="error-to" type="date" value="2026-10-28" />
+                  </label>
+                  <label class="filter-field filter-field--kind" for="error-kind">
+                    Вид
+                    <select id="error-kind">
+                      <option>Все действия</option>
+                    </select>
+                  </label>
+                </div>
+                <button class="btn btn--primary btn--compact" type="submit">Применить</button>
+              </form>
+
+              <div class="state-error" role="alert">
+                <p>Не удалось загрузить журнал. Проверьте соединение и попробуйте ещё раз.</p>
+                <button type="button">Повторить</button>
+              </div>
+            </div>
+          </div>
+        </figure>
+
+        <!-- Не владелец -->
+        <figure class="frame">
+          <figcaption>
+            <strong>Не владелец организации</strong>
+            прямой заход на <code>/cabinet/journal</code> отвечает 403 — объяснение без фильтров
+          </figcaption>
+          <div class="state-frame">
+            <div class="state-shell">
+              <div class="page-head">
+                <div>
+                  <p class="eyebrow">Рабочее пространство</p>
+                  <h1>Журнал действий</h1>
+                  <p class="subtitle">Что делали вы и сотрудники организации за выбранный период</p>
+                </div>
+              </div>
+
+              <div class="empty-state" data-tone="locked" data-testid="journal-forbidden">
+                <span class="empty-state-icon">
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="24"
+                    height="24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="4" y="10" width="16" height="11" rx="3" />
+                    <path d="M8 10V7a4 4 0 0 1 8 0v3M12 15v2" />
+                  </svg>
+                </span>
+                <h2>Журнал доступен только владельцу организации</h2>
+                <p>
+                  Раздел видят только владельцы организации. Если журнал нужен вам, попросите
+                  владельца изменить вашу роль в разделе «Сотрудники».
+                </p>
+                <a class="btn btn--ghost btn--compact" href="#">Вернуться в обзор</a>
+              </div>
+            </div>
+          </div>
+        </figure>
+
+        <!-- Меню -->
+        <figure class="frame">
+          <figcaption>
+            <strong>Пункт меню</strong>
+            «Журнал» стоит после «Статистики» и виден только владельцу организации
+          </figcaption>
+          <div class="state-frame">
+            <div class="state-shell" style="padding: 24px">
+              <div class="nav-samples">
+                <div class="nav-sample">
+                  <p class="nav-label">Владелец — пункт есть</p>
+                  <ul class="nav-list">
+                    <li>
+                      <a class="nav-link" href="#">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <rect x="3" y="3" width="8" height="8" rx="2" />
+                          <rect x="13" y="3" width="8" height="5" rx="2" />
+                          <rect x="13" y="10" width="8" height="11" rx="2" />
+                          <rect x="3" y="13" width="8" height="8" rx="2" />
+                        </svg>
+                        Обзор
+                      </a>
+                    </li>
+                    <li>
+                      <a class="nav-link" href="#">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M3 21h18M5 21V8l7-5 7 5v13M10 21v-5h4v5" />
+                        </svg>
+                        Общежития
+                      </a>
+                    </li>
+                    <li>
+                      <a class="nav-link" href="#">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M3 3v18h18" />
+                          <rect x="6" y="12" width="3.2" height="6" rx="1" />
+                          <rect x="11" y="8" width="3.2" height="10" rx="1" />
+                          <rect x="16" y="14" width="3.2" height="4" rx="1" />
+                        </svg>
+                        Статистика
+                      </a>
+                    </li>
+                    <li>
+                      <a class="nav-link" href="#" aria-current="page">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M5 4h14a1 1 0 0 1 1 1v15l-3-2-3 2-3-2-3 2V5a1 1 0 0 1 1-1Z" />
+                          <path d="M9 9h6M9 13h4" />
+                        </svg>
+                        Журнал
+                      </a>
+                    </li>
+                    <li>
+                      <a class="nav-link" href="#">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <circle cx="12" cy="12" r="9" />
+                          <path d="M12 11v6M12 7h.01" />
+                        </svg>
+                        Магазин улучшений
+                      </a>
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="nav-sample">
+                  <p class="nav-label">Администратор — пункта нет</p>
+                  <ul class="nav-list">
+                    <li>
+                      <a class="nav-link" href="#">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <rect x="3" y="3" width="8" height="8" rx="2" />
+                          <rect x="13" y="3" width="8" height="5" rx="2" />
+                          <rect x="13" y="10" width="8" height="11" rx="2" />
+                          <rect x="3" y="13" width="8" height="8" rx="2" />
+                        </svg>
+                        Обзор
+                      </a>
+                    </li>
+                    <li>
+                      <a class="nav-link" href="#">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M3 21h18M5 21V8l7-5 7 5v13M10 21v-5h4v5" />
+                        </svg>
+                        Общежития
+                      </a>
+                    </li>
+                    <li>
+                      <a class="nav-link" href="#">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M3 3v18h18" />
+                          <rect x="6" y="12" width="3.2" height="6" rx="1" />
+                          <rect x="11" y="8" width="3.2" height="10" rx="1" />
+                          <rect x="16" y="14" width="3.2" height="4" rx="1" />
+                        </svg>
+                        Статистика
+                      </a>
+                    </li>
+                    <li>
+                      <a class="nav-link" href="#">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <circle cx="12" cy="12" r="9" />
+                          <path d="M12 11v6M12 7h.01" />
+                        </svg>
+                        Магазин улучшений
+                      </a>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </figure>
+
+        <section aria-labelledby="notes-title">
+          <h2 class="spec-title" id="notes-title">Что важно помнить при вёрстке</h2>
+          <ul class="spec-note-list">
+            <li>
+              Колонки — ровно «Когда», «Действие», «Вид», «Статус»; время стоит второй строкой
+              под датой, отдельной колонки времени нет.
+            </li>
+            <li>
+              Раскрытие записи — второй <code>&lt;tr&gt;</code> с <code>colSpan=4</code> и
+              нативным <code>&lt;details&gt;</code>: работает с клавиатуры и без скриптов.
+            </li>
+            <li>
+              Пустые <code>status</code> и <code>duration_ms</code> — «—» серым, без точки
+              статуса-успеха.
+            </li>
+            <li>
+              На 375 таблица перестаёт быть таблицей: строка — карточка «дата и вид / действие /
+              статус», фильтры — сетка 2×2 с кнопкой на всю ширину.
+            </li>
+            <li>Полный текст состояний, брейкпоинтов и границ — в <code>notes.md</code> рядом.</li>
+          </ul>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>
