@@ -99,6 +99,21 @@ function statusTone(status: number | null): 'ok' | 'error' | 'none' {
 }
 
 /**
+ * Автор записи для колонки «Сотрудник».
+ *
+ * Показываем только то, что лежит в самой строке журнала: `actor_name` —
+ * снимок ФИО на момент записи. Подставлять текущее имя из `users` нельзя —
+ * смена фамилии переписала бы историю. Если снимка нет (строки до ревизии
+ * `0044`), остаётся идентификатор; у запросов без сессии (вход, восстановление
+ * пароля) нет и его — там прочерк.
+ */
+function actorLabel(entry: JournalEntry): string {
+  const name = entry.actor_name?.trim();
+  if (name) return name;
+  return entry.actor_id !== null ? `Сотрудник №${entry.actor_id}` : '—';
+}
+
+/**
  * Сырая запись для раскрытия. Порядок ключей — то, что читают сначала: сама
  * запись и её изменения; служебные `ip`, `user_agent` и `request_id` уходят вниз
  * под прокрутку. Курсор и прочие детали сервера сюда не попадают: показываем
@@ -119,6 +134,7 @@ function journalJson(entry: JournalEntry): string {
       path_params: entry.path_params,
       request_body: entry.request_body,
       actor_id: entry.actor_id,
+      actor_name: entry.actor_name,
       method: entry.method,
       ip: entry.ip,
       user_agent: entry.user_agent,
@@ -377,6 +393,7 @@ export function Journal(): JSX.Element {
                 <thead>
                   <tr>
                     <th scope="col">Когда</th>
+                    <th scope="col">Сотрудник</th>
                     <th scope="col">Действие</th>
                     <th scope="col">Вид</th>
                     <th scope="col">Статус</th>
@@ -387,6 +404,9 @@ export function Journal(): JSX.Element {
                     <tr className={`${styles.row} ${styles.skeletonRow}`} key={row}>
                       <td>
                         <span className={`${styles.skeleton} ${styles.skeletonWhen}`} />
+                      </td>
+                      <td>
+                        <span className={`${styles.skeleton} ${styles.skeletonActor}`} />
                       </td>
                       <td>
                         <span className={`${styles.skeleton} ${styles.skeletonAction}`} />
@@ -452,6 +472,7 @@ export function Journal(): JSX.Element {
               <thead>
                 <tr>
                   <th scope="col">Когда</th>
+                  <th scope="col">Сотрудник</th>
                   <th scope="col">Действие</th>
                   <th scope="col">Вид</th>
                   <th scope="col">Статус</th>
@@ -468,6 +489,15 @@ export function Journal(): JSX.Element {
                         <span className={styles.time}>
                           {momentLabel(entry.created_at, TIME_LABEL)}
                         </span>
+                      </td>
+                      {/* Только снимок из строки: подстановки текущего ФИО из
+                          `users` здесь быть не должно. */}
+                      <td
+                        className={styles.actor}
+                        data-testid="journal-actor"
+                        data-named={entry.actor_name?.trim() ? 'true' : undefined}
+                      >
+                        {actorLabel(entry)}
                       </td>
                       {/* Незнакомый код действия показываем кодом: придуманного
                           названия у него нет, а журнал обязан говорить правду. */}
@@ -495,7 +525,7 @@ export function Journal(): JSX.Element {
                       </td>
                     </tr>
                     <tr className={styles.details}>
-                      <td colSpan={4} data-testid="journal-detail">
+                      <td colSpan={5} data-testid="journal-detail">
                         {/* Нативный `<details>`: раскрытие работает с клавиатуры и
                             без скриптов, а лента остаётся на виду — модалки нет. */}
                         <details className={styles.summaryBlock}>
