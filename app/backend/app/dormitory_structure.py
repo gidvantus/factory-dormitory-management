@@ -23,12 +23,23 @@ from app.table_data import columns_for, ensure_columns, get_custom_tab, snapshot
 
 
 def initialize_structure(
-    db: Session, dorm: Dormitory, choices: list[TabChoice], template_rows: list[ReportTemplateRow]
+    db: Session,
+    dorm: Dormitory,
+    choices: list[TabChoice],
+    template_rows: list[ReportTemplateRow],
+    organization_id: int,
 ) -> None:
+    """Собрать структуру нового общежития из образцов **своей** организации.
+
+    Каталог образцов сужается организацией из сессии: иначе перебором `source_id`
+    (`standard:<чужое id>:<раздел>`, `custom:<чужое id>`) копировалась чужая
+    структура — имена хостелов, вкладок, столбцов и значения вариантов списков.
+    """
+
     def resolve() -> list[TabVariant]:
         variants = {
             variant.id: variant
-            for item in catalog(db)
+            for item in catalog(db, organization_id)
             for variant in item.variants
             if variant.dormitory_id != dorm.id
         }

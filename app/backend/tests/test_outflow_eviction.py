@@ -45,7 +45,9 @@ def prepare(client: TestClient, db: Session) -> tuple[int, int, int]:
     db.commit()
     for kind in ("advance", "settlement"):
         assert (
-            client.post(f"/api/dormitories/{dorm}/residents/{resident_id}/payments/{kind}").status_code
+            client.post(
+                f"/api/dormitories/{dorm}/residents/{resident_id}/payments/{kind}"
+            ).status_code
             == 201
         )
     return dorm, resident_id, row.id

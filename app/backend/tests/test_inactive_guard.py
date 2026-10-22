@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.security import ACTIVATION_REQUIRED_DETAIL, issue_activation_token
-from tests.conftest import create_user, login
+from tests.conftest import create_user, login, organizations_for
 
 # Свободные от guard адреса: вход, регистрация, активация, здоровье, /api/me,
 # публичный прайс (`GET /api/tariffs`, страница `/pricing`) и публичные документы
@@ -97,6 +97,9 @@ def test_inactive_user_gets_403_with_the_activation_hint(
 
 def test_active_user_passes_the_guard(client: TestClient, db_session: Session) -> None:
     user = create_user(db_session)
+    # Данные кабинета принадлежат организации: без неё рабочие разделы отвечают
+    # 404 «Организация не найдена», и проверка «активный проходит» не о том.
+    organizations_for(db_session, user)
     assert login(client, user.email).status_code == 200
 
     assert client.get("/api/dormitories").status_code == 200

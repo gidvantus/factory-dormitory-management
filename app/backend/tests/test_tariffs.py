@@ -269,7 +269,8 @@ def test_organization_tariff_requires_a_session(client: TestClient) -> None:
 def test_organization_tariff_without_organization_is_not_found(
     client: TestClient, db_session: Session
 ) -> None:
-    sign_in(client, db_session, email="lonely@example.com")
+    # Организация не заводится: проверяется именно отказ без неё.
+    sign_in(client, db_session, email="lonely@example.com", organization=False)
 
     response = client.get("/api/tariffs/current")
 

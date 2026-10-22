@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser, own_dormitory
+from app.api.organization import Membership
 from app.api.table_columns import prepare_options
 from app.custom_tab_options import initialize_options, mapped_options, options_for
 from app.db import get_db
@@ -83,13 +84,17 @@ def tab_responses(db: Session, dormitory_id: int, tabs: list[CustomTab]) -> list
 
 
 @router.get("/custom-tab-templates", response_model=list[TabTemplateResponse])
-def list_templates(_user: SubscribedUser, db: DbSession) -> list[TabTemplateResponse]:
+def list_templates(
+    _user: SubscribedUser, membership: Membership, db: DbSession
+) -> list[TabTemplateResponse]:
+    """Шаблоны вкладок только из общежитий организации из сессии."""
     pairs = list(
         db.execute(
             select(CustomTab, Dormitory)
             .join(Dormitory, Dormitory.id == CustomTab.dormitory_id)
             .where(CustomTab.parent_id.is_(None))
             .where(CustomTab.parent_section.is_(None))
+            .where(Dormitory.organization_id == membership.organization_id)
             .order_by(Dormitory.name, CustomTab.name, CustomTab.id)
         )
     )
@@ -114,7 +119,9 @@ def list_templates(_user: SubscribedUser, db: DbSession) -> list[TabTemplateResp
 
 
 @router.get(TAB_PATH, response_model=list[TabResponse])
-def list_tabs(dormitory_id: EntityId, _user: SubscribedUser, db: DbSession) -> list[TabResponse]:
+def list_tabs(
+    dormitory_id: EntityId, _user: SubscribedUser, db: DbSession, _dormitory: OwnDormitory
+) -> list[TabResponse]:
     lock_dormitory(db, dormitory_id)
     tabs = list(
         db.scalars(
@@ -131,6 +138,7 @@ def update_tab(
     payload: UpdateTabRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> TabResponse:
     lock_dormitory(db, dormitory_id)
     tab = get_custom_tab(db, dormitory_id, tab_id)
@@ -145,7 +153,11 @@ def update_tab(
 
 @router.delete(TAB_PATH + "/{tab_id}", status_code=204)
 def delete_tab(
-    dormitory_id: EntityId, tab_id: EntityId, _user: SubscribedUser, db: DbSession
+    dormitory_id: EntityId,
+    tab_id: EntityId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     lock_dormitory(db, dormitory_id)
     tab = get_custom_tab(db, dormitory_id, tab_id)
@@ -157,12 +169,21 @@ def delete_tab(
 
 @router.post(TAB_PATH, response_model=TabResponse, status_code=201)
 def create_tab(
-    dormitory_id: EntityId, payload: CreateTabRequest, _user: SubscribedUser, db: DbSession
+    dormitory_id: EntityId,
+    payload: CreateTabRequest,
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> CustomTab:
     source = db.get(CustomTab, payload.source_tab_id) if payload.source_tab_id else None
     if payload.source_tab_id is not None and source is None:
         raise HTTPException(404, "Вкладка для шаблона не найдена")
-    # Lock both schemas in the same order, including copies in opposite directions.
+    if source is not None:
+        # Образец приходит телом (`source_tab_id`), а не путём, поэтому гейт
+        # маршрута его не закрывает: копировать можно только свою вкладку.
+        own_dormitory(db, source.dormitory_id, membership)
+        # Lock both schemas in the same order, including copies in opposite directions.
     for identifier in sorted({dormitory_id, source.dormitory_id if source else dormitory_id}):
         lock_dormitory(db, identifier)
     if source:
@@ -264,6 +285,7 @@ def create_table(
     payload: CreateTabTableRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> CustomTab:
     lock_dormitory(db, dormitory_id)
     tab = get_custom_tab(db, dormitory_id, tab_id, require_active=True)
@@ -313,6 +335,7 @@ def list_rows(
     tab_id: EntityId,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
     from_date: Annotated[date | None, Query(alias="from")] = None,
     to_date: Annotated[date | None, Query(alias="to")] = None,
 ) -> list[CustomTabEntry]:
@@ -356,6 +379,7 @@ def create_row(
     tab_id: EntityId,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
     entry_date: date | None = None,
 ) -> CustomTabEntry:
     lock_dormitory(db, dormitory_id)
@@ -379,7 +403,12 @@ def create_row(
 
 @router.delete(TAB_PATH + "/{tab_id}/rows/{row_id}", status_code=204)
 def delete_row(
-    dormitory_id: EntityId, tab_id: EntityId, row_id: EntityId, _user: SubscribedUser, db: DbSession
+    dormitory_id: EntityId,
+    tab_id: EntityId,
+    row_id: EntityId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     lock_dormitory(db, dormitory_id)
     tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True, require_active=True)
@@ -396,7 +425,11 @@ def delete_row(
 
 @router.post(TAB_PATH + "/{tab_id}/clear")
 def clear_rows(
-    dormitory_id: EntityId, tab_id: EntityId, _user: SubscribedUser, db: DbSession
+    dormitory_id: EntityId,
+    tab_id: EntityId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> dict[str, int]:
     lock_dormitory(db, dormitory_id)
     tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True, require_active=True)
@@ -425,6 +458,7 @@ def update_calendar_cell(
     payload: CalendarCellRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> dict[str, str]:
     lock_dormitory(db, dormitory_id)
     tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True, require_active=True)

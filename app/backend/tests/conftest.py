@@ -27,7 +27,7 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -37,6 +37,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.main import app
 from app.models import Base
+from app.models.dormitory import Dormitory
 from app.models.organization import Organization, OrganizationMember
 from app.models.solution import OrganizationSolution, Solution
 from app.models.user import User
@@ -45,6 +46,42 @@ from app.security import hash_password
 # Пароль, которым тесты входят в кабинет. Сервер его не показывает, поэтому
 # пользователь с известным паролем создаётся прямо в базе (см. create_user).
 TEST_PASSWORD = "unit-test-password"
+
+
+def _test_organization(db_session: Session) -> int:
+    """Организация для общежития, созданного тестом напрямую.
+
+    Схема юнит-тестов собирается из моделей, поэтому backfill миграции
+    `0043_dormitories_organization` в ней не выполняется, а принадлежность в
+    модели обязательна. Чтобы 150+ прямых `Dormitory(...)` в тестах не
+    переписывать руками, conftest привязывает их **тем же правилом**, что и
+    миграция: по автору общежития, иначе к организации последнего заведённого
+    пользователя, иначе к единственной организации базы. Тест, которому нужна
+    конкретная организация, передаёт `organization_id` явно и сюда не попадает.
+    """
+    organization = Organization(name=None, inn=None)
+    db_session.add(organization)
+    db_session.flush()
+    return organization.id
+
+
+@event.listens_for(Session, "before_flush")
+def _attach_dormitory_organization(
+    session: Session, _flush_context: object, _instances: object
+) -> None:
+    """Проставить `organization_id` общежитию, созданному тестом без организации."""
+    for item in session.new:
+        if not isinstance(item, Dormitory) or item.organization_id is not None:
+            continue
+        author = session.get(User, item.created_by_id) if item.created_by_id is not None else None
+        if author is not None and author.active_organization_id is not None:
+            item.organization_id = author.active_organization_id
+            continue
+        latest = session.scalar(select(User).order_by(User.id.desc()).limit(1))
+        if latest is not None and latest.active_organization_id is not None:
+            item.organization_id = latest.active_organization_id
+            continue
+        item.organization_id = _test_organization(session)
 
 
 @pytest.fixture
@@ -165,8 +202,16 @@ def sign_in(
     is_active: bool = True,
     trial_ends_at: datetime | None = None,
     trial_active: bool = True,
+    organization: bool = True,
 ) -> User:
-    """Создать пользователя и войти им. Возвращает строку пользователя в базе."""
+    """Создать пользователя и войти им. Возвращает строку пользователя в базе.
+
+    По умолчанию пользователю заводится организация (`organizations_for`): данные
+    кабинета принадлежат организации, поэтому вошедший без неё не видит ничего и
+    не может создать общежитие. Без этого почти каждый тест кабинета упирался бы
+    в `404` «Организация не найдена». Тестам, которым нужен пользователь
+    **без** организации, дан флаг `organization=False`.
+    """
     user = create_user(
         db_session,
         email=email,
@@ -174,6 +219,8 @@ def sign_in(
         trial_ends_at=trial_ends_at,
         trial_active=trial_active,
     )
+    if organization:
+        organizations_for(db_session, user)
     response = login(client, email)
     assert response.status_code == 200, response.text
     return user
@@ -206,6 +253,27 @@ def organizations_for(
     db_session.refresh(organization)
     db_session.refresh(membership)
     return organization, membership
+
+
+def add_colleague(
+    db_session: Session,
+    organization_id: int,
+    email: str = "colleague@example.com",
+    role: str = "admin",
+) -> User:
+    """Второй пользователь **той же** организации.
+
+    Данные кабинета принадлежат организации, поэтому «общие» данные (отчёт,
+    готовность, раскладка дашборда, уведомления коллегам) видны именно
+    участникам одной организации. Отдельный `sign_in` завёл бы **другую**
+    организацию, и это была бы уже проверка изоляции, а не общности.
+    """
+    user = create_user(db_session, email=email)
+    db_session.add(OrganizationMember(organization_id=organization_id, user_id=user.id, role=role))
+    user.active_organization_id = organization_id
+    db_session.commit()
+    db_session.refresh(user)
+    return user
 
 
 # Код решения «уведомления в Telegram»: он же стоит в seed-строке каталога.

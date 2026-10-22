@@ -1,17 +1,22 @@
-"""Общий список общежитий для вошедших пользователей; права будут добавлены позже."""
+"""Общежития организации из сессии: список, создание, переименование, архивация.
+
+Принадлежность берётся из сессии, а не из тела запроса: `organization_id` нет ни
+в запросе, ни в ответе. Список отдаёт только общежития своей организации, а
+чужое общежитие отвечает тем же `404`, что и несуществующее.
+"""
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser, scoped_dormitories
+from app.api.organization import Membership
 from app.db import get_db
 from app.dormitory_structure import initialize_structure
-from app.dormitory_templates import apply_snapshot
+from app.dormitory_templates import apply_snapshot, own_template
 from app.models.dormitory import Dormitory
-from app.models.dormitory_template import DormitoryTemplate
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
 from app.report_defaults import DEFAULT_REPORT_FORMULA, REQUIRED_REPORT_ROW_NAMES, required_row_name
@@ -30,12 +35,14 @@ router = APIRouter(
 DbSession = Annotated[Session, Depends(get_db)]
 
 
-@router.get("", response_model=list[DormitoryResponse], summary="Список общежитий")
-def list_dormitories(_user: SubscribedUser, db: DbSession) -> list[DormitoryResponse]:
-    dormitories = db.scalars(
-        select(Dormitory).order_by(Dormitory.created_at.desc(), Dormitory.id.desc())
-    )
-    return [DormitoryResponse.model_validate(dormitory) for dormitory in dormitories]
+@router.get("", response_model=list[DormitoryResponse], summary="Список общежитий организации")
+def list_dormitories(
+    _user: SubscribedUser, membership: Membership, db: DbSession
+) -> list[DormitoryResponse]:
+    organization = scoped_dormitories(db, membership.organization_id)
+    # Порядок витрины задаёт ручка: свежие и большие id сверху.
+    ordered = sorted(organization, key=lambda item: (item.created_at, item.id), reverse=True)
+    return [DormitoryResponse.model_validate(dormitory) for dormitory in ordered]
 
 
 @router.post(
@@ -46,7 +53,10 @@ def list_dormitories(_user: SubscribedUser, db: DbSession) -> list[DormitoryResp
     responses={400: {"model": ErrorResponse, "description": "Некорректное тело JSON"}},
 )
 def create_dormitory(
-    payload: CreateDormitoryRequest, user: SubscribedUser, db: DbSession
+    payload: CreateDormitoryRequest,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
 ) -> DormitoryResponse:
     template_rows: list[ReportTemplateRow] = []
     if payload.template_id is not None:
@@ -59,14 +69,21 @@ def create_dormitory(
                 .order_by(ReportTemplateRow.position, ReportTemplateRow.id)
             )
         )
-    dormitory = Dormitory(created_by_id=user.id, name=payload.name, client_name=payload.client_name)
+    dormitory = Dormitory(
+        created_by_id=user.id,
+        organization_id=membership.organization_id,
+        name=payload.name,
+        client_name=payload.client_name,
+    )
     db.add(dormitory)
     db.flush()
     if payload.structure_template_id:
-        structure = db.get(DormitoryTemplate, payload.structure_template_id)
-        if structure is None:
+        try:
+            # Библиотека шаблонов структуры видна организации автора шаблона.
+            structure = own_template(db, payload.structure_template_id, membership.organization_id)
+        except HTTPException:
             db.rollback()
-            raise HTTPException(404, "Шаблон структуры не найден")
+            raise
         try:
             apply_snapshot(db, dormitory, structure.snapshot, payload.structure_template_keys)
         except HTTPException:
@@ -77,7 +94,9 @@ def create_dormitory(
         return DormitoryResponse.model_validate(dormitory)
     if payload.tabs is not None:
         try:
-            initialize_structure(db, dormitory, payload.tabs, template_rows)
+            initialize_structure(
+                db, dormitory, payload.tabs, template_rows, membership.organization_id
+            )
         except HTTPException:
             db.rollback()
             raise
@@ -138,14 +157,14 @@ def create_dormitory(
     responses={404: {"model": ErrorResponse, "description": "Общежитие не найдено"}},
 )
 def update_dormitory(
-    dormitory_id: Annotated[int, Path(ge=1, le=2147483647)],
+    dormitory: OwnDormitory,
     payload: UpdateDormitoryRequest,
     _user: SubscribedUser,
     db: DbSession,
 ) -> DormitoryResponse:
-    dormitory = db.scalar(select(Dormitory).where(Dormitory.id == dormitory_id).with_for_update())
-    if dormitory is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Общежитие не найдено")
+    # Гейт уже проверил принадлежность; блокировка берётся повторно, чтобы
+    # изменение шло под ней, а не по прочитанной до неё строке.
+    db.refresh(dormitory, with_for_update=True)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(dormitory, field, value)
     db.commit()
@@ -159,10 +178,5 @@ def update_dormitory(
     summary="Открыть общежитие",
     responses={404: {"model": ErrorResponse, "description": "Общежитие не найдено"}},
 )
-def read_dormitory(
-    dormitory_id: Annotated[int, Path(ge=1, le=2147483647)], _user: SubscribedUser, db: DbSession
-) -> DormitoryResponse:
-    dormitory = db.scalar(select(Dormitory).where(Dormitory.id == dormitory_id))
-    if dormitory is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Общежитие не найдено")
+def read_dormitory(dormitory: OwnDormitory, _user: SubscribedUser) -> DormitoryResponse:
     return DormitoryResponse.model_validate(dormitory)

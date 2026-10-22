@@ -8,8 +8,13 @@ from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
-from app.api.reports import require_dormitory
+from app.access import (
+    SUBSCRIBED_USER_RESPONSES,
+    OwnDormitory,
+    SubscribedUser,
+    scoped_dormitories,
+)
+from app.api.organization import Membership
 from app.db import get_db
 from app.inflow_actions import InflowAction, prepare_inflow_action
 from app.inflow_entry import copy_entry_to_inflow, entry_form, resident_data
@@ -63,8 +68,8 @@ def list_inflow(
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
+    _dormitory: OwnDormitory,
 ) -> list[PersonnelInflow]:
-    require_dormitory(db, dormitory_id)
     if from_date > to_date or (to_date - from_date).days > 365:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Выберите период не длиннее года")
     return list(
@@ -89,10 +94,12 @@ def list_inflow(
     summary="Добавить строку притока",
 )
 def create_inflow(
-    dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession
+    dormitory_id: DormitoryId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> PersonnelInflow:
     require_section_writable(db, dormitory_id, "inflow")
-    require_dormitory(db, dormitory_id)
     row = PersonnelInflow(dormitory_id=dormitory_id)
     db.add(row)
     db.commit()
@@ -107,6 +114,7 @@ def preview_action(
     action: InflowAction,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> InflowActionPreview:
     plan = prepare_inflow_action(db, dormitory_id, row_id, action)
     db.commit()
@@ -119,6 +127,7 @@ def read_entry_form(
     month: Annotated[date, Query()],
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> InflowEntryForm:
     result = entry_form(db, dormitory_id, month)
     db.commit()
@@ -130,7 +139,9 @@ def create_entry(
     dormitory_id: DormitoryId,
     payload: InflowEntryRequest,
     user: SubscribedUser,
+    membership: Membership,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> PersonnelInflow:
     lock_dormitory(db, dormitory_id)
     require_section_writable(db, dormitory_id, "inflow")
@@ -143,7 +154,11 @@ def create_entry(
         if field in fields and fields[field] != getattr(payload.identity, field):
             raise HTTPException(422, "Данные сотрудника изменились. Повторите проверку совпадений")
     identity_lock(db)
-    employee = choose_identity(db, payload.identity)
+    employee = choose_identity(
+        db,
+        payload.identity,
+        [item.id for item in scoped_dormitories(db, membership.organization_id)],
+    )
     # Из выбранной карточки можно подставить известные данные в оставленные пустыми поля.
     for column in columns:
         identity_field = column.builtin_key
@@ -209,6 +224,7 @@ def process_inflow(
     payload: InflowActionRequest,
     user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> InflowActionResponse:
     plan = prepare_inflow_action(db, dormitory_id, row_id, action)
     if payload.preview_token != plan.preview.preview_token:
@@ -269,9 +285,9 @@ def update_inflow(
     payload: UpdateInflowRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> PersonnelInflow:
     require_section_writable(db, dormitory_id, "inflow")
-    require_dormitory(db, dormitory_id)
     row = get_inflow(db, dormitory_id, row_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(row, field, value)
@@ -289,9 +305,9 @@ def delete_inflow(
     row_id: InflowId,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     require_section_writable(db, dormitory_id, "inflow")
-    require_dormitory(db, dormitory_id)
     lock_dormitory(db, dormitory_id)
     row = get_inflow(db, dormitory_id, row_id)
     if row.processed_as:

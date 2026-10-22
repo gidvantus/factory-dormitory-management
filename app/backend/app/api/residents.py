@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, st
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
-from app.api.reports import require_dormitory
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser, own_dormitory
+from app.api.organization import Membership
 from app.db import get_db
 from app.models.hostel import Hostel
 from app.models.outflow import PersonnelOutflow
@@ -67,8 +67,8 @@ def list_residents(
     _user: SubscribedUser,
     db: DbSession,
     month: Annotated[date, Query()],
+    _dormitory: OwnDormitory,
 ) -> ResidentsResponse:
-    require_dormitory(db, dormitory_id)
     if month.day != 1:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите первый день месяца")
     residents = db.scalars(
@@ -96,10 +96,12 @@ def list_residents(
     summary="Добавить строку",
 )
 def create_resident(
-    dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession
+    dormitory_id: DormitoryId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> ResidentResponse:
     require_section_writable(db, dormitory_id, "residents")
-    require_dormitory(db, dormitory_id)
     resident = Resident(dormitory_id=dormitory_id)
     db.add(resident)
     db.commit()
@@ -120,6 +122,7 @@ def register_payment(
     response: Response,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> ResidentPaymentResponse:
     # Один замок защищает сравнение и вставку от одновременных нажатий,
     # а также от изменения пользовательских столбцов и значений во время копирования.
@@ -164,8 +167,12 @@ def preview_transfer(
     resident_id: ResidentId,
     payload: TransferPreviewRequest,
     _user: SubscribedUser,
+    membership: Membership,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> TransferPreviewResponse:
+    # Перевод идёт в другое общежитие из тела: оно тоже обязано быть своим.
+    own_dormitory(db, payload.target_dormitory_id, membership)
     plan = prepare_transfer(
         db, dormitory_id, resident_id, payload.target_dormitory_id, payload.month
     )
@@ -179,8 +186,11 @@ def transfer_resident(
     resident_id: ResidentId,
     payload: TransferResidentRequest,
     _user: SubscribedUser,
+    membership: Membership,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> ResidentResponse:
+    own_dormitory(db, payload.target_dormitory_id, membership)
     plan = prepare_transfer(
         db, dormitory_id, resident_id, payload.target_dormitory_id, payload.month
     )
@@ -207,6 +217,7 @@ def preview_outflow(
     resident_id: ResidentId,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> ResidentOutflowPreview:
     require_section_writable(db, dormitory_id, "residents")
     plan = prepare_outflow(db, dormitory_id, resident_id)
@@ -223,6 +234,7 @@ def move_to_outflow(
     payload: ResidentOutflowRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> PersonnelOutflow:
     require_section_writable(db, dormitory_id, "residents")
     plan = prepare_outflow(db, dormitory_id, resident_id)
@@ -276,6 +288,7 @@ def update_resident(
     _user: SubscribedUser,
     db: DbSession,
     month: Annotated[date, Query()],
+    _dormitory: OwnDormitory,
 ) -> ResidentResponse:
     require_section_writable(db, dormitory_id, "residents")
     lock_dormitory(db, dormitory_id)
@@ -312,6 +325,7 @@ def delete_resident(
     resident_id: ResidentId,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     require_section_writable(db, dormitory_id, "residents")
     lock_dormitory(db, dormitory_id)
