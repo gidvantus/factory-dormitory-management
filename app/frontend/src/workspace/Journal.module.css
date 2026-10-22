@@ -363,7 +363,9 @@
   font-size: 13px;
 }
 
-.emptyState .btn {
+/* Класс кнопки глобальный (`index.css`), поэтому `:global`: без него CSS-модуль
+   захэшировал бы `.btn` и правило не совпало бы с разметкой. */
+.emptyState :global(.btn) {
   margin-top: 6px;
 }
 
@@ -408,7 +410,7 @@
     grid-column: 1 / -1;
   }
 
-  .filters > .btn {
+  .filters > :global(.btn) {
     width: 100%;
   }
 
@@ -449,7 +451,11 @@
     border: 0;
   }
 
-  .when {
+  .table .when {
+    /* `.table td { display: block }` из этой же раскладки сильнее одиночного
+       `.when` по специфичности (0,1,1 против 0,1,0), поэтому селектор из двух
+       классов: иначе дата и время слипаются в «22.10.202614:59». */
+    display: flex;
     grid-area: when;
     flex-wrap: wrap;
     width: auto;
@@ -501,7 +507,7 @@
     padding: 14px 16px 16px;
   }
 
-  .foot .btn {
+  .foot :global(.btn) {
     width: 100%;
   }
 
