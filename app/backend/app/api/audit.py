@@ -134,11 +134,18 @@ def _as_utc(moment: datetime) -> datetime:
 
 
 def _entry(row: AuditEvent) -> JournalEntry:
-    """Строка журнала в ответ. Название действия берётся из готового справочника."""
+    """Строка журнала в ответ. Название действия берётся из готового справочника.
+
+    `actor_name` отдаётся как есть — тем снимком, что записан в строке. Join на
+    `users` здесь не делается намеренно: он подставил бы текущее ФИО, и смена
+    фамилии переписала бы историю задним числом. У строк до ревизии
+    `0044_audit_actor_name` и у запросов без сессии значение остаётся `None`.
+    """
     return JournalEntry(
         id=row.id,
         created_at=_as_utc(row.created_at),
         actor_id=row.actor_id,
+        actor_name=row.actor_name,
         method=row.method,
         path=row.path,
         action=row.action,

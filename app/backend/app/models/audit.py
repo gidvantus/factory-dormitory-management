@@ -9,6 +9,14 @@
 `actor_id` и `organization_id` — просто числа, которые остаются осмысленными и
 после удаления.
 
+ФИО автора лежит здесь **снимком на момент записи** (`actor_name`), а не берётся
+join-ом на `users` при чтении. Разница принципиальная: join дал бы текущее имя, и
+смена фамилии переписала бы историю задним числом, а журнал обязан показывать
+того, кто действовал, а не того, как человек зовётся сейчас. Цена решения — у
+строк, записанных до ревизии `0044_audit_actor_name`, значение `NULL`: заполнить
+их можно было бы только тем же join-ом, то есть текущими именами. Такие строки и
+показываются без имени, по `actor_id`.
+
 На PostgreSQL таблица партиционирована по месяцам, а её первичный ключ составной
 — `PRIMARY KEY (id, created_at)` (`alembic/versions/0036_audit_events.py`). Здесь
 ни партиций, ни составного ключа нет: юнит-тесты идут на SQLite, где партиций не
@@ -66,6 +74,10 @@ class AuditEvent(Base):
     # вход, регистрация, восстановление пароля.
     actor_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     organization_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # ФИО автора снимком на момент записи — копия `users.full_name`, а не ссылка
+    # на неё. `NULL` у строк без сессии (вход, регистрация, восстановление
+    # пароля) и у строк, записанных до ревизии `0044_audit_actor_name`.
+    actor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # `path` — шаблон маршрута (`/api/dormitories/{dormitory_id}`), а не адрес с
     # подставленным идентификатором: иначе журнал нельзя группировать.
     method: Mapped[str] = mapped_column(String(8), nullable=False)
