@@ -107,6 +107,21 @@
   width: 168px;
 }
 
+/* Сотрудник: ФИО бывает длинным, поэтому колонка переносит строку (общий
+   `.data-table td` ставит `nowrap` — селектор посильнее, как у `.action`). */
+.table .actor {
+  width: 180px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+/* Имени в строке нет (снимка до ревизии `0044` или запрос без сессии):
+   показываем идентификатор приглушённо — это не ФИО. */
+.actor:not([data-named]) {
+  color: var(--color-text-muted);
+}
+
 .status {
   width: 152px;
 }
@@ -147,7 +162,7 @@
 }
 
 /* ==========================================================================
-   Раскрытие записи: второй `<tr>` с `<td colspan="4">` и нативным `<details>`
+   Раскрытие записи: второй `<tr>` с `<td colspan="5">` и нативным `<details>`
    ========================================================================== */
 
 .details > td {
@@ -285,6 +300,10 @@
   width: 78px;
 }
 
+.skeletonActor {
+  width: 110px;
+}
+
 .skeletonStatus {
   width: 64px;
 }
@@ -395,7 +414,7 @@
     grid-template-areas:
       'when kind'
       'action action'
-      'status status';
+      'employee status';
     gap: 6px 12px;
     padding: 14px 16px;
     border-bottom: 1px solid var(--color-border);
@@ -448,6 +467,15 @@
   .status {
     grid-area: status;
     width: auto;
+    text-align: right;
+  }
+
+  /* Сотрудник и статус делят последнюю строку карточки: имя слева, код ответа
+     справа — так оно не отнимает строку у названия действия. */
+  .table .actor {
+    grid-area: employee;
+    width: auto;
+    font-size: 12px;
   }
 
   .summary {

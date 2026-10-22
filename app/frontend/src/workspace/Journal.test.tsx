@@ -34,6 +34,8 @@ const ENTRY: JournalEntry = {
   id: 1048573,
   created_at: '2026-10-28T11:32:11Z',
   actor_id: 4,
+  // Снимок ФИО на момент записи: экран показывает именно его, а не текущее имя.
+  actor_name: 'Иванов Иван Иванович',
   method: 'PATCH',
   path: '/api/dormitories/4',
   action: 'patch_dormitories',
@@ -66,6 +68,19 @@ const UNKNOWN: JournalEntry = {
   status: null,
   duration_ms: null,
   changes: null,
+  // Строка до ревизии `0044`: снимка ФИО нет, остаётся только идентификатор.
+  actor_name: null,
+};
+
+/** Запрос без сессии (вход, восстановление пароля): нет ни имени, ни актора. */
+const ANONYMOUS: JournalEntry = {
+  ...ENTRY,
+  id: 1048571,
+  action: 'post_auth_login',
+  action_title: 'Вход в систему',
+  kind: 'security',
+  actor_id: null,
+  actor_name: null,
 };
 
 /** Запись другого набора: приходит на новый фильтр и не должна смешаться со старым. */
@@ -141,18 +156,20 @@ afterEach(() => {
 describe('раздел «Журнал» в кабинете', () => {
   it('владелец видит пункт меню, ленту действий и число записей за период', async () => {
     mountJournal((url) => {
-      if (url.includes('/api/journal')) return page([ENTRY, UNKNOWN], 'cursor-1', 132);
+      if (url.includes('/api/journal')) return page([ENTRY, UNKNOWN, ANONYMOUS], 'cursor-1', 132);
       return NOT_FOUND;
     });
     renderApp('/cabinet/journal');
 
-    await waitFor(() => expect(rows()).toHaveLength(2));
+    await waitFor(() => expect(rows()).toHaveLength(3));
 
     expect(screen.getByTestId('workspace-nav-journal')).toHaveAttribute('href', '/cabinet/journal');
     expect(screen.getByTestId('workspace-nav-journal')).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('heading', { level: 1, name: 'Журнал действий' })).toBeInTheDocument();
+    // Колонка «Сотрудник» есть в шапке ленты, а не только в подписи строки.
+    expect(screen.getByRole('columnheader', { name: 'Сотрудник' })).toBeInTheDocument();
 
-    const [dated, unknown] = rows();
+    const [dated, unknown, anonymous] = rows();
     // Время показывается московское: 11:32 UTC — это 14:32.
     expect(dated).toHaveTextContent('28.10.2026');
     expect(dated).toHaveTextContent('14:32');
@@ -160,6 +177,8 @@ describe('раздел «Журнал» в кабинете', () => {
     expect(within(dated).getByText('Данные')).toBeInTheDocument();
     expect(dated).toHaveTextContent('200');
     expect(dated).toHaveTextContent('84 мс');
+    // Автор — снимок ФИО из строки журнала.
+    expect(within(dated).getByTestId('journal-actor')).toHaveTextContent('Иванов Иван Иванович');
 
     // Неизвестный код — сам код, моноширинно, без придуманного названия.
     expect(unknown).toHaveTextContent('put_dormitories_hostels_cells');
@@ -170,6 +189,12 @@ describe('раздел «Журнал» в кабинете', () => {
     );
     // Пустые `status` и `duration_ms` — один прочерк, без второго.
     expect(unknown).toHaveTextContent('—');
+    // Снимка имени нет — строка подписана идентификатором автора.
+    expect(within(unknown).getByTestId('journal-actor')).toHaveTextContent('Сотрудник №4');
+    expect(within(unknown).getByTestId('journal-actor')).not.toHaveAttribute('data-named');
+
+    // Запрос без сессии: ни имени, ни идентификатора — прочерк, а не «Сотрудник №null».
+    expect(within(anonymous).getByTestId('journal-actor')).toHaveTextContent(/^—$/);
 
     expect(screen.getByTestId('journal-count')).toHaveTextContent('За этот период — 132 записи');
   });
@@ -194,6 +219,10 @@ describe('раздел «Журнал» в кабинете', () => {
     expect(json).toHaveTextContent(
       '"action_title": "Изменить названия или статус архива общежития"',
     );
+    // Имя автора есть и в сырой записи раскрытия — снимком строки.
+    expect(json).toHaveTextContent('"actor_name": "Иванов Иван Иванович"');
+    // Раскрытие занимает все пять колонок строки, включая «Сотрудника».
+    expect(detail).toHaveAttribute('colspan', '5');
     // Раскрытие — нативный `<details>`: он открылся, а не просто показал текст.
     expect(json.closest('details')).toHaveAttribute('open');
   });

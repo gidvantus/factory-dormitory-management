@@ -50,6 +50,7 @@ ENTRY_FIELDS = {
     "id",
     "created_at",
     "actor_id",
+    "actor_name",
     "method",
     "path",
     "action",
