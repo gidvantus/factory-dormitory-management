@@ -15,7 +15,7 @@ from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel, HostelCell
 from app.models.report import ReportCell, ReportRow
 from app.models.table_column import TableColumn
-from tests.conftest import sign_in
+from tests.conftest import add_colleague, login, sign_in
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +48,7 @@ def test_shared_crud_append_order_hidden_and_stale_revision(
     client: TestClient, db_session: Session
 ) -> None:
     assert client.get("/api/dashboard/layout").status_code == 401
-    sign_in(client, db_session)
+    owner = sign_in(client, db_session)
     dorm = Dormitory(name="Северное", client_name="Клиент")
     db_session.add(dorm)
     db_session.flush()
@@ -62,7 +62,9 @@ def test_shared_crud_append_order_hidden_and_stale_revision(
     block_id = layout["blocks"][0]["id"]
     key = f"custom:{block_id}"
     assert layout["order"] == ["residents", "turnover", "attendance", "reports", key]
-    sign_in(client, db_session, email="another@example.com")
+    # Раскладка общая внутри организации: коллега видит тот же блок.
+    colleague = add_colleague(db_session, owner.active_organization_id or 0)
+    assert login(client, colleague.email).status_code == 200
     assert client.get("/api/dashboard/layout").json() == layout
     assert (
         client.put(
@@ -415,7 +417,7 @@ def test_chart_places_preserves_valid_days_and_derived_negative_values(
 def test_comparison_chart_saves_shared_mode_and_isolates_unavailable_sources(
     client: TestClient, db_session: Session
 ) -> None:
-    sign_in(client, db_session)
+    owner = sign_in(client, db_session)
     first = table_fixture(db_session, "Общежитие", "a", [("2026-10-01", "2")])
     second = table_fixture(db_session, "Общежитие", "b", [("2026-10-01", "5")])
     payload = config([second, first], display="chart", chart_mode="dormitories")
@@ -426,7 +428,9 @@ def test_comparison_chart_saves_shared_mode_and_isolates_unavailable_sources(
     assert column is not None
     column.archived = True
     db_session.commit()
-    sign_in(client, db_session, email="second@example.com")
+    # Сравнительный график видят коллеги по организации.
+    colleague = add_colleague(db_session, owner.active_organization_id or 0)
+    assert login(client, colleague.email).status_code == 200
     result = client.get("/api/dashboard?from=2026-10-01&to=2026-10-02").json()["widgets"][0]
     assert [line["dormitory_id"] for line in result["series"]] == [
         first["dormitory_id"],

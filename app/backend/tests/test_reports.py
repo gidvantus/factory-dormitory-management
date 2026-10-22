@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.report_defaults import REQUIRED_REPORT_ROW_NAMES
-from tests.conftest import sign_in
+from tests.conftest import add_colleague, login, sign_in
 
 REPORTS_EMAIL = "reports@example.com"
 
@@ -24,7 +24,7 @@ def create_row(client: TestClient, base: str, name: str, formula: str | None = N
 def test_report_is_shared_and_formula_fills_each_date(
     client: TestClient, db_session: Session
 ) -> None:
-    sign_in(client, db_session, email=REPORTS_EMAIL)
+    creator = sign_in(client, db_session, email=REPORTS_EMAIL)
     dormitory_id = create_dormitory(client)
     base = f"/api/dormitories/{dormitory_id}/report"
     residents = create_row(client, base, "Проживающие")
@@ -47,7 +47,9 @@ def test_report_is_shared_and_formula_fills_each_date(
         == 204
     )
     client.post("/api/auth/logout")
-    sign_in(client, db_session, email="colleague@example.com")
+    # Коллега по организации, а не отдельный кабинет: отчёт общий внутри неё.
+    colleague = add_colleague(db_session, creator.active_organization_id or 0)
+    assert login(client, colleague.email).status_code == 200
     response = client.get(f"{base}?from=2026-10-01&to=2026-10-03")
     assert response.status_code == 200
     rows = response.json()["rows"]

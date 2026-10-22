@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app import report_readiness
 from app.models.report_readiness import ReportReadiness
-from tests.conftest import login, sign_in
+from tests.conftest import add_colleague, login, sign_in
 
 
 def create_dormitory(client: TestClient, name: str) -> int:
@@ -43,7 +43,9 @@ def test_readiness_is_daily_shared_and_independent_of_report_fields(
     assert client.put(url, json=payload).json() == saved.json()
     assert db_session.scalar(select(func.count()).select_from(ReportReadiness)) == 1
     assert client.get(f"/api/dormitories/{second}/report-readiness").json()["is_ready"] is False
-    sign_in(client, db_session, email="second@example.com")
+    # Готовность общая внутри организации, а не личная: коллега видит ту же отметку.
+    colleague = add_colleague(db_session, user.active_organization_id or 0)
+    assert login(client, colleague.email).status_code == 200
     assert client.get(url).json() == saved.json()
     # Даже при выборе прошлого/будущего периода индикатор относится к сегодня.
     for period in ("from=2025-09-01&to=2025-09-02", "from=2099-01-01&to=2099-01-02"):
@@ -93,5 +95,9 @@ def test_readiness_requires_active_session_and_valid_dormitory(
     sign_in(client, db_session, email="active@example.com")
     assert client.get(url).status_code == 404
     assert client.put(url, json=payload).status_code == 404
-    assert client.put(url, json={**payload, "is_ready": "yes"}).status_code == 422
+    # Права проверяются раньше разбора тела: на несуществующем общежитии
+    # неверное тело до проверки тела не доходит — ответ тот же 404.
+    assert client.put(url, json={**payload, "is_ready": "yes"}).status_code == 404
+    existing = f"/api/dormitories/{create_dormitory(client, 'Северное')}/report-readiness"
+    assert client.put(existing, json={**payload, "is_ready": "yes"}).status_code == 422
     assert login(client, "active@example.com").status_code == 200

@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser, own_dormitory
+from app.api.organization import Membership
 from app.db import get_db
 from app.dormitory_templates import take_snapshot
 from app.models.dormitory_template import DormitoryTemplate
@@ -67,7 +68,15 @@ def read(template_id: int, _user: SubscribedUser, db: DbSession) -> dict[str, An
 
 
 @router.post("", status_code=201)
-def create(payload: SaveTemplate, user: SubscribedUser, db: DbSession) -> dict[str, Any]:
+def create(
+    payload: SaveTemplate,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+) -> dict[str, Any]:
+    # Снимок снимается с чужой структуры, поэтому родитель проверяется до снятия:
+    # чужое общежитие — тот же 404, что и несуществующее.
+    own_dormitory(db, payload.dormitory_id, membership)
     template = DormitoryTemplate(
         name=payload.name, created_by_id=user.id, snapshot=take_snapshot(db, payload.dormitory_id)
     )

@@ -37,7 +37,12 @@ class CatalogItem(BaseModel):
     variants: list[TabVariant]
 
 
-def catalog(db: Session) -> list[CatalogItem]:
+def catalog(db: Session, organization_id: int | None = None) -> list[CatalogItem]:
+    """Каталог вариантов структуры; с `organization_id` — только своей организации.
+
+    Без организации остаётся только стандартная структура: чужие общежития в
+    каталог не попадают.
+    """
     variants = [
         TabVariant(
             id=f"standard:0:{key}",
@@ -60,7 +65,10 @@ def catalog(db: Session) -> list[CatalogItem]:
         )
         for key, name in SECTIONS.items()
     ]
-    for dorm in db.scalars(select(Dormitory).order_by(Dormitory.name, Dormitory.id)):
+    query = select(Dormitory).order_by(Dormitory.name, Dormitory.id)
+    if organization_id is not None:
+        query = query.where(Dormitory.organization_id == organization_id)
+    for dorm in db.scalars(query):
         parents = section_parents(dorm)
         for key, name in SECTIONS.items():
             if section_status(dorm, key) == "deleted":

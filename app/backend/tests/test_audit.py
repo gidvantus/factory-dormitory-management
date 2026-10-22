@@ -80,8 +80,8 @@ def test_committed_action_leaves_the_row_in_the_same_commit(
 
     row = rows[-1]
     assert row.actor_id == user.id
-    # Организации у тестового пользователя нет: колонка остаётся пустой.
-    assert row.organization_id is None
+    # Журнал пишет организацию актора: у вошедшего пользователя она есть.
+    assert row.organization_id == user.active_organization_id
     # Идентификатор не подставлен в путь: журнал группируется по шаблону.
     assert row.path == "/api/dormitories/{dormitory_id}"
     # Значения пути — те, что подставил маршрутизатор.

@@ -18,8 +18,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
-from app.api.reports import require_dormitory
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.models.hostel import Hostel, HostelCell
 from app.models.import_job import (
@@ -108,9 +107,11 @@ def get_hostel(db: Session, dormitory_id: int, hostel_id: int) -> Hostel:
 
 @router.get("/sources", summary="Все хостелы для настройки связи отчёта")
 def list_sources(
-    dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession
+    dormitory_id: DormitoryId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> list[dict[str, int | str]]:
-    require_dormitory(db, dormitory_id)
     return [
         {"id": hostel.id, "name": hostel.name}
         for hostel in db.scalars(
@@ -126,8 +127,8 @@ def read_places(
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
+    _dormitory: OwnDormitory,
 ) -> PlacesResponse:
-    require_dormitory(db, dormitory_id)
     if from_date > to_date or (to_date - from_date).days > 365:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Выберите период не длиннее года")
     first_month = from_date.replace(day=1)
@@ -196,9 +197,9 @@ def create_hostel(
     payload: CreateHostelRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> dict[str, int | str]:
     require_section_writable(db, dormitory_id, "places")
-    require_dormitory(db, dormitory_id)
     existing = db.scalars(select(Hostel).where(Hostel.dormitory_id == dormitory_id))
     if any(
         hostel.name.casefold() == payload.name.casefold()
@@ -224,9 +225,9 @@ def remove_hostel(
     _user: SubscribedUser,
     db: DbSession,
     month: Annotated[date, Query()],
+    _dormitory: OwnDormitory,
 ) -> None:
     require_section_writable(db, dormitory_id, "places")
-    require_dormitory(db, dormitory_id)
     if month.day != 1:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите первый день месяца")
     hostel = get_hostel(db, dormitory_id, hostel_id)
@@ -253,9 +254,9 @@ def save_hostel_cell(
     payload: SaveHostelCellRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     require_section_writable(db, dormitory_id, "places")
-    require_dormitory(db, dormitory_id)
     hostel = get_hostel(db, dormitory_id, hostel_id)
     if not active_in_month(hostel, report_date.replace(day=1)):
         raise HTTPException(status.HTTP_409_CONFLICT, "Хостел не действует в этом месяце")
@@ -330,9 +331,9 @@ def download_places_import_template(
     _user: SubscribedUser,
     db: DbSession,
     month: Annotated[date, Query()],
+    _dormitory: OwnDormitory,
 ) -> Response:
     """Шаблон за месяц: строка на каждое поле каждого действующего хостела."""
-    require_dormitory(db, dormitory_id)
     if month.day != 1:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NOT_FIRST_DAY_DETAIL)
     hostels = list(
@@ -393,6 +394,7 @@ async def upload_places_import(
     user: SubscribedUser,
     db: DbSession,
     file: Annotated[UploadFile, File()],
+    _dormitory: OwnDormitory,
 ) -> Response:
     """Разобрать файл прямо в запросе и сохранить результат в журнал импортов.
 
@@ -400,7 +402,6 @@ async def upload_places_import(
     ошибки и номер задания. Ячейки «Размещение персонала» при ошибках не меняются вовсе.
     """
     require_section_writable(db, dormitory_id, "places")
-    require_dormitory(db, dormitory_id)
     filename = file.filename or ""
     if not filename.lower().endswith(".xlsx"):
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, IMPORT_FILE_TYPE_DETAIL)
@@ -537,6 +538,7 @@ def confirm_places_import(
     import_id: ImportId,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> PlacesImportApplied:
     """Применить задание: блокировка строки задания исключает двойное применение."""
     require_section_writable(db, dormitory_id, "places")

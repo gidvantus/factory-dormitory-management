@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser, scoped_dormitories
+from app.api.organization import Membership
 from app.dashboard_blocks import source_catalog, validate_config
 from app.db import get_db
 from app.models.dormitory import Dormitory
@@ -66,20 +67,24 @@ def response_for(report: StatisticsReport, user: User, db: Session) -> Statistic
 
 
 def validate_blocks(
-    db: Session, blocks: list[StatisticsBlock], old: list[dict] | None = None
+    db: Session,
+    blocks: list[StatisticsBlock],
+    old: list[dict] | None = None,
+    organization_id: int | None = None,
 ) -> None:
     previous = {item["id"]: item for item in old or []}
-    catalog = source_catalog(db) if blocks else []
+    catalog = source_catalog(db, organization_id) if blocks else []
     for block in blocks:
         # A removed source must not prevent renaming the report or deleting another block.
         if previous.get(block.id, {}).get("query") != block.query.model_dump(mode="json"):
-            validate_config(db, block.query)
+            validate_config(db, block.query, organization_id)
         if not block.query.all_dormitories:
-            ids = set(
-                db.scalars(
-                    select(Dormitory.id).where(Dormitory.id.in_(block.selected_dormitory_ids))
-                )
-            )
+            # Выбор общежитий — только из своей организации: чужое общежитие
+            # отвечает так же, как несуществующее.
+            statement = select(Dormitory.id).where(Dormitory.id.in_(block.selected_dormitory_ids))
+            if organization_id is not None:
+                statement = statement.where(Dormitory.organization_id == organization_id)
+            ids = set(db.scalars(statement))
             if ids != set(block.selected_dormitory_ids) and block.id not in previous:
                 raise HTTPException(422, "Выбранное общежитие не найдено")
         # Pin current matches by ID, so later renames do not change saved bindings.
@@ -99,8 +104,10 @@ def period_end(start: date, end: date) -> date | None:
 
 
 @router.get("/sources", response_model=list[CatalogDormitory])
-def read_sources(_user: SubscribedUser, db: DbSession) -> list[CatalogDormitory]:
-    catalog = source_catalog(db)
+def read_sources(
+    _user: SubscribedUser, membership: Membership, db: DbSession
+) -> list[CatalogDormitory]:
+    catalog = source_catalog(db, membership.organization_id)
     db.commit()
     return catalog
 
@@ -122,9 +129,12 @@ def list_reports(user: SubscribedUser, db: DbSession) -> list[StatisticsReportRe
 
 @router.post("/reports", response_model=StatisticsReportResponse, status_code=201)
 def create_report(
-    payload: CreateStatisticsReport, user: SubscribedUser, db: DbSession
+    payload: CreateStatisticsReport,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
 ) -> StatisticsReportResponse:
-    validate_blocks(db, payload.blocks)
+    validate_blocks(db, payload.blocks, organization_id=membership.organization_id)
     report = StatisticsReport(
         name=payload.name,
         description=payload.description,
@@ -147,13 +157,17 @@ def read_report(
 
 @router.put("/reports/{report_id}", response_model=StatisticsReportResponse)
 def update_report(
-    report_id: ReportId, payload: UpdateStatisticsReport, user: SubscribedUser, db: DbSession
+    report_id: ReportId,
+    payload: UpdateStatisticsReport,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
 ) -> StatisticsReportResponse:
     report = report_row(db, report_id, user, lock=True)
     check_revision(report, payload.revision)
     if report.visibility != payload.visibility and report.created_by_id != user.id:
         raise HTTPException(403, "Изменить доступ может только создатель отчёта")
-    validate_blocks(db, payload.blocks, report.blocks)
+    validate_blocks(db, payload.blocks, report.blocks, membership.organization_id)
     report.name, report.description, report.visibility = (
         payload.name,
         payload.description,
@@ -183,6 +197,7 @@ def delete_report(
 def preview_block(
     payload: StatisticsBlock,
     user: SubscribedUser,
+    membership: Membership,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -190,8 +205,8 @@ def preview_block(
     end = period_end(from_date, to_date)
     if payload.query.source_kind == "arrival_plan":
         end = to_date
-    catalog = source_catalog(db)
-    dormitories = list(db.scalars(select(Dormitory).order_by(Dormitory.id)))
+    catalog = source_catalog(db, membership.organization_id)
+    dormitories = scoped_dormitories(db, membership.organization_id)
     result = calculate_block(db, user, payload, dormitories, catalog, from_date, end, {})
     db.commit()
     return result
@@ -201,6 +216,7 @@ def preview_block(
 def read_data(
     report_id: ReportId,
     user: SubscribedUser,
+    membership: Membership,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -208,8 +224,8 @@ def read_data(
 ) -> StatisticsData:
     report = report_row(db, report_id, user)
     end = period_end(from_date, to_date)
-    catalog = source_catalog(db)
-    dormitories = list(db.scalars(select(Dormitory).order_by(Dormitory.id)))
+    catalog = source_catalog(db, membership.organization_id)
+    dormitories = scoped_dormitories(db, membership.organization_id)
     if dormitory_id is not None:
         if not any(dorm.id == dormitory_id for dorm in dormitories):
             raise HTTPException(404, "Общежитие не найдено")

@@ -7,7 +7,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser, own_dormitory
+from app.api.organization import Membership
 from app.db import get_db
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
@@ -89,8 +90,13 @@ def read_template(
     summary="Сохранить структуру отчёта как шаблон",
 )
 def create_template(
-    payload: CreateReportTemplateRequest, user: SubscribedUser, db: DbSession
+    payload: CreateReportTemplateRequest,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
 ) -> ReportTemplateResponse:
+    # Шаблон копирует строки отчёта: чужое общежитие — тот же 404, что и несуществующее.
+    own_dormitory(db, payload.dormitory_id, membership)
     lock_dormitory(db, payload.dormitory_id)
     rows = list(
         db.scalars(

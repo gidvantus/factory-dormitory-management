@@ -9,10 +9,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.arrival_plans import report_arrivals
 from app.db import get_db
-from app.models.dormitory import Dormitory
 from app.models.report import ReportCell, ReportRow
 from app.report_defaults import required_row_name
 from app.report_formula import FormulaError, calculate_formula, compile_formula, format_number
@@ -48,11 +47,6 @@ router = APIRouter(
 DbSession = Annotated[Session, Depends(get_db)]
 DormitoryId = Annotated[int, Path(ge=1, le=2147483647)]
 RowId = Annotated[int, Path(ge=1, le=2147483647)]
-
-
-def require_dormitory(db: Session, dormitory_id: int) -> None:
-    if db.get(Dormitory, dormitory_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Общежитие не найдено")
 
 
 def get_rows(db: Session, dormitory_id: int) -> list[ReportRow]:
@@ -118,8 +112,8 @@ def read_report(
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
+    _dormitory: OwnDormitory,
 ) -> ReportResponse:
-    require_dormitory(db, dormitory_id)
     if from_date > to_date or (to_date - from_date).days > 365:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Выберите период не длиннее года")
     rows = get_rows(db, dormitory_id)
@@ -219,6 +213,7 @@ def create_row(
     payload: CreateReportRowRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> ReportRowResponse:
     require_section_writable(db, dormitory_id, "report")
     lock_dormitory(db, dormitory_id)
@@ -255,6 +250,7 @@ def update_row(
     payload: UpdateReportRowRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> ReportRowResponse:
     require_section_writable(db, dormitory_id, "report")
     lock_dormitory(db, dormitory_id)
@@ -319,9 +315,9 @@ def move_row(
     payload: MoveReportRowRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> ReportRowResponse:
     require_section_writable(db, dormitory_id, "report")
-    require_dormitory(db, dormitory_id)
     rows = get_rows(db, dormitory_id)
     index = next((index for index, row in enumerate(rows) if row.id == row_id), None)
     if index is None:
@@ -339,10 +335,13 @@ def move_row(
 
 @router.delete("/rows/{row_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Удалить строку")
 def delete_row(
-    dormitory_id: DormitoryId, row_id: RowId, _user: SubscribedUser, db: DbSession
+    dormitory_id: DormitoryId,
+    row_id: RowId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     require_section_writable(db, dormitory_id, "report")
-    require_dormitory(db, dormitory_id)
     row = get_row(db, dormitory_id, row_id)
     if required_row_name(row.name):
         raise HTTPException(status.HTTP_409_CONFLICT, "Обязательную строку нельзя удалить")
@@ -366,6 +365,7 @@ def save_cell(
     payload: SaveReportCellRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     require_section_writable(db, dormitory_id, "report")
     lock_dormitory(db, dormitory_id)

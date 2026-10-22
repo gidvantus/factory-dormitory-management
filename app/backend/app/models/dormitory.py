@@ -1,4 +1,11 @@
-"""Общежития, созданные пользователями."""
+"""Общежития, созданные пользователями.
+
+Общежитие принадлежит организации, и эта колонка — единственная точка правды о
+принадлежности данных кабинета: на `dormitory_id` висят все операционные таблицы,
+поэтому дочерние строки наследуют принадлежность от корня и своей колонки не
+имеют. `ON DELETE RESTRICT`: удаление организации не должно молча прятать её
+общежития.
+"""
 
 from datetime import datetime
 
@@ -12,6 +19,12 @@ class Dormitory(Base):
     __tablename__ = "dormitories"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Организация, которой принадлежат данные общежития. `NOT NULL` ставит
+    # миграция `0043_dormitories_organization` после backfill: до него колонка
+    # nullable, иначе существующие строки нечем заполнить.
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
     created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )

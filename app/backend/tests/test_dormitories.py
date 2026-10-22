@@ -1,4 +1,4 @@
-"""Создание, сохранение и общий доступ к общежитиям."""
+"""Создание, сохранение и общий доступ к общежитиям внутри организации."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.models.dormitory import Dormitory
 from app.models.user import User
 from app.report_defaults import REQUIRED_REPORT_ROW_NAMES
-from tests.conftest import sign_in
+from tests.conftest import add_colleague, login, sign_in
 
 PAYLOAD = {"name": "Северное", "client_name": "Стройкомплект"}
 
@@ -47,17 +47,33 @@ def test_create_persists_and_returns_list_and_details(
     assert [row["formula"] for row in report["rows"]] == ["=0", "=0", "=0"]
 
 
-def test_all_authenticated_users_share_dormitories(client: TestClient, db_session: Session) -> None:
-    sign_in(client, db_session, email="creator@example.com")
+def test_colleagues_share_dormitories_and_foreign_cabinets_do_not(
+    client: TestClient, db_session: Session
+) -> None:
+    """Общежития общие для организации и невидимы чужой организации."""
+    creator = sign_in(client, db_session, email="creator@example.com")
     first = client.post("/api/dormitories", json=PAYLOAD).json()
+
+    # Коллега — участник той же организации: список общий.
     client.post("/api/auth/logout")
-    sign_in(client, db_session, email="colleague@example.com")
+    colleague = add_colleague(db_session, creator.active_organization_id or 0)
+    assert login(client, colleague.email).status_code == 200
     assert client.get("/api/dormitories").json() == [first]
     assert client.get(f"/api/dormitories/{first['id']}").json() == first
     second = client.post(
         "/api/dormitories", json={"name": "Южное", "client_name": "Другой клиент"}
     ).json()
     assert client.get("/api/dormitories").json() == [second, first]
+
+    # Другая организация: в списке пусто, чужое общежитие — тот же 404, что и
+    # несуществующее.
+    client.post("/api/auth/logout")
+    stranger = sign_in(client, db_session, email="stranger@example.com")
+    assert stranger.active_organization_id != creator.active_organization_id
+    assert client.get("/api/dormitories").json() == []
+    assert client.get(f"/api/dormitories/{first['id']}").status_code == 404
+    missing = client.get("/api/dormitories/999999").json()
+    assert client.get(f"/api/dormitories/{first['id']}").json() == missing
 
 
 @pytest.mark.parametrize(

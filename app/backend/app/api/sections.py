@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.models.custom_tab import CustomTabEntry
 from app.models.hostel import Hostel
@@ -128,14 +128,22 @@ def metadata(db: Session, dormitory_id: int) -> list[SectionResponse]:
 
 @router.get("", response_model=list[SectionResponse])
 def list_sections(
-    dormitory_id: EntityId, _user: SubscribedUser, db: DbSession
+    dormitory_id: EntityId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> list[SectionResponse]:
     return metadata(db, dormitory_id)
 
 
 @router.patch("/{key}", response_model=list[SectionResponse])
 def update_section(
-    dormitory_id: EntityId, key: str, payload: SectionUpdate, _user: SubscribedUser, db: DbSession
+    dormitory_id: EntityId,
+    key: str,
+    payload: SectionUpdate,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> list[SectionResponse]:
     if key not in SECTIONS:
         raise HTTPException(404, "Вкладка не найдена")
@@ -176,7 +184,11 @@ def update_section(
 
 @router.delete("/{key}", response_model=list[SectionResponse])
 def delete_section(
-    dormitory_id: EntityId, key: str, _user: SubscribedUser, db: DbSession
+    dormitory_id: EntityId,
+    key: str,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> list[SectionResponse]:
     if key not in SECTIONS:
         raise HTTPException(404, "Вкладка не найдена")

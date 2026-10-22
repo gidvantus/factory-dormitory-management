@@ -96,8 +96,22 @@ def checked_column(
     return column
 
 
-def validate_source(db: Session, config: WidgetConfig, source: WidgetSource) -> None:
-    if db.get(Dormitory, source.dormitory_id) is None:
+def validate_source(
+    db: Session,
+    config: WidgetConfig,
+    source: WidgetSource,
+    organization_id: int | None = None,
+) -> None:
+    """Проверить источник блока; с `organization_id` — ещё и принадлежность.
+
+    Принадлежность проверяется там, где конфигурацию присылает клиент. При
+    расчёте уже сохранённого блока список общежитий приходит отфильтрованным по
+    организации, поэтому повторная проверка не нужна.
+    """
+    dormitory = db.get(Dormitory, source.dormitory_id)
+    if dormitory is None or (
+        organization_id is not None and dormitory.organization_id != organization_id
+    ):
         raise HTTPException(404, "Общежитие не найдено")
     if isinstance(source, ArrivalPlanWidgetSource):
         return
@@ -138,15 +152,20 @@ def validate_source(db: Session, config: WidgetConfig, source: WidgetSource) -> 
                     raise HTTPException(422, "Укажите значение условия")
 
 
-def validate_config(db: Session, config: WidgetConfig) -> WidgetConfig:
+def validate_config(
+    db: Session, config: WidgetConfig, organization_id: int | None = None
+) -> WidgetConfig:
     for source in config.sources:
-        validate_source(db, config, source)
+        validate_source(db, config, source, organization_id)
     return config
 
 
-def source_catalog(db: Session) -> list[CatalogDormitory]:
+def source_catalog(db: Session, organization_id: int | None = None) -> list[CatalogDormitory]:
     result = []
-    for dorm in db.scalars(select(Dormitory).order_by(Dormitory.id)):
+    query = select(Dormitory).order_by(Dormitory.id)
+    if organization_id is not None:
+        query = query.where(Dormitory.organization_id == organization_id)
+    for dorm in db.scalars(query):
         sources = [CatalogSource(key="arrival_plan", name="План заездов", kind="arrival_plan")]
 
         def exists(key: str, dorm: Dormitory = dorm) -> bool:
@@ -396,7 +415,7 @@ def calculate_chart(
                 raise HTTPException(422, "Не выбран источник. Откройте настройки блока.")
             validate_source(db, config, source)
             if isinstance(source, ReportWidgetSource):
-                report = reports.get(dorm.id) or read_report(dorm.id, user, db, start, end)
+                report = reports.get(dorm.id) or read_report(dorm.id, user, db, start, end, dorm)
                 reports[dorm.id] = report
                 row = next(item for item in report.rows if item.id == source.row_id)
                 for day in days:
@@ -516,7 +535,7 @@ def calculate_widget(
                 raise HTTPException(422, "Не выбран источник. Откройте настройки блока.")
             validate_source(db, config, source)
             if isinstance(source, ReportWidgetSource):
-                report = reports.get(dorm.id) or read_report(dorm.id, user, db, start, end)
+                report = reports.get(dorm.id) or read_report(dorm.id, user, db, start, end, dorm)
                 row = next(item for item in report.rows if item.id == source.row_id)
                 cells = [row.values.get(day.isoformat()) for day in days]
                 if any(

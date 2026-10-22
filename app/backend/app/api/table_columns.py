@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.models.custom_tab import CustomTabEntry
 from app.models.inflow import PersonnelInflow
@@ -73,7 +73,11 @@ def check_name(columns: list[TableColumn], name: str, column_id: int | None = No
 
 @router.get("/{table_key}/columns", response_model=list[ColumnResponse])
 def list_columns(
-    dormitory_id: DormitoryId, table_key: TableKey, _user: SubscribedUser, db: DbSession
+    dormitory_id: DormitoryId,
+    table_key: TableKey,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> list[TableColumn]:
     columns = ensure_columns(db, dormitory_id, table_key)
     db.commit()
@@ -87,6 +91,7 @@ def create_column(
     payload: ColumnRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
     require_writable_table(db, dormitory_id, table_key)
@@ -126,6 +131,7 @@ def update_column(
     payload: ColumnRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
     require_writable_table(db, dormitory_id, table_key)
@@ -155,6 +161,7 @@ def delete_column(
     column_id: ColumnId,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     lock_dormitory(db, dormitory_id)
     require_writable_table(db, dormitory_id, table_key)
@@ -184,6 +191,7 @@ def restore_column(
     column_id: ColumnId,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> TableColumn:
     columns = ensure_columns(db, dormitory_id, table_key)
     require_writable_table(db, dormitory_id, table_key)
@@ -204,6 +212,7 @@ def save_custom_cell(
     payload: CellRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> CellRequest:
     lock_dormitory(db, dormitory_id)
     require_writable_table(db, dormitory_id, table_key)
@@ -237,6 +246,7 @@ def list_archive(
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
+    _dormitory: OwnDormitory,
 ) -> list[ArchiveEntry]:
     lock_dormitory(db, dormitory_id)
     if from_date > to_date or (to_date - from_date).days > 365:
@@ -258,7 +268,9 @@ def list_archive(
 
 
 @router.post("/archive/rows", response_model=ArchiveResponse, status_code=201)
-def create_archive(dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession) -> ArchiveEntry:
+def create_archive(
+    dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession, _dormitory: OwnDormitory
+) -> ArchiveEntry:
     lock_dormitory(db, dormitory_id)
     require_writable_table(db, dormitory_id, "archive")
     row = ArchiveEntry(dormitory_id=dormitory_id)
@@ -270,7 +282,11 @@ def create_archive(dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSessi
 
 @router.delete("/archive/rows/{row_id}", status_code=204)
 def delete_archive(
-    dormitory_id: DormitoryId, row_id: ColumnId, _user: SubscribedUser, db: DbSession
+    dormitory_id: DormitoryId,
+    row_id: ColumnId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     lock_dormitory(db, dormitory_id)
     require_writable_table(db, dormitory_id, "archive")
