@@ -497,7 +497,7 @@ export function DormitoryDetails(): JSX.Element {
         </p>
       )}
       {status === 'missing' && (
-        <p className={styles.error} role="alert">
+        <p className={styles.error} role="alert" data-testid="dormitory-missing">
           Общежитие не найдено.
         </p>
       )}
