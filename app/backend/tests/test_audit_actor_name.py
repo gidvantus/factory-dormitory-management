@@ -16,7 +16,6 @@
 
 from typing import Any
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -208,7 +207,7 @@ def test_rows_without_a_name_are_returned_as_null(client: TestClient, db_session
     assert new_entry["actor_name"] == ACTOR_NAME
 
 
-def test_record_actor_puts_the_name_into_row_values(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_record_actor_puts_the_name_into_row_values() -> None:
     """`record_actor` дописывает имя в контекст, `values()` кладёт его в строку."""
     context = audit.AuditContext(
         request_id="unit-test",
