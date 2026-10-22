@@ -46,6 +46,11 @@ from app.api import (
     trial,
     users,
 )
+
+# Роутер журнала импортируется отдельной строкой: имя `audit` в этом файле уже
+# занято модулем записи журнала (`app.audit`), и плоский импорт из `app.api`
+# подменил бы его.
+from app.api.audit import router as journal_router
 from app.config import get_settings
 
 API_PREFIX = "/api"
@@ -206,6 +211,7 @@ def create_app() -> FastAPI:
     application.include_router(recovery.router, prefix=API_PREFIX)
     application.include_router(users.router, prefix=API_PREFIX)
     application.include_router(organization.router, prefix=API_PREFIX)
+    application.include_router(journal_router, prefix=API_PREFIX)
     application.include_router(dashboard.router, prefix=API_PREFIX)
     application.include_router(dashboard_blocks.router, prefix=API_PREFIX)
     application.include_router(report_readiness.router, prefix=API_PREFIX)

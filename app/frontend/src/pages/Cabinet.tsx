@@ -22,6 +22,7 @@ const sectionTitles: Record<string, string> = {
   '/cabinet/organization/members': 'Сотрудники',
   '/cabinet/personnel': 'Персонал',
   '/cabinet/statistics': 'Статистика',
+  '/cabinet/journal': 'Журнал',
   '/cabinet/profile': 'Личные данные',
 };
 
@@ -37,6 +38,9 @@ const CLOSED_SECTIONS = [
   '/cabinet/dormitories',
   '/cabinet/personnel',
   '/cabinet/statistics',
+  // «Журнал» — рабочий раздел уровня владельца: на закрытом пробном периоде он
+  // закрыт вместе с остальными рабочими разделами.
+  '/cabinet/journal',
   '/cabinet/organization/members',
 ];
 
@@ -311,6 +315,28 @@ function CabinetShell(): JSX.Element {
                 Статистика
               </NavLink>
             </li>
+            {/* «Журнал» — раздел уровня владельца: пункт виден только по
+                `role === 'owner'`, остальные роли получают объяснение на самом
+                экране при прямом заходе. На закрытом пробном периоде пункт
+                получает `aria-disabled`, как остальные рабочие разделы. */}
+            {user?.role === 'owner' && (
+              <li>
+                <NavLink
+                  className={styles['nav-link']}
+                  to="/cabinet/journal"
+                  aria-disabled={locked || undefined}
+                  tabIndex={locked ? -1 : undefined}
+                  onClick={(event) => {
+                    if (locked) event.preventDefault();
+                    closeMenu();
+                  }}
+                  data-testid="workspace-nav-journal"
+                >
+                  <WorkspaceIcon name="journal" />
+                  Журнал
+                </NavLink>
+              </li>
+            )}
             <li>
               {/* «Магазин улучшений» открыт всегда: решения покупают именно на
                   закрытом пробном кабинете, когда тарифа ещё нет. Стоит после

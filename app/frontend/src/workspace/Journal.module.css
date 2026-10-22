@@ -1,0 +1,479 @@
+/* Журнал действий: только то, что не покрывает глобальный слой.
+   Каркас (`page-head`, `toolbar`, `panel`, `data-table`), цвета, радиусы и
+   шрифты берутся из `index.css`, плотность кабинета — из `Workspace.module.css`.
+   Числовые значения ниже — плотная шкала кабинета по `DESIGN.md` §3. */
+
+/* ==========================================================================
+   Полоса фильтров
+   ========================================================================== */
+
+.filters {
+  align-items: flex-end;
+  margin-bottom: 18px;
+}
+
+.filterFields {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.filterField {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.filterField input,
+.filterField select {
+  width: 140px;
+  min-width: 0;
+  min-height: 37px;
+  padding: 7px 9px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-4xs);
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  font: 600 12px var(--font-body);
+}
+
+.filterField select {
+  width: 170px;
+  padding-right: 6px;
+}
+
+.filterField input:hover,
+.filterField select:hover {
+  border-color: var(--ink-900);
+}
+
+.filterField input:focus-visible,
+.filterField select:focus-visible {
+  outline: var(--focus-outline-width) solid var(--color-focus);
+  outline-offset: 3px;
+}
+
+/* ==========================================================================
+   Лента
+   ========================================================================== */
+
+.table td {
+  vertical-align: middle;
+}
+
+/* Время идёт рядом с датой, а не отдельной колонкой: колонок ровно четыре. */
+.when {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 134px;
+  white-space: nowrap;
+}
+
+.date {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.time {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* `.data-table td` ставит `white-space: nowrap`; длинное название действия
+   обязано переноситься, поэтому селектор посильнее. */
+.table .action {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 52ch;
+  line-height: 1.4;
+}
+
+/* Незнакомый код действия выводится кодом: придуманного названия у него нет. */
+.action[data-unknown='true'] {
+  color: var(--color-text-body);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.kind {
+  width: 168px;
+}
+
+.status {
+  width: 152px;
+}
+
+.statusValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-status-neutral);
+}
+
+.statusValue[data-state='ok'] .statusDot {
+  background: var(--color-status-ok);
+}
+
+.statusValue[data-state='error'] .statusDot {
+  background: var(--color-status-missing);
+}
+
+.statusValue[data-state='none'] {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.statusMs {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* ==========================================================================
+   Раскрытие записи: второй `<tr>` с `<td colspan="4">` и нативным `<details>`
+   ========================================================================== */
+
+.details > td {
+  padding: 0;
+  border-bottom: 1px solid var(--color-border);
+  white-space: normal;
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 27px;
+  padding: 4px 24px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary:hover {
+  background: var(--color-bg-page);
+  color: var(--color-text);
+}
+
+.chevron {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 160ms ease;
+}
+
+.summaryBlock[open] .chevron {
+  transform: rotate(90deg);
+}
+
+.summaryOpen {
+  display: none;
+}
+
+.summaryBlock[open] .summaryOpen {
+  display: inline;
+}
+
+.summaryBlock[open] .summaryClosed {
+  display: none;
+}
+
+.entryId {
+  margin-left: auto;
+  /* `--color-text-subtle` — только иконки и разделители (DESIGN.md §1),
+     поэтому номер записи приглушён читаемым текстовым токеном. */
+  color: var(--color-text-muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.jsonWrap {
+  padding: 0 24px 16px;
+}
+
+/* Сырая запись прокручивается по высоте, а длинные значения переносятся:
+   у `user_agent` и `changes` строки очень длинные. */
+.json {
+  max-height: 208px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-5xs);
+  background: var(--color-bg-alt);
+  color: var(--ink-700);
+  font: 400 11px/1.4 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+
+/* ==========================================================================
+   Подвал ленты
+   ========================================================================== */
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.count {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.moreError {
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
+/* ==========================================================================
+   Загрузка: скелет строк в той же таблице
+   ========================================================================== */
+
+.skeleton {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-tint);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.skeletonWhen {
+  width: 86px;
+}
+
+.skeletonAction {
+  width: 300px;
+  max-width: 100%;
+}
+
+.skeletonKind {
+  width: 78px;
+}
+
+.skeletonStatus {
+  width: 64px;
+}
+
+.skeletonRow td {
+  padding-top: 21px;
+  padding-bottom: 21px;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+
+  .chevron {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   Пустые состояния и отказ «только владельцу»
+   ========================================================================== */
+
+/* Сам блок — общий `.empty-state` каркаса (`Workspace.module.css`), в том числе
+   модификатор тона `data-tone="locked"` для замка: своей копии блока здесь нет,
+   иначе она разъехалась бы с общим модулем при его следующей правке.
+   Своё — только ширина строк: общий блок её не задаёт, а подсказка «только
+   владельцу» и текст пустого периода длиннее, чем в остальных разделах. */
+.emptyTitle {
+  max-width: 44ch;
+}
+
+.emptyText {
+  max-width: 52ch;
+}
+
+/* ==========================================================================
+   Точки перелома кабинета: 1100 и 760 — как в `Workspace.module.css`
+   ========================================================================== */
+
+@media (max-width: 1100px) {
+  .summary {
+    padding-inline: 20px;
+  }
+
+  .jsonWrap {
+    padding-inline: 20px;
+  }
+
+  .foot {
+    padding-inline: 20px;
+  }
+}
+
+@media (max-width: 760px) {
+  .filters {
+    align-items: stretch;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  /* Даты рядом, вид и кнопка — на всю ширину. */
+  .filterFields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .filterField input,
+  .filterField select {
+    width: 100%;
+  }
+
+  .filterFieldKind {
+    grid-column: 1 / -1;
+  }
+
+  .filters > :global(.btn) {
+    width: 100%;
+  }
+
+  /* Лента перестаёт быть таблицей: запись — карточка в две колонки. */
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: auto;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'when kind'
+      'action action'
+      'status status';
+    gap: 6px 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .table .skeletonRow {
+    grid-template-areas: none;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 16px;
+  }
+
+  .table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .table .when {
+    /* `.table td { display: block }` из этой же раскладки сильнее одиночного
+       `.when` по специфичности (0,1,1 против 0,1,0), поэтому селектор из двух
+       классов: иначе дата и время слипаются в «22.10.202614:59». */
+    display: flex;
+    grid-area: when;
+    flex-wrap: wrap;
+    width: auto;
+  }
+
+  .date {
+    color: var(--color-text-muted);
+    font-size: 12px;
+  }
+
+  .time {
+    font-size: 12px;
+  }
+
+  .kind {
+    grid-area: kind;
+    width: auto;
+  }
+
+  .table .action {
+    grid-area: action;
+    max-width: none;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  .status {
+    grid-area: status;
+    width: auto;
+  }
+
+  .summary {
+    padding: 7px 16px;
+  }
+
+  .jsonWrap {
+    padding: 0 16px 16px;
+  }
+
+  .json {
+    padding: 12px 13px;
+  }
+
+  .foot {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 10px;
+    padding: 14px 16px 16px;
+  }
+
+  .foot :global(.btn) {
+    width: 100%;
+  }
+
+  .count {
+    text-align: center;
+  }
+}

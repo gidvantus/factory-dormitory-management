@@ -89,6 +89,10 @@
   /* --- Типографика ------------------------------------------------------ */
   --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-body: 'Nunito Sans', 'Nunito', 'Segoe UI', system-ui, sans-serif;
+  /* Моноширинный стек: сырой JSON записи журнала и неизвестный код действия.
+     Тот же набор, что у `.password-value`, но вынесен в токен: значение нужно
+     двум местам сразу, и разъезжаться им нельзя. */
+  --font-mono: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
 
   --text-hero: clamp(2.125rem, 1.1rem + 3.4vw, 3.5rem);
   --text-h2: clamp(1.625rem, 1.15rem + 1.7vw, 2.375rem);
@@ -1148,6 +1152,19 @@ tbody tr:last-child td {
 .tag--neutral {
   background: var(--color-bg-tint);
   color: var(--color-text-body);
+}
+
+/* Виды действий журнала: «Данные» остаются на `.tag--neutral`, а безопасность и
+   служебное получили собственные модификаторы на уже существующих примитивах
+   (`sky`/`blue` и `butter`). Новых значений не появилось. */
+.tag--security {
+  background: var(--sky-100);
+  color: var(--blue-600);
+}
+
+.tag--noise {
+  background: var(--butter-100);
+  color: var(--butter-700);
 }
 
 .person {

@@ -8,6 +8,7 @@ from app.schemas.activation import (
 )
 from app.schemas.user import (
     LoginRequest,
+    MeResponse,
     RegisterRequest,
     RegisterResponse,
     UserResponse,
@@ -18,6 +19,7 @@ __all__ = [
     "ActivateRequest",
     "ActivationInfoResponse",
     "LoginRequest",
+    "MeResponse",
     "RegisterRequest",
     "RegisterResponse",
     "ResendActivationRequest",
