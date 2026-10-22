@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from tests.conftest import TEST_PASSWORD, create_user, login
+from tests.conftest import TEST_PASSWORD, create_user, login, organizations_for, register_user
 
 
 def test_me_without_cookie_returns_401(client: TestClient) -> None:
@@ -82,3 +82,59 @@ def test_me_rejects_token_of_unknown_user(client: TestClient) -> None:
     client.cookies.set(settings.session_cookie_name, unknown)
 
     assert client.get("/api/me").status_code == 401
+
+
+# --- Роль в организации (issue #74) -------------------------------------------
+#
+# Роль нужна кабинету: по ней меню показывает разделы уровня владельца
+# («Журнал»). Отдельная схема `MeResponse` держит это поле только у профиля,
+# чтобы ответы входа и активации не изменились.
+
+
+def test_me_returns_owner_role(client: TestClient, db_session: Session) -> None:
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    response = client.get("/api/me")
+
+    assert response.status_code == 200
+    assert response.json()["role"] == "owner"
+
+
+def test_me_returns_null_role_without_organization(client: TestClient, db_session: Session) -> None:
+    """Организации ещё нет (кабинет не активирован) — роль пустая, а не отказ."""
+    user = create_user(db_session, email="noorg@example.com", is_active=False)
+    assert login(client, user.email).status_code == 200
+
+    response = client.get("/api/me")
+
+    assert response.status_code == 200
+    assert response.json()["role"] is None
+    assert response.json()["is_active"] is False
+
+
+def test_me_returns_employee_role(client: TestClient, db_session: Session) -> None:
+    """Роль сотрудника тоже видна — по ней фронт решает, что ему закрыто."""
+    user = create_user(db_session, email="admin@example.com")
+    organizations_for(db_session, user, role="admin")
+    assert login(client, user.email).status_code == 200
+
+    assert client.get("/api/me").json()["role"] == "admin"
+
+
+def test_login_response_has_no_role_field(client: TestClient, db_session: Session) -> None:
+    """Поле добавлено только профилю: контракт входа не изменился."""
+    user = create_user(db_session, email="worker@example.com")
+    organizations_for(db_session, user)
+
+    response = login(client, user.email)
+
+    assert response.status_code == 200
+    assert "role" not in response.json()
+
+
+def test_register_response_has_no_role_field(client: TestClient) -> None:
+    created = register_user(client)
+
+    assert "role" not in created

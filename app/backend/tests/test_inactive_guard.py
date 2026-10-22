@@ -115,6 +115,8 @@ def test_me_stays_open_for_inactive_user(client: TestClient, db_session: Session
         "full_name": "Неактивный Пользователь",
         "created_at": response.json()["created_at"],
         "is_active": False,
+        # Роль в организации (issue #74): у неактивированного кабинета её нет.
+        "role": None,
     }
 
 
