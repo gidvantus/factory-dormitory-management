@@ -5,6 +5,11 @@
 отдаётся и чего в ответе быть не должно, как работают фильтры и постраничный
 курсор и что чтение не оставляет собственных строк в журнале.
 
+Календарь фильтра — московский (`Europe/Moscow`), как и в остальных разделах
+кабинета: отдельный тест проверяет, что запись в 01:30 МСК попадает в свой
+московский день, а не в предыдущие UTC-сутки. Из-за этого даты в тестах берутся
+из `today_moscow()`, а не из `datetime.now(UTC).date()`.
+
 Строки журнала здесь двух видов. Настоящие — их пишет middleware на write-запросы
 (создание общежития, отказ приглашения); на них проверяется форма ответа, включая
 пустые `status`/`duration_ms` у атомарной строки. Подготовленные прямо в базе —
@@ -16,8 +21,9 @@
 не должно.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,8 +37,12 @@ from app.api.organization import (
 )
 from app.models.audit import AuditEvent
 from app.models.organization import Organization
+from app.report_readiness import today_moscow
 from app.security import ACTIVATION_REQUIRED_DETAIL
 from tests.conftest import create_user, login, organizations_for
+
+# Календарь, по которому считаются сутки периода (см. `app/api/audit.py`).
+MOSCOW = ZoneInfo("Europe/Moscow")
 
 # Поля записи по контракту. Ответ не должен ни терять их, ни добавлять лишние:
 # фронт читает ровно эти имена.
@@ -147,9 +157,11 @@ def test_owner_reads_actions_of_own_organization(client: TestClient, db_session:
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert set(body) == {"items", "next_cursor"}
+    assert set(body) == {"items", "next_cursor", "total"}
     # Записей мало: следующей страницы нет.
     assert body["next_cursor"] is None
+    # `total` — число записей за период во всей ленте, а не на странице.
+    assert body["total"] == 2
     actions = sorted(item["action"] for item in body["items"])
     assert actions == ["post_dormitories", "post_organization_invitations"]
     # Вход прошёл в этом же тесте, но у его строки организации нет.
@@ -283,7 +295,7 @@ def test_pagination_returns_every_row_once(client: TestClient, db_session: Sessi
 
     collected: list[int] = []
     cursor: str | None = None
-    for _page in range(10):
+    for page in range(10):
         params: dict[str, Any] = {"limit": 2}
         if cursor is not None:
             params["cursor"] = cursor
@@ -291,6 +303,9 @@ def test_pagination_returns_every_row_once(client: TestClient, db_session: Sessi
         assert response.status_code == 200, response.text
         body = response.json()
         assert len(body["items"]) <= 2
+        # Число записей за период отдаётся только с первой страницы: на
+        # «Показать ещё» сервер не платит за `COUNT`.
+        assert body["total"] == (len(expected) if page == 0 else None)
         collected.extend(item["id"] for item in body["items"])
         cursor = body["next_cursor"]
         if cursor is None:
@@ -313,6 +328,7 @@ def test_last_page_returns_null_cursor(client: TestClient, db_session: Session) 
 
     assert response.status_code == 200
     assert response.json()["next_cursor"] is None
+    assert response.json()["total"] == total
     assert len(response.json()["items"]) == total
 
 
@@ -364,6 +380,7 @@ def test_date_range_filter(client: TestClient, db_session: Session) -> None:
     """Период отсекает записи: и старые, и те, что позже конца периода."""
     _owner_id, organization = owner_with_organization(client, db_session)
     now = datetime.now(UTC)
+    today = today_moscow()
     add_event(
         db_session,
         organization_id=organization.id,
@@ -385,12 +402,13 @@ def test_date_range_filter(client: TestClient, db_session: Session) -> None:
 
     response = journal(
         client,
-        date_from=(now - timedelta(days=1)).date().isoformat(),
-        date_to=now.date().isoformat(),
+        date_from=(today - timedelta(days=1)).isoformat(),
+        date_to=today.isoformat(),
     )
 
     assert response.status_code == 200
     assert [item["action"] for item in response.json()["items"]] == ["post_recent"]
+    assert response.json()["total"] == 1
 
 
 def test_default_period_is_the_last_week(client: TestClient, db_session: Session) -> None:
@@ -418,7 +436,7 @@ def test_default_period_is_the_last_week(client: TestClient, db_session: Session
 def test_range_longer_than_limit_is_rejected(client: TestClient, db_session: Session) -> None:
     """Потолок периода — 90 дней: иначе запрос читает все месячные партиции."""
     owner_with_organization(client, db_session)
-    today = datetime.now(UTC).date()
+    today = today_moscow()
 
     too_long = journal(
         client,
@@ -438,7 +456,7 @@ def test_range_longer_than_limit_is_rejected(client: TestClient, db_session: Ses
 
 def test_inverted_range_is_rejected(client: TestClient, db_session: Session) -> None:
     owner_with_organization(client, db_session)
-    today = datetime.now(UTC).date()
+    today = today_moscow()
 
     response = journal(
         client,
@@ -458,6 +476,147 @@ def test_limit_out_of_bounds_is_rejected(
     response = journal(client, limit=limit)
 
     assert response.status_code == 422
+
+
+def test_period_day_is_moscow_not_utc(client: TestClient, db_session: Session) -> None:
+    """Сутки периода считаются по Москве: запись в 01:30 МСК — в своём дне.
+
+    Такой момент лежит в предыдущих UTC-сутках (22:30), поэтому фильтр «за
+    вчера» в UTC отдал бы его за позавчера, а «за сегодня» — не отдал бы вовсе.
+    """
+    _owner_id, organization = owner_with_organization(client, db_session)
+    day = today_moscow() - timedelta(days=1)
+    # 01:30 московского дня `day` — это 22:30 UTC предыдущего дня.
+    late_night = datetime.combine(day, time(1, 30), MOSCOW)
+    assert late_night.astimezone(UTC).date() == day - timedelta(days=1)
+    add_event(
+        db_session,
+        organization_id=organization.id,
+        action="post_after_midnight",
+        created_at=late_night,
+    )
+
+    own_day = journal(client, date_from=day.isoformat(), date_to=day.isoformat())
+    utc_day = journal(
+        client,
+        date_from=(day - timedelta(days=1)).isoformat(),
+        date_to=(day - timedelta(days=1)).isoformat(),
+    )
+
+    assert own_day.status_code == 200 and utc_day.status_code == 200
+    assert [item["action"] for item in own_day.json()["items"]] == ["post_after_midnight"]
+    # В сутках UTC этой записи нет: журнал живёт по московскому календарю.
+    assert "post_after_midnight" not in [item["action"] for item in utc_day.json()["items"]]
+
+
+def test_total_counts_the_whole_period_not_the_page(
+    client: TestClient, db_session: Session
+) -> None:
+    """Подвал ленты: «За этот период — N записей», N не зависит от размера страницы."""
+    _owner_id, organization = owner_with_organization(client, db_session)
+    for _ in range(4):
+        add_event(db_session, organization_id=organization.id)
+
+    first_page = journal(client, limit=2)
+
+    assert first_page.status_code == 200
+    body = first_page.json()
+    assert len(body["items"]) == 2
+    assert body["total"] == 4
+    assert body["next_cursor"] is not None
+
+
+def test_total_respects_the_kind_filter(client: TestClient, db_session: Session) -> None:
+    """`total` считается по тем же условиям, что и список: иначе число разошлось бы."""
+    _owner_id, organization = owner_with_organization(client, db_session)
+    add_event(
+        db_session,
+        organization_id=organization.id,
+        kind=audit_rules.KIND_SECURITY,
+        action="patch_organization",
+    )
+    for _ in range(3):
+        add_event(db_session, organization_id=organization.id, kind=audit_rules.KIND_DATA)
+
+    security = journal(client, kind=audit_rules.KIND_SECURITY)
+    data = journal(client, kind=audit_rules.KIND_DATA)
+
+    assert security.json()["total"] == 1
+    assert data.json()["total"] == 3
+
+
+def test_far_future_date_is_rejected_not_500(client: TestClient, db_session: Session) -> None:
+    """`date_to=9999-12-31` — это 422 на ошибку ввода, а не `OverflowError` в 500."""
+    owner_with_organization(client, db_session)
+    today = today_moscow()
+
+    only_future = journal(client, date_to=date.max.isoformat())
+    whole_future_period = journal(
+        client,
+        date_from=date(9999, 1, 1).isoformat(),
+        date_to=date.max.isoformat(),
+    )
+    # Длинный период с концом на краю календаря: 422 по длине, но не падение.
+    long_period = journal(
+        client,
+        date_from=(today - timedelta(days=2)).isoformat(),
+        date_to=date.max.isoformat(),
+    )
+
+    for response in (only_future, whole_future_period, long_period):
+        assert response.status_code == 422, response.text
+
+
+@pytest.mark.parametrize(
+    ("params", "text"),
+    [
+        ({"date_from": date.min.isoformat(), "date_to": date.min.isoformat()}, "календар"),
+        ({"date_to": date.min.isoformat()}, "календар"),
+        ({"date_from": (today_moscow() + timedelta(days=1)).isoformat()}, "будущем"),
+    ],
+)
+def test_unrepresentable_dates_are_rejected_not_500(
+    client: TestClient, db_session: Session, params: dict[str, str], text: str
+) -> None:
+    """Край календаря и период целиком в будущем — 422 с понятным текстом."""
+    owner_with_organization(client, db_session)
+
+    response = journal(client, **params)
+
+    assert response.status_code == 422, params
+    assert text in response.json()["detail"]
+
+
+def test_future_date_to_is_clipped_to_today(client: TestClient, db_session: Session) -> None:
+    """Конец периода в будущем не ломает запрос: завтрашних записей всё равно нет."""
+    _owner_id, organization = owner_with_organization(client, db_session)
+    add_event(db_session, organization_id=organization.id, action="post_today")
+
+    response = journal(client, date_to=(today_moscow() + timedelta(days=3)).isoformat())
+
+    assert response.status_code == 200
+    assert [item["action"] for item in response.json()["items"]] == ["post_today"]
+
+
+def test_cursor_is_url_safe(client: TestClient, db_session: Session) -> None:
+    """В курсоре нет `+`: иначе клиент, склеивший адрес строкой, получит 422."""
+    _owner_id, organization = owner_with_organization(client, db_session)
+    for _ in range(2):
+        add_event(db_session, organization_id=organization.id)
+
+    body = journal(client, limit=1).json()
+    cursor = body["next_cursor"]
+
+    assert cursor is not None
+    assert "+" not in cursor
+    # Момент в курсоре отдаётся как `...Z`, а не как `+00:00`.
+    moment, _separator, identifier = cursor.rpartition("|")
+    assert moment.endswith("Z")
+    assert identifier.isdigit()
+    # Вторая страница по этому курсору открывается: значение не испорчено.
+    second = journal(client, limit=1, cursor=cursor)
+    assert second.status_code == 200, second.text
+    assert second.json()["items"]
 
 
 def test_unknown_action_title_falls_back_to_the_code(
