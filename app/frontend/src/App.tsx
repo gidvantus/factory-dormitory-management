@@ -13,6 +13,7 @@ import { Pricing } from './pages/Pricing';
 import { Dormitories } from './workspace/Dormitories';
 import { DormitoryDetails } from './workspace/dormitories/DormitoryDetails';
 import { Documents } from './workspace/Documents';
+import { Journal } from './workspace/Journal';
 import { Members } from './workspace/Members';
 import { Notifications } from './workspace/Notifications';
 import { Organization } from './workspace/Organization';
@@ -199,6 +200,9 @@ export function App(): JSX.Element {
               </Suspense>
             }
           />
+          {/* «Журнал действий» — раздел владельца организации. Права проверяет
+              сервер (403 остальным ролям), экран показывает это состояние сам. */}
+          <Route path="journal" element={<Journal />} />
           <Route path="profile" element={<PersonalData />} />
         </Route>
         <Route path="*" element={<NotFound />} />

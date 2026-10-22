@@ -17,12 +17,28 @@ export const TRIAL_LIMIT_HEADER = 'X-Trial-Limit';
 /** Значение этого заголовка: отказ именно по лимиту сотрудников. */
 export const TRIAL_LIMIT_HEADER_VALUE = 'members';
 
+/**
+ * Роль пользователя в организации.
+ *
+ * `null` — организации ещё нет (сразу после регистрации): разделы уровня
+ * владельца такому пользователю недоступны. Значения те же, что
+ * `ORGANIZATION_ROLES` на сервере.
+ */
+export type OrganizationRole = 'owner' | 'admin' | 'manager' | 'commandant' | 'member';
+
 export interface UserProfile {
   email: string;
   full_name: string;
   created_at: string;
   /** false — кабинет ещё не активирован по ссылке из письма. */
   is_active: boolean;
+  /**
+   * Роль приходит только из `GET /api/me`: у ответов входа, регистрации и
+   * активации общий контракт `UserResponse`, и роль в них не входит. Поэтому
+   * поле необязательное, а `SessionProvider` дочитывает профиль после входа —
+   * иначе пункт «Журнал» не появился бы до перезагрузки страницы.
+   */
+  role?: OrganizationRole | null;
 }
 
 /**
@@ -814,6 +830,71 @@ export interface StructureTemplateDetail extends StructureTemplate {
   };
 }
 
+/** Виды действий журнала: те же три, что `app.audit.AUDIT_KINDS` на сервере. */
+export type JournalKind = 'security' | 'data' | 'noise';
+
+/**
+ * Одна запись журнала действий.
+ *
+ * `status` и `duration_ms` пустые у строк, которые ушли коммитом самого
+ * действия: на момент коммита код ответа ещё неизвестен. Поэтому оба поля
+ * `null`, и экран показывает прочерк.
+ *
+ * `actor_id` — идентификатор, а не ФИО: ФИО автора в этом шаге не отдаётся.
+ * `request_body` и `changes` уже очищены при записи (секреты заменены, ПДн
+ * замаскированы), поэтому показывать их можно как есть.
+ */
+export interface JournalEntry {
+  id: number;
+  /** ISO-момент с таймзоной (`…Z`): экран переводит его в московское время. */
+  created_at: string;
+  actor_id: number | null;
+  method: string;
+  path: string;
+  action: string;
+  /** Название действия из справочника; для незнакомого кода — сам код. */
+  action_title: string;
+  kind: JournalKind;
+  status: number | null;
+  duration_ms: number | null;
+  ip: string | null;
+  user_agent: string | null;
+  request_id: string | null;
+  path_params: Record<string, unknown> | null;
+  request_body: unknown;
+  changes: Record<string, unknown>[] | null;
+}
+
+/**
+ * Страница ленты журнала: свежие записи сверху.
+ *
+ * `next_cursor` непрозрачен для клиента — формат `<created_at ISO>|<id>` знает
+ * только сервер, и склеивать курсор самостоятельно нельзя. `total` — число
+ * записей за период во всей ленте; оно приходит только с первой страницей,
+ * поэтому у страниц «Показать ещё» поле `null`, а экран показывает число,
+ * полученное в первый раз.
+ */
+export interface JournalPage {
+  items: JournalEntry[];
+  next_cursor: string | null;
+  total: number | null;
+}
+
+/**
+ * Фильтры журнала. Необязательные поля не уходят в адрес: сервер сам берёт
+ * неделю по сегодня включительно, и дублировать его умолчания в клиенте незачем.
+ */
+export interface JournalParams {
+  kind?: JournalKind | '';
+  /** `YYYY-MM-DD`, начало периода включительно (московский календарь). */
+  date_from?: string;
+  /** `YYYY-MM-DD`, конец периода включительно. */
+  date_to?: string;
+  /** 1..200, по умолчанию 50. */
+  limit?: number;
+  cursor?: string;
+}
+
 export const api = {
   dormitorySettings(id: string, signal?: AbortSignal): Promise<DormitorySettings> {
     return request(`/dormitories/${encodeURIComponent(id)}/settings`, { signal });
@@ -1097,6 +1178,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(input),
     });
+  },
+
+  /**
+   * Чтение журнала действий организации — раздел «Журнал» владельца.
+   *
+   * Только чтение: ручка ничего не пишет, поэтому повторный вызов безопасен.
+   * 403 — роль не `owner` (или кабинет не активирован), 404 — у пользователя
+   * нет организации, 422 — период длиннее 90 дней, начало позже конца или
+   * битый курсор. Текст отказа приходит в `ApiError.message` с сервера.
+   */
+  journal(params: JournalParams = {}, signal?: AbortSignal): Promise<JournalPage> {
+    const query = new URLSearchParams();
+    if (params.kind) query.set('kind', params.kind);
+    if (params.date_from) query.set('date_from', params.date_from);
+    if (params.date_to) query.set('date_to', params.date_to);
+    if (params.limit !== undefined) query.set('limit', String(params.limit));
+    if (params.cursor) query.set('cursor', params.cursor);
+    const search = query.toString();
+    return request<JournalPage>(`/journal${search ? `?${search}` : ''}`, { signal });
   },
 
   dormitories(signal?: AbortSignal): Promise<Dormitory[]> {
