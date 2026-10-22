@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -68,6 +68,22 @@ const UNKNOWN: JournalEntry = {
   changes: null,
 };
 
+/** Запись другого набора: приходит на новый фильтр и не должна смешаться со старым. */
+const FILTERED: JournalEntry = {
+  ...ENTRY,
+  id: 1048570,
+  action: 'delete_members',
+  action_title: 'Удалить сотрудника',
+};
+
+/** Запись другой страницы нового набора: догрузка идёт уже по её курсору. */
+const SECOND_PAGE: JournalEntry = {
+  ...ENTRY,
+  id: 1048569,
+  action: 'create_members',
+  action_title: 'Добавить сотрудника',
+};
+
 function page(
   items: JournalEntry[],
   nextCursor: string | null,
@@ -104,6 +120,17 @@ function jsonResponse({ status, body }: MockResponse): Response {
   return new Response(body === undefined ? null : JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Даёт отработать уже разрешённому позднему ответу: разбор тела и коммит
+ * состояния идут микрозадачами, поэтому «ничего не случилось» проверяем
+ * после тика макрозадач.
+ */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
@@ -229,6 +256,86 @@ describe('раздел «Журнал» в кабинете', () => {
     const lastUrl = new URL(journalCalls(fetchMock).at(-1) ?? '', 'http://localhost');
     expect(lastUrl.searchParams.get('date_from')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(lastUrl.searchParams.get('date_to')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('422 фильтра показывает текст сервера, а не «проверьте соединение»', async () => {
+    mountJournal((url) => {
+      if (url.includes('/api/journal')) {
+        return {
+          status: 422,
+          body: { detail: 'Слишком длинный период: журнал отдаётся не больше чем за 90 дней' },
+        };
+      }
+      return NOT_FOUND;
+    });
+    renderApp('/cabinet/journal');
+
+    const error = await screen.findByTestId('journal-error');
+    expect(error).toHaveTextContent(
+      'Слишком длинный период: журнал отдаётся не больше чем за 90 дней',
+    );
+    // Обвинение сети — ложь: 422 пришёл от сервера про период, а не про связь.
+    expect(error).not.toHaveTextContent('Проверьте соединение');
+    expect(screen.queryByTestId('journal-row')).not.toBeInTheDocument();
+  });
+
+  it('смена фильтра отменяет догрузку и не смешивает записи старого набора', async () => {
+    let releaseMore = (): void => undefined;
+    const moreGate = new Promise<void>((resolve) => {
+      releaseMore = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/me')) return jsonResponse({ status: 200, body: OWNER });
+      if (url.endsWith('/api/trial')) return jsonResponse(TRIAL_ACTIVE);
+      if (url.endsWith('/api/solutions')) return jsonResponse({ status: 200, body: { items: [] } });
+      if (!url.includes('/api/journal')) return jsonResponse(NOT_FOUND);
+      // Следующая страница нового набора: только она и должна грузиться дальше.
+      if (url.includes('cursor=cursor-9')) return jsonResponse(page([SECOND_PAGE], null, null));
+      // Вторая страница старого набора висит, пока тест её не отпустит.
+      if (url.includes('cursor=cursor-1')) {
+        await moreGate;
+        return jsonResponse(page([UNKNOWN], 'cursor-2', null));
+      }
+      // Новый фильтр — новый набор с собственным курсором.
+      if (url.includes('kind=noise')) return jsonResponse(page([FILTERED], 'cursor-9', 1));
+      return jsonResponse(page([ENTRY], 'cursor-1', 2));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    renderApp('/cabinet/journal');
+
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    await user.click(screen.getByTestId('journal-more'));
+    await waitFor(() =>
+      expect(screen.getByTestId('journal-more')).toHaveAttribute('aria-busy', 'true'),
+    );
+
+    // Фильтр меняется, не дожидаясь ответа по курсору.
+    await user.selectOptions(screen.getByTestId('journal-kind'), 'noise');
+    await user.click(screen.getByRole('button', { name: 'Применить' }));
+    expect(await screen.findByText('Удалить сотрудника')).toBeVisible();
+    expect(rows()).toHaveLength(1);
+
+    // Поздний ответ старого набора приходит уже после смены фильтра.
+    releaseMore();
+    await settle();
+
+    // Строки старого набора не дописались, курсор остался курсором нового.
+    expect(rows()).toHaveLength(1);
+    expect(screen.queryByText('put_dormitories_hostels_cells')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('journal-more-error')).not.toBeInTheDocument();
+    const more = screen.getByTestId('journal-more');
+    expect(more).toHaveTextContent('Показать ещё');
+    expect(more).not.toHaveAttribute('aria-busy');
+
+    // Следующая догрузка идёт по курсору нового набора, а не старого.
+    await user.click(more);
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    expect(journalCalls(fetchMock).some((url) => url.includes('cursor=cursor-9'))).toBe(true);
+    expect(journalCalls(fetchMock).filter((url) => url.includes('cursor=cursor-2'))).toHaveLength(
+      0,
+    );
   });
 
   it('сбой загрузки показывает текст и кнопку «Повторить», которая перезапрашивает ленту', async () => {

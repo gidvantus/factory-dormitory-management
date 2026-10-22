@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -179,6 +179,8 @@ export function Journal(): JSX.Element {
   const [moreError, setMoreError] = useState('');
   const [loadingMore, setLoadingMore] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  /** Запрос «Показать ещё» в полёте: смена фильтра обязана его отменить. */
+  const moreRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -187,6 +189,8 @@ export function Journal(): JSX.Element {
     setTotal(null);
     setNextCursor(null);
     setMoreError('');
+    // Догрузка предыдущего набора на новой ленте уже не актуальна.
+    setLoadingMore(false);
     void api
       .journal(queryParams(filters), controller.signal)
       .then((page) => {
@@ -201,6 +205,13 @@ export function Journal(): JSX.Element {
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
+        // 422 — ошибка ввода в фильтре (период длиннее 90 дней и т.п.):
+        // показываем серверный текст, «Повторить» здесь не поможет.
+        if (error instanceof ApiError && error.status === 422) {
+          setLoadError(error.message);
+          setStatus('error');
+          return;
+        }
         // 403 — роль не владелец, 404 — пользователь без организации. Оба
         // отказа приводят к одному состоянию: журнала для него нет.
         if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
@@ -212,7 +223,13 @@ export function Journal(): JSX.Element {
         );
         setStatus('error');
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      // Поздний ответ «Показать ещё» не должен дописать строки старого набора
+      // в новую ленту и подменить её курсор.
+      moreRef.current?.abort();
+      moreRef.current = null;
+    };
   }, [filters, attempt]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>): void {
@@ -222,17 +239,28 @@ export function Journal(): JSX.Element {
 
   async function loadMore(): Promise<void> {
     if (!nextCursor || loadingMore) return;
+    const controller = new AbortController();
+    moreRef.current?.abort();
+    moreRef.current = controller;
     setLoadingMore(true);
     setMoreError('');
     try {
-      const page = await api.journal(queryParams(filters, nextCursor));
+      const page = await api.journal(queryParams(filters, nextCursor), controller.signal);
+      if (controller.signal.aborted) return;
       setEntries((current) => [...current, ...(Array.isArray(page?.items) ? page.items : [])]);
       setNextCursor(page?.next_cursor ?? null);
     } catch {
+      // Отмену показывать нечем: фильтр сменился, лента перезагружается сама.
+      if (controller.signal.aborted) return;
       // Уже загруженные записи остаются: сбой догрузки не должен стирать ленту.
       setMoreError(LOAD_MORE_ERROR);
     } finally {
-      setLoadingMore(false);
+      // Состояние догрузки снимает только актуальный запрос: отменённый оставляет
+      // его новому набору, а эффект уже сбросил `loadingMore` на старте.
+      if (moreRef.current === controller) {
+        moreRef.current = null;
+        setLoadingMore(false);
+      }
     }
   }
 
