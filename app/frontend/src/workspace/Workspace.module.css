@@ -466,6 +466,20 @@
   color: var(--color-text-muted);
   font-size: 13px;
 }
+/* Тон пустого состояния «раздел закрыт»: замок вместо иконки раздела, цвета —
+   `sky`/`blue` из `:root` (макет журнала, `.empty-state[data-tone='locked']`).
+   Модификатор общий: тон задаётся атрибутом на обёртке, а не копией блока в
+   модуле экрана. */
+.shell .empty-state[data-tone='locked'] .empty-state-icon {
+  background: var(--sky-100);
+  color: var(--blue-600);
+}
+/* Кнопка под пустым состоянием: класс глобальный (`index.css`), поэтому
+   `:global` — без него CSS-модуль захэшировал бы `.btn` и правило не совпало
+   бы с разметкой. */
+.shell .empty-state :global(.btn) {
+  margin-top: 6px;
+}
 .shell .profile-intro {
   display: flex;
   align-items: center;

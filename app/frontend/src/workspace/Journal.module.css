@@ -318,55 +318,17 @@
    Пустые состояния и отказ «только владельцу»
    ========================================================================== */
 
-/* Своя копия `.empty-state` из `Workspace.module.css`: модификатора тона для
-   замка в глобальном модуле нет, а перебить чужой module-класс из этого файла
-   нельзя — `.shell .empty-state-icon` и мой класс дают одинаковую
-   специфичность. Значения взяты из макета без изменений. */
-.emptyState {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  min-height: 260px;
-  padding: 32px 24px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-page);
-  text-align: center;
-}
-
-.emptyIcon {
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  margin-bottom: 6px;
-  border-radius: 14px;
-  background: var(--mint-100);
-  color: var(--mint-700);
-}
-
-.emptyIcon[data-tone='locked'] {
-  background: var(--sky-100);
-  color: var(--blue-600);
-}
-
-.emptyState h2 {
+/* Сам блок — общий `.empty-state` каркаса (`Workspace.module.css`), в том числе
+   модификатор тона `data-tone="locked"` для замка: своей копии блока здесь нет,
+   иначе она разъехалась бы с общим модулем при его следующей правке.
+   Своё — только ширина строк: общий блок её не задаёт, а подсказка «только
+   владельцу» и текст пустого периода длиннее, чем в остальных разделах. */
+.emptyTitle {
   max-width: 44ch;
-  font-size: 18px;
 }
 
-.emptyState p {
+.emptyText {
   max-width: 52ch;
-  color: var(--color-text-muted);
-  font-size: 13px;
-}
-
-/* Класс кнопки глобальный (`index.css`), поэтому `:global`: без него CSS-модуль
-   захэшировал бы `.btn` и правило не совпало бы с разметкой. */
-.emptyState :global(.btn) {
-  margin-top: 6px;
 }
 
 /* ==========================================================================

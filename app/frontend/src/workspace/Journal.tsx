@@ -338,8 +338,12 @@ export function Journal(): JSX.Element {
       )}
 
       {status === 'forbidden' && (
-        <div className={styles.emptyState} data-testid="journal-forbidden">
-          <span className={styles.emptyIcon} data-tone="locked" aria-hidden="true">
+        <div
+          className={pageStyles['empty-state']}
+          data-tone="locked"
+          data-testid="journal-forbidden"
+        >
+          <span className={pageStyles['empty-state-icon']} aria-hidden="true">
             <svg
               viewBox="0 0 24 24"
               width="24"
@@ -354,8 +358,8 @@ export function Journal(): JSX.Element {
               <path d="M8 10V7a4 4 0 0 1 8 0v3M12 15v2" />
             </svg>
           </span>
-          <h2>{FORBIDDEN_TITLE}</h2>
-          <p>{FORBIDDEN_HINT}</p>
+          <h2 className={styles.emptyTitle}>{FORBIDDEN_TITLE}</h2>
+          <p className={styles.emptyText}>{FORBIDDEN_HINT}</p>
           <Link className="btn btn--ghost btn--compact" to="/cabinet">
             Вернуться в обзор
           </Link>
@@ -412,8 +416,8 @@ export function Journal(): JSX.Element {
       )}
 
       {status === 'ready' && entries.length === 0 && (
-        <div className={styles.emptyState} data-testid="journal-empty">
-          <span className={styles.emptyIcon} aria-hidden="true">
+        <div className={pageStyles['empty-state']} data-testid="journal-empty">
+          <span className={pageStyles['empty-state-icon']} aria-hidden="true">
             <svg
               viewBox="0 0 24 24"
               width="24"
@@ -428,8 +432,8 @@ export function Journal(): JSX.Element {
               <path d="M9 9h6M9 13h4" />
             </svg>
           </span>
-          <h2>{EMPTY_TITLE}</h2>
-          <p>
+          <h2 className={styles.emptyTitle}>{EMPTY_TITLE}</h2>
+          <p className={styles.emptyText}>
             {filters.from && filters.to
               ? `За ${dayLabel(filters.from)} — ${dayLabel(filters.to)} действий в организации не записано. Выберите другой период или вид действия в фильтрах выше.`
               : 'Действий в организации не записано. Выберите другой период или вид действия в фильтрах выше.'}

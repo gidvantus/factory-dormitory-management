@@ -409,4 +409,37 @@ describe('раздел «Журнал» в кабинете', () => {
     releaseJournal();
     await waitFor(() => expect(rows()).toHaveLength(1));
   });
+
+  it('после входа дочитывает роль из /api/me — пункт «Журнал» появляется без перезагрузки', async () => {
+    // Ответ входа роли не содержит: её отдаёт только `/api/me`. Проверяем именно
+    // путь `вход → кабинет`, иначе тихое удаление дочитывания профиля в
+    // `SessionProvider` осталось бы незамеченным до приёмки.
+    const loginProfile = { ...OWNER } as { role?: string };
+    delete loginProfile.role;
+    let meCalls = 0;
+    const fetchMock = mockFetch((url) => {
+      if (url.endsWith('/api/me')) {
+        meCalls += 1;
+        return meCalls === 1
+          ? { status: 401, body: { detail: 'Требуется авторизация' } }
+          : { status: 200, body: OWNER };
+      }
+      if (url.endsWith('/api/auth/login')) return { status: 200, body: loginProfile };
+      if (url.endsWith('/api/trial')) return TRIAL_ACTIVE;
+      if (url.endsWith('/api/solutions')) return { status: 200, body: { items: [] } };
+      if (url.includes('/api/journal')) return page([], null, 0);
+      return NOT_FOUND;
+    });
+    const user = userEvent.setup();
+    renderApp('/login');
+
+    await user.type(await screen.findByTestId('login-email'), OWNER.email);
+    await user.type(screen.getByTestId('login-password'), 's3cret-generated-password');
+    await user.click(screen.getByTestId('login-submit'));
+
+    // Пункт меню доступен только владельцу, а роль пришла уже после входа.
+    expect(await screen.findByTestId('workspace-nav-journal')).toBeInTheDocument();
+    expect(meCalls).toBeGreaterThan(1);
+    expect(fetchMock).toHaveBeenCalled();
+  });
 });
