@@ -13,12 +13,24 @@ class ReportTemplate(Base):
     __tablename__ = "report_templates"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    # Организация-владелец шаблона. `NULL` — шаблон не видно никому: судьбу такого
+    # объекта решает владелец данных, а не код, поэтому `NOT NULL` не ставится ни
+    # в модели, ни в миграции.
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
     created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    # Имя шаблона уникально внутри организации, а не глобально: две организации
+    # вправе завести одинаково названные шаблоны.
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name", name="uq_report_templates_organization_name"),
     )
 
 

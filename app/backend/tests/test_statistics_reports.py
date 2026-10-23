@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.custom_tab import CustomTab
 from app.models.dormitory import Dormitory
 from app.models.report import ReportCell, ReportRow
-from tests.conftest import sign_in
+from tests.conftest import add_colleague, login, sign_in
 from tests.test_dashboard_blocks import table_fixture
 
 
@@ -83,15 +83,35 @@ def test_persistence_shared_personal_and_conflicts(client: TestClient, db_sessio
     assert shared["created_by_id"] == owner.id
     assert client.get(f"/api/statistics/reports/{shared['id']}").json() == shared
     assert len(client.get("/api/statistics/reports").json()) == 2
+
+    # Другая организация не видит ни `shared`, ни `personal`: организация —
+    # внешняя граница, а видимость действует только внутри неё.
     sign_in(client, db_session, email="second@example.com")
-    assert len(client.get("/api/statistics/reports").json()) == 1
-    assert client.get(f"/api/statistics/reports/{personal['id']}").status_code == 404
-    assert (
-        client.get(
-            f"/api/statistics/reports/{personal['id']}/data?from=2026-10-01&to=2026-10-02"
-        ).status_code
-        == 404
+    assert client.get("/api/statistics/reports").json() == []
+    for report in (shared, personal):
+        assert client.get(f"/api/statistics/reports/{report['id']}").status_code == 404
+        assert (
+            client.get(
+                f"/api/statistics/reports/{report['id']}/data?from=2026-10-01&to=2026-10-02"
+            ).status_code
+            == 404
+        )
+        assert (
+            client.put(
+                f"/api/statistics/reports/{report['id']}", json=update_payload(report)
+            ).status_code
+            == 404
+        )
+
+    # Коллега **той же** организации: `shared` виден, `personal` — нет, а менять
+    # доступ и удалять по-прежнему может только создатель.
+    assert owner.active_organization_id is not None
+    colleague = add_colleague(
+        db_session, owner.active_organization_id, email="colleague@example.com"
     )
+    assert login(client, colleague.email).status_code == 200
+    assert [item["id"] for item in client.get("/api/statistics/reports").json()] == [shared["id"]]
+    assert client.get(f"/api/statistics/reports/{personal['id']}").status_code == 404
     assert (
         client.put(
             f"/api/statistics/reports/{personal['id']}", json=update_payload(personal)
@@ -105,6 +125,10 @@ def test_persistence_shared_personal_and_conflicts(client: TestClient, db_sessio
         ).status_code
         == 403
     )
+    assert client.delete(f"/api/statistics/reports/{shared['id']}?revision=1").status_code == 403
+
+    # Создатель продолжает править свой отчёт, и ревизия по-прежнему защищает.
+    assert login(client, owner.email).status_code == 200
     changed = client.put(
         f"/api/statistics/reports/{shared['id']}",
         json=update_payload(shared, name="Новое название"),
@@ -117,7 +141,6 @@ def test_persistence_shared_personal_and_conflicts(client: TestClient, db_sessio
         ).status_code
         == 409
     )
-    assert client.delete(f"/api/statistics/reports/{shared['id']}?revision=1").status_code == 403
 
 
 @pytest.mark.parametrize(

@@ -50,7 +50,7 @@ def response(template: DormitoryTemplate, detail: bool = False) -> dict[str, Any
 
 @router.get("")
 def listing(_user: SubscribedUser, membership: Membership, db: DbSession) -> list[dict[str, Any]]:
-    """Библиотека организации: свои шаблоны и общие (без автора)."""
+    """Библиотека организации: только её собственные снимки структуры."""
     return [
         response(item)
         for item in db.scalars(
@@ -80,7 +80,10 @@ def create(
     # чужое общежитие — тот же 404, что и несуществующее.
     own_dormitory(db, payload.dormitory_id, membership)
     template = DormitoryTemplate(
-        name=payload.name, created_by_id=user.id, snapshot=take_snapshot(db, payload.dormitory_id)
+        name=payload.name,
+        created_by_id=user.id,
+        organization_id=membership.organization_id,
+        snapshot=take_snapshot(db, payload.dormitory_id),
     )
     db.add(template)
     try:

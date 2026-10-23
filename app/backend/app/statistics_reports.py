@@ -3,10 +3,13 @@
 from datetime import date
 from decimal import Decimal
 
+from fastapi import HTTPException
+from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session
 
 from app.dashboard_blocks import calculate_widget
 from app.models.dormitory import Dormitory
+from app.models.statistics_report import StatisticsReport
 from app.models.user import User
 from app.schemas.dashboard_block import (
     ArrivalPlanWidgetSource,
@@ -28,6 +31,44 @@ from app.tab_catalog import normalized_name
 
 def unique[T](items: list[T]) -> T | None:
     return items[0] if len(items) == 1 else None
+
+
+# Один текст на «отчёта нет» и «отчёт чужой»: различать их нельзя.
+REPORT_NOT_FOUND_DETAIL = "Отчёт не найден"
+
+
+def visible_reports(user: User, organization_id: int) -> Select[StatisticsReport]:
+    """Отчёты организации из сессии.
+
+    Организация — внешняя граница: `shared`-отчёт виден всей **своей**
+    организации, `personal` — только создателю. Ни одна из видимостей не
+    расширяет границу организации, а `organization_id IS NULL` не виден никому.
+    """
+    return select(StatisticsReport).where(
+        StatisticsReport.organization_id == organization_id,
+        or_(
+            StatisticsReport.visibility == "shared",
+            StatisticsReport.created_by_id == user.id,
+        ),
+    )
+
+
+def own_report(
+    db: Session,
+    report_id: int,
+    user: User,
+    organization_id: int,
+    *,
+    lock: bool = False,
+) -> StatisticsReport:
+    """Отчёт из библиотеки организации. Чужой и несуществующий неразличимы: `404`."""
+    statement = visible_reports(user, organization_id).where(StatisticsReport.id == report_id)
+    if lock:
+        statement = statement.with_for_update().execution_options(populate_existing=True)
+    report = db.scalar(statement)
+    if report is None:
+        raise HTTPException(404, REPORT_NOT_FOUND_DETAIL)
+    return report
 
 
 def source_metadata(dorm: CatalogDormitory, source: WidgetSource) -> CatalogSource | None:
