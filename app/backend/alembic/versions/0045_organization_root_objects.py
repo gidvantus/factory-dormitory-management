@@ -57,6 +57,19 @@ ALL_TABLES = ("report_templates", "dormitory_templates", "statistics_reports")
 # Из них только у двух имён была глобальная уникальность — её и меняем.
 NAME_TABLES = ("report_templates", "dormitory_templates")
 
+# Backfill — единственная необратимая запись ревизии, поэтому его SQL вынесен в
+# константу: тот же текст выполняет `tests/test_organization_root_migration.py`
+# против настоящей PostgreSQL. Правило в тесте не переписывается — иначе опечатка
+# здесь (join не по `created_by_id`, снятое `active_organization_id IS NOT NULL`)
+# прошла бы мимо проверки и молча спрятала строки от всех.
+BACKFILL_SQL = (
+    "UPDATE {table} t SET organization_id = u.active_organization_id "
+    "FROM users u "
+    "WHERE u.id = t.created_by_id "
+    "AND u.active_organization_id IS NOT NULL "
+    "AND t.organization_id IS NULL"
+)
+
 
 def upgrade() -> None:
     for table in ALL_TABLES:
@@ -67,13 +80,7 @@ def upgrade() -> None:
         op.execute(
             f"CREATE INDEX IF NOT EXISTS ix_{table}_organization_id ON {table} (organization_id)"
         )
-        op.execute(
-            f"UPDATE {table} t SET organization_id = u.active_organization_id "
-            "FROM users u "
-            "WHERE u.id = t.created_by_id "
-            "AND u.active_organization_id IS NOT NULL "
-            "AND t.organization_id IS NULL"
-        )
+        op.execute(BACKFILL_SQL.format(table=table))
     for table in NAME_TABLES:
         _replace_name_unique(table)
 
