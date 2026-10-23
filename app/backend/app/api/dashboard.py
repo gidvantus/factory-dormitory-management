@@ -131,7 +131,7 @@ def read_dashboard(
         for day in days
     ]
     snapshot_totals = by_day[snapshot_date] if snapshot_date is not None else None
-    layout = layout_response(db)
+    layout = layout_response(db, membership.organization_id)
     return DashboardResponse(
         layout=layout,
         widgets=[

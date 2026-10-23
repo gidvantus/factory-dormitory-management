@@ -18,8 +18,9 @@ from app.dormitory_structure import initialize_structure
 from app.dormitory_templates import apply_snapshot, own_template
 from app.models.dormitory import Dormitory
 from app.models.report import ReportRow
-from app.models.report_template import ReportTemplate, ReportTemplateRow
+from app.models.report_template import ReportTemplateRow
 from app.report_defaults import DEFAULT_REPORT_FORMULA, REQUIRED_REPORT_ROW_NAMES, required_row_name
+from app.report_templates import own_template as own_report_template
 from app.schemas.dormitory import CreateDormitoryRequest, DormitoryResponse, UpdateDormitoryRequest
 from app.schemas.user import ErrorResponse
 from app.table_data import restore_link
@@ -60,8 +61,9 @@ def create_dormitory(
 ) -> DormitoryResponse:
     template_rows: list[ReportTemplateRow] = []
     if payload.template_id is not None:
-        if db.get(ReportTemplate, payload.template_id) is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Шаблон не найден")
+        # Шаблон отчёта берётся из библиотеки своей организации: чужой отвечает
+        # тем же 404 «Шаблон не найден», что и несуществующий.
+        own_report_template(db, payload.template_id, membership.organization_id)
         template_rows = list(
             db.scalars(
                 select(ReportTemplateRow)

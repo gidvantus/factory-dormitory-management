@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.custom_tab_options import mapped_options, options_for
@@ -16,7 +16,6 @@ from app.models.dormitory_template import DormitoryTemplate
 from app.models.hostel import Hostel
 from app.models.report import ReportRow
 from app.models.table_column import TableColumn
-from app.models.user import User
 from app.report_defaults import DEFAULT_REPORT_FORMULA, REQUIRED_REPORT_ROW_NAMES
 from app.schemas.table_column import report_link_adapter
 from app.section_state import SECTIONS, locked_dormitory, section_parents, section_status
@@ -29,18 +28,12 @@ TEMPLATE_NOT_FOUND_DETAIL = "Шаблон не найден"
 def visible_templates(organization_id: int) -> Select[DormitoryTemplate]:
     """Шаблоны, доступные организации из сессии.
 
-    Своя библиотека — шаблоны, снятые участниками организации; шаблоны без автора
-    считаются общими. Принадлежность берётся по автору, потому что колонки
-    организации у `dormitory_templates` пока нет: настоящая привязка — T3, здесь
-    закрывается чтение и удаление чужой структуры между организациями.
+    Принадлежность берётся из колонки `organization_id`, а не по автору: фильтр
+    по авторам повторял вычисление принадлежности в каждом запросе и уносил
+    шаблоны за сотрудником при смене организации. Шаблон без организации
+    (`NULL`) не виден никому — его судьбу решает владелец данных.
     """
-    authors = select(User.id).where(User.active_organization_id == organization_id)
-    return select(DormitoryTemplate).where(
-        or_(
-            DormitoryTemplate.created_by_id.is_(None),
-            DormitoryTemplate.created_by_id.in_(authors),
-        )
-    )
+    return select(DormitoryTemplate).where(DormitoryTemplate.organization_id == organization_id)
 
 
 def own_template(db: Session, template_id: int, organization_id: int) -> DormitoryTemplate:
