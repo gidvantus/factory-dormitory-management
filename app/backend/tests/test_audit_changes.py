@@ -248,7 +248,12 @@ def test_secrets_and_token_tables_never_reach_the_snapshot(
     email = "worker@example.com"
     registered = client.post(
         "/api/auth/register",
-        json={"email": email, "full_name": "Иванов Иван Иванович", "consent": True},
+        json={
+            "email": email,
+            "full_name": "Иванов Иван Иванович",
+            "consent": True,
+            "terms_accepted": True,
+        },
     )
     assert registered.status_code == 201, registered.text
     recovery = client.post("/api/auth/password-recovery", json={"email": email})

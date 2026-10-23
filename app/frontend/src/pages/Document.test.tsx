@@ -204,7 +204,7 @@ describe('шапка и подвал страницы документа — к�
     scrollIntoView.mockRestore();
   });
 
-  it('подвал ведёт на три документа и повторяет состав подвала главной', async () => {
+  it('подвал ведёт на четыре документа и повторяет состав подвала главной', async () => {
     mockFetch(() => ANONYMOUS);
     const { container } = renderApp('/documents/privacy-policy');
 
@@ -218,7 +218,7 @@ describe('шапка и подвал страницы документа — к�
 });
 
 describe('колонка «Документы» в подвале', () => {
-  it('ведёт на три документа сервиса', async () => {
+  it('ведёт на четыре документа сервиса', async () => {
     mockFetch(() => ANONYMOUS);
     const { container } = renderApp('/');
 
@@ -234,6 +234,7 @@ describe('колонка «Документы» в подвале', () => {
 
     const links: Array<[string, string]> = [
       ['Политика конфиденциальности', '/documents/privacy-policy'],
+      ['Согласие на обработку персональных данных', '/documents/personal-data-consent'],
       ['Правила использования', '/documents/terms-of-use'],
       ['Оферта для организации', '/documents/offer'],
     ];

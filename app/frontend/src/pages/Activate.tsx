@@ -14,8 +14,15 @@ export const SUCCESS_REDIRECT_MS = 700;
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Текст отказа — тот же, что отдаёт сервер на 422. */
+/** Тексты отказов — те же, что отдаёт сервер на 422, по одному на документ. */
+const TERMS_ERROR = 'Отметьте принятие правил использования платформой';
 const CONSENT_ERROR = 'Отметьте согласие на обработку персональных данных';
+
+/** Ошибки двух обязательных отметок: у каждой свой флаг и свой текст. */
+interface ConsentErrors {
+  terms?: string;
+  consent?: string;
+}
 
 /**
  * Экран активации кабинета. Без токена объясняет, что делать с письмом,
@@ -132,8 +139,9 @@ function ActivateToken({ token }: { token: string }): JSX.Element {
   const [checkError, setCheckError] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [consent, setConsent] = useState(false);
-  const [consentError, setConsentError] = useState('');
+  const [consentErrors, setConsentErrors] = useState<ConsentErrors>({});
   const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -176,23 +184,32 @@ function ActivateToken({ token }: { token: string }): JSX.Element {
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setSubmitError('');
-    setConsentError('');
+    setConsentErrors({});
     const found = validate();
     if (found) {
       setSubmitError(found);
       return;
     }
-    // Согласие проверяет и сервер, но без отметки запрос не уходит вовсе:
-    // так 422 не выглядит для человека необъяснимым отказом. Проверка пароля
-    // идёт первой — она про поля, которые человек видит выше чекбокса.
+    // Обе отметки проверяет и сервер, но без них запрос не уходит вовсе:
+    // так 422 не выглядит для человека необъяснимым отказом. Каждая отметка
+    // проверяется по своему флагу — они независимы. Ошибки собираются в объект
+    // и показываются обе сразу, а не по одной за попытку. Проверка пароля идёт
+    // первой — она про поля, которые человек видит выше чекбоксов.
+    const marks: ConsentErrors = {};
+    if (info !== null && info.terms_required && !termsAccepted) {
+      marks.terms = TERMS_ERROR;
+    }
     if (info !== null && info.consent_required && !consent) {
-      setConsentError(CONSENT_ERROR);
+      marks.consent = CONSENT_ERROR;
+    }
+    if (Object.keys(marks).length > 0) {
+      setConsentErrors(marks);
       return;
     }
 
     setSubmitting(true);
     try {
-      const user = await api.activate(token, password, consent);
+      const user = await api.activate(token, password, consent, termsAccepted);
       setUser(user);
       // Активация меняет лежащее на сервере состояние кабинета (в том числе
       // создаёт организацию), поэтому профиль в сессии перечитываем, а не
@@ -279,8 +296,47 @@ function ActivateToken({ token }: { token: string }): JSX.Element {
           />
         </div>
 
+        {info.terms_required ? (
+          <div className="field">
+            <label className="field__consent" htmlFor="activate-terms">
+              <input
+                className="field__checkbox"
+                id="activate-terms"
+                name="terms_accepted"
+                type="checkbox"
+                data-testid="activate-terms"
+                checked={termsAccepted}
+                onChange={(event) => setTermsAccepted(event.target.checked)}
+                aria-invalid={consentErrors.terms ? true : undefined}
+                aria-describedby={consentErrors.terms ? 'activate-terms-error' : undefined}
+              />
+              <span className="field__consent-text">
+                Принимаю{' '}
+                <a
+                  className="field__consent-link"
+                  href="/documents/terms-of-use"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Правила использования платформой
+                </a>
+              </span>
+            </label>
+            {consentErrors.terms ? (
+              <p
+                className="field__error"
+                id="activate-terms-error"
+                role="alert"
+                data-testid="activate-terms-error"
+              >
+                {consentErrors.terms}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {info.consent_required ? (
-          <div className="field field--consent">
+          <div className="field">
             <label className="field__consent" htmlFor="activate-consent">
               <input
                 className="field__checkbox"
@@ -290,20 +346,11 @@ function ActivateToken({ token }: { token: string }): JSX.Element {
                 data-testid="activate-consent"
                 checked={consent}
                 onChange={(event) => setConsent(event.target.checked)}
-                aria-invalid={consentError ? true : undefined}
-                aria-describedby={consentError ? 'activate-consent-error' : undefined}
+                aria-invalid={consentErrors.consent ? true : undefined}
+                aria-describedby={consentErrors.consent ? 'activate-consent-error' : undefined}
               />
               <span className="field__consent-text">
-                Я принимаю{' '}
-                <a
-                  className="field__consent-link"
-                  href="/documents/privacy-policy"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Политику конфиденциальности
-                </a>{' '}
-                и даю{' '}
+                Даю{' '}
                 <a
                   className="field__consent-link"
                   href="/documents/personal-data-consent"
@@ -311,17 +358,26 @@ function ActivateToken({ token }: { token: string }): JSX.Element {
                   rel="noreferrer"
                 >
                   согласие на обработку персональных данных
+                </a>{' '}
+                на условиях{' '}
+                <a
+                  className="field__consent-link"
+                  href="/documents/privacy-policy"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Политики конфиденциальности
                 </a>
               </span>
             </label>
-            {consentError ? (
+            {consentErrors.consent ? (
               <p
                 className="field__error"
                 id="activate-consent-error"
                 role="alert"
                 data-testid="activate-consent-error"
               >
-                {consentError}
+                {consentErrors.consent}
               </p>
             ) : null}
           </div>

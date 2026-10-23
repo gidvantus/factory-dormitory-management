@@ -71,6 +71,8 @@ export interface ActivationInfo {
   expires_at: string;
   /** Согласия ещё нет: экран активации показывает обязательный чекбокс. */
   consent_required: boolean;
+  /** Правила использования ещё не приняты: у них свой, независимый чекбокс. */
+  terms_required: boolean;
 }
 
 export interface Dormitory {
@@ -1086,10 +1088,15 @@ export const api = {
       method: 'DELETE',
     });
   },
-  register(email: string, fullName: string, consent: boolean): Promise<RegisterResult> {
+  register(
+    email: string,
+    fullName: string,
+    consent: boolean,
+    termsAccepted: boolean,
+  ): Promise<RegisterResult> {
     return request<RegisterResult>('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, full_name: fullName, consent }),
+      body: JSON.stringify({ email, full_name: fullName, consent, terms_accepted: termsAccepted }),
     });
   },
 
@@ -1099,10 +1106,15 @@ export const api = {
   },
 
   /** Новый пароль по ссылке: сервер активирует кабинет и ставит cookie сессии. */
-  activate(token: string, password: string, consent: boolean): Promise<UserProfile> {
+  activate(
+    token: string,
+    password: string,
+    consent: boolean,
+    termsAccepted: boolean,
+  ): Promise<UserProfile> {
     return request<UserProfile>('/auth/activate', {
       method: 'POST',
-      body: JSON.stringify({ token, password, consent }),
+      body: JSON.stringify({ token, password, consent, terms_accepted: termsAccepted }),
     });
   },
 

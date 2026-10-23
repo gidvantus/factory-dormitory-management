@@ -43,6 +43,20 @@ class User(Base):
     consent_document_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Принятие правил использования платформой — вторая пара рядом с согласием:
+    # правила и согласие на обработку данных это два разных документа и два
+    # разных чекбокса, поэтому и учёт у них раздельный. Nullable намеренно:
+    # `terms_accepted_at IS NULL` и есть «правила не приняты» — у пользователей,
+    # заведённых до этой задачи, а также у приглашённых, если они ещё не
+    # активировали кабинет. Backfill не делается: принятия, которого не было,
+    # записать нечем.
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    terms_document_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    terms_document_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

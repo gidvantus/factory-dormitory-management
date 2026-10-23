@@ -131,7 +131,13 @@ def test_recovery_link_activates_an_inactive_cabinet(
 
     assert client.get(f"/api/auth/activate/{token}").status_code == 200
     activated = client.post(
-        "/api/auth/activate", json={"token": token, "password": NEW_PASSWORD, "consent": True}
+        "/api/auth/activate",
+        json={
+            "token": token,
+            "password": NEW_PASSWORD,
+            "consent": True,
+            "terms_accepted": True,
+        },
     )
     assert activated.status_code == 200
     assert activated.json()["is_active"] is True
@@ -219,7 +225,13 @@ def test_link_issued_before_the_limit_still_works(
 
     assert client.get(f"/api/auth/activate/{token}").status_code == 200
     activated = client.post(
-        "/api/auth/activate", json={"token": token, "password": NEW_PASSWORD, "consent": True}
+        "/api/auth/activate",
+        json={
+            "token": token,
+            "password": NEW_PASSWORD,
+            "consent": True,
+            "terms_accepted": True,
+        },
     )
     assert activated.status_code == 200
     assert activated.json()["is_active"] is True

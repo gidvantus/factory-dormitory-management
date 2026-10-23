@@ -15,7 +15,12 @@ from sqlalchemy.orm import Session
 
 from app.api.organization import create_organization_for_user
 from app.api.recovery import RECOVERY_LIMIT_LOG, identifier_hash, try_consume_request
-from app.consent import CONSENT_REQUIRED_DETAIL, record_consent
+from app.consent import (
+    CONSENT_REQUIRED_DETAIL,
+    TERMS_REQUIRED_DETAIL,
+    record_consent,
+    record_terms_acceptance,
+)
 from app.db import get_db
 from app.mail import send_activation_email_task
 from app.models.activation import ActivationToken
@@ -110,6 +115,7 @@ def read_activation(
         full_name=user.full_name,
         expires_at=record.expires_at,
         consent_required=user.consent_at is None,
+        terms_required=user.terms_accepted_at is None,
     )
 
 
@@ -121,23 +127,36 @@ def read_activation(
         **GONE_RESPONSES,
         status.HTTP_422_UNPROCESSABLE_ENTITY: {
             "model": ErrorResponse,
-            "description": "Пароль короче восьми символов или нет согласия на обработку данных",
+            "description": (
+                "Пароль короче восьми символов, нет согласия на обработку данных "
+                "или не приняты правила использования платформой"
+            ),
         },
     },
 )
 def activate(payload: ActivateRequest, response: Response, db: DbSession) -> UserResponse:
     record, user = load_activation_token(db, payload.token)
 
-    # Приглашённый сотрудник регистрацию не проходил — согласия у него нет, и
-    # требует его именно эта ручка. Проверка стоит до правок пользователя:
-    # отказ не должен оставлять аккаунт полуактивированным, и токен остаётся
-    # живым, чтобы человек мог отметить чекбокс и повторить.
+    # Приглашённый сотрудник регистрацию не проходил — ни согласия, ни принятия
+    # правил у него нет, и требует их именно эта ручка. Обе проверки стоят до
+    # любых правок пользователя: отказ не должен оставлять аккаунт
+    # полуактивированным, а токен остаётся живым, чтобы человек мог отметить
+    # чекбоксы и повторить.
+    #
+    # Проверки независимы и смотрят каждая в свою колонку: нет согласия — требуем
+    # согласие, нет правил — требуем правила, нет обоих — сначала согласие, как
+    # было и до появления правил.
+    if user.consent_at is None and not payload.consent:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, CONSENT_REQUIRED_DETAIL)
+    if user.terms_accepted_at is None and not payload.terms_accepted:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, TERMS_REQUIRED_DETAIL)
+
+    # Уже записанное (регистрация или прошлая активация) не трогаем: момент и
+    # редакция документа фиксируются один раз.
     if user.consent_at is None:
-        if not payload.consent:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, CONSENT_REQUIRED_DETAIL)
         record_consent(db, user)
-    # Согласие уже записано (регистрация или прошлая активация) — не трогаем:
-    # момент и редакция документа фиксируются один раз.
+    if user.terms_accepted_at is None:
+        record_terms_acceptance(db, user)
 
     user.password_hash = hash_password(payload.password)
     user.is_active = True

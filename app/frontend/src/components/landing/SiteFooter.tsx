@@ -33,6 +33,10 @@ const COLUMNS: FooterColumn[] = [
     title: 'Документы',
     links: [
       { label: 'Политика конфиденциальности', href: '/documents/privacy-policy' },
+      {
+        label: 'Согласие на обработку персональных данных',
+        href: '/documents/personal-data-consent',
+      },
       { label: 'Правила использования', href: '/documents/terms-of-use' },
       { label: 'Оферта для организации', href: '/documents/offer' },
     ],
