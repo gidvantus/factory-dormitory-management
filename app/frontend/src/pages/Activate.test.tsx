@@ -20,8 +20,9 @@ const ACTIVATION_INFO = {
   email: PROFILE.email,
   full_name: PROFILE.full_name,
   expires_at: '2026-01-02T00:00:00Z',
-  // Регистрацию приглашённый не проходил: согласия ещё нет, чекбокс нужен.
+  // Регистрацию приглашённый не проходил: ни согласия, ни правил ещё нет.
   consent_required: true,
+  terms_required: true,
 };
 const EMPTY_DASHBOARD: MockResponse = {
   status: 200,
@@ -169,16 +170,17 @@ describe('экран активации по ссылке из письма', ()
 
     await user.type(await screen.findByTestId('activate-password'), 'new-password-123');
     await user.type(screen.getByTestId('activate-password-confirm'), 'new-password-123');
+    await user.click(await screen.findByTestId('activate-terms'));
     await user.click(screen.getByTestId('activate-consent'));
     await user.click(screen.getByTestId('activate-submit'));
 
     expect(await screen.findByTestId('activate-success')).toBeInTheDocument();
     expect(await screen.findByTestId('cabinet-page', {}, { timeout: 4000 })).toBeInTheDocument();
     expect(callsTo(fetchMock, '/api/auth/activate')).toHaveLength(1);
-    // Тело запроса несёт согласие: сервер проверяет его сам.
+    // Тело запроса несёт обе отметки: сервер проверяет их сам.
     const [call] = callsTo(fetchMock, '/api/auth/activate');
     const init = call[1] as RequestInit;
-    expect(JSON.parse(String(init.body))).toMatchObject({ consent: true });
+    expect(JSON.parse(String(init.body))).toMatchObject({ consent: true, terms_accepted: true });
   });
 
   it('показывает причину, если ссылка уже использована', async () => {
@@ -194,12 +196,14 @@ describe('экран активации по ссылке из письма', ()
     expect(screen.queryByTestId('activate-password')).not.toBeInTheDocument();
   });
 
-  it('показывает чекбокс согласия, пока согласия нет', async () => {
+  it('показывает оба чекбокса, пока не приняты ни правила, ни согласие', async () => {
     mockFetch((url) => respond(url));
     renderApp(`/activate/${TOKEN}`);
 
-    const checkbox = await screen.findByTestId('activate-consent');
-    expect(checkbox).not.toBeChecked();
+    const terms = await screen.findByTestId('activate-terms');
+    expect(terms).not.toBeChecked();
+    const consent = screen.getByTestId('activate-consent');
+    expect(consent).not.toBeChecked();
     expect(screen.getByTestId('activate-password')).toBeInTheDocument();
   });
 
@@ -210,16 +214,65 @@ describe('экран активации по ссылке из письма', ()
 
     await user.type(await screen.findByTestId('activate-password'), 'new-password-123');
     await user.type(screen.getByTestId('activate-password-confirm'), 'new-password-123');
+    await user.click(screen.getByTestId('activate-terms'));
     await user.click(screen.getByTestId('activate-submit'));
 
     expect(await screen.findByTestId('activate-consent-error')).toHaveTextContent('согласие');
+    expect(screen.queryByTestId('activate-terms-error')).not.toBeInTheDocument();
     expect(callsTo(fetchMock, '/api/auth/activate')).toHaveLength(0);
   });
 
-  it('не показывает чекбокс, если согласие уже дано при регистрации', async () => {
+  it('без принятия правил не отправляет запрос и показывает ошибку под своим чекбоксом', async () => {
+    const fetchMock = mockFetch((url) => respond(url));
+    const user = userEvent.setup();
+    renderApp(`/activate/${TOKEN}`);
+
+    await user.type(await screen.findByTestId('activate-password'), 'new-password-123');
+    await user.type(screen.getByTestId('activate-password-confirm'), 'new-password-123');
+    await user.click(screen.getByTestId('activate-consent'));
+    await user.click(screen.getByTestId('activate-submit'));
+
+    expect(await screen.findByTestId('activate-terms-error')).toHaveTextContent(
+      'Отметьте принятие правил использования платформой',
+    );
+    expect(screen.queryByTestId('activate-consent-error')).not.toBeInTheDocument();
+    expect(callsTo(fetchMock, '/api/auth/activate')).toHaveLength(0);
+  });
+
+  it('показывает обе ошибки сразу, за один проход', async () => {
+    const fetchMock = mockFetch((url) => respond(url));
+    const user = userEvent.setup();
+    renderApp(`/activate/${TOKEN}`);
+
+    await user.type(await screen.findByTestId('activate-password'), 'new-password-123');
+    await user.type(screen.getByTestId('activate-password-confirm'), 'new-password-123');
+    await user.click(screen.getByTestId('activate-submit'));
+
+    expect(await screen.findByTestId('activate-terms-error')).toHaveTextContent(
+      'Отметьте принятие правил использования платформой',
+    );
+    expect(screen.getByTestId('activate-consent-error')).toHaveTextContent(
+      'Отметьте согласие на обработку персональных данных',
+    );
+    // У каждой отметки свой aria-describedby на свой текст ошибки.
+    expect(screen.getByTestId('activate-terms')).toHaveAttribute(
+      'aria-describedby',
+      'activate-terms-error',
+    );
+    expect(screen.getByTestId('activate-consent')).toHaveAttribute(
+      'aria-describedby',
+      'activate-consent-error',
+    );
+    expect(callsTo(fetchMock, '/api/auth/activate')).toHaveLength(0);
+  });
+
+  it('не показывает ни одного чекбокса, если оба принятия уже записаны', async () => {
     mockFetch((url) => {
       if (url.includes(`/api/auth/activate/${TOKEN}`)) {
-        return { status: 200, body: { ...ACTIVATION_INFO, consent_required: false } };
+        return {
+          status: 200,
+          body: { ...ACTIVATION_INFO, consent_required: false, terms_required: false },
+        };
       }
       return respond(url);
     });
@@ -227,15 +280,31 @@ describe('экран активации по ссылке из письма', ()
 
     expect(await screen.findByTestId('activate-password')).toBeInTheDocument();
     expect(screen.queryByTestId('activate-consent')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('activate-terms')).not.toBeInTheDocument();
     expect(screen.queryByTestId('activate-consent-error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('activate-terms-error')).not.toBeInTheDocument();
+  });
+
+  it('спрашивает только согласие, если правила уже приняты', async () => {
+    mockFetch((url) => {
+      if (url.includes(`/api/auth/activate/${TOKEN}`)) {
+        return { status: 200, body: { ...ACTIVATION_INFO, terms_required: false } };
+      }
+      return respond(url);
+    });
+    renderApp(`/activate/${TOKEN}`);
+
+    expect(await screen.findByTestId('activate-consent')).toBeInTheDocument();
+    expect(screen.queryByTestId('activate-terms')).not.toBeInTheDocument();
   });
 
   it('ведёт на документы в новой вкладке, чтобы не потерять заполненную форму', async () => {
     mockFetch((url) => respond(url));
     renderApp(`/activate/${TOKEN}`);
 
-    const privacy = await screen.findByRole('link', { name: 'Политику конфиденциальности' });
+    const privacy = await screen.findByRole('link', { name: 'Политики конфиденциальности' });
     const consent = screen.getByRole('link', { name: 'согласие на обработку персональных данных' });
+    const terms = screen.getByRole('link', { name: 'Правила использования платформой' });
 
     expect(privacy).toHaveAttribute('href', '/documents/privacy-policy');
     expect(privacy).toHaveAttribute('target', '_blank');
@@ -243,6 +312,9 @@ describe('экран активации по ссылке из письма', ()
     expect(consent).toHaveAttribute('href', '/documents/personal-data-consent');
     expect(consent).toHaveAttribute('target', '_blank');
     expect(consent).toHaveAttribute('rel', 'noreferrer');
+    expect(terms).toHaveAttribute('href', '/documents/terms-of-use');
+    expect(terms).toHaveAttribute('target', '_blank');
+    expect(terms).toHaveAttribute('rel', 'noreferrer');
   });
 });
 

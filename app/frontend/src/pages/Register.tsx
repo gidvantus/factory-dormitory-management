@@ -10,16 +10,19 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 interface FieldErrors {
   email?: string;
   fullName?: string;
+  terms?: string;
   consent?: string;
 }
 
-/** Текст отказа — тот же, что отдаёт сервер на 422. */
+/** Тексты отказов — те же, что отдаёт сервер на 422, по одному на документ. */
+const TERMS_ERROR = 'Отметьте принятие правил использования платформой';
 const CONSENT_ERROR = 'Отметьте согласие на обработку персональных данных';
 
 /** Форма регистрации. Живёт внутри модального окна на главной странице. */
 export function Register(): JSX.Element {
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [consent, setConsent] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [requestError, setRequestError] = useState('');
@@ -35,6 +38,9 @@ export function Register(): JSX.Element {
     }
     if (!fullName.trim()) {
       found.fullName = 'Укажите ФИО';
+    }
+    if (!termsAccepted) {
+      found.terms = TERMS_ERROR;
     }
     if (!consent) {
       found.consent = CONSENT_ERROR;
@@ -53,7 +59,7 @@ export function Register(): JSX.Element {
 
     setSubmitting(true);
     try {
-      setResult(await api.register(email.trim(), fullName.trim(), consent));
+      setResult(await api.register(email.trim(), fullName.trim(), consent, termsAccepted));
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         setRequestError('Пользователь с таким email уже зарегистрирован');
@@ -162,7 +168,44 @@ export function Register(): JSX.Element {
         ) : null}
       </div>
 
-      <div className="field field--consent">
+      <div className="field">
+        <label className="field__consent" htmlFor="register-terms">
+          <input
+            className="field__checkbox"
+            id="register-terms"
+            name="terms_accepted"
+            type="checkbox"
+            data-testid="register-terms"
+            checked={termsAccepted}
+            onChange={(event) => setTermsAccepted(event.target.checked)}
+            aria-invalid={errors.terms ? true : undefined}
+            aria-describedby={errors.terms ? 'register-terms-error' : undefined}
+          />
+          <span className="field__consent-text">
+            Принимаю{' '}
+            <a
+              className="field__consent-link"
+              href="/documents/terms-of-use"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Правила использования платформой
+            </a>
+          </span>
+        </label>
+        {errors.terms ? (
+          <p
+            className="field__error"
+            id="register-terms-error"
+            role="alert"
+            data-testid="register-terms-error"
+          >
+            {errors.terms}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="field">
         <label className="field__consent" htmlFor="register-consent">
           <input
             className="field__checkbox"
@@ -176,16 +219,7 @@ export function Register(): JSX.Element {
             aria-describedby={errors.consent ? 'register-consent-error' : undefined}
           />
           <span className="field__consent-text">
-            Я принимаю{' '}
-            <a
-              className="field__consent-link"
-              href="/documents/privacy-policy"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Политику конфиденциальности
-            </a>{' '}
-            и даю{' '}
+            Даю{' '}
             <a
               className="field__consent-link"
               href="/documents/personal-data-consent"
@@ -193,6 +227,15 @@ export function Register(): JSX.Element {
               rel="noreferrer"
             >
               согласие на обработку персональных данных
+            </a>{' '}
+            на условиях{' '}
+            <a
+              className="field__consent-link"
+              href="/documents/privacy-policy"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Политики конфиденциальности
             </a>
           </span>
         </label>
