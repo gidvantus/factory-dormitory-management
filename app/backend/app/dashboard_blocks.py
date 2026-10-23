@@ -48,22 +48,37 @@ from app.table_data import (
 )
 
 
-def layout_row(db: Session, *, lock: bool = False) -> DashboardLayout:
-    query = select(DashboardLayout).where(DashboardLayout.id == 1)
+def layout_row(db: Session, organization_id: int, *, lock: bool = False) -> DashboardLayout:
+    """Раскладка организации; отсутствующая создаётся с порядком по умолчанию.
+
+    `organization_id` обязателен намеренно: у раскладки без организации нет
+    владельца, и `== None` вместо `IS NULL` открыл бы её первой же организации.
+    """
+    query = select(DashboardLayout).where(DashboardLayout.organization_id == organization_id)
     if lock:
         query = query.with_for_update().execution_options(populate_existing=True)
     item = db.scalar(query)
     if item is None:
-        # Production migrations seed this singleton; metadata-only test databases do not.
-        item = DashboardLayout(id=1)
+        # Production migrations seed one row per organization; metadata-only test
+        # databases do not, поэтому раскладка заводится здесь.
+        item = DashboardLayout(organization_id=organization_id)
         db.add(item)
         db.flush()
     return item
 
 
-def layout_response(db: Session, layout: DashboardLayout | None = None) -> LayoutResponse:
-    layout = layout or layout_row(db)
-    blocks = list(db.scalars(select(DashboardBlock).order_by(DashboardBlock.id)))
+def layout_response(
+    db: Session, organization_id: int, layout: DashboardLayout | None = None
+) -> LayoutResponse:
+    """Раскладка организации и **только её** пользовательские блоки."""
+    layout = layout or layout_row(db, organization_id)
+    blocks = list(
+        db.scalars(
+            select(DashboardBlock)
+            .where(DashboardBlock.organization_id == organization_id)
+            .order_by(DashboardBlock.id)
+        )
+    )
     keys = [*DEFAULT_DASHBOARD_ORDER, *(f"custom:{block.id}" for block in blocks)]
     order = [key for key in layout.order if key in keys]
     order.extend(key for key in keys if key not in order)
