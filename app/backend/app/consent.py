@@ -21,10 +21,9 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.document import Document
+from app.documents import document_revision
 from app.models.user import User
 
 # Код документа в таблице `documents`: он же уходит в ссылку `/documents/<code>`
@@ -41,30 +40,21 @@ TERMS_DOCUMENT_CODE = "terms-of-use"
 TERMS_REQUIRED_DETAIL = "Отметьте принятие правил использования платформой"
 
 
-def _document_revision(db: Session, code: str) -> datetime | None:
-    """Редакция документа `code` — `documents.updated_at` или `NULL`.
-
-    Отсутствующая строка документа не ошибка: принятие важнее, чем справочник, и
-    запрос пользователя из-за пустого справочника падать не должен. Общий
-    помощник для согласия и правил: снимок редакции у них устроен одинаково,
-    различаются только колонки, которые заполняет вызывающая функция.
-    """
-    return db.scalar(select(Document.updated_at).where(Document.code == code))
-
-
 def record_consent(db: Session, user: User, moment: datetime | None = None) -> None:
     """Записать факт согласия пользователя.
 
-    Снимок редакции документа берётся из `documents.updated_at`. Если строки
-    документа в базе нет, поле остаётся `NULL`: согласие важнее, чем справочник,
-    и запрос пользователя из-за отсутствующей строки падать не должен.
+    Снимок редакции документа берётся из `documents.updated_at`
+    (`app.documents.document_revision` — одно правило для согласия, правил и
+    акцепта оферты). Если строки документа в базе нет, поле остаётся `NULL`:
+    согласие важнее, чем справочник, и запрос пользователя из-за отсутствующей
+    строки падать не должен.
 
     Функция ничего не коммитит: запись идёт в общей транзакции вызывающего
     роута, чтобы согласие не сохранилось у регистрации, которая затем упала.
     """
     user.consent_at = datetime.now(UTC) if moment is None else moment
     user.consent_document_code = CONSENT_DOCUMENT_CODE
-    user.consent_document_updated_at = _document_revision(db, CONSENT_DOCUMENT_CODE)
+    user.consent_document_updated_at = document_revision(db, CONSENT_DOCUMENT_CODE)
 
 
 def record_terms_acceptance(db: Session, user: User, moment: datetime | None = None) -> None:
@@ -76,4 +66,4 @@ def record_terms_acceptance(db: Session, user: User, moment: datetime | None = N
     """
     user.terms_accepted_at = datetime.now(UTC) if moment is None else moment
     user.terms_document_code = TERMS_DOCUMENT_CODE
-    user.terms_document_updated_at = _document_revision(db, TERMS_DOCUMENT_CODE)
+    user.terms_document_updated_at = document_revision(db, TERMS_DOCUMENT_CODE)

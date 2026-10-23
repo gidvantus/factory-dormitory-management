@@ -26,10 +26,9 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.document import Document
+from app.documents import document_revision
 from app.models.invoice import Invoice
 from app.models.user import User
 
@@ -56,17 +55,6 @@ OFFER_DOCUMENT_CODE = "offer"
 # (`components/PurchaseConfirmDialog.tsx` — чужая половина), иначе отказ про
 # отметку перестанет узнаваться и уедет в общий блок.
 OFFER_ACCEPTANCE_REQUIRED_DETAIL = "Отметьте согласие с условиями оферты"
-
-
-def document_revision(db: Session, code: str) -> datetime | None:
-    """Редакция документа `code` — `documents.updated_at` или `NULL`.
-
-    Отсутствующая строка документа не ошибка: акцепт важнее, чем справочник, и
-    запрос покупки из-за пустого справочника падать не должен. Устроено так же,
-    как одноимённый помощник в `app/consent.py`; вынесено сюда, потому что
-    пишет оно в `invoices`, а не в `users`.
-    """
-    return db.scalar(select(Document.updated_at).where(Document.code == code))
 
 
 def has_acceptance(invoice: Invoice) -> bool:
