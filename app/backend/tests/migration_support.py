@@ -111,9 +111,9 @@ def assert_on_previous_head(migration: ModuleType, revision: str, parent: str) -
 def assert_single_head(alembic_dir: Path) -> None:
     """Вторая голова означает `alembic upgrade head` с «Multiple head revisions».
 
-    Принимает каталог `alembic` целиком, а не `alembic/versions`: `ScriptDirectory`
-    ищет ревизии в подкаталоге `versions/` этого пути, и на самом каталоге ревизий
-    он не находит ни одной — проверка прошла бы при любом числе голов.
+    Принимает каталог `alembic` — тот, что содержит `versions/` и указан в
+    `alembic.ini` как `script_location`; на каталоге `versions` `get_heads()`
+    вернул бы пустой список, и тест падал бы всегда, а не проверял головы.
     """
     scripts = ScriptDirectory(str(alembic_dir))
     assert len(scripts.get_heads()) == 1
