@@ -74,7 +74,7 @@ describe('тариф организации в обзоре', () => {
       '5 000 ₽ за одно место в месяц',
     );
     expect(screen.getByTestId('dashboard-tariff-name')).toHaveTextContent('Базовый');
-    expect(screen.getByTestId('dashboard-tariff-link')).toHaveAttribute('href', '/cabinet/tariffs');
+    expect(screen.getByTestId('dashboard-tariff-link')).toHaveAttribute('href', '/pricing');
     // Дашборд остаётся на месте: тариф — дополнение, а не замена обзора.
     expect(screen.getByTestId('workspace-overview')).toBeInTheDocument();
   });

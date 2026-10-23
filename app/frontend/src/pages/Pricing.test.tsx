@@ -263,6 +263,22 @@ describe('публичная страница тарифов', () => {
     expect(screen.queryAllByTestId('tariff-card')).toHaveLength(0);
   });
 
+  it.each(['/cabinet/tariffs', '/cabinet/tariffs/catalog'])(
+    'переводит старый кабинетный адрес %s на публичный прайс без входа',
+    async (route) => {
+      // Раздела «Тарифы» в кабинете больше нет, а закладка осталась: редирект
+      // стоит вне `RequireAuth`, поэтому аноним видит прайс, а не экран входа.
+      mockFetch(publicRoutes({ status: 200, body: [] }));
+      renderApp(route);
+
+      expect(await screen.findByTestId('pricing')).toBeInTheDocument();
+      expect(await screen.findByTestId('pricing-empty')).toBeInTheDocument();
+      expect(screen.queryByTestId('auth-modal')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('login-email')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('cabinet-page')).not.toBeInTheDocument();
+    },
+  );
+
   it('не показывает тарифы без описания как сломанную карточку', async () => {
     mockFetch(publicRoutes({ status: 200, body: [SECOND_TARIFF] }));
     renderApp('/pricing');

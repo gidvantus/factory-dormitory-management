@@ -9,7 +9,6 @@ interface PricingPlansProps {
   ownedTariffId: number | null;
   buying: boolean;
   onBuy: (id: number) => void;
-  layout?: 'landing' | 'workspace';
 }
 
 /** «04 Акцент»: выделяем Стандарт по имени, не по позиции или ID в базе. */
@@ -18,9 +17,7 @@ export function PricingPlans({
   ownedTariffId,
   buying,
   onBuy,
-  layout = 'landing',
 }: PricingPlansProps): JSX.Element {
-  const workspace = layout === 'workspace';
   const featured = tariffs.find(
     (tariff) => tariff.name.trim().toLocaleLowerCase('ru') === 'стандарт',
   );
@@ -78,11 +75,10 @@ export function PricingPlans({
               ))
             : tariff.description}
         </div>
-        {workspace && tariff.unit_label && <p className={styles.unit}>{tariff.unit_label}</p>}
         <div className={styles.bottom}>
           <TariffPrice label={tariff.price_label} className={styles.price} testId="tariff-price" />
           <button
-            className={`btn ${prominent ? 'btn--primary' : 'btn--outline'} ${workspace ? 'btn--compact' : ''} ${styles.buy}`}
+            className={`btn ${prominent ? 'btn--primary' : 'btn--outline'} ${styles.buy}`}
             type="button"
             data-testid="tariff-buy"
             disabled={buying || hasTariff}
@@ -99,15 +95,13 @@ export function PricingPlans({
   }
 
   return (
-    <div className={workspace ? styles.workspace : undefined}>
-      <div className={featured && others.length > 0 ? styles.spotlight : styles.singleColumn}>
-        {featured && card(featured, true)}
-        {others.length > 0 && (
-          <div className={featured ? styles.sidePlans : styles.fallback}>
-            {others.map((tariff) => card(tariff))}
-          </div>
-        )}
-      </div>
+    <div className={featured && others.length > 0 ? styles.spotlight : styles.singleColumn}>
+      {featured && card(featured, true)}
+      {others.length > 0 && (
+        <div className={featured ? styles.sidePlans : styles.fallback}>
+          {others.map((tariff) => card(tariff))}
+        </div>
+      )}
     </div>
   );
 }
