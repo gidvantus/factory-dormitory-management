@@ -372,6 +372,12 @@ def test_activate_without_terms_returns_422_and_keeps_the_token_alive(
 ) -> None:
     """Согласие отмечено, правила — нет: 422 с текстом правил, токен жив."""
     user, record, raw_token = inactive_user_with_token(db_session)
+    user.password_hash = hash_password(OLD_PASSWORD)
+    db_session.commit()
+    # Снимок до запроса, а не сравнение с `user.password_hash` после него: `stored`
+    # и `user` — один объект в identity map сессии, и сравнение объекта с самим
+    # собой не упало бы, даже если бы `activate` записал новый хеш до проверки.
+    original_hash = user.password_hash
 
     response = client.post(
         "/api/auth/activate",
@@ -387,7 +393,9 @@ def test_activate_without_terms_returns_422_and_keeps_the_token_alive(
     assert stored.is_active is False
     assert stored.terms_accepted_at is None
     # Пароль не изменён: проверки стоят до правок пользователя.
-    assert stored.password_hash == user.password_hash
+    assert stored.password_hash == original_hash
+    assert verify_password(OLD_PASSWORD, stored.password_hash) is True
+    assert verify_password(NEW_PASSWORD, stored.password_hash) is False
     # Ссылку человек использует повторно: отказ её не гасит.
     assert token_of(db_session, record.id).used_at is None
     assert client.get(f"/api/auth/activate/{raw_token}").status_code == 200

@@ -10,6 +10,13 @@ SQLite. Сам DDL проверяется на стенде: `alembic upgrade he
 работе, а колонка, добавленная в `upgrade` и забытая в `downgrade`, делает
 ревизию необратимой. Здесь эти два свойства читаются из самого модуля ревизии —
 имена колонок не переписаны в тесте, иначе опечатка прошла бы мимо проверки.
+
+Третье свойство — одна голова в дереве ревизий. Эта ревизия вставала на
+сдвинувшуюся голову (`0045` → `0047`): пока PR открыт, ветка от того же узла
+`0046_dashboard_per_organization` может добавить свою `0047_*`, и после мержа
+`alembic upgrade head` упадёт с «Multiple head revisions». Проверка
+`revision`/`down_revision` такой случай не ловит — она смотрит только на свою
+строку, а не на дерево.
 """
 
 import re
@@ -19,6 +26,7 @@ from types import ModuleType
 from typing import Any
 
 import sqlalchemy as sa
+from alembic.script import ScriptDirectory
 
 from app.models.user import User
 
@@ -76,6 +84,12 @@ def test_migration_sits_on_top_of_the_previous_head() -> None:
 
     assert migration.revision == REVISION
     assert migration.down_revision == PARENT
+
+
+def test_revision_tree_has_exactly_one_head() -> None:
+    """Вторая голова означает `alembic upgrade head` с «Multiple head revisions»."""
+    scripts = ScriptDirectory(str(Path(__file__).resolve().parents[1] / "alembic"))
+    assert len(scripts.get_heads()) == 1
 
 
 def test_it_adds_exactly_the_model_columns() -> None:
