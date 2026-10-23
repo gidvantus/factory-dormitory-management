@@ -1,0 +1,79 @@
+"""Акцепт оферты при покупке тарифа.
+
+Оферта — документ в таблице `documents` с кодом `offer` (заведён миграцией
+`0017_documents`, страница — `/documents/offer`). Здесь — только код документа и
+текст отказа: текст оферты юридический, и правит его человек, а не код.
+
+**Акцепт — снимок в строке счёта, а не ссылка на документ.** Четыре поля в
+`invoices` (`offer_accepted_at`, `offer_document_code`,
+`offer_document_updated_at`, `offer_accepted_by`) повторяют уже принятый в проекте
+механизм согласия (`app/consent.py`, `users.consent_*`): момент, код документа и
+снимок редакции `documents.updated_at`. Отдельной таблицы акцептов нет — вопрос,
+на который нужно отвечать, звучит «когда и на какую редакцию оферты согласились
+по этому счёту», а не «какова история пересогласований». Доказательство живёт в
+счёте, а не в пользователе, потому что согласие относится к конкретной сделке:
+при следующей покупке редакция оферты может быть уже другой.
+
+**Акцепт даётся явно.** Отсутствие `offer_accepted` в теле запроса — не «согласие
+по умолчанию», а отказ с `422`: счёт без отметки не выставляется (см.
+`app/schemas/invoice.py`). Покупка решения магазина улучшений отметки не требует и
+акцепта не пишет.
+
+**Акцепт не перезаписывается.** Повторное нажатие «Купить» по тому же тарифу
+возвращает тот же живой счёт; `record_acceptance` при уже записанном акцепте
+ничего не меняет, иначе дата «когда согласился» поехала бы на каждом клике.
+"""
+
+from datetime import UTC, datetime
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.document import Document
+from app.models.invoice import Invoice
+from app.models.user import User
+
+# Код документа в таблице `documents`: он же уходит в ссылку `/documents/<code>`
+# и он же записывается в `invoices.offer_document_code`.
+OFFER_DOCUMENT_CODE = "offer"
+
+# Текст отказа: он попадает в 422 и читается человеком под чекбоксом в окне
+# подтверждения покупки.
+OFFER_ACCEPTANCE_REQUIRED_DETAIL = "Отметьте согласие с условиями оферты"
+
+
+def document_revision(db: Session, code: str) -> datetime | None:
+    """Редакция документа `code` — `documents.updated_at` или `NULL`.
+
+    Отсутствующая строка документа не ошибка: акцепт важнее, чем справочник, и
+    запрос покупки из-за пустого справочника падать не должен. Устроено так же,
+    как одноимённый помощник в `app/consent.py`; вынесено сюда, потому что
+    пишет оно в `invoices`, а не в `users`.
+    """
+    return db.scalar(select(Document.updated_at).where(Document.code == code))
+
+
+def has_acceptance(invoice: Invoice) -> bool:
+    """Признак «акцепт уже записан» — тот же, каким его видит читатель счёта."""
+    return invoice.offer_accepted_at is not None
+
+
+def record_acceptance(db: Session, invoice: Invoice, user: User) -> None:
+    """Записать акцепт оферты в строку счёта.
+
+    Проставляется момент, код документа, снимок редакции `documents.updated_at`
+    (отсутствующая строка документа даёт `NULL`) и автор акцепта.
+
+    Функция **не коммитит**: запись идёт в общей транзакции вызывающего роута,
+    чтобы акцепт не сохранился у покупки, которая затем упала.
+
+    Функция **не перезаписывает** уже записанный акцепт: повторное нажатие
+    «Купить» возвращает тот же счёт, и подменять прежнюю дату согласия новой
+    нельзя — иначе доказательство «когда согласился» поедет.
+    """
+    if has_acceptance(invoice):
+        return
+    invoice.offer_accepted_at = datetime.now(UTC)
+    invoice.offer_document_code = OFFER_DOCUMENT_CODE
+    invoice.offer_document_updated_at = document_revision(db, OFFER_DOCUMENT_CODE)
+    invoice.offer_accepted_by = user.id
