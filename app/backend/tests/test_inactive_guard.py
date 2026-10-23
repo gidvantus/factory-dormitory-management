@@ -132,7 +132,12 @@ def test_activation_opens_the_working_endpoints(client: TestClient, db_session: 
 
     activated = client.post(
         "/api/auth/activate",
-        json={"token": raw_token, "password": NEW_PASSWORD, "consent": True},
+        json={
+            "token": raw_token,
+            "password": NEW_PASSWORD,
+            "consent": True,
+            "terms_accepted": True,
+        },
     )
 
     assert activated.status_code == 200

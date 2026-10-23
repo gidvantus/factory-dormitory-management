@@ -14,7 +14,12 @@ from sqlalchemy.orm import Session
 
 from tests.conftest import create_user, login, organizations_for, register_user
 
-PAYLOAD = {"email": "worker@example.com", "full_name": "Иванов Иван Иванович", "consent": True}
+PAYLOAD = {
+    "email": "worker@example.com",
+    "full_name": "Иванов Иван Иванович",
+    "consent": True,
+    "terms_accepted": True,
+}
 
 # Тело с корректной ASCII-обвязкой, но недопустимой UTF-8 последовательностью:
 # json.loads падает не на JSONDecodeError, а на UnicodeDecodeError, и FastAPI
@@ -60,7 +65,12 @@ def test_register_422_is_documented(client: TestClient) -> None:
     """Отказ без согласия — тоже 422, и он объявлен в схеме."""
     response = client.post(
         "/api/auth/register",
-        json={"email": PAYLOAD["email"], "full_name": PAYLOAD["full_name"], "consent": False},
+        json={
+            "email": PAYLOAD["email"],
+            "full_name": PAYLOAD["full_name"],
+            "consent": False,
+            "terms_accepted": True,
+        },
     )
 
     assert response.status_code == 422
