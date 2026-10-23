@@ -4,7 +4,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser, scoped_dormitories
@@ -25,21 +25,11 @@ from app.schemas.statistics_report import (
     StatisticsResult,
     UpdateStatisticsReport,
 )
-from app.statistics_reports import calculate_block, resolved_query
+from app.statistics_reports import calculate_block, own_report, resolved_query, visible_reports
 
 router = APIRouter(prefix="/statistics", tags=["statistics"], responses=SUBSCRIBED_USER_RESPONSES)
 DbSession = Annotated[Session, Depends(get_db)]
 ReportId = Annotated[int, Path(ge=1)]
-
-
-def report_row(db: Session, report_id: int, user: User, *, lock: bool = False) -> StatisticsReport:
-    statement = select(StatisticsReport).where(StatisticsReport.id == report_id)
-    if lock:
-        statement = statement.with_for_update().execution_options(populate_existing=True)
-    report = db.scalar(statement)
-    if report is None or (report.visibility == "personal" and report.created_by_id != user.id):
-        raise HTTPException(404, "Отчёт не найден")
-    return report
 
 
 def check_revision(report: StatisticsReport, revision: int) -> None:
@@ -115,16 +105,13 @@ def read_sources(
 
 
 @router.get("/reports", response_model=list[StatisticsReportResponse])
-def list_reports(user: SubscribedUser, db: DbSession) -> list[StatisticsReportResponse]:
+def list_reports(
+    user: SubscribedUser, membership: Membership, db: DbSession
+) -> list[StatisticsReportResponse]:
     reports = db.scalars(
-        select(StatisticsReport)
-        .where(
-            or_(
-                StatisticsReport.visibility == "shared",
-                StatisticsReport.created_by_id == user.id,
-            )
+        visible_reports(user, membership.organization_id).order_by(
+            StatisticsReport.updated_at.desc(), StatisticsReport.id.desc()
         )
-        .order_by(StatisticsReport.updated_at.desc(), StatisticsReport.id.desc())
     )
     return [response_for(report, user, db) for report in reports]
 
@@ -141,6 +128,7 @@ def create_report(
         name=payload.name,
         description=payload.description,
         visibility=payload.visibility,
+        organization_id=membership.organization_id,
         created_by_id=user.id,
         blocks=[block.model_dump(mode="json") for block in payload.blocks],
     )
@@ -152,9 +140,9 @@ def create_report(
 
 @router.get("/reports/{report_id}", response_model=StatisticsReportResponse)
 def read_report(
-    report_id: ReportId, user: SubscribedUser, db: DbSession
+    report_id: ReportId, user: SubscribedUser, membership: Membership, db: DbSession
 ) -> StatisticsReportResponse:
-    return response_for(report_row(db, report_id, user), user, db)
+    return response_for(own_report(db, report_id, user, membership.organization_id), user, db)
 
 
 @router.put("/reports/{report_id}", response_model=StatisticsReportResponse)
@@ -165,7 +153,7 @@ def update_report(
     membership: Membership,
     db: DbSession,
 ) -> StatisticsReportResponse:
-    report = report_row(db, report_id, user, lock=True)
+    report = own_report(db, report_id, user, membership.organization_id, lock=True)
     check_revision(report, payload.revision)
     if report.visibility != payload.visibility and report.created_by_id != user.id:
         raise HTTPException(403, "Изменить доступ может только создатель отчёта")
@@ -184,9 +172,13 @@ def update_report(
 
 @router.delete("/reports/{report_id}", status_code=204)
 def delete_report(
-    report_id: ReportId, revision: Annotated[int, Query(ge=0)], user: SubscribedUser, db: DbSession
+    report_id: ReportId,
+    revision: Annotated[int, Query(ge=0)],
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
 ) -> Response:
-    report = report_row(db, report_id, user, lock=True)
+    report = own_report(db, report_id, user, membership.organization_id, lock=True)
     if report.created_by_id != user.id:
         raise HTTPException(403, "Удалить отчёт может только его создатель")
     check_revision(report, revision)
@@ -224,7 +216,7 @@ def read_data(
     to_date: Annotated[date, Query(alias="to")],
     dormitory_id: Annotated[int | None, Query(ge=1)] = None,
 ) -> StatisticsData:
-    report = report_row(db, report_id, user)
+    report = own_report(db, report_id, user, membership.organization_id)
     end = period_end(from_date, to_date)
     catalog = source_catalog(db, membership.organization_id)
     dormitories = scoped_dormitories(db, membership.organization_id)
