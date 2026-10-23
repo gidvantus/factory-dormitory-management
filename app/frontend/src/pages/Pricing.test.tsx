@@ -433,7 +433,7 @@ describe('шапка и подвал страницы тарифов', () => {
     expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(0);
   });
 
-  it('показывает отказ сервера в окне, а не общим блоком на странице', async () => {
+  it('показывает отказ сервера алертом, не объявляя чекбокс оферты невалидным', async () => {
     const fetchMock = mockFetch(
       signedInRoutes(
         { status: 200, body: [TARIFF] },
@@ -452,13 +452,15 @@ describe('шапка и подвал страницы тарифов', () => {
     await user.click(within(dialog).getByRole('checkbox'));
     await user.click(screen.getByTestId('purchase-confirm-submit'));
 
-    const error = await screen.findByTestId('purchase-confirm-error');
+    const error = await screen.findByTestId('purchase-confirm-request-error');
     // Текст показан как есть, а не заменён общим «что-то пошло не так».
     expect(error).toHaveTextContent('Тариф организации уже выбран');
-    // Отказ про отметку живёт под чекбоксом: он связан с ним через aria-describedby.
+    // Причина отказа не в галочке: повторная отметка его не исправит, поэтому
+    // чекбокс остаётся валидным и не связан с текстом через aria-describedby.
     const checkbox = within(dialog).getByRole('checkbox');
-    expect(checkbox).toHaveAttribute('aria-invalid', 'true');
-    expect(checkbox).toHaveAttribute('aria-describedby', 'purchase-offer-error');
+    expect(checkbox).not.toHaveAttribute('aria-invalid');
+    expect(checkbox).not.toHaveAttribute('aria-describedby');
+    expect(within(dialog).queryByTestId('purchase-confirm-error')).not.toBeInTheDocument();
     // Окно не закрывается, счёт не создан, страница осталась на прайсе.
     expect(screen.getByTestId('pricing')).toBeInTheDocument();
     expect(screen.queryByTestId('pricing-buy-tariff-link')).not.toBeInTheDocument();
@@ -466,6 +468,38 @@ describe('шапка и подвал страницы тарифов', () => {
     expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(1);
     // Повторить можно: кнопка снова доступна.
     expect(screen.getByTestId('purchase-confirm-submit')).toBeEnabled();
+  });
+
+  it('показывает сбой сети алертом, а не ошибкой чекбокса', async () => {
+    const handler = signedInRoutes({ status: 200, body: [TARIFF] });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith('/api/billing/invoices') && init?.method === 'POST') {
+          throw new TypeError('Failed to fetch');
+        }
+        const { status, body } = handler(String(input), init);
+        return new Response(JSON.stringify(body), {
+          status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await user.click(await screen.findByTestId('tariff-buy'));
+    const dialog = await screen.findByTestId('purchase-confirm');
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(screen.getByTestId('purchase-confirm-submit'));
+
+    expect(await screen.findByTestId('purchase-confirm-request-error')).toHaveTextContent(
+      'Не удалось выставить счёт',
+    );
+    const checkbox = within(dialog).getByRole('checkbox');
+    expect(checkbox).not.toHaveAttribute('aria-invalid');
+    expect(checkbox).not.toHaveAttribute('aria-describedby');
   });
 
   it('показывает под чекбоксом текст отказа 422 без приставки валидатора', async () => {
@@ -496,9 +530,14 @@ describe('шапка и подвал страницы тарифов', () => {
     await user.click(screen.getByTestId('purchase-confirm-submit'));
 
     // Ровно текст макета: клиент снимает pydantic-приставку и путь `body`.
-    expect(await screen.findByTestId('purchase-confirm-error')).toHaveTextContent(
-      'Отметьте согласие с условиями оферты',
-    );
+    const error = await screen.findByTestId('purchase-confirm-error');
+    expect(error).toHaveTextContent('Отметьте согласие с условиями оферты');
+    // Этот отказ — про отметку: чекбокс объявлен невалидным и связан с текстом.
+    const checkbox = within(dialog).getByRole('checkbox');
+    expect(checkbox).toHaveAttribute('aria-invalid', 'true');
+    expect(checkbox).toHaveAttribute('aria-describedby', 'purchase-offer-error');
+    // Общего алерта при этом нет: отказ один, и он про галочку.
+    expect(screen.queryByTestId('purchase-confirm-request-error')).not.toBeInTheDocument();
   });
 
   it('показывает отправку в окне и не даёт его закрыть до ответа', async () => {
