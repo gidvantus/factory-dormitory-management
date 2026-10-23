@@ -208,6 +208,8 @@ describe('публичная страница тарифов', () => {
     expect(await screen.findByTestId('register-email')).toBeInTheDocument();
     // Уводить на главную ради формы незачем: страница остаётся на месте.
     expect(screen.getByTestId('pricing')).toBeInTheDocument();
+    // Анониму окно подтверждения не показывается: счёт выставляется вошедшему.
+    expect(screen.queryByTestId('purchase-confirm')).not.toBeInTheDocument();
   });
 
   it('показывает загрузку, пока запрос в пути', () => {
@@ -343,7 +345,7 @@ describe('шапка и подвал страницы тарифов', () => {
     expect(await screen.findByTestId('cabinet-page')).toBeInTheDocument();
   });
 
-  it('вошедшему кнопка «Купить» выставляет счёт и ведёт в «Документы»', async () => {
+  it('вошедшему «Купить» открывает окно подтверждения и только по отметке выставляет счёт', async () => {
     const fetchMock = mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
     const user = userEvent.setup();
     renderApp('/pricing');
@@ -354,14 +356,84 @@ describe('шапка и подвал страницы тарифов', () => {
 
     await user.click(await screen.findByTestId('tariff-buy'));
 
-    expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(1);
+    const dialog = await screen.findByTestId('purchase-confirm');
+    expect(within(dialog).getByTestId('purchase-confirm-title')).toHaveTextContent(
+      'Покупка тарифа «Базовый»',
+    );
+    // Сумма — из `price_label` карточки: клиент её не считает.
+    expect(screen.getByTestId('purchase-confirm-amount')).toHaveTextContent('5 000 ₽ в месяц');
+    // Согласие — явное действие: до отметки кнопка погашена, запроса ещё нет.
+    expect(screen.getByTestId('purchase-confirm-submit')).toBeDisabled();
+    expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(0);
+
+    await user.click(within(dialog).getByRole('checkbox'));
+    expect(screen.getByTestId('purchase-confirm-submit')).toBeEnabled();
+    await user.click(screen.getByTestId('purchase-confirm-submit'));
+
     expect(await screen.findByTestId('documents-page')).toBeInTheDocument();
     expect(await screen.findByTestId('documents-purchase-success')).toBeInTheDocument();
     expect(screen.getByTestId('document-number')).toHaveTextContent('СЧ-2026-1');
     expect(screen.queryByTestId('auth-modal')).not.toBeInTheDocument();
+
+    const post = callsWithMethod(fetchMock, '/api/billing/invoices', 'POST');
+    expect(post).toHaveLength(1);
+    // Отметка уходит на сервер: без неё тарифный счёт получить нельзя.
+    expect(JSON.parse((post[0][1] as RequestInit).body as string)).toEqual({
+      tariff_id: TARIFF.id,
+      offer_accepted: true,
+    });
   });
 
-  it('показывает отказ сервера текстом, без отдельного блока про купленный тариф', async () => {
+  it('ведёт ссылкой из окна на страницу оферты', async () => {
+    mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await user.click(await screen.findByTestId('tariff-buy'));
+
+    const link = within(await screen.findByTestId('purchase-confirm')).getByRole('link', {
+      name: 'условиями оферты',
+    });
+    expect(link).toHaveAttribute('href', '/documents/offer');
+    // Оферта открывается в новой вкладке: окно с отметкой не теряется.
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noreferrer');
+  });
+
+  it('закрывает окно по «Отмене» и не выставляет счёт', async () => {
+    const fetchMock = mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await user.click(await screen.findByTestId('tariff-buy'));
+
+    const dialog = await screen.findByTestId('purchase-confirm');
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(screen.getByTestId('purchase-confirm-cancel'));
+
+    await waitFor(() => expect(screen.queryByTestId('purchase-confirm')).not.toBeInTheDocument());
+    expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(0);
+    expect(screen.getByTestId('pricing')).toBeInTheDocument();
+  });
+
+  it('закрывает окно по Escape, не выставляя счёт', async () => {
+    const fetchMock = mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await user.click(await screen.findByTestId('tariff-buy'));
+    expect(await screen.findByTestId('purchase-confirm')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByTestId('purchase-confirm')).not.toBeInTheDocument());
+    expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(0);
+  });
+
+  it('показывает отказ сервера в окне, а не общим блоком на странице', async () => {
     const fetchMock = mockFetch(
       signedInRoutes(
         { status: 200, body: [TARIFF] },
@@ -376,17 +448,90 @@ describe('шапка и подвал страницы тарифов', () => {
 
     await screen.findByTestId('nav-cabinet');
     await user.click(await screen.findByTestId('tariff-buy'));
+    const dialog = await screen.findByTestId('purchase-confirm');
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(screen.getByTestId('purchase-confirm-submit'));
 
-    const error = await screen.findByTestId('pricing-buy-error');
+    const error = await screen.findByTestId('purchase-confirm-error');
     // Текст показан как есть, а не заменён общим «что-то пошло не так».
     expect(error).toHaveTextContent('Тариф организации уже выбран');
-    // Рассказ про купленный тариф живёт в самом списке, а не отдельным блоком:
-    // на странице остаётся только текст отказа.
+    // Отказ про отметку живёт под чекбоксом: он связан с ним через aria-describedby.
+    const checkbox = within(dialog).getByRole('checkbox');
+    expect(checkbox).toHaveAttribute('aria-invalid', 'true');
+    expect(checkbox).toHaveAttribute('aria-describedby', 'purchase-offer-error');
+    // Окно не закрывается, счёт не создан, страница осталась на прайсе.
+    expect(screen.getByTestId('pricing')).toBeInTheDocument();
     expect(screen.queryByTestId('pricing-buy-tariff-link')).not.toBeInTheDocument();
     expect(screen.queryByTestId('pricing-buy-documents-link')).not.toBeInTheDocument();
-    // Покупки не было: страница осталась на прайсе.
-    expect(screen.getByTestId('pricing')).toBeInTheDocument();
     expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(1);
+    // Повторить можно: кнопка снова доступна.
+    expect(screen.getByTestId('purchase-confirm-submit')).toBeEnabled();
+  });
+
+  it('показывает под чекбоксом текст отказа 422 без приставки валидатора', async () => {
+    mockFetch(
+      signedInRoutes(
+        { status: 200, body: [TARIFF] },
+        {
+          status: 422,
+          body: {
+            detail: [
+              {
+                loc: ['body'],
+                msg: 'Value error, Отметьте согласие с условиями оферты',
+                type: 'value_error',
+              },
+            ],
+          },
+        },
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await user.click(await screen.findByTestId('tariff-buy'));
+    const dialog = await screen.findByTestId('purchase-confirm');
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(screen.getByTestId('purchase-confirm-submit'));
+
+    // Ровно текст макета: клиент снимает pydantic-приставку и путь `body`.
+    expect(await screen.findByTestId('purchase-confirm-error')).toHaveTextContent(
+      'Отметьте согласие с условиями оферты',
+    );
+  });
+
+  it('показывает отправку в окне и не даёт его закрыть до ответа', async () => {
+    const handler = signedInRoutes({ status: 200, body: [TARIFF] });
+    // Незавершённый POST: состояние отправки видно до ответа сервера.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith('/api/billing/invoices') && init?.method === 'POST') {
+          return new Promise<Response>(() => {});
+        }
+        const { status, body } = handler(String(input), init);
+        return new Response(JSON.stringify(body), {
+          status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await user.click(await screen.findByTestId('tariff-buy'));
+    const dialog = await screen.findByTestId('purchase-confirm');
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(screen.getByTestId('purchase-confirm-submit'));
+
+    const submit = screen.getByTestId('purchase-confirm-submit');
+    expect(submit).toHaveAttribute('aria-busy', 'true');
+    expect(submit).toHaveTextContent('Выставляем счёт…');
+    // Пока ответ в пути, окно не закрывается: иначе результат запроса потеряется.
+    expect(screen.getByTestId('purchase-confirm-cancel')).toBeDisabled();
+    expect(screen.getByTestId('purchase-confirm-close')).toBeDisabled();
   });
 
   it('помечает купленный тариф в списке и гасит все кнопки «Купить»', async () => {

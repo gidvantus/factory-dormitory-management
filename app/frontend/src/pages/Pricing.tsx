@@ -10,6 +10,7 @@ import { SiteFooter } from '../components/landing/SiteFooter';
 import { siteNav } from '../components/siteNav';
 import { useAuthDialog } from '../components/useAuthDialog';
 import { PricingPlans } from '../components/PricingPlans';
+import { PurchaseConfirmDialog } from '../components/PurchaseConfirmDialog';
 
 const GENERIC_ERROR = 'Не удалось загрузить тарифы. Проверьте соединение и попробуйте ещё раз.';
 const PURCHASE_ERROR = 'Не удалось выставить счёт. Проверьте соединение и попробуйте ещё раз.';
@@ -58,6 +59,8 @@ export function Pricing(): JSX.Element {
   const [attempt, setAttempt] = useState(0);
   const [buying, setBuying] = useState(false);
   const [buyError, setBuyError] = useState('');
+  // Тариф, по которому нажали «Купить»: пока он задан, открыто окно подтверждения.
+  const [pending, setPending] = useState<Tariff | null>(null);
   // Тариф организации: пока он пуст, покупка доступна; после привязки список
   // только помечает купленное, а кнопки гаснут.
   const [ownedTariffId, setOwnedTariffId] = useState<number | null>(null);
@@ -66,31 +69,49 @@ export function Pricing(): JSX.Element {
   const navigate = useNavigate();
 
   /**
-   * «Купить» заводит организации счёт за выбранный тариф.
+   * «Купить» открывает окно подтверждения: счёт выставляется не по клику в
+   * карточке, а по кнопке в окне, после отметки оферты.
    *
-   * Анониму кнопка по-прежнему открывает регистрацию: счёт выставляется только
-   * вошедшему, а форма на самой странице короче похода на главную. Вошедшего
-   * ведёт в раздел «Документы» — именно там виден выставленный счёт.
+   * Анониму окно не показывается — кнопка по-прежнему открывает регистрацию:
+   * счёт выставляется только вошедшему, а форма на самой странице короче похода
+   * на главную. Вошедшего после покупки ведёт в раздел «Документы» — именно там
+   * виден выставленный счёт.
    *
    * Закрытый пробный период покупку не блокирует: 403 «пробный период
    * закончился» обрабатывает `client.ts` (`notifyTrialExpired`), а текст отказа
-   * от сервера показывается на странице как есть.
+   * от сервера показывается в окне как есть.
    */
-  async function buyTariff(tariffId: number): Promise<void> {
+  function startPurchase(tariffId: number): void {
     if (sessionStatus !== 'authenticated') {
       openRegister();
       return;
     }
     if (buying) return;
+    const tariff = tariffs.find((plan) => plan.id === tariffId);
+    if (!tariff) return;
+    setBuyError('');
+    setPending(tariff);
+  }
+
+  /** Подтверждение в окне: только здесь уходит запрос, уже с отметкой оферты. */
+  async function confirmPurchase(): Promise<void> {
+    if (buying || pending === null) return;
     setBuying(true);
     setBuyError('');
     try {
-      await api.purchaseInvoice({ tariff_id: tariffId });
+      await api.purchaseInvoice({ tariff_id: pending.id, offer_accepted: true });
       navigate('/cabinet/documents', { state: { purchased: true } });
     } catch (caught: unknown) {
       setBuyError(purchaseErrorMessage(caught));
       setBuying(false);
     }
+  }
+
+  /** «Отмена», крестик и Esc: окно закрывается, счёт не выставляется. */
+  function cancelPurchase(): void {
+    if (buying) return;
+    setPending(null);
+    setBuyError('');
   }
 
   useEffect(() => {
@@ -188,14 +209,18 @@ export function Pricing(): JSX.Element {
                 tariffs={tariffs}
                 ownedTariffId={ownedTariffId}
                 buying={buying}
-                onBuy={(id) => void buyTariff(id)}
+                onBuy={startPurchase}
               />
             )}
 
-            {buyError && (
-              <p className="pricing__error" role="alert" data-testid="pricing-buy-error">
-                {buyError}
-              </p>
+            {pending !== null && (
+              <PurchaseConfirmDialog
+                tariff={pending}
+                submitting={buying}
+                error={buyError}
+                onCancel={cancelPurchase}
+                onConfirm={() => void confirmPurchase()}
+              />
             )}
           </div>
         </section>
