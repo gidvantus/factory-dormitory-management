@@ -149,7 +149,7 @@ export function Pricing(): JSX.Element {
       />
 
       <main id="main">
-        <section className="section" aria-labelledby="pricing-title">
+        <section className="section section--first" aria-labelledby="pricing-title">
           <div className="container">
             <div className="section__head section__head--center">
               <p className="eyebrow">Тарифы</p>
