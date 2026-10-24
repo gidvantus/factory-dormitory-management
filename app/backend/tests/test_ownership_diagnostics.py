@@ -169,14 +169,27 @@ def test_orphan_dormitory_reports_exact_ids_and_sums(
 def test_root_objects_name_every_reason(
     db_session: Session, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Корневые объекты без организации: обе причины названы, `id` на месте."""
-    author = create_user(db_session, email="no-organization@example.com")
+    """Корневые объекты без организации: все четыре причины названы."""
+    author_without_organization = create_user(db_session, email="no-organization@example.com")
+    author_with_organization = create_user(db_session, email="with-organization@example.com")
+    # Четвёртая причина — «объект не привязан к организации автора»: автор жив и
+    # организация у него есть, а backfill `0045` до строки не дошёл. Без этого
+    # объекта подмена причины на «у автора нет организации» прошла бы зелёной.
+    organization = Organization(name="Ромашка")
+    db_session.add(organization)
+    db_session.flush()
+    author_with_organization.active_organization_id = organization.id
     db_session.add_all(
         [
             ReportTemplate(name="Без автора", created_by_id=None),
             ReportTemplate(name="Автор удалён", created_by_id=DELETED_USER_ID),
-            DormitoryTemplate(name="Автор без организации", snapshot={}, created_by_id=author.id),
+            DormitoryTemplate(
+                name="Автор без организации",
+                snapshot={},
+                created_by_id=author_without_organization.id,
+            ),
             DashboardBlock(config={"name": "Блок без автора"}, created_by_id=None),
+            ReportTemplate(name="Не привязан", created_by_id=author_with_organization.id),
         ]
     )
     db_session.commit()
@@ -196,10 +209,11 @@ def test_root_objects_name_every_reason(
         "Автор удалён": ownership.REASON_AUTHOR_DELETED,
         "Автор без организации": ownership.REASON_NO_ORGANIZATION,
         "Блок без автора": ownership.REASON_NO_AUTHOR,
+        "Не привязан": ownership.REASON_NOT_LINKED,
     }
     deleted = next(item for item in root_objects if item["name"] == "Автор удалён")
     assert deleted["created_by_id"] == DELETED_USER_ID
-    assert payload["totals"]["invisible"]["root_objects"] == 4
+    assert payload["totals"]["invisible"]["root_objects"] == 5
 
 
 def test_json_report_has_same_numbers_as_text(
@@ -210,6 +224,8 @@ def test_json_report_has_same_numbers_as_text(
     organization = Organization(name="Ромашка")
     orphan_session.add(organization)
     orphan_session.flush()
+    # Личный отчёт виден автору только внутри его организации.
+    owner.active_organization_id = organization.id
     dormitory = Dormitory(
         name="Северное",
         client_name="Клиент",
@@ -227,7 +243,12 @@ def test_json_report_has_same_numbers_as_text(
             HostelCell(hostel_id=hostel.id, report_date=date(2026, 1, 2), field="beds", value=3),
             CustomTab(dormitory_id=dormitory.id, name="Своя вкладка"),
             StatisticsReport(organization_id=organization.id, name="Общий", visibility="shared"),
-            StatisticsReport(organization_id=organization.id, name="Личный", visibility="personal"),
+            StatisticsReport(
+                organization_id=organization.id,
+                name="Личный",
+                visibility="personal",
+                created_by_id=owner.id,
+            ),
             ReportTemplate(organization_id=organization.id, name="Шаблон отчёта"),
             DormitoryTemplate(organization_id=organization.id, name="Снимок", snapshot={}),
             DashboardBlock(organization_id=organization.id, config={"name": "Блок"}),
@@ -261,6 +282,82 @@ def test_json_report_has_same_numbers_as_text(
     assert counts[ownership.STATISTICS_REPORTS_PERSONAL] == 1
     assert counts[ownership.STATISTICS_REPORTS_SHARED] == 1
     assert counts[ownership.DASHBOARD_BLOCKS] == 1
+
+
+def test_personal_reports_without_reader_are_invisible(
+    orphan_session: Session, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Личный отчёт открывает только автор в своей организации — иначе он невидим."""
+    owner = create_user(orphan_session, email="owner@example.com")
+    stranger = create_user(orphan_session, email="stranger@example.com")
+    author_without_organization = create_user(orphan_session, email="no-org@example.com")
+    organization = Organization(name="Ромашка")
+    foreign_organization = Organization(name="Вторая")
+    orphan_session.add_all([organization, foreign_organization])
+    orphan_session.flush()
+    owner.active_organization_id = organization.id
+    stranger.active_organization_id = foreign_organization.id
+    orphan_session.add_all(
+        [
+            # Виден: автор жив и в этой же организации.
+            StatisticsReport(
+                organization_id=organization.id,
+                name="Свой личный",
+                visibility="personal",
+                created_by_id=owner.id,
+            ),
+            # Не открывает никто: автора нет, он удалён, он без организации или
+            # он уже в другой организации.
+            StatisticsReport(
+                organization_id=organization.id,
+                name="Без автора",
+                visibility="personal",
+                created_by_id=None,
+            ),
+            StatisticsReport(
+                organization_id=organization.id,
+                name="Автор удалён",
+                visibility="personal",
+                created_by_id=DELETED_USER_ID,
+            ),
+            StatisticsReport(
+                organization_id=organization.id,
+                name="Автор без организации",
+                visibility="personal",
+                created_by_id=author_without_organization.id,
+            ),
+            StatisticsReport(
+                organization_id=organization.id,
+                name="Автор в другой организации",
+                visibility="personal",
+                created_by_id=stranger.id,
+            ),
+            # Общий отчёт видит вся организация — автор ни при чём.
+            StatisticsReport(
+                organization_id=organization.id,
+                name="Общий",
+                visibility="shared",
+                created_by_id=DELETED_USER_ID,
+            ),
+        ]
+    )
+    orphan_session.commit()
+
+    assert ownership.main(["--json"]) == ownership.EXIT_INVISIBLE
+
+    payload = json.loads(capsys.readouterr().out)
+    counts = payload["organizations"][0]["counts"]
+    assert counts[ownership.STATISTICS_REPORTS_PERSONAL] == 1
+    assert counts[ownership.STATISTICS_REPORTS_SHARED] == 1
+    reasons = {item["name"]: item["reason"] for item in payload["invisible"]["root_objects"]}
+    assert reasons == {
+        "Без автора": ownership.REASON_PERSONAL_NO_AUTHOR,
+        "Автор удалён": ownership.REASON_PERSONAL_AUTHOR_DELETED,
+        "Автор без организации": ownership.REASON_PERSONAL_NO_ORGANIZATION,
+        "Автор в другой организации": ownership.REASON_PERSONAL_FOREIGN_AUTHOR,
+    }
+    assert payload["totals"]["invisible"]["root_objects"] == 4
+    assert payload["totals"]["visible"]["dormitories"] == 0
 
 
 def test_report_changes_no_table(
@@ -361,6 +458,25 @@ def test_base_without_any_table_is_reported(
         )
     finally:
         engine.dispose()
+
+
+def test_unknown_argument_is_a_startup_error(capsys: pytest.CaptureFixture[str]) -> None:
+    """Неизвестный ключ — ошибка запуска (`1`), а не «данные есть» (`2`).
+
+    `argparse` на неизвестном ключе выходит сам, кодом `2`, — а `2` у команды
+    значит «найдены невидимые данные», и отчёта при этом нет. Оператор не должен
+    искать потерь, которых никто не считал.
+    """
+    assert ownership.main(["--jsn"]) == ownership.EXIT_ERROR
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "usage:" in captured.err
+
+
+def test_help_exits_ok(capsys: pytest.CaptureFixture[str]) -> None:
+    """`--help` — не ошибка: код `0` и справка на экране."""
+    assert ownership.main(["--help"]) == ownership.EXIT_OK
+    assert "usage:" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("argv", [["--json"], []])

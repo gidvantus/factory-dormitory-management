@@ -16,7 +16,14 @@
 Коды выхода: `0` — невидимых данных нет; `2` — есть; `1` — ошибка запуска, в том
 числе база, к которой ещё не применена миграция изоляции (тогда вместо трейсбека
 печатается «сначала примените миграцию: в таблице <таблица> нет колонки
-organization_id»).
+organization_id»), и неверный ключ запуска (`argparse` сам выходит кодом `2`, а
+`2` здесь значит «данные есть» — поэтому такой выход переводится в `1`).
+
+**Видимость считается так же, как её считает кабинет.** `shared`-отчёт статистики
+открыт всей организации, `personal` — только автору и только пока он в этой же
+организации (`visible_reports` в `app/statistics_reports.py`). Личный отчёт
+уволенного, перешедшего или не имеющего организации автора не открывает никто:
+он идёт в раздел «станет невидимым» с названной причиной, а не в цифру «видно».
 
 **Только чтение.** Ни одного `commit`, `flush`, `UPDATE`, `INSERT` или `DELETE`;
 не вызываются функции, которые пишут (`take_snapshot`, `ensure_columns`,
@@ -37,7 +44,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Select, func, inspect, select
+from sqlalchemy import Select, func, inspect, or_, select
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
 
@@ -70,6 +77,15 @@ REASON_AUTHOR_DELETED = "автор удалён"
 REASON_NO_ORGANIZATION = "у автора нет организации"
 REASON_NOT_LINKED = "объект не привязан к организации автора"
 
+# Личный отчёт видит только его автор и только внутри своей организации
+# (`visible_reports` в `app/statistics_reports.py`). Если автора нет, он удалён,
+# он без организации или уже в другой — отчёт не открывает никто, и в «видно» он
+# не попадает: причина называется отдельно, чтобы владелец не считал его целым.
+REASON_PERSONAL_NO_AUTHOR = "личный отчёт: автор не указан"
+REASON_PERSONAL_AUTHOR_DELETED = "личный отчёт: автор удалён"
+REASON_PERSONAL_NO_ORGANIZATION = "личный отчёт: у автора нет организации"
+REASON_PERSONAL_FOREIGN_AUTHOR = "личный отчёт: автор в другой организации"
+
 # Метрики видимости. Порядок задаёт порядок ключей в JSON и в строке отчёта.
 DORMITORIES = "dormitories"
 RESIDENTS = "residents"
@@ -96,15 +112,22 @@ METRICS = (
 # Корневые объекты без корня-общежития: принадлежность задаётся их собственной
 # колонкой `organization_id` (миграция `0045`). Таблица указана явно: она
 # попадает в отчёт и в сообщение о неприменённой миграции.
-ROOT_OBJECTS: tuple[tuple[str, type[Any]], ...] = (
+#
+# Разделение на два списка — не косметика: у этих таблиц имя и время создания
+# лежат в своих колонках, а у блока дашборда имени нет вовсе (оно внутри
+# `config`), поэтому выборка колонок у них разная.
+NAMED_ROOT_TABLES: tuple[tuple[str, type[Any]], ...] = (
     ("dormitory_templates", DormitoryTemplate),
     ("report_templates", ReportTemplate),
     ("statistics_reports", StatisticsReport),
-    ("dashboard_blocks", DashboardBlock),
 )
 
+DASHBOARD_BLOCKS_TABLE = "dashboard_blocks"
+
+ROOT_TABLES = (*NAMED_ROOT_TABLES, (DASHBOARD_BLOCKS_TABLE, DashboardBlock))
+
 # Таблицы, без колонки `organization_id` в которых отчёт посчитать нельзя.
-SCHEMA_TABLES = ("dormitories", *(table for table, _model in ROOT_OBJECTS))
+SCHEMA_TABLES = ("dormitories", *(table for table, _model in ROOT_TABLES))
 
 
 class MigrationNotApplied(RuntimeError):
@@ -251,7 +274,9 @@ class DiagnosticReport:
                     f"проживающих {orphan.residents}, мест {orphan.hostel_cells}"
                 )
         if self.orphan_root_objects:
-            lines.append(f"  Корневые объекты без организации: {len(self.orphan_root_objects)}")
+            lines.append(
+                f"  Корневые объекты, которые станут невидимыми: {len(self.orphan_root_objects)}"
+            )
             for root_object in self.orphan_root_objects:
                 title = root_object.name or "без названия"
                 lines.append(
@@ -281,12 +306,8 @@ def _moment_text(moment: datetime | None) -> str:
     return moment.isoformat(timespec="seconds")
 
 
-def _root_name(item: Any) -> str | None:
-    """Имя корневого объекта: у блоков дашборда оно лежит в `config`."""
-    name = getattr(item, "name", None)
-    if isinstance(name, str):
-        return name
-    config = getattr(item, "config", None)
+def _config_name(config: Any) -> str | None:
+    """Имя блока дашборда: у него нет колонки `name`, имя лежит в `config`."""
     if isinstance(config, dict):
         title = config.get("name")
         if isinstance(title, str):
@@ -360,20 +381,33 @@ def _counts_per_organization(session: Session) -> dict[int, dict[str, int]]:
             .group_by(model.organization_id),
         )
     # Видимость `personal`/`shared` действует **внутри** организации и её не
-    # расширяет, поэтому разделение считается здесь же.
-    for row in session.execute(
-        select(
-            StatisticsReport.organization_id,
-            StatisticsReport.visibility,
-            func.count(StatisticsReport.id),
+    # расширяет. `shared` открыт всей организации, `personal` — только автору и
+    # только пока тот в этой же организации (`visible_reports` в
+    # `app/statistics_reports.py`). Поэтому `personal` считается через join на
+    # `users`: отчёт уволенного или перешедшего автора не открывает никто, и в
+    # «видно» он попадать не должен — иначе цифра врёт ровно на объём тех
+    # данных, ради которых команда и написана.
+    add(
+        STATISTICS_REPORTS_SHARED,
+        select(StatisticsReport.organization_id, func.count(StatisticsReport.id))
+        .where(
+            StatisticsReport.organization_id.is_not(None),
+            StatisticsReport.visibility == "shared",
         )
-        .where(StatisticsReport.organization_id.is_not(None))
-        .group_by(StatisticsReport.organization_id, StatisticsReport.visibility)
-    ):
-        if row[0] is None:
-            continue
-        metric = STATISTICS_REPORTS_SHARED if row[1] == "shared" else STATISTICS_REPORTS_PERSONAL
-        counts.setdefault(int(row[0]), empty_counts())[metric] += int(row[2])
+        .group_by(StatisticsReport.organization_id),
+    )
+    add(
+        STATISTICS_REPORTS_PERSONAL,
+        select(StatisticsReport.organization_id, func.count(StatisticsReport.id))
+        .select_from(StatisticsReport)
+        .outerjoin(User, User.id == StatisticsReport.created_by_id)
+        .where(
+            StatisticsReport.organization_id.is_not(None),
+            StatisticsReport.visibility != "shared",
+            User.active_organization_id == StatisticsReport.organization_id,
+        )
+        .group_by(StatisticsReport.organization_id),
+    )
     return counts
 
 
@@ -438,28 +472,133 @@ def _author_reasons(session: Session, author_ids: set[int | None]) -> dict[int |
 
 
 def _orphan_root_objects(session: Session) -> list[OrphanRootObject]:
-    """Корневые объекты без организации с причиной по каждому."""
+    """Корневые объекты, которые станет невидимым, с причиной по каждому.
+
+    Две группы: строки без организации (`organization_id IS NULL`, миграция
+    `0045` их не привязала) и личные отчёты статистики, которые не открывает
+    никто, — автор удалён, без организации или уже в другой. Вторые формально
+    имеют `organization_id`, но кабинет их не покажет (`visible_reports`),
+    поэтому «видно» их не считает.
+    """
     found: list[OrphanRootObject] = []
-    for table, model in ROOT_OBJECTS:
-        items: list[Any] = list(
-            session.scalars(select(model).where(model.organization_id.is_(None)).order_by(model.id))
-        )
-        if not items:
-            continue
-        reasons = _author_reasons(session, {item.created_by_id for item in items})
-        for item in items:
-            created_by_id = getattr(item, "created_by_id", None)
-            found.append(
-                OrphanRootObject(
-                    table=table,
-                    id=int(item.id),
-                    name=_root_name(item),
-                    created_at=getattr(item, "created_at", None),
-                    created_by_id=created_by_id,
-                    reason=reasons.get(created_by_id, REASON_NOT_LINKED),
-                )
-            )
+    for table, model in NAMED_ROOT_TABLES:
+        found.extend(_orphan_named_objects(session, table, model))
+    found.extend(_orphan_dashboard_blocks(session))
+    found.extend(_invisible_personal_reports(session))
     return found
+
+
+def _orphan_named_objects(session: Session, table: str, model: type[Any]) -> list[OrphanRootObject]:
+    """Объекты таблицы с колонкой `name`, у которых нет организации.
+
+    Выбираются четыре колонки, а не сущность: у `statistics_reports` в строке
+    лежит тело отчёта (`blocks`) и `description`, и на копии с тысячами
+    осиротевших отчётов `select(model)` поднял бы в память десятки мегабайт ради
+    `id` и `name`. Причина по автору считается тем же правилом, что и у остальных.
+    """
+    rows = session.execute(
+        select(model.id, model.name, model.created_at, model.created_by_id)
+        .where(model.organization_id.is_(None))
+        .order_by(model.id)
+    ).all()
+    created_by_ids: set[int | None] = {None if row[3] is None else int(row[3]) for row in rows}
+    reasons = _author_reasons(session, created_by_ids)
+    return [
+        OrphanRootObject(
+            table=table,
+            id=int(row[0]),
+            name=str(row[1]),
+            created_at=row[2],
+            created_by_id=None if row[3] is None else int(row[3]),
+            reason=reasons.get(None if row[3] is None else int(row[3]), REASON_NOT_LINKED),
+        )
+        for row in rows
+    ]
+
+
+def _orphan_dashboard_blocks(session: Session) -> list[OrphanRootObject]:
+    """Блоки дашборда без организации: имени в колонках нет, оно в `config`."""
+    rows = session.execute(
+        select(DashboardBlock.id, DashboardBlock.created_by_id, DashboardBlock.config)
+        .where(DashboardBlock.organization_id.is_(None))
+        .order_by(DashboardBlock.id)
+    ).all()
+    created_by_ids: set[int | None] = {None if row[1] is None else int(row[1]) for row in rows}
+    reasons = _author_reasons(session, created_by_ids)
+    return [
+        OrphanRootObject(
+            table=DASHBOARD_BLOCKS_TABLE,
+            id=int(row[0]),
+            name=_config_name(row[2]),
+            # Своей колонки времени создания у блока дашборда нет.
+            created_at=None,
+            created_by_id=None if row[1] is None else int(row[1]),
+            reason=reasons.get(None if row[1] is None else int(row[1]), REASON_NOT_LINKED),
+        )
+        for row in rows
+    ]
+
+
+def _invisible_personal_reports(session: Session) -> list[OrphanRootObject]:
+    """Личные отчёты статистики, которые не открывает ни один пользователь.
+
+    `personal`-отчёт видит только автор и только внутри своей организации
+    (`visible_reports`). Отчёт с чужим, удалённым или не имеющим организации
+    автором не отдаётся никому, поэтому он идёт в раздел «станет невидимым» с
+    названной причиной, а не в цифру «видно».
+    """
+    rows = session.execute(
+        select(
+            StatisticsReport.id.label("report_id"),
+            StatisticsReport.name.label("report_name"),
+            StatisticsReport.created_at.label("report_created_at"),
+            StatisticsReport.created_by_id.label("report_created_by_id"),
+            User.id.label("author_id"),
+            User.active_organization_id.label("author_organization_id"),
+        )
+        .select_from(StatisticsReport)
+        .outerjoin(User, User.id == StatisticsReport.created_by_id)
+        .where(
+            StatisticsReport.organization_id.is_not(None),
+            StatisticsReport.visibility != "shared",
+            or_(
+                User.id.is_(None),
+                User.active_organization_id.is_(None),
+                User.active_organization_id != StatisticsReport.organization_id,
+            ),
+        )
+        .order_by(StatisticsReport.id)
+    ).all()
+    return [
+        OrphanRootObject(
+            table="statistics_reports",
+            id=int(row.report_id),
+            name=str(row.report_name),
+            created_at=row.report_created_at,
+            created_by_id=(
+                None if row.report_created_by_id is None else int(row.report_created_by_id)
+            ),
+            reason=_personal_report_reason(
+                created_by_id=row.report_created_by_id,
+                author_id=row.author_id,
+                author_organization_id=row.author_organization_id,
+            ),
+        )
+        for row in rows
+    ]
+
+
+def _personal_report_reason(
+    *, created_by_id: int | None, author_id: int | None, author_organization_id: int | None
+) -> str:
+    """Почему личный отчёт не открывает никто."""
+    if created_by_id is None:
+        return REASON_PERSONAL_NO_AUTHOR
+    if author_id is None:
+        return REASON_PERSONAL_AUTHOR_DELETED
+    if author_organization_id is None:
+        return REASON_PERSONAL_NO_ORGANIZATION
+    return REASON_PERSONAL_FOREIGN_AUTHOR
 
 
 def require_organization_columns(bind: Engine | Connection) -> None:
@@ -516,7 +655,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Точка входа `python -m app.diagnostics.ownership`. Возвращает код выхода."""
-    args = build_parser().parse_args(argv)
+    try:
+        args = build_parser().parse_args(argv)
+    except SystemExit as error:
+        # `argparse` на неизвестном ключе выходит сам, кодом `2`, а `2` у команды
+        # значит «невидимые данные есть». Отчёт при этом не печатается, поэтому
+        # оператор прочитал бы «потери найдены» без единой цифры: неверный ключ —
+        # это ошибка запуска. `--help` выходит кодом `0` и остаётся `0`.
+        return EXIT_ERROR if error.code else EXIT_OK
     session: Session | None = None
     try:
         session = db_module.SessionLocal()
