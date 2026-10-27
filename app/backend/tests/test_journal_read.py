@@ -1,4 +1,10 @@
-"""Чтение журнала действий: `GET /api/journal` (issue #74).
+"""Чтение журнала действий: `GET /api/journal` (issue #74, гейт — #95).
+
+Журнал — платное решение каталога магазина улучшений (`journal`, 300 ₽ в месяц),
+поэтому читает его только владелец организации **с действующим правом**: без права
+ручка отвечает 403 с текстом про магазин, и это контракт с кабинетом. Владельцы в
+остальных сценариях получают право в общем помощнике (`owner_with_organization`),
+как после оплаты счёта.
 
 Юнит-тесты идут на SQLite, где `audit_events` — обычная таблица без партиций.
 Проверяется ровно то, что обещает постановка: кто имеет право читать, что
@@ -39,7 +45,15 @@ from app.models.audit import AuditEvent
 from app.models.organization import Organization
 from app.report_readiness import today_moscow
 from app.security import ACTIVATION_REQUIRED_DETAIL
-from tests.conftest import create_user, login, organizations_for
+from app.solutions import SOLUTION_REQUIRED_DETAIL
+from tests.conftest import (
+    JOURNAL_CODE,
+    TELEGRAM_NOTIFICATIONS_CODE,
+    create_user,
+    give_solution,
+    login,
+    organizations_for,
+)
 
 # Календарь, по которому считаются сутки периода (см. `app/api/audit.py`).
 MOSCOW = ZoneInfo("Europe/Moscow")
@@ -84,14 +98,24 @@ def owner_with_organization(
     *,
     email: str = "owner@example.com",
     role: str = "owner",
+    with_journal: bool = True,
 ) -> tuple[int, Organization]:
     """Пользователь с организацией и открытой сессией.
 
     Возвращает идентификатор пользователя и организацию. Вход оставляет в
     журнале строку без организации — она в ответе появиться не должна.
+
+    Журнал — платное решение каталога (`journal`), поэтому владелец получает право
+    так же, как после оплаты счёта: без права ручка закрыта, и почти все сценарии
+    ниже проверяют чтение, а не гейт. `with_journal=False` оставляет организацию
+    без права — это отдельные тесты отказа.
     """
     user = create_user(db_session, email=email)
     organization, _member = organizations_for(db_session, user, role=role)
+    if with_journal:
+        # Право выдаётся и роли не владельца: тогда сценарий отказа по роли
+        # доказывает, что проверка роли идёт раньше проверки права.
+        give_solution(db_session, organization, code=JOURNAL_CODE)
     assert login(client, user.email).status_code == 200
     return user.id, organization
 
@@ -197,13 +221,89 @@ def test_owner_reads_actions_of_own_organization(client: TestClient, db_session:
 def test_other_organization_roles_are_forbidden(
     client: TestClient, db_session: Session, role: str
 ) -> None:
-    """Ни одна роль, кроме владельца, журнал не читает — `admin` в том числе."""
+    """Ни одна роль, кроме владельца, журнал не читает — `admin` в том числе.
+
+    Право на решение `journal` у организации при этом есть (его выдаёт помощник):
+    отказ по роли обязан прийти раньше отказа по праву, иначе сотрудник увидел бы
+    предложение купить то, чего ему не откроют.
+    """
     owner_with_organization(client, db_session, email=f"{role}@example.com", role=role)
 
     response = journal(client)
 
     assert response.status_code == 403
     assert response.json()["detail"] == ORGANIZATION_EDIT_FORBIDDEN_DETAIL
+
+
+def test_journal_openapi_documents_all_three_refusals(client: TestClient) -> None:
+    """403 у ручки описан тремя текстами: активация, роль, решение.
+
+    Открытая схема — контракт с кабинетом: пропавший третий текст означал бы, что
+    гейт права перестал быть частью контракта.
+    """
+    schema = client.get("/openapi.json").json()
+    description = schema["paths"]["/api/journal"]["get"]["responses"]["403"]["description"]
+
+    assert ACTIVATION_REQUIRED_DETAIL in description
+    assert ORGANIZATION_EDIT_FORBIDDEN_DETAIL in description
+    assert SOLUTION_REQUIRED_DETAIL in description
+
+
+def test_owner_without_the_solution_gets_the_shop_refusal(
+    client: TestClient, db_session: Session
+) -> None:
+    """Владелец без права на решение `journal`: 403, и текст дословно контрактный.
+
+    Экран выбирает состояние по роли и праву, но гонку («право истекло после
+    загрузки каталога») закрывает именно этот ответ, поэтому `detail` сверяется
+    дословно, а не по смыслу.
+    """
+    owner_with_organization(client, db_session, with_journal=False)
+
+    response = journal(client)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == SOLUTION_REQUIRED_DETAIL
+
+
+def test_expired_solution_closes_the_journal(client: TestClient, db_session: Session) -> None:
+    """Просроченное право — не право: подменить часы тест не может, поэтому срок в прошлом."""
+    _owner_id, organization = owner_with_organization(client, db_session, with_journal=False)
+    give_solution(
+        db_session,
+        organization,
+        code=JOURNAL_CODE,
+        expires_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+
+    response = journal(client)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == SOLUTION_REQUIRED_DETAIL
+
+
+def test_owner_with_the_solution_reads_the_journal(client: TestClient, db_session: Session) -> None:
+    """Право на журнал открывает ленту: 200 и записи своей организации."""
+    _owner_id, organization = owner_with_organization(client, db_session)
+    add_event(db_session, organization_id=organization.id, action="post_owned_dormitory")
+
+    response = journal(client)
+
+    assert response.status_code == 200, response.text
+    assert [item["action"] for item in response.json()["items"]] == ["post_owned_dormitory"]
+
+
+def test_right_to_another_solution_does_not_open_the_journal(
+    client: TestClient, db_session: Session
+) -> None:
+    """Оплаченные «Уведомления» — не право на журнал: решения продаются отдельно."""
+    _owner_id, organization = owner_with_organization(client, db_session, with_journal=False)
+    give_solution(db_session, organization, code=TELEGRAM_NOTIFICATIONS_CODE)
+
+    response = journal(client)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == SOLUTION_REQUIRED_DETAIL
 
 
 def test_user_without_organization_gets_404(client: TestClient, db_session: Session) -> None:
@@ -218,9 +318,15 @@ def test_user_without_organization_gets_404(client: TestClient, db_session: Sess
 
 
 def test_inactive_cabinet_is_forbidden(client: TestClient, db_session: Session) -> None:
-    """Неактивированный кабинет закрыт раньше проверки роли."""
+    """Неактивированный кабинет закрыт раньше проверки роли и права.
+
+    Право на журнал у организации уже есть — и это доказывает порядок: ответ про
+    активацию, а не про магазин, иначе человек вместо ссылки на письмо увидел бы
+    предложение купить решение.
+    """
     user = create_user(db_session, email="sleeping@example.com", is_active=False)
-    organizations_for(db_session, user)
+    organization, _member = organizations_for(db_session, user)
+    give_solution(db_session, organization, code=JOURNAL_CODE)
     assert login(client, user.email).status_code == 200
 
     response = journal(client)

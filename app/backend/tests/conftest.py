@@ -284,12 +284,23 @@ def add_colleague(
 # Код решения «уведомления в Telegram»: он же стоит в seed-строке каталога.
 TELEGRAM_NOTIFICATIONS_CODE = "telegram_notifications"
 
+# Код решения «журнал действий»: он же стоит в seed-строке каталога (`0049`).
+JOURNAL_CODE = "journal"
+
+# Имя строки каталога по её коду. На `solutions.name` стоит `UNIQUE`, поэтому тест,
+# в каталоге которого два решения, обязан назвать вторую строку явно: имя по
+# умолчанию подставилось бы одно и то же.
+SOLUTION_NAMES = {
+    TELEGRAM_NOTIFICATIONS_CODE: "Уведомления в Telegram",
+    JOURNAL_CODE: "Журнал действий",
+}
+
 
 def add_solution(
     db_session: Session,
     *,
     code: str = TELEGRAM_NOTIFICATIONS_CODE,
-    name: str = "Уведомления в Telegram",
+    name: str | None = None,
     description: str | None = "Сообщения о событиях, которые вас касаются",
     amount: str = "500.00",
     period: str = "month",
@@ -304,7 +315,7 @@ def add_solution(
     """
     solution = Solution(
         code=code,
-        name=name,
+        name=name if name is not None else SOLUTION_NAMES.get(code, f"Решение {code}"),
         description=description,
         amount=Decimal(amount),
         currency="RUB",
@@ -326,6 +337,7 @@ def give_solution(
     period: str = "month",
     expires_at: datetime | None = None,
     invoice_id: int | None = None,
+    name: str | None = None,
 ) -> Solution:
     """Выдать организации право на решение — как это делает оплата счёта.
 
@@ -333,7 +345,8 @@ def give_solution(
     `expires_at` нужен там, где проверяется просроченное право: подменить часы
     тест не может.
     """
-    solution = add_solution(db_session, code=code, period=period)
+    solution = add_solution(db_session, code=code, name=name, period=period)
+
     if expires_at is None:
         solutions.grant(db_session, organization.id, solution, invoice_id=invoice_id)
     else:
