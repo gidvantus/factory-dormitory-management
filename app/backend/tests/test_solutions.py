@@ -30,6 +30,7 @@ from app import solutions
 from app.models.solution import OrganizationSolution
 from app.solutions import SOLUTION_REQUIRED_DETAIL, TELEGRAM_NOTIFICATIONS, entitlement_expiry
 from tests.conftest import (
+    JOURNAL_CODE,
     TELEGRAM_NOTIFICATIONS_CODE,
     add_solution,
     create_user,
@@ -44,6 +45,9 @@ STATUS_URL = "/api/telegram/status"
 # Подпись цены собирает сервер. Разряды разделяются неразрывным пробелом, но у
 # 500 разрядов нет — здесь обычный пробел.
 PRICE_LABEL = "500 ₽ в месяц"
+
+# Журнал действий — второе решение каталога, 300 ₽ в месяц.
+JOURNAL_PRICE_LABEL = "300 ₽ в месяц"
 
 
 def as_utc(value: datetime) -> datetime:
@@ -274,16 +278,28 @@ def test_catalog_without_an_organization_is_not_found(
 def test_catalog_lists_the_solution_with_the_server_price(
     client: TestClient, db_session: Session
 ) -> None:
-    """Каталог отдаёт строку целиком: код, цена строкой и «не куплено»."""
+    """Каталог отдаёт строку целиком: код, цена строкой и «не куплено».
+
+    Строк в каталоге две — «Уведомления в Telegram» и «Журнал действий»: оба
+    решения продаются отдельно, поэтому проверяются обе строки, их порядок по
+    `position` и цена журнала.
+    """
     owner_user = sign_in(client, db_session)
     organizations_for(db_session, owner_user)
     solution = add_solution(db_session)
+    journal = add_solution(
+        db_session,
+        code=JOURNAL_CODE,
+        description="Кто, когда и что изменил в кабинете",
+        amount="300.00",
+        position=2,
+    )
 
     response = client.get(CATALOG_URL)
 
     assert response.status_code == 200, response.text
     items = response.json()["items"]
-    assert len(items) == 1
+    assert len(items) == 2
     assert items[0] == {
         "id": solution.id,
         "code": TELEGRAM_NOTIFICATIONS_CODE,
@@ -293,6 +309,18 @@ def test_catalog_lists_the_solution_with_the_server_price(
         "currency": "RUB",
         "period": "month",
         "price_label": PRICE_LABEL,
+        "is_owned": False,
+        "expires_at": None,
+    }
+    assert items[1] == {
+        "id": journal.id,
+        "code": JOURNAL_CODE,
+        "name": "Журнал действий",
+        "description": "Кто, когда и что изменил в кабинете",
+        "amount": "300.00",
+        "currency": "RUB",
+        "period": "month",
+        "price_label": JOURNAL_PRICE_LABEL,
         "is_owned": False,
         "expires_at": None,
     }

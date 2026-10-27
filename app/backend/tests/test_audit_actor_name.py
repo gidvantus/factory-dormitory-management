@@ -22,8 +22,16 @@ from sqlalchemy.orm import Session
 
 from app import audit
 from app.models.audit import AuditEvent
+from app.models.organization import Organization
 from app.models.user import User
-from tests.conftest import TEST_PASSWORD, create_user, organizations_for, sign_in
+from tests.conftest import (
+    JOURNAL_CODE,
+    TEST_PASSWORD,
+    create_user,
+    give_solution,
+    organizations_for,
+    sign_in,
+)
 
 DORMITORY_PAYLOAD = {"name": "Северное", "client_name": "Стройкомплект"}
 
@@ -58,6 +66,20 @@ def journal_items(client: TestClient) -> list[dict[str, Any]]:
     items = body["items"]
     assert isinstance(items, list)
     return items
+
+
+def owner_with_journal(client: TestClient, db_session: Session) -> User:
+    """Вошедший владелец, у организации которого есть право на журнал.
+
+    Журнал — платное решение каталога (`journal`, #95), поэтому сценарии чтения
+    выдают право так же, как это делает оплата счёта.
+    """
+    user = sign_in(client, db_session)
+    assert user.active_organization_id is not None
+    organization = db_session.get(Organization, user.active_organization_id)
+    assert organization is not None
+    give_solution(db_session, organization, code=JOURNAL_CODE)
+    return user
 
 
 def rename_user(db_session: Session, user: User, full_name: str) -> None:
@@ -116,7 +138,7 @@ def test_renaming_a_user_does_not_rewrite_the_stored_row(
     client: TestClient, db_session: Session
 ) -> None:
     """Смена фамилии не переписывает историю задним числом — ни в базе, ни в API."""
-    user = sign_in(client, db_session)
+    user = owner_with_journal(client, db_session)
     created = client.post("/api/dormitories", json=DORMITORY_PAYLOAD)
     assert created.status_code == 201, created.text
     assert last_event(db_session).actor_name == ACTOR_NAME
@@ -149,6 +171,8 @@ def test_stored_name_wins_over_the_current_one_at_read_time(
     """
     user = create_user(db_session)
     organization, _member = organizations_for(db_session, user)
+    # Чтение журнала требует права на решение `journal` (#95).
+    give_solution(db_session, organization, code=JOURNAL_CODE)
     user.full_name = ACTOR_NAME
     db_session.commit()
     db_session.add(
@@ -179,7 +203,7 @@ def test_stored_name_wins_over_the_current_one_at_read_time(
 
 def test_rows_without_a_name_are_returned_as_null(client: TestClient, db_session: Session) -> None:
     """Строки до ревизии `0044` отдаются с `actor_name: null`, ручка не падает."""
-    user = sign_in(client, db_session)
+    user = owner_with_journal(client, db_session)
     organization_id = user.active_organization_id
     assert organization_id is not None
     # Строка «старого» журнала: имя не записано, потому что колонки тогда не было.
