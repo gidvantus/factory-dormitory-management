@@ -29,6 +29,40 @@ const TRIAL_ACTIVE: MockResponse = {
 
 const NOT_FOUND: MockResponse = { status: 404, body: { detail: 'Не найдено' } };
 
+/**
+ * Строка каталога «Журнал действий» (#95): право на неё и открывает раздел.
+ * Цена и период — данные каталога, а не текст экрана, поэтому здесь они как в seed.
+ */
+function journalSolution(isOwned: boolean): Record<string, unknown> {
+  return {
+    id: 8,
+    code: 'journal',
+    name: 'Журнал действий',
+    description: 'Кто, когда и что изменил в кабинете',
+    amount: '300.00',
+    currency: 'RUB',
+    period: 'month',
+    price_label: '300 ₽ в месяц',
+    is_owned: isOwned,
+    expires_at: isOwned ? '2026-11-14T10:00:00Z' : null,
+  };
+}
+
+/** Каталог, в котором право на журнал есть. */
+const SOLUTIONS_WITH_JOURNAL: MockResponse = {
+  status: 200,
+  body: { items: [journalSolution(true)] },
+};
+
+/** Каталог, в котором журнал не куплен. */
+const SOLUTIONS_WITHOUT_JOURNAL: MockResponse = {
+  status: 200,
+  body: { items: [journalSolution(false)] },
+};
+
+/** Текст 403 «права нет»: он зафиксирован контрактом и приходит с сервера. */
+const SOLUTION_REQUIRED = 'Решение не подключено. Оформите подписку в магазине улучшений';
+
 /** Запись журнала: 11:32 UTC — это 14:32 по Москве (проверяется в тесте). */
 const ENTRY: JournalEntry = {
   id: 1048573,
@@ -110,12 +144,16 @@ function page(
 /**
  * Заглушка API: профиль сессии, пробный период, каталог решений и журнал.
  * `journal` получает адрес запроса — по нему тесты проверяют курсор и фильтры.
+ * Каталог по умолчанию отдаёт право на журнал: без него экран в ленту и не пойдёт.
  */
-function mountJournal(handler: MockHandler): ReturnType<typeof vi.fn> {
+function mountJournal(
+  handler: MockHandler,
+  solutions: MockResponse = SOLUTIONS_WITH_JOURNAL,
+): ReturnType<typeof vi.fn> {
   return mockFetch((url, init) => {
     if (url.endsWith('/api/me')) return { status: 200, body: OWNER };
     if (url.endsWith('/api/trial')) return TRIAL_ACTIVE;
-    if (url.endsWith('/api/solutions')) return { status: 200, body: { items: [] } };
+    if (url.endsWith('/api/solutions')) return solutions;
     return handler(url, init);
   });
 }
@@ -317,7 +355,7 @@ describe('раздел «Журнал» в кабинете', () => {
       const url = String(input);
       if (url.endsWith('/api/me')) return jsonResponse({ status: 200, body: OWNER });
       if (url.endsWith('/api/trial')) return jsonResponse(TRIAL_ACTIVE);
-      if (url.endsWith('/api/solutions')) return jsonResponse({ status: 200, body: { items: [] } });
+      if (url.endsWith('/api/solutions')) return jsonResponse(SOLUTIONS_WITH_JOURNAL);
       if (!url.includes('/api/journal')) return jsonResponse(NOT_FOUND);
       // Следующая страница нового набора: только она и должна грузиться дальше.
       if (url.includes('cursor=cursor-9')) return jsonResponse(page([SECOND_PAGE], null, null));
@@ -389,7 +427,9 @@ describe('раздел «Журнал» в кабинете', () => {
     mockFetch((url) => {
       if (url.endsWith('/api/me')) return { status: 200, body: MEMBER };
       if (url.endsWith('/api/trial')) return TRIAL_ACTIVE;
-      if (url.endsWith('/api/solutions')) return { status: 200, body: { items: [] } };
+      // Право у организации есть: отказ приходит по роли, а не по отсутствию
+      // решения, — именно этот случай проверяет выбор состояния по 403.
+      if (url.endsWith('/api/solutions')) return SOLUTIONS_WITH_JOURNAL;
       if (url.includes('/api/journal')) {
         return { status: 403, body: { detail: 'Недостаточно прав' } };
       }
@@ -406,6 +446,110 @@ describe('раздел «Журнал» в кабинете', () => {
     // Пункт меню есть только у владельца, и применять фильтры не к чему.
     expect(screen.queryByTestId('workspace-nav-journal')).not.toBeInTheDocument();
     expect(screen.queryByTestId('journal-from')).not.toBeInTheDocument();
+    // Отказ по роли — не предложение купить: замок и кнопка «Вернуться в обзор»,
+    // а не «Решение не подключено» со ссылкой в магазин.
+    expect(screen.queryByTestId('journal-no-solution')).not.toBeInTheDocument();
+  });
+
+  it('владелец без права видит «Решение не подключено» и не запрашивает журнал', async () => {
+    const fetchMock = mountJournal((url) => {
+      // Если запрос всё-таки уйдёт, лента бы появилась — тест это заметит.
+      if (url.includes('/api/journal')) return page([ENTRY], null, 1);
+      return NOT_FOUND;
+    }, SOLUTIONS_WITHOUT_JOURNAL);
+    renderApp('/cabinet/journal');
+
+    const noSolution = await screen.findByTestId('journal-no-solution');
+    expect(noSolution).toHaveTextContent('Решение не подключено');
+    expect(noSolution).toHaveTextContent(
+      'Журнал действий — отдельное решение: подключите его в магазине улучшений.',
+    );
+    expect(within(noSolution).getByRole('link', { name: 'В магазин улучшений' })).toHaveAttribute(
+      'href',
+      '/cabinet/shop',
+    );
+
+    // Запрос ленты не уходит вовсе: сервер закрыл бы его 403.
+    expect(journalCalls(fetchMock)).toHaveLength(0);
+    expect(screen.queryAllByTestId('journal-row')).toHaveLength(0);
+    expect(screen.queryByTestId('journal-from')).not.toBeInTheDocument();
+    // Пункт меню тоже скрыт: право открывает и его.
+    expect(screen.queryByTestId('workspace-nav-journal')).not.toBeInTheDocument();
+  });
+
+  it('403 у владельца означает «решение не подключено»: право истекло после каталога', async () => {
+    mountJournal((url) => {
+      // Каталог ещё говорит «право есть», а сервер уже нет — гонка между
+      // загрузкой каталога и запросом ленты.
+      if (url.includes('/api/journal')) {
+        return { status: 403, body: { detail: SOLUTION_REQUIRED } };
+      }
+      return NOT_FOUND;
+    });
+    renderApp('/cabinet/journal');
+
+    const noSolution = await screen.findByTestId('journal-no-solution');
+    expect(noSolution).toBeInTheDocument();
+    expect(screen.queryByTestId('journal-forbidden')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('journal-error')).not.toBeInTheDocument();
+  });
+
+  it('не владельцу без права — отказ по роли, а не предложение купить решение', async () => {
+    const fetchMock = mockFetch((url) => {
+      if (url.endsWith('/api/me')) return { status: 200, body: MEMBER };
+      if (url.endsWith('/api/trial')) return TRIAL_ACTIVE;
+      if (url.endsWith('/api/solutions')) return SOLUTIONS_WITHOUT_JOURNAL;
+      if (url.includes('/api/journal')) return page([ENTRY], null, 1);
+      return NOT_FOUND;
+    });
+    renderApp('/cabinet/journal');
+
+    expect(await screen.findByTestId('journal-forbidden')).toBeInTheDocument();
+    // Сотруднику покупка ничего не откроет — магазин ему здесь не предлагают.
+    expect(screen.queryByTestId('journal-no-solution')).not.toBeInTheDocument();
+    expect(journalCalls(fetchMock)).toHaveLength(0);
+  });
+
+  it('каталог не прочитался, а сервер право подтвердил — лента показывается', async () => {
+    mountJournal(
+      (url) => {
+        if (url.includes('/api/journal')) return page([ENTRY], null, 1);
+        return NOT_FOUND;
+      },
+      { status: 500, body: { detail: 'Ошибка' } },
+    );
+    renderApp('/cabinet/journal');
+
+    // Право решает сервер: без каталога клиент не угадывает «права нет».
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    expect(screen.queryByTestId('journal-no-solution')).not.toBeInTheDocument();
+  });
+
+  it('пока каталог решений грузится, журнал не запрашивается', async () => {
+    let releaseSolutions = (): void => undefined;
+    const solutionsGate = new Promise<void>((resolve) => {
+      releaseSolutions = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/me')) return jsonResponse({ status: 200, body: OWNER });
+      if (url.endsWith('/api/trial')) return jsonResponse(TRIAL_ACTIVE);
+      if (url.endsWith('/api/solutions')) {
+        await solutionsGate;
+        return jsonResponse(SOLUTIONS_WITH_JOURNAL);
+      }
+      if (url.includes('/api/journal')) return jsonResponse(page([ENTRY], null, 1));
+      return jsonResponse(NOT_FOUND);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderApp('/cabinet/journal');
+
+    expect(await screen.findByTestId('journal-loading')).toHaveTextContent('Загружаем журнал…');
+    // Право ещё неизвестно — запрос ленты был бы догадкой.
+    expect(journalCalls(fetchMock)).toHaveLength(0);
+
+    releaseSolutions();
+    await waitFor(() => expect(rows()).toHaveLength(1));
   });
 
   it('показывает загрузку, пока журнал не ответил', async () => {
@@ -421,8 +565,7 @@ describe('раздел «Журнал» в кабинете', () => {
         const url = String(input);
         if (url.endsWith('/api/me')) return jsonResponse({ status: 200, body: OWNER });
         if (url.endsWith('/api/trial')) return jsonResponse(TRIAL_ACTIVE);
-        if (url.endsWith('/api/solutions'))
-          return jsonResponse({ status: 200, body: { items: [] } });
+        if (url.endsWith('/api/solutions')) return jsonResponse(SOLUTIONS_WITH_JOURNAL);
         if (url.includes('/api/journal')) {
           await journalGate;
           return jsonResponse(page([ENTRY], null, 1));
@@ -455,7 +598,7 @@ describe('раздел «Журнал» в кабинете', () => {
       }
       if (url.endsWith('/api/auth/login')) return { status: 200, body: loginProfile };
       if (url.endsWith('/api/trial')) return TRIAL_ACTIVE;
-      if (url.endsWith('/api/solutions')) return { status: 200, body: { items: [] } };
+      if (url.endsWith('/api/solutions')) return SOLUTIONS_WITH_JOURNAL;
       if (url.includes('/api/journal')) return page([], null, 0);
       return NOT_FOUND;
     });
