@@ -13,6 +13,13 @@ class StatisticsReport(Base):
     __tablename__ = "statistics_reports"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Организация-владелец отчёта. `NULL` — отчёт не видно никому: судьбу такого
+    # объекта решает владелец данных, поэтому `NOT NULL` не ставится ни в модели,
+    # ни в миграции. Видимость `personal`/`shared` действует **внутри**
+    # организации и организацию не расширяет.
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
     visibility: Mapped[str] = mapped_column(String(12), default="shared", server_default="shared")

@@ -20,9 +20,12 @@ def test_workspace_exposes_active_source_columns_without_changing_rows(
     base = f"/api/dormitories/{dorm}/tables/residents"
     column = add_column(client, base, "Статус допуска")
     option = column["options"][0]["id"]
-    assert client.put(
-        f"{base}/rows/{record['row_id']}/cells/{column['id']}", json={"value": option}
-    ).status_code == 200
+    assert (
+        client.put(
+            f"{base}/rows/{record['row_id']}/cells/{column['id']}", json={"value": option}
+        ).status_code
+        == 200
+    )
     payment_column = add_column(
         client, f"/api/dormitories/{dorm}/tables/advance", "Служебная выплата", "text"
     )
@@ -45,10 +48,13 @@ def test_workspace_exposes_active_source_columns_without_changing_rows(
         {**item, "label": "Допущен"} if index == 0 else item
         for index, item in enumerate(column["options"])
     ]
-    assert client.patch(
-        f"{base}/columns/{column['id']}",
-        json={"name": "Допуск", "kind": "select", "options": options},
-    ).status_code == 200
+    assert (
+        client.patch(
+            f"{base}/columns/{column['id']}",
+            json={"name": "Допуск", "kind": "select", "options": options},
+        ).status_code
+        == 200
+    )
     updated = workspace(client)
     renamed = next(item for item in updated["source_columns"] if item["id"] == column["id"])
     assert renamed["name"] == "Допуск"

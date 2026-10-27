@@ -89,6 +89,10 @@
   /* --- Типографика ------------------------------------------------------ */
   --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-body: 'Nunito Sans', 'Nunito', 'Segoe UI', system-ui, sans-serif;
+  /* Моноширинный стек: сырой JSON записи журнала и неизвестный код действия.
+     Тот же набор, что у `.password-value`, но вынесен в токен: значение нужно
+     двум местам сразу, и разъезжаться им нельзя. */
+  --font-mono: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
 
   --text-hero: clamp(2.125rem, 1.1rem + 3.4vw, 3.5rem);
   --text-h2: clamp(1.625rem, 1.15rem + 1.7vw, 2.375rem);
@@ -131,6 +135,9 @@
   --container: 1140px;
   --gutter: clamp(1.125rem, 0.6rem + 2vw, 2rem);
   --section-y: clamp(3.5rem, 2rem + 6vw, 7rem);
+  /* Первая секция публичной страницы сразу под шапкой: шаг секции в 56–112px
+     оставлял под шапкой пустоту, поэтому страница просит свой, сжатый верх. */
+  --section-y-first: clamp(2rem, 1.25rem + 2vw, 2.5rem);
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -563,6 +570,13 @@ input {
 
 .section {
   padding-block: var(--section-y);
+}
+
+/* Верх первой секции страницы: считается от `--section-y-first`, а не от общего
+   шага секции. Ставится рядом с `.section` и только на странице, которой нужен
+   сжатый верх, — остальные секции сайта остаются на `--section-y`. */
+.section--first {
+  padding-block-start: var(--section-y-first);
 }
 
 .section--alt {
@@ -1148,6 +1162,19 @@ tbody tr:last-child td {
 .tag--neutral {
   background: var(--color-bg-tint);
   color: var(--color-text-body);
+}
+
+/* Виды действий журнала: «Данные» остаются на `.tag--neutral`, а безопасность и
+   служебное получили собственные модификаторы на уже существующих примитивах
+   (`sky`/`blue` и `butter`). Новых значений не появилось. */
+.tag--security {
+  background: var(--sky-100);
+  color: var(--blue-600);
+}
+
+.tag--noise {
+  background: var(--butter-100);
+  color: var(--butter-700);
 }
 
 .person {

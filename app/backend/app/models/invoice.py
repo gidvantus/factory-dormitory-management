@@ -19,6 +19,15 @@
 состояние (её заполняет поиск по ИНН), а счёт выставляется только у организации
 с названием и ИНН — это проверяет ручка покупки, а не схема таблицы.
 
+**Акцепт оферты — снимок в строке счёта.** У тарифного счёта рядом с реквизитами
+лежат четыре поля `offer_*`: момент акцепта, код документа (`offer`), редакция
+документа на этот момент и автор акцепта. Доказательство «когда и на какую
+редакцию согласились» привязано к сделке, поэтому живёт в `invoices`, а не в
+`users`: человек может согласиться с офертой при покупке второго тарифа уже на
+новую редакцию. Механизм при этом повторяет `app/consent.py`: момент, код и
+снимок `documents.updated_at`, без отдельной таблицы принятий. Счёт за решение
+покупается без отметки, и его `offer_*` остаются `NULL`.
+
 `invoice_documents` — строки печатных форм счёта. Сам счёт отдаётся файлом без
 строки в этой таблице: он есть всегда, а вот акт появляется только при переходе
 счёта в статус «оплачен». Уникальность пары `(invoice_id, kind)` не даёт завести
@@ -131,6 +140,24 @@ class Invoice(Base):
     # Снимок предмета: что именно куплено и на какой период.
     tariff_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     tariff_period: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Снимок акцепта оферты на момент покупки тарифа: момент, код документа и
+    # редакция документа на этот момент. Это **снимок**, а не ссылка на живую
+    # строку `documents`: вопрос «на какую редакцию согласились» должен
+    # отвечаться прошедшим временем, даже если текст оферты потом поправят.
+    # У счетов за решение и у счетов, выставленных до задачи #86, все четыре
+    # поля `NULL` — «акцепта нет», и это честный исторический факт, а не дефект.
+    offer_accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    offer_document_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    offer_document_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Кто нажал «Купить» с отметкой. `SET NULL` — как у `tariff_id`/`solution_id`:
+    # удаление пользователя не должно ни удалять счёт, ни мешать удалению.
+    offer_accepted_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     # Момент оплаты: заполняется переходом в `paid` в `app/invoice_status.py`.
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

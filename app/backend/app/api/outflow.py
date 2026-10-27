@@ -7,8 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
-from app.api.reports import require_dormitory
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.models.outflow import PersonnelOutflow
 from app.notifications import capture_resident_outflow, queue_resident_outflow
@@ -49,8 +48,8 @@ def list_outflow(
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
+    _dormitory: OwnDormitory,
 ) -> list[PersonnelOutflow]:
-    require_dormitory(db, dormitory_id)
     if from_date > to_date or (to_date - from_date).days > 365:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Выберите период не длиннее года")
     return list(
@@ -75,10 +74,12 @@ def list_outflow(
     summary="Добавить строку оттока",
 )
 def create_outflow(
-    dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession
+    dormitory_id: DormitoryId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> PersonnelOutflow:
     require_section_writable(db, dormitory_id, "outflow")
-    require_dormitory(db, dormitory_id)
     row = PersonnelOutflow(dormitory_id=dormitory_id)
     db.add(row)
     db.commit()
@@ -87,7 +88,9 @@ def create_outflow(
 
 
 @router.get("/fields", response_model=OutflowFields)
-def read_fields(dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession) -> OutflowFields:
+def read_fields(
+    dormitory_id: DormitoryId, _user: SubscribedUser, db: DbSession, _dormitory: OwnDormitory
+) -> OutflowFields:
     result = outflow_fields(db, dormitory_id)
     db.commit()
     return result
@@ -100,9 +103,9 @@ def update_outflow(
     payload: UpdateOutflowRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> PersonnelOutflow:
     require_section_writable(db, dormitory_id, "outflow")
-    require_dormitory(db, dormitory_id)
     lock_dormitory(db, dormitory_id)
     row = get_outflow(db, dormitory_id, row_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
@@ -123,9 +126,9 @@ def delete_outflow(
     row_id: OutflowId,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     require_section_writable(db, dormitory_id, "outflow")
-    require_dormitory(db, dormitory_id)
     lock_dormitory(db, dormitory_id)
     row = get_outflow(db, dormitory_id, row_id)
     if row.evicted_at:
@@ -137,7 +140,11 @@ def delete_outflow(
 
 @router.post("/{row_id}/evict/preview", response_model=OutflowEvictionPreview)
 def preview_eviction(
-    dormitory_id: DormitoryId, row_id: OutflowId, _user: SubscribedUser, db: DbSession
+    dormitory_id: DormitoryId,
+    row_id: OutflowId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> OutflowEvictionPreview:
     plan = prepare_eviction(db, dormitory_id, row_id)
     db.commit()
@@ -151,6 +158,7 @@ def evict_employee(
     payload: OutflowEvictionRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> PersonnelOutflow:
     plan = prepare_eviction(db, dormitory_id, row_id)
     if payload.preview_token != plan.preview.preview_token:

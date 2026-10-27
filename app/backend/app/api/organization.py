@@ -13,8 +13,10 @@
 * **403** — привязан, но править не может: роль не `owner` и не `admin`;
 * **409** — ИНН уже занят другой организацией или email сотрудника занят.
 
-Проверок по роли участника здесь нет намеренно: роль сотрудника — данные для
-отображения, а не право. Права на правку организации остаются у `EDIT_ROLES`.
+Роль — это право ровно там, где модуль её проверяет, и проверок здесь две:
+правка организации открыта `EDIT_ROLES` (`EditableMembership`), а разделы уровня
+владельца — только `OWNER_ROLE` (`OwnerMembership`). Остальных проверок по роли
+нет намеренно: роль сотрудника — данные для отображения, а не право.
 """
 
 import secrets
@@ -161,8 +163,46 @@ def require_organization_edit(
     return membership
 
 
+def _require_organization_owner(membership: OrganizationMember) -> None:
+    """Только владелец. Сотрудник с любой другой ролью получает тот же 403."""
+    if membership.role != OWNER_ROLE:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, ORGANIZATION_EDIT_FORBIDDEN_DETAIL)
+
+
+def require_organization_owner(
+    membership: Annotated[OrganizationMember, Depends(require_organization_membership)],
+) -> OrganizationMember:
+    """Членство владельца организации. Иначе — 403 «Недостаточно прав».
+
+    `EDIT_ROLES` здесь мало: правка организации открыта и `admin`, а разделы
+    уровня владельца (журнал действий) — нет. `404` для пользователя без
+    организации приходит из `require_organization_membership` и от роли не
+    зависит, поэтому «нет кабинета» и «нет права» различимы на клиенте.
+    """
+    _require_organization_owner(membership)
+    return membership
+
+
+def membership_role(user: User, db: Session) -> str | None:
+    """Роль текущего пользователя в его организации. `None` — организации нет.
+
+    Проверяются те же два условия, что и в `require_organization_membership`, но
+    без 404: роль нужна и там, где пользователь ещё не активировал кабинет и
+    отказ был бы неверным ответом (`GET /api/me`).
+    """
+    if user.active_organization_id is None:
+        return None
+    return db.scalar(
+        select(OrganizationMember.role).where(
+            OrganizationMember.organization_id == user.active_organization_id,
+            OrganizationMember.user_id == user.id,
+        )
+    )
+
+
 Membership = Annotated[OrganizationMember, Depends(require_organization_membership)]
 EditableMembership = Annotated[OrganizationMember, Depends(require_organization_edit)]
+OwnerMembership = Annotated[OrganizationMember, Depends(require_organization_owner)]
 
 
 def _load_organization(db: Session, organization_id: int) -> Organization:

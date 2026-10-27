@@ -12,10 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import notifications
-from app.models.organization import OrganizationMember
+from app.models.organization import Organization, OrganizationMember
 from app.models.telegram import RESIDENT_OUTFLOW_KIND, NotificationDelivery
 from app.models.user import User
-from tests.conftest import create_user, give_solution, organizations_for
+from tests.conftest import create_user, give_solution
 from tests.test_resident_outflow import move, preview
 from tests.test_resident_payments import setup
 
@@ -37,7 +37,10 @@ def test_outflow_notifies_colleagues_except_the_actor_and_only_once(
     dorm, resident = setup(client, db_session)
     actor = db_session.scalar(select(User).where(User.email == ACTOR_EMAIL))
     assert actor is not None
-    organization, _ = organizations_for(db_session, actor)
+    # Организация актора — та же, в которой `setup` создал общежитие: второй
+    # `organizations_for` завёл бы другую, и общежитие стало бы чужим.
+    organization = db_session.get(Organization, actor.active_organization_id)
+    assert organization is not None
 
     colleague = create_user(db_session, email="colleague@example.com")
     db_session.add(
@@ -93,7 +96,10 @@ def test_outflow_without_the_solution_queues_nothing(
     dorm, resident = setup(client, db_session)
     actor = db_session.scalar(select(User).where(User.email == ACTOR_EMAIL))
     assert actor is not None
-    organization, _ = organizations_for(db_session, actor)
+    # Организация актора — та же, в которой `setup` создал общежитие: второй
+    # `organizations_for` завёл бы другую, и общежитие стало бы чужим.
+    organization = db_session.get(Organization, actor.active_organization_id)
+    assert organization is not None
 
     colleague = create_user(db_session, email="colleague@example.com")
     db_session.add(

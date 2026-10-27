@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.consent import CONSENT_DOCUMENT_CODE
+from app.consent import CONSENT_DOCUMENT_CODE, TERMS_DOCUMENT_CODE
 from app.models.activation import ActivationToken
 from app.models.document import Document
 from app.models.user import User
@@ -22,6 +22,7 @@ from tests.conftest import create_user, login
 NEW_PASSWORD = "new-password-123"
 OLD_PASSWORD = "service-password-1"
 CONSENT_REQUIRED_DETAIL = "Отметьте согласие на обработку персональных данных"
+TERMS_REQUIRED_DETAIL = "Отметьте принятие правил использования платформой"
 
 
 def as_utc(value: datetime) -> datetime:
@@ -30,13 +31,14 @@ def as_utc(value: datetime) -> datetime:
 
 
 def activate_body(token: str, password: str = NEW_PASSWORD) -> dict[str, object]:
-    """Тело `POST /api/auth/activate` с отмеченным согласием.
+    """Тело `POST /api/auth/activate` с обеими отмеченными галочками.
 
-    Пользователи этого файла созданы прямо в базе (`create_user`), то есть
-    согласия не давали, а без него сервер отвечает 422. Сценарии отказа
-    строят тело без `consent` явно — см. блок про согласие в конце файла.
+    Пользователи этого файла созданы прямо в базе (`create_user`), то есть ни
+    согласия, ни правил не принимали, а без них сервер отвечает 422. Сценарии
+    отказа строят тело без нужной отметки явно — см. блоки про согласие и
+    правила в конце файла.
     """
-    return {"token": token, "password": password, "consent": True}
+    return {"token": token, "password": password, "consent": True, "terms_accepted": True}
 
 
 def inactive_user_with_token(
@@ -72,6 +74,8 @@ def test_read_activation_returns_email_and_full_name(
     assert body["expires_at"]
     # Согласия у пользователя нет: экран активации обязан показать чекбокс.
     assert body["consent_required"] is True
+    # Правил он тоже не принимал — второй чекбокс показывается по своей колонке.
+    assert body["terms_required"] is True
 
 
 def test_read_activation_of_unknown_token_returns_410(client: TestClient) -> None:
@@ -320,6 +324,7 @@ def test_read_activation_reports_consent_no_longer_required(
     body = client.get(f"/api/auth/activate/{next_token}").json()
 
     assert body["consent_required"] is False
+    assert body["terms_required"] is False
 
 
 def test_second_activation_does_not_overwrite_the_recorded_consent(
@@ -352,3 +357,157 @@ def test_second_activation_does_not_overwrite_the_recorded_consent(
     assert as_utc(after.consent_at) == moment
     assert after.consent_document_code == CONSENT_DOCUMENT_CODE
     assert after.consent_document_updated_at is None
+
+
+# --- Принятие правил использования платформой (issue #84) --------------------
+#
+# Правила — второй документ. Приглашённый сотрудник не принимал ни его, ни
+# согласие: аккаунт ему заводит владелец. Проверки согласия и правил независимы и
+# смотрят каждая в свою колонку — человек, принявший только один документ, должен
+# получить требование по второму, а не по обоим сразу.
+
+
+def test_activate_without_terms_returns_422_and_keeps_the_token_alive(
+    client: TestClient, db_session: Session
+) -> None:
+    """Согласие отмечено, правила — нет: 422 с текстом правил, токен жив."""
+    user, record, raw_token = inactive_user_with_token(db_session)
+    user.password_hash = hash_password(OLD_PASSWORD)
+    db_session.commit()
+    # Снимок до запроса, а не сравнение с `user.password_hash` после него: `stored`
+    # и `user` — один объект в identity map сессии, и сравнение объекта с самим
+    # собой не упало бы, даже если бы `activate` записал новый хеш до проверки.
+    original_hash = user.password_hash
+
+    response = client.post(
+        "/api/auth/activate",
+        json={"token": raw_token, "password": NEW_PASSWORD, "consent": True},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == TERMS_REQUIRED_DETAIL
+
+    db_session.expire_all()
+    stored = db_session.get(User, user.id)
+    assert stored is not None
+    assert stored.is_active is False
+    assert stored.terms_accepted_at is None
+    # Пароль не изменён: проверки стоят до правок пользователя.
+    assert stored.password_hash == original_hash
+    assert verify_password(OLD_PASSWORD, stored.password_hash) is True
+    assert verify_password(NEW_PASSWORD, stored.password_hash) is False
+    # Ссылку человек использует повторно: отказ её не гасит.
+    assert token_of(db_session, record.id).used_at is None
+    assert client.get(f"/api/auth/activate/{raw_token}").status_code == 200
+
+
+def test_activate_with_terms_false_returns_422(client: TestClient, db_session: Session) -> None:
+    _, record, raw_token = inactive_user_with_token(db_session)
+
+    response = client.post(
+        "/api/auth/activate",
+        json={
+            "token": raw_token,
+            "password": NEW_PASSWORD,
+            "consent": True,
+            "terms_accepted": False,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == TERMS_REQUIRED_DETAIL
+    assert token_of(db_session, record.id).used_at is None
+
+
+def test_activate_with_terms_records_them_with_the_document_revision(
+    client: TestClient, db_session: Session
+) -> None:
+    user, _, raw_token = inactive_user_with_token(db_session)
+    document = Document(
+        code=TERMS_DOCUMENT_CODE,
+        title="Правила использования платформой",
+        body="Текст заготовки.",
+        position=2,
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+    before = datetime.now(UTC)
+
+    response = client.post("/api/auth/activate", json=activate_body(raw_token))
+
+    assert response.status_code == 200, response.text
+    db_session.expire_all()
+    stored = db_session.get(User, user.id)
+    assert stored is not None
+    assert stored.terms_accepted_at is not None
+    assert abs(as_utc(stored.terms_accepted_at) - before) < timedelta(minutes=1)
+    assert stored.terms_document_code == TERMS_DOCUMENT_CODE
+    assert stored.terms_document_updated_at is not None
+    assert as_utc(stored.terms_document_updated_at) == as_utc(document.updated_at)
+
+
+def test_second_activation_does_not_overwrite_the_recorded_terms(
+    client: TestClient, db_session: Session
+) -> None:
+    user, _, first_token = inactive_user_with_token(db_session)
+    assert client.post("/api/auth/activate", json=activate_body(first_token)).status_code == 200
+
+    db_session.expire_all()
+    stored = db_session.get(User, user.id)
+    assert stored is not None
+    moment = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    stored.terms_accepted_at = moment
+    stored.terms_document_code = TERMS_DOCUMENT_CODE
+    stored.terms_document_updated_at = None
+    db_session.commit()
+
+    second_token = issue_activation_token(db_session, user.id)
+    db_session.commit()
+    # Правила уже приняты, поэтому их отсутствие в теле — не отказ.
+    second = client.post(
+        "/api/auth/activate", json={"token": second_token, "password": "another-password-1"}
+    )
+
+    assert second.status_code == 200, second.text
+    db_session.expire_all()
+    after = db_session.get(User, user.id)
+    assert after is not None
+    assert after.terms_accepted_at is not None
+    assert as_utc(after.terms_accepted_at) == moment
+    assert after.terms_document_code == TERMS_DOCUMENT_CODE
+    assert after.terms_document_updated_at is None
+
+
+def test_activate_demands_consent_when_only_terms_are_accepted(
+    client: TestClient, db_session: Session
+) -> None:
+    """Правила приняты, согласия нет — требуем согласие, а не правила."""
+    user, record, raw_token = inactive_user_with_token(db_session)
+    user.terms_accepted_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    user.terms_document_code = TERMS_DOCUMENT_CODE
+    db_session.commit()
+
+    response = client.post(
+        "/api/auth/activate",
+        json={"token": raw_token, "password": NEW_PASSWORD, "terms_accepted": True},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == CONSENT_REQUIRED_DETAIL
+    assert token_of(db_session, record.id).used_at is None
+
+
+def test_read_activation_reports_terms_required_from_its_own_column(
+    client: TestClient, db_session: Session
+) -> None:
+    """Согласие есть, правил нет — флаги расходятся по своим колонкам."""
+    user, _, raw_token = inactive_user_with_token(db_session)
+    user.consent_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    user.consent_document_code = CONSENT_DOCUMENT_CODE
+    db_session.commit()
+
+    body = client.get(f"/api/auth/activate/{raw_token}").json()
+
+    assert body["consent_required"] is False
+    assert body["terms_required"] is True

@@ -1,4 +1,4 @@
-"""Сводные показатели по всем общежитиям из формульных строк общего отчёта."""
+"""Сводные показатели по общежитиям организации из формульных строк общего отчёта."""
 
 from collections import defaultdict
 from datetime import date, timedelta
@@ -6,15 +6,14 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import report_readiness as readiness
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser, scoped_dormitories
+from app.api.organization import Membership
 from app.api.reports import read_report
 from app.dashboard_blocks import calculate_widget, layout_response
 from app.db import get_db
-from app.models.dormitory import Dormitory
 from app.report_defaults import REQUIRED_REPORT_ROW_NAMES
 from app.schemas.dashboard import (
     DashboardClient,
@@ -53,6 +52,7 @@ def as_float(value: Decimal | None) -> float | None:
 @router.get("", response_model=DashboardResponse, summary="Обзор по всем общежитиям")
 def read_dashboard(
     _user: SubscribedUser,
+    membership: Membership,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
@@ -72,9 +72,7 @@ def read_dashboard(
         if snapshot_date is not None
         else []
     )
-    dormitories = list(
-        db.scalars(select(Dormitory).order_by(Dormitory.created_at.desc(), Dormitory.id.desc()))
-    )
+    dormitories = scoped_dormitories(db, membership.organization_id)
     if dormitory_id is not None and not any(item.id == dormitory_id for item in dormitories):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Общежитие не найдено")
     by_day: dict[date, dict[str, list[Decimal | None]]] = {
@@ -89,7 +87,7 @@ def read_dashboard(
 
     for dormitory in dormitories:
         report = (
-            read_report(dormitory.id, _user, db, from_date, snapshot_date)
+            read_report(dormitory.id, _user, db, from_date, snapshot_date, dormitory)
             if snapshot_date
             else None
         )
@@ -133,7 +131,7 @@ def read_dashboard(
         for day in days
     ]
     snapshot_totals = by_day[snapshot_date] if snapshot_date is not None else None
-    layout = layout_response(db)
+    layout = layout_response(db, membership.organization_id)
     return DashboardResponse(
         layout=layout,
         widgets=[

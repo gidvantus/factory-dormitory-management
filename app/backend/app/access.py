@@ -2,26 +2,43 @@
 
 `security.py` отвечает на вопрос «кто это» и «активирован ли кабинет». Здесь
 следующий слой: **работает** ли кабинет сейчас — активирован и не закрыт
-истёкшим пробным периодом без тарифа.
+истёкшим пробным периодом без тарифа, — и **чьи** данные он видит: данные
+кабинета принадлежат организации, и точка правды о принадлежности одна —
+`dormitories.organization_id`.
 
 Две зависимости разделены намеренно. `ActiveUser` пускает любого активированного
 пользователя: экран активации, профиль и разделы организации обязаны работать и
 на закрытом кабинете. `SubscribedUser` добавляет к этому проверку пробного
 периода и стоит только на рабочих разделах.
+
+Границы данных стережёт `OwnDormitory` — единая зависимость вместо проверки в
+каждом обработчике. Правило одно: общежитие либо принадлежит организации из
+сессии, либо его **нет**. Чужое и несуществующее неразличимы намеренно: `404` с
+одним и тем же текстом, никогда `403` — иначе по коду ответа видно, что объект с
+таким номером существует. Новые маршруты с `{dormitory_id}` обязаны объявлять
+`OwnDormitory`; это проверяет инвентарный тест `tests/test_route_guard_inventory.py`,
+а не память разработчика.
 """
 
 from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Path, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.organization import Membership
 from app.db import get_db
+from app.models.dormitory import Dormitory
+from app.models.organization import OrganizationMember
 from app.models.user import User
 from app.schemas.user import ErrorResponse
 from app.security import ACTIVATION_REQUIRED_DETAIL, ActiveUser
 from app.trial import TRIAL_EXPIRED_DETAIL, trial_state
 
 DbSession = Annotated[Session, Depends(get_db)]
+
+# Один текст на «общежития нет» и «общежитие чужое»: различать их нельзя.
+DORMITORY_NOT_FOUND_DETAIL = "Общежитие не найдено"
 
 
 def require_subscribed_user(user: ActiveUser, db: DbSession) -> User:
@@ -51,3 +68,49 @@ SUBSCRIBED_USER_RESPONSES: dict[int | str, dict[str, Any]] = {
         ),
     }
 }
+
+
+def own_dormitory(db: Session, dormitory_id: int, membership: OrganizationMember) -> Dormitory:
+    """Общежитие организации из сессии. Иначе — тот же `404`, что и «не найдено».
+
+    Проверка нужна и там, где `dormitory_id` приходит телом запроса, а не путём:
+    зависимость на путь такие ручки не закрывает.
+    """
+    dormitory = db.get(Dormitory, dormitory_id)
+    if dormitory is None or dormitory.organization_id != membership.organization_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, DORMITORY_NOT_FOUND_DETAIL)
+    return dormitory
+
+
+def require_own_dormitory(
+    dormitory_id: Annotated[int, Path(ge=1, le=2147483647)],
+    membership: Membership,
+    db: DbSession,
+) -> Dormitory:
+    """Зависимость для путей с `{dormitory_id}`.
+
+    Выполняется до тела обработчика, поэтому права проверяются **раньше**
+    блокировки общежития и любых действий с его строками: чужой объект не успеет
+    ни заблокироваться, ни измениться.
+    """
+    return own_dormitory(db, dormitory_id, membership)
+
+
+OwnDormitory = Annotated[Dormitory, Depends(require_own_dormitory)]
+
+
+def scoped_dormitories(db: Session, organization_id: int) -> list[Dormitory]:
+    """Общежития организации — единственная выборка «всех общежитий».
+
+    Правило принадлежности живёт здесь в одном месте: список общежитий и расчёт
+    «по всем общежитиям» обязаны видеть один и тот же набор. Нужный вызывающему
+    порядок и `id` он получает сам (`[item.id for item in scoped]`, сортировка в
+    ручке) — так у набора остаётся один владелец, а не три копии правила.
+    """
+    return list(
+        db.scalars(
+            select(Dormitory)
+            .where(Dormitory.organization_id == organization_id)
+            .order_by(Dormitory.id)
+        )
+    )

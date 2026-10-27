@@ -20,8 +20,11 @@ middleware считает коммиты (`AuditContext.atomic_rows`) и пос�
 
 **Контекст запроса** — изменяемый `AuditContext` в `ContextVar`. Middleware
 создаёт его до маршрутизации, `get_current_user` дописывает в **тот же объект**
-актора и организацию. Мутация общего объекта видна из threadpool, где
-выполняются синхронные зависимости, а `ContextVar.set` оттуда — нет.
+актора, организацию и ФИО. Мутация общего объекта видна из threadpool, где
+выполняются синхронные зависимости, а `ContextVar.set` оттуда — нет. ФИО
+попадает в строку **снимком на момент записи**: при чтении журнала join на
+`users` не делается, иначе смена фамилии переписала бы историю задним числом
+(`app.models.audit`).
 
 **Персональные данные** маскируются (`mask`) после вырезания секретов (`redact`)
 и до обрезки тела (`truncate`): ФИО, телефон, email и свободный текст попадают в
@@ -320,6 +323,10 @@ class AuditContext:
     prefix: str = ""
     actor_id: int | None = None
     organization_id: int | None = None
+    # ФИО актора — снимок на момент записи. Строка журнала хранит копию, а не
+    # ссылку на `users`: смена фамилии не должна переписывать уже собранный
+    # журнал, а удаление пользователя — уносить строки за ним.
+    actor_name: str | None = None
     # Сколько строк уже ушло атомарным путём, в коммитах этого запроса.
     atomic_rows: int = 0
     # Снимок «было → стало» последнего коммита. Живёт на контексте, а не только
@@ -381,6 +388,7 @@ class AuditContext:
             "duration_ms": duration_ms,
             "actor_id": self.actor_id,
             "organization_id": self.organization_id,
+            "actor_name": self.actor_name,
             "ip": self.ip,
             "user_agent": self.user_agent,
             "request_body": self.request_body,
@@ -410,19 +418,28 @@ def finish_context(token: Token[AuditContext | None]) -> None:
     audit_context.reset(token)
 
 
-def record_actor(actor_id: int | None, organization_id: int | None) -> None:
+def record_actor(actor_id: int | None, organization_id: int | None, actor_name: str | None) -> None:
     """Дописать актора в контекст запроса.
 
     Вызывается из `get_current_user`: аутентификация — единственное место, где
     пользователь становится известен. Именно мутация общего объекта, а не
     `ContextVar.set`: зависимость выполняется в threadpool, где контекст
     скопирован, и установленное там значение наружу не вышло бы.
+
+    `actor_name` — ФИО **на этот момент**, и строка журнала сохраняет его копией.
+    Пишется оно здесь, а не при чтении журнала: join на `users` дал бы текущее
+    имя, и смена фамилии переписала бы историю задним числом.
+
+    Имя объявлено обязательным, хотя `None` допустим: у запроса без сессии автора
+    нет вовсе, а забытый аргумент у нового вызова оставил бы журнал без имени
+    молча. Передавать его должен каждый, кто вообще сообщает актора.
     """
     context = audit_context.get()
     if context is None:
         return
     context.actor_id = actor_id
     context.organization_id = organization_id
+    context.actor_name = actor_name
 
 
 # --- Правила вида и кода действия -------------------------------------------

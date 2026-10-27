@@ -57,14 +57,18 @@ def activate(
 ) -> None:
     """Активировать кабинет выпущенным заранее токеном.
 
-    Согласие отмечено: пользователь создан прямо в базе и согласия не давал,
-    без отметки сервер ответил бы 422 (см. `tests/test_activation.py`).
+    Согласие и правила отмечены: пользователь создан прямо в базе, ни одного
+    документа он не принимал, и без отметок сервер ответил бы 422 (см.
+    `tests/test_activation.py`).
+
+    Здесь проверяется проведение активации, а не отказ по отметкам, поэтому
+    оба флага стоят вместе: иначе тест упирался бы в первую из двух проверок.
     """
     raw_token = issue_activation_token(db_session, user.id)
     db_session.commit()
     response = client.post(
         "/api/auth/activate",
-        json={"token": raw_token, "password": password, "consent": True},
+        json={"token": raw_token, "password": password, "consent": True, "terms_accepted": True},
     )
     assert response.status_code == 200, response.text
 

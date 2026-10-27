@@ -21,16 +21,22 @@ def plan_response(plan: ArrivalPlan) -> dict[str, Any]:
     }
 
 
-def active_arrivals(db: Session) -> list[dict[str, Any]]:
-    return [
-        plan_response(plan)
-        for plan in db.scalars(
-            select(ArrivalPlan)
-            .join(Dormitory)
-            .where(Dormitory.is_archived.is_(False))
-            .order_by(ArrivalPlan.date, ArrivalPlan.dormitory_id)
+def active_arrivals(db: Session, dormitory_ids: list[int]) -> list[dict[str, Any]]:
+    """Планы заездов по действующим общежитиям области `dormitory_ids`.
+
+    Область обязательна: `None` здесь означал бы «все общежития всех
+    организаций», а такой выборки у кабинета быть не должно.
+    """
+    statement = (
+        select(ArrivalPlan)
+        .join(Dormitory)
+        .where(
+            Dormitory.is_archived.is_(False),
+            ArrivalPlan.dormitory_id.in_(dormitory_ids),
         )
-    ]
+        .order_by(ArrivalPlan.date, ArrivalPlan.dormitory_id)
+    )
+    return [plan_response(plan) for plan in db.scalars(statement)]
 
 
 def report_arrivals(db: Session, dormitory_id: int, start: date, end: date) -> dict[date, int]:

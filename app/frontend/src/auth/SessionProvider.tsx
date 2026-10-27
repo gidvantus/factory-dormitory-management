@@ -26,6 +26,16 @@ export function SessionProvider({ children }: { children: ReactNode }): JSX.Elem
   const setAuthenticatedUser = useCallback((profile: UserProfile) => {
     setUser(profile);
     setStatus('authenticated');
+    // Ответ входа (и регистрации, и активации) не содержит роли: её отдаёт
+    // только `GET /api/me`. Без дочитывания профиля пункты меню уровня
+    // владельца появились бы лишь после перезагрузки страницы. Сбой дочитывания
+    // сессию не сбрасывает: вход уже состоялся, а роль можно получить позже.
+    if (profile.role === undefined) {
+      void api.me().then(
+        (full) => setUser(full),
+        () => undefined,
+      );
+    }
   }, []);
 
   const refresh = useCallback(async () => {

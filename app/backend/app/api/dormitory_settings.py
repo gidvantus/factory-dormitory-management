@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.api.custom_tabs import RESERVED_NAMES, tab_responses
 from app.api.sections import metadata, section_keys
 from app.api.table_columns import prepare_options
@@ -150,7 +150,9 @@ def settings_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
 
 
 @router.get("")
-def read_settings(dormitory_id: EntityId, _user: SubscribedUser, db: DbSession) -> dict[str, Any]:
+def read_settings(
+    dormitory_id: EntityId, _user: SubscribedUser, db: DbSession, _dormitory: OwnDormitory
+) -> dict[str, Any]:
     result = settings_snapshot(db, dormitory_id)
     db.commit()
     return result
@@ -219,7 +221,11 @@ def save_table(db: Session, dormitory_id: int, key: str, payload: TableSetting) 
 
 @router.put("")
 def write_settings(
-    dormitory_id: EntityId, payload: SaveSettings, _user: SubscribedUser, db: DbSession
+    dormitory_id: EntityId,
+    payload: SaveSettings,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> dict[str, Any]:
     dorm = locked_dormitory(db, dormitory_id)
     try:

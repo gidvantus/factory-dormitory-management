@@ -166,7 +166,9 @@ def get_current_user(
     # поэтому актор для журнала действий дописывается здесь. Запись идёт в общий
     # объект контекста запроса (`app.audit`): синхронная зависимость выполняется
     # в threadpool, где доступна мутация объекта, но не установка `ContextVar`.
-    audit.record_actor(user.id, user.active_organization_id)
+    # ФИО передаётся снимком: строка журнала сохраняет копию на момент действия,
+    # а не ссылку на `users`, которая дала бы текущее имя при чтении.
+    audit.record_actor(user.id, user.active_organization_id, user.full_name)
 
     return user
 

@@ -12,6 +12,11 @@
   разрешён, `cancelled → paid` — `409`;
 * счёт за решение (#61) покупается тем же путём, оплата выдаёт право и **не
   трогает** тариф организации, а счета за тариф и за решение не мешают друг другу;
+* тариф без отметки оферты не покупается (#86): пропущенное поле и `false` дают
+  `422` с текстом «Отметьте согласие с условиями оферты», а успешная покупка
+  пишет в строку счёта момент, код `offer`, редакцию `documents.updated_at` и
+  автора акцепта; повторный клик записанный акцепт не перезаписывает, но
+  дозаписывает пустой; решения по-прежнему покупаются без отметки;
 * оба файла — PDF, отдаются вложением и содержат название, ИНН и сумму; акт до
   оплаты — `404`.
 
@@ -34,10 +39,12 @@ from sqlalchemy.orm import Session
 from app import billing_forms, solutions
 from app.billing_forms import EMPTY_VALUE
 from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
+from app.models.document import Document
 from app.models.invoice import Invoice, InvoiceDocument
 from app.models.organization import Organization
 from app.models.solution import OrganizationSolution
 from app.models.tariff import Tariff
+from app.offer import OFFER_ACCEPTANCE_REQUIRED_DETAIL, OFFER_DOCUMENT_CODE
 from app.pricing import format_invoice_amount
 from tests.conftest import add_solution, organizations_for, sign_in
 
@@ -115,8 +122,13 @@ def owner(
 
 
 def purchase(client: TestClient, tariff_id: int) -> Response:
-    """POST покупки тарифа. Возвращает ответ целиком: тесты смотрят и код, и тело."""
-    return client.post(INVOICE_URL, json={"tariff_id": tariff_id})
+    """POST покупки тарифа. Возвращает ответ целиком: тесты смотрят и код, и тело.
+
+    Отметка оферты едет всегда: без неё тарифный счёт не выставляется, и хелпер
+    повторяет то, что делает форма. Тесты на сам отказ шлют тело руками — иначе
+    отсутствие отметки осталось бы непокрытым.
+    """
+    return client.post(INVOICE_URL, json={"tariff_id": tariff_id, "offer_accepted": True})
 
 
 def purchase_solution(client: TestClient, solution_id: int) -> Response:
@@ -333,6 +345,152 @@ def test_purchase_keeps_the_snapshot_when_the_tariff_changes(
 
     assert body["tariff_name"] == "Старт"
     assert body["amount"] == "10000.00"
+
+
+# --- 2a. Акцепт оферты --------------------------------------------------------
+
+
+def add_offer_document(db_session: Session, updated_at: datetime | None = None) -> Document:
+    """Строка `documents` с кодом `offer`: из неё берётся снимок редакции."""
+    document = Document(
+        code=OFFER_DOCUMENT_CODE,
+        title="Оферта",
+        body="Текст оферты.",
+        position=5,
+        **({"updated_at": updated_at} if updated_at is not None else {}),
+    )
+    db_session.add(document)
+    db_session.commit()
+    db_session.refresh(document)
+    return document
+
+
+def test_tariff_purchase_without_the_offer_mark_is_rejected(
+    client: TestClient, db_session: Session
+) -> None:
+    """Отсутствие поля — не «согласие по умолчанию»: счёт не выставляется."""
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session)
+
+    response = client.post(INVOICE_URL, json={"tariff_id": tariff.id})
+
+    assert response.status_code == 422
+    assert OFFER_ACCEPTANCE_REQUIRED_DETAIL in response.text
+    assert invoices_of(db_session, organization.id) == []
+
+
+def test_tariff_purchase_with_false_offer_mark_is_rejected(
+    client: TestClient, db_session: Session
+) -> None:
+    """Явный отказ — тот же `422` с тем же текстом, что и пропущенное поле."""
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session)
+
+    response = client.post(INVOICE_URL, json={"tariff_id": tariff.id, "offer_accepted": False})
+
+    assert response.status_code == 422
+    assert OFFER_ACCEPTANCE_REQUIRED_DETAIL in response.text
+    assert invoices_of(db_session, organization.id) == []
+
+
+def test_purchase_records_the_offer_acceptance_snapshot(
+    client: TestClient, db_session: Session
+) -> None:
+    """В счёте оседают момент, код документа, редакция и автор акцепта."""
+    revision = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+    document = add_offer_document(db_session, updated_at=revision)
+    user = sign_in(client, db_session)
+    organization, _ = organizations_for(db_session, user, name=BUYER_NAME, inn=BUYER_INN)
+    tariff = add_tariff(db_session)
+
+    response = purchase(client, tariff.id)
+
+    assert response.status_code == 201, response.text
+    stored = invoices_of(db_session, organization.id)
+    assert len(stored) == 1
+    invoice = stored[0]
+    assert invoice.id == response.json()["id"]
+    assert invoice.offer_accepted_at is not None
+    # Снимок редакции — `documents.updated_at`, а не «сейчас».
+    assert invoice.offer_document_updated_at is not None
+    assert as_utc(invoice.offer_document_updated_at) == as_utc(document.updated_at)
+    assert invoice.offer_document_code == OFFER_DOCUMENT_CODE
+    assert invoice.offer_accepted_by == user.id
+
+
+def test_purchase_without_the_offer_document_still_works(
+    client: TestClient, db_session: Session
+) -> None:
+    """Пустой справочник документов не повод отказать: редакция остаётся `NULL`."""
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session)
+
+    response = purchase(client, tariff.id)
+
+    assert response.status_code == 201, response.text
+    invoice = invoices_of(db_session, organization.id)[0]
+    assert invoice.offer_accepted_at is not None
+    assert invoice.offer_document_code == OFFER_DOCUMENT_CODE
+    assert invoice.offer_document_updated_at is None
+
+
+def test_repeat_purchase_does_not_overwrite_the_recorded_acceptance(
+    client: TestClient, db_session: Session
+) -> None:
+    """Доказательство «когда согласился» не едет вслед за повторным кликом."""
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session)
+    document = add_offer_document(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    stored = invoices_of(db_session, organization.id)[0]
+    accepted_at = stored.offer_accepted_at
+    assert accepted_at is not None
+    # Оферту поправили после покупки: прежний снимок редакции не должен съехать.
+    document.updated_at = datetime(2026, 9, 9, 9, 0, tzinfo=UTC)
+    db_session.commit()
+
+    second = purchase(client, tariff.id)
+
+    assert second.status_code == 200, second.text
+    assert second.json()["id"] == invoice_id
+    db_session.refresh(stored)
+    assert stored.offer_accepted_at is not None
+    assert as_utc(stored.offer_accepted_at) == as_utc(accepted_at)
+    assert stored.offer_document_updated_at is not None
+    assert as_utc(stored.offer_document_updated_at) != as_utc(document.updated_at)
+
+
+def test_repeat_purchase_fills_an_empty_acceptance(client: TestClient, db_session: Session) -> None:
+    """Живой счёт без акцепта (выставлен до задачи) дозаписывается при клике."""
+    user = sign_in(client, db_session)
+    organization, _ = organizations_for(db_session, user, name=BUYER_NAME, inn=BUYER_INN)
+    tariff = add_tariff(db_session)
+    add_offer_document(db_session)
+    invoice = add_invoice(db_session, organization, tariff)
+    assert invoice.offer_accepted_at is None
+
+    response = purchase(client, tariff.id)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == invoice.id
+    db_session.refresh(invoice)
+    assert invoice.offer_accepted_at is not None
+    assert invoice.offer_document_code == OFFER_DOCUMENT_CODE
+    assert invoice.offer_accepted_by == user.id
+
+
+def test_solution_purchase_needs_no_offer_mark(client: TestClient, db_session: Session) -> None:
+    """Магазин улучшений не изменился: решения покупаются без отметки."""
+    organization = owner(client, db_session)
+    solution = add_solution(db_session)
+
+    response = purchase_solution(client, solution.id)
+
+    assert response.status_code == 201, response.text
+    stored = invoices_of(db_session, organization.id)[0]
+    assert stored.offer_accepted_at is None
+    assert stored.offer_document_code is None
+    assert stored.offer_accepted_by is None
 
 
 # --- 3. Статусы ---------------------------------------------------------------

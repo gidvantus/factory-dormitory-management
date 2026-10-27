@@ -560,7 +560,23 @@ describe('общежития', () => {
   it('показывает отсутствие общежития и оставляет рабочую кнопку назад', async () => {
     mockList();
     renderApp('/cabinet/dormitories/999');
-    expect(await screen.findByRole('alert')).toHaveTextContent('Общежитие не найдено');
+    expect(await screen.findByTestId('dormitory-missing')).toHaveTextContent(
+      'Общежитие не найдено',
+    );
+    expect(screen.getByTestId('dormitory-back')).toHaveAttribute('href', '/cabinet/dormitories');
+    // Чужое общежитие приходит тем же 404, что и несуществующее: ни заголовка, ни вкладок,
+    // ни раздела на странице нет, поэтому по интерфейсу чужое не отличить от отсутствующего.
+    expect(screen.queryByTestId('dormitory-details-heading')).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Разделы общежития' })).not.toBeInTheDocument();
+  });
+
+  it('показывает «Общежитие не найдено» и по прямой ссылке на раздел чужого общежития', async () => {
+    mockList([DORMITORY]);
+    renderApp('/cabinet/dormitories/999/residents');
+    expect(await screen.findByTestId('dormitory-missing')).toHaveTextContent(
+      'Общежитие не найдено',
+    );
+    expect(screen.queryByTestId('dormitory-tab-report')).not.toBeInTheDocument();
     expect(screen.getByTestId('dormitory-back')).toHaveAttribute('href', '/cabinet/dormitories');
   });
 });

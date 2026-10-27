@@ -9,7 +9,14 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import (
+    SUBSCRIBED_USER_RESPONSES,
+    OwnDormitory,
+    SubscribedUser,
+    own_dormitory,
+    scoped_dormitories,
+)
+from app.api.organization import Membership
 from app.db import get_db
 from app.models.custom_tab import CustomTabEntry
 from app.models.dormitory import Dormitory
@@ -34,6 +41,7 @@ from app.personnel import (
     check_identity,
     choose_identity,
     employee_detail,
+    employee_in_scope,
     event,
     fulfill_arrival,
     get_employee,
@@ -70,23 +78,41 @@ router = APIRouter(prefix="/personnel", tags=["personnel"], responses=SUBSCRIBED
 DbSession = Annotated[Session, Depends(get_db)]
 
 
+def dormitory_scope(db: Session, membership: Membership) -> list[int]:
+    """`id` общежитий организации — область для выборок «по всем общежитиям».
+
+    Само правило принадлежности живёт в `app.access.scoped_dormitories`; здесь
+    только его проекция на `id` для функций домена, которым нужен список.
+    """
+    return [item.id for item in scoped_dormitories(db, membership.organization_id)]
+
+
 @router.get("")
-def get_workspace(user: SubscribedUser, db: DbSession) -> dict[str, Any]:
-    return workspace(db, user)
+def get_workspace(user: SubscribedUser, membership: Membership, db: DbSession) -> dict[str, Any]:
+    return workspace(db, user, dormitory_scope(db, membership))
 
 
 @router.post("/check")
-def check(payload: IdentityFields, _user: SubscribedUser, db: DbSession) -> dict[str, Any]:
-    return check_identity(db, payload)
+def check(
+    payload: IdentityFields, _user: SubscribedUser, membership: Membership, db: DbSession
+) -> dict[str, Any]:
+    return check_identity(db, payload, dormitory_scope(db, membership))
 
 
 @router.post("/records", status_code=201)
-def create_record(payload: RecordCreate, user: SubscribedUser, db: DbSession) -> dict[str, Any]:
+def create_record(
+    payload: RecordCreate,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+) -> dict[str, Any]:
+    # Права проверяются раньше блокировки: чужое общежитие не блокируется.
+    own_dormitory(db, payload.dormitory_id, membership)
     lock_dormitory(db, payload.dormitory_id)
     require_writable_table(db, payload.dormitory_id, payload.table_key)
     columns = ensure_columns(db, payload.dormitory_id, payload.table_key)
     identity_lock(db)
-    employee = choose_identity(db, payload.identity)
+    employee = choose_identity(db, payload.identity, dormitory_scope(db, membership))
     values = dict(payload.values)
     schemas: dict[str, type[BaseModel]] = {
         "residents": UpdateResidentRequest,
@@ -173,7 +199,13 @@ def create_record(payload: RecordCreate, user: SubscribedUser, db: DbSession) ->
 
 
 @router.post("/link")
-def link_record(payload: RecordLink, user: SubscribedUser, db: DbSession) -> dict[str, Any]:
+def link_record(
+    payload: RecordLink,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+) -> dict[str, Any]:
+    own_dormitory(db, payload.dormitory_id, membership)
     lock_dormitory(db, payload.dormitory_id)
     require_writable_table(db, payload.dormitory_id, payload.table_key)
     identity_lock(db)
@@ -182,7 +214,7 @@ def link_record(payload: RecordLink, user: SubscribedUser, db: DbSession) -> dic
         row, (Resident, PersonnelInflow, PersonnelOutflow, CustomTabEntry, ArchiveEntry)
     ):
         raise HTTPException(422, "Эта таблица не содержит записей персонала")
-    employee = choose_identity(db, payload.identity)
+    employee = choose_identity(db, payload.identity, dormitory_scope(db, membership))
     old_id = row.employee_id
     if old_id and get_employee(db, old_id).id == employee.id:
         db.commit()
@@ -218,16 +250,26 @@ def link_record(payload: RecordLink, user: SubscribedUser, db: DbSession) -> dic
 
 
 @router.get("/employees/{employee_id}")
-def detail(employee_id: UUID, _user: SubscribedUser, db: DbSession) -> dict[str, Any]:
+def detail(
+    employee_id: UUID,
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+) -> dict[str, Any]:
+    employee_in_scope(db, str(employee_id), dormitory_scope(db, membership))
     return employee_detail(db, str(employee_id))
 
 
 @router.patch("/employees/{employee_id}")
 def update_employee(
-    employee_id: UUID, payload: EmployeeUpdate, user: SubscribedUser, db: DbSession
+    employee_id: UUID,
+    payload: EmployeeUpdate,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
 ) -> dict[str, bool]:
     identity_lock(db)
-    item = get_employee(db, str(employee_id))
+    item = employee_in_scope(db, str(employee_id), dormitory_scope(db, membership))
     before = {field: getattr(item, field) for field in IDENTITY_FIELDS}
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
@@ -246,10 +288,14 @@ def update_employee(
 
 @router.post("/employees/{employee_id}/notes", status_code=201)
 def add_note(
-    employee_id: UUID, payload: NoteInput, user: SubscribedUser, db: DbSession
+    employee_id: UUID,
+    payload: NoteInput,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
 ) -> dict[str, bool]:
     identity_lock(db)
-    employee = get_employee(db, str(employee_id))
+    employee = employee_in_scope(db, str(employee_id), dormitory_scope(db, membership))
     db.add(EmployeeNote(employee_id=employee.id, author_id=user.id, text=payload.text))
     event(db, employee.id, "note", "Добавлена заметка", user.id, snapshot={"text": payload.text})
     db.commit()
@@ -258,11 +304,16 @@ def add_note(
 
 @router.put("/employees/{employee_id}/next-shift")
 def save_next_shift(
-    employee_id: UUID, payload: PlanInput, user: SubscribedUser, db: DbSession
+    employee_id: UUID,
+    payload: PlanInput,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
 ) -> dict[str, bool]:
+    own_dormitory(db, payload.dormitory_id, membership)
     lock_dormitory(db, payload.dormitory_id)
     identity_lock(db)
-    employee = get_employee(db, str(employee_id))
+    employee = employee_in_scope(db, str(employee_id), dormitory_scope(db, membership))
     dormitory = db.get(Dormitory, payload.dormitory_id)
     if dormitory is None or dormitory.is_archived:
         raise HTTPException(422, "Выберите действующее общежитие")
@@ -313,11 +364,15 @@ def save_next_shift(
 
 @router.patch("/plans/{plan_id}")
 def confirm_plan(
-    plan_id: UUID, payload: PlanUpdate, user: SubscribedUser, db: DbSession
+    plan_id: UUID,
+    payload: PlanUpdate,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
 ) -> dict[str, bool]:
     identity_lock(db)
     plan = db.get(EmployeePlan, str(plan_id))
-    if plan is None:
+    if plan is None or plan.dormitory_id not in dormitory_scope(db, membership):
         raise HTTPException(404, "План не найден")
     if plan.confirmed != payload.confirmed:
         plan.confirmed = payload.confirmed
@@ -334,10 +389,10 @@ def confirm_plan(
 
 
 @router.delete("/plans/{plan_id}", status_code=204)
-def cancel_plan(plan_id: UUID, user: SubscribedUser, db: DbSession) -> None:
+def cancel_plan(plan_id: UUID, user: SubscribedUser, membership: Membership, db: DbSession) -> None:
     identity_lock(db)
     plan = db.get(EmployeePlan, str(plan_id))
-    if plan is None:
+    if plan is None or plan.dormitory_id not in dormitory_scope(db, membership):
         raise HTTPException(404, "План не найден")
     event(
         db,
@@ -353,11 +408,19 @@ def cancel_plan(plan_id: UUID, user: SubscribedUser, db: DbSession) -> None:
 
 
 @router.post("/merges/{merge_id}/undo")
-def undo_merge(merge_id: UUID, user: SubscribedUser, db: DbSession) -> dict[str, bool]:
+def undo_merge(
+    merge_id: UUID,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+) -> dict[str, bool]:
     identity_lock(db)
     operation = db.get(EmployeeMerge, str(merge_id))
     if operation is None:
         raise HTTPException(404, "Операция объединения не найдена")
+    # Объединение касается карточек, у которых нет своей организации: проверяем,
+    # что хотя бы одна из них видна в общежитиях организации из сессии.
+    employee_in_scope(db, operation.source_id, dormitory_scope(db, membership))
     if operation.undone_at:
         raise HTTPException(409, "Объединение уже отменено")
     source = db.get(Employee, operation.source_id)
@@ -397,7 +460,11 @@ def preferences(payload: PreferencesInput, user: SubscribedUser, db: DbSession) 
 
 @router.get("/bindings/{dormitory_id}/{table_key}")
 def get_binding(
-    dormitory_id: int, table_key: TableKey, _user: SubscribedUser, db: DbSession
+    dormitory_id: int,
+    table_key: TableKey,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> dict[str, Any]:
     columns = ensure_columns(db, dormitory_id, table_key)
     item = db.scalar(
@@ -423,6 +490,7 @@ def save_binding(
     payload: BindingInput,
     user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> dict[str, bool]:
     if not (table_key.startswith("custom_") or table_key == "archive"):
         raise HTTPException(422, "Основные таблицы уже связаны по встроенным полям")

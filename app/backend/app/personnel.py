@@ -367,32 +367,96 @@ def fulfill_arrival(db: Session, resident: Resident, actor_id: int) -> None:
         db.delete(plan)
 
 
-def all_sources(db: Session) -> list[tuple[Row, dict[str, Any]]]:
+def all_sources(db: Session, dormitory_ids: list[int]) -> list[tuple[Row, dict[str, Any]]]:
+    """Строки-источники только по перечисленным общежитиям.
+
+    Область (`dormitory_ids`) разрешает вызывающий слой: принадлежность данных
+    организации считается по корню — общежитию, — а не по каждой дочерней строке.
+    """
     lookup = {
-        "dormitories": {item.id: item for item in db.scalars(select(Dormitory))},
-        "hostels": {item.id: item for item in db.scalars(select(Hostel))},
+        "dormitories": {
+            item.id: item
+            for item in db.scalars(select(Dormitory).where(Dormitory.id.in_(dormitory_ids)))
+        },
+        "hostels": {
+            item.id: item
+            for item in db.scalars(select(Hostel).where(Hostel.dormitory_id.in_(dormitory_ids)))
+        },
         "bindings": {
             (item.dormitory_id, item.table_key): item
-            for item in db.scalars(select(PersonnelBinding))
+            for item in db.scalars(
+                select(PersonnelBinding).where(PersonnelBinding.dormitory_id.in_(dormitory_ids))
+            )
         },
     }
     return [
         (cast(Row, row), row_values(db, cast(Row, row), lookup))
         for model in SOURCE_MODELS
-        for row in db.scalars(select(model).where(model.employee_id.is_not(None)))
+        for row in db.scalars(
+            select(model).where(
+                model.employee_id.is_not(None), model.dormitory_id.in_(dormitory_ids)
+            )
+        )
     ]
 
 
+def employee_in_scope(db: Session, employee_id: str, dormitory_ids: list[int]) -> Employee:
+    """Карточка сотрудника в пределах области. Иначе — `404`, как за несуществующую.
+
+    Карточка сотрудника общая для нескольких общежитий, поэтому своей
+    организации у неё нет: видимой она считается, пока у неё есть строка или
+    событие в общежитиях области.
+    """
+    employee = get_employee(db, employee_id)
+    ids = group_ids(db, employee_id)
+    has_source = any(
+        db.scalar(
+            select(model.id)
+            .where(model.employee_id.in_(ids), model.dormitory_id.in_(dormitory_ids))
+            .limit(1)
+        )
+        is not None
+        for model in SOURCE_MODELS
+    )
+    if (
+        has_source
+        or db.scalar(
+            select(EmployeeEvent.id)
+            .where(
+                EmployeeEvent.employee_id.in_(ids),
+                EmployeeEvent.dormitory_id.in_(dormitory_ids),
+            )
+            .limit(1)
+        )
+        is not None
+    ):
+        return employee
+    raise HTTPException(404, "Карточка сотрудника не найдена")
+
+
 def identity_index(
-    db: Session,
+    db: Session, dormitory_ids: list[int]
 ) -> tuple[dict[str, Employee], dict[str, str], dict[str, dict[str, set[str]]]]:
+    """Индекс личностей в пределах области: чужие карточки не участвуют в подборе."""
     employees, roots = root_map(db)
-    active = {roots[id] for id in db.scalars(select(EmployeeEvent.employee_id).distinct())}
+    active = {
+        roots[id]
+        for id in db.scalars(
+            select(EmployeeEvent.employee_id)
+            .where(EmployeeEvent.dormitory_id.in_(dormitory_ids))
+            .distinct()
+        )
+    }
     for model in SOURCE_MODELS:
         active.update(
             roots[id or ""]
             for id in db.scalars(
-                select(model.employee_id).where(model.employee_id.is_not(None)).distinct()
+                select(model.employee_id)
+                .where(
+                    model.employee_id.is_not(None),
+                    model.dormitory_id.in_(dormitory_ids),
+                )
+                .distinct()
             )
         )
     aliases: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
@@ -435,15 +499,15 @@ def score_match(
     return score, evidence, differences
 
 
-def check_identity(db: Session, fields: IdentityFields) -> dict[str, Any]:
-    employees, roots, aliases = identity_index(db)
+def check_identity(db: Session, fields: IdentityFields, dormitory_ids: list[int]) -> dict[str, Any]:
+    employees, roots, aliases = identity_index(db, dormitory_ids)
     query = {
         field: {value} if (value := normalized(field, getattr(fields, field))) else set()
         for field in IDENTITY_FIELDS
     }
     identities = group_identities(employees, roots)
     candidates: list[dict[str, Any]] = []
-    sources = all_sources(db)
+    sources = all_sources(db, dormitory_ids)
     for employee_id in sorted(aliases):
         score, evidence, differences = score_match(query, aliases[employee_id])
         if score == 0:
@@ -481,10 +545,10 @@ def check_identity(db: Session, fields: IdentityFields) -> dict[str, Any]:
     return {"candidates": candidates, "check_token": token}
 
 
-def choose_identity(db: Session, choice: IdentityChoice) -> Employee:
+def choose_identity(db: Session, choice: IdentityChoice, dormitory_ids: list[int]) -> Employee:
     identity_lock(db)
     fields = IdentityFields(**{field: getattr(choice, field) for field in IDENTITY_FIELDS})
-    checked = check_identity(db, fields)
+    checked = check_identity(db, fields, dormitory_ids)
     if checked["check_token"] != choice.check_token:
         raise HTTPException(
             409, "Список совпадений изменился. Повторите проверку перед сохранением"
@@ -500,13 +564,20 @@ def choose_identity(db: Session, choice: IdentityChoice) -> Employee:
     return employee
 
 
-def workspace(db: Session, user: User) -> dict[str, Any]:
+def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, Any]:
+    """Рабочая поверхность персонала в пределах области — общежитий организации."""
     employees, roots = root_map(db)
     identities = group_identities(employees, roots)
-    dormitories = list(db.scalars(select(Dormitory).order_by(Dormitory.name, Dormitory.id)))
+    dormitories = list(
+        db.scalars(
+            select(Dormitory)
+            .where(Dormitory.id.in_(dormitory_ids))
+            .order_by(Dormitory.name, Dormitory.id)
+        )
+    )
     sources: dict[str, list[dict[str, Any]]] = defaultdict(list)
     tabs = {f"custom_{tab.id}": tab.name for tab in db.scalars(select(CustomTab))}
-    for row, values in all_sources(db):
+    for row, values in all_sources(db, dormitory_ids):
         key = source_key(row)
         sources[roots[row.employee_id or ""]].append(
             {
@@ -519,7 +590,11 @@ def workspace(db: Session, user: User) -> dict[str, Any]:
         )
     history_dorms: dict[str, set[int]] = defaultdict(set)
     history_ids: set[str] = set()
-    for entry in db.scalars(select(EmployeeEvent).order_by(EmployeeEvent.id)):
+    for entry in db.scalars(
+        select(EmployeeEvent)
+        .where(EmployeeEvent.dormitory_id.in_(dormitory_ids))
+        .order_by(EmployeeEvent.id)
+    ):
         root = roots[entry.employee_id]
         history_ids.add(root)
         if entry.dormitory_id:
@@ -571,12 +646,16 @@ def workspace(db: Session, user: User) -> dict[str, Any]:
             }
             for column in db.scalars(
                 select(TableColumn)
-                .where(TableColumn.archived.is_(False), TableColumn.kind != "action")
+                .where(
+                    TableColumn.archived.is_(False),
+                    TableColumn.kind != "action",
+                    TableColumn.dormitory_id.in_(dormitory_ids),
+                )
                 .order_by(TableColumn.dormitory_id, TableColumn.table_key, TableColumn.position)
             )
             if column.table_key in SOURCE_NAMES or column.table_key in tabs
         ],
-        "arrival_plans": active_arrivals(db),
+        "arrival_plans": active_arrivals(db, dormitory_ids),
         "plans": [
             {
                 "id": p.id,
@@ -588,7 +667,11 @@ def workspace(db: Session, user: User) -> dict[str, Any]:
                 "confirmed": p.confirmed,
                 "comment": p.comment,
             }
-            for p in db.scalars(select(EmployeePlan).order_by(EmployeePlan.date, EmployeePlan.id))
+            for p in db.scalars(
+                select(EmployeePlan)
+                .where(EmployeePlan.dormitory_id.in_(dormitory_ids))
+                .order_by(EmployeePlan.date, EmployeePlan.id)
+            )
         ],
         "preferences": {"revision": preferences.revision, **preferences.settings}
         if preferences

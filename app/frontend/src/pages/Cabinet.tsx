@@ -14,7 +14,6 @@ import styles from '../workspace/Workspace.module.css';
 const sectionTitles: Record<string, string> = {
   '/cabinet': 'Обзор',
   '/cabinet/dormitories': 'Общежития',
-  '/cabinet/tariffs': 'Тарифы',
   '/cabinet/shop': 'Магазин улучшений',
   '/cabinet/notifications': 'Уведомления',
   '/cabinet/documents': 'Документы',
@@ -22,6 +21,7 @@ const sectionTitles: Record<string, string> = {
   '/cabinet/organization/members': 'Сотрудники',
   '/cabinet/personnel': 'Персонал',
   '/cabinet/statistics': 'Статистика',
+  '/cabinet/journal': 'Журнал',
   '/cabinet/profile': 'Личные данные',
 };
 
@@ -29,7 +29,7 @@ const sectionTitles: Record<string, string> = {
  * Разделы, закрытые после окончания пробного периода.
  *
  * Список ведётся явно, а не «всё, кроме перечисленного»: открытыми остаются
- * «Обзор», «Тарифы», «Магазин улучшений», «Документы», «Организация» и «Личные
+ * «Обзор», «Магазин улучшений», «Документы», «Организация» и «Личные
  * данные», и новый рабочий раздел должен появиться здесь осознанно, а не
  * закрыться случайно.
  */
@@ -37,6 +37,9 @@ const CLOSED_SECTIONS = [
   '/cabinet/dormitories',
   '/cabinet/personnel',
   '/cabinet/statistics',
+  // «Журнал» — рабочий раздел уровня владельца: на закрытом пробном периоде он
+  // закрыт вместе с остальными рабочими разделами.
+  '/cabinet/journal',
   '/cabinet/organization/members',
 ];
 
@@ -256,17 +259,6 @@ function CabinetShell(): JSX.Element {
               </NavLink>
             </li>
             <li>
-              <NavLink
-                className={styles['nav-link']}
-                to="/cabinet/tariffs"
-                onClick={closeMenu}
-                data-testid="workspace-nav-tariffs"
-              >
-                <WorkspaceIcon name="chart" />
-                Тарифы
-              </NavLink>
-            </li>
-            <li>
               {/* «Документы» не перечислены в `CLOSED_SECTIONS`: счета и акты
                   нужны именно на закрытом пробном периоде. */}
               <NavLink
@@ -311,6 +303,28 @@ function CabinetShell(): JSX.Element {
                 Статистика
               </NavLink>
             </li>
+            {/* «Журнал» — раздел уровня владельца: пункт виден только по
+                `role === 'owner'`, остальные роли получают объяснение на самом
+                экране при прямом заходе. На закрытом пробном периоде пункт
+                получает `aria-disabled`, как остальные рабочие разделы. */}
+            {user?.role === 'owner' && (
+              <li>
+                <NavLink
+                  className={styles['nav-link']}
+                  to="/cabinet/journal"
+                  aria-disabled={locked || undefined}
+                  tabIndex={locked ? -1 : undefined}
+                  onClick={(event) => {
+                    if (locked) event.preventDefault();
+                    closeMenu();
+                  }}
+                  data-testid="workspace-nav-journal"
+                >
+                  <WorkspaceIcon name="journal" />
+                  Журнал
+                </NavLink>
+              </li>
+            )}
             <li>
               {/* «Магазин улучшений» открыт всегда: решения покупают именно на
                   закрытом пробном кабинете, когда тарифа ещё нет. Стоит после

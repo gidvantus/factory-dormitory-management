@@ -11,28 +11,37 @@ MIN_PASSWORD_LENGTH = 8
 class ActivationInfoResponse(BaseModel):
     """Что показывает экран активации до ввода пароля.
 
-    `consent_required` — «согласия ещё нет» (`users.consent_at is NULL`).
-    Приглашённый сотрудник регистрацию не проходил, поэтому чекбокс ему нужен;
-    зарегистрировавшемуся через форму второй раз его не показывают.
+    Два независимых флага, по одному на документ: `consent_required` — «согласия
+    ещё нет» (`users.consent_at is NULL`), `terms_required` — «правила не
+    приняты» (`users.terms_accepted_at is NULL`). Приглашённый сотрудник
+    регистрацию не проходил, поэтому оба чекбокса ему нужны; зарегистрировавшемуся
+    через форму второй раз их не показывают — он отметил оба на регистрации.
+
+    Флаги считаются по своим колонкам, а не по одной: пользователь мог пройти
+    регистрацию до появления правил и тогда увидит только второй чекбокс.
     """
 
     email: EmailStr
     full_name: str
     expires_at: datetime
     consent_required: bool
+    terms_required: bool
 
 
 class ActivateRequest(BaseModel):
     """Новый пароль, который пользователь задаёт по ссылке из письма.
 
-    `consent` по умолчанию `False`: у аккаунта, который уже дал согласие при
-    регистрации, поля в теле нет, и это не ошибка. Отсутствие согласия у
-    пользователя без `consent_at` роут проверяет сам — по строке в базе.
+    `consent` и `terms_accepted` по умолчанию `False`: у аккаунта, который уже
+    дал согласие и принял правила при регистрации, этих полей в теле нет, и это
+    не ошибка. Отсутствие отметки у пользователя, у которого документа в базе
+    нет, роут проверяет сам — по строке в базе: `consent_at` и
+    `terms_accepted_at`.
     """
 
     token: str = Field(min_length=1, max_length=512)
     password: str = Field(min_length=MIN_PASSWORD_LENGTH, max_length=1024)
     consent: bool = False
+    terms_accepted: bool = False
 
 
 class ResendActivationRequest(BaseModel):

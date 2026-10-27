@@ -7,8 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
-from app.api.reports import require_dormitory
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.models.payment import PaymentEntry
 from app.schemas.payment import PaymentKind, PaymentResponse, UpdatePaymentRequest
@@ -38,10 +37,10 @@ def list_payments(
     kind: PaymentKind,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
     from_date: Annotated[date | None, Query(alias="from")] = None,
     to_date: Annotated[date | None, Query(alias="to")] = None,
 ) -> list[PaymentEntry]:
-    require_dormitory(db, dormitory_id)
     query = select(PaymentEntry).where(
         PaymentEntry.dormitory_id == dormitory_id, PaymentEntry.kind == kind
     )
@@ -71,7 +70,11 @@ def list_payments(
     summary="Добавить строку выплаты",
 )
 def create_payment(
-    dormitory_id: DormitoryId, kind: PaymentKind, _user: SubscribedUser, db: DbSession
+    dormitory_id: DormitoryId,
+    kind: PaymentKind,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> PaymentEntry:
     require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)
@@ -92,6 +95,7 @@ def update_payment(
     payload: UpdatePaymentRequest,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> PaymentEntry:
     require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)
@@ -122,6 +126,7 @@ def clear_payments(
     kind: PaymentKind,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)
@@ -142,6 +147,7 @@ def delete_payment(
     row_id: PaymentId,
     _user: SubscribedUser,
     db: DbSession,
+    _dormitory: OwnDormitory,
 ) -> None:
     require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)

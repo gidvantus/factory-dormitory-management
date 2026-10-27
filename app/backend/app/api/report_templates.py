@@ -1,4 +1,8 @@
-"""Общие шаблоны: снимок строк без данных, список и удаление."""
+"""Общие шаблоны: снимок строк без данных, список и удаление.
+
+Правило принадлежности живёт в `app/report_templates.py`: шаблон виден только
+своей организации, а чужой отвечает тем же `404`, что и несуществующий.
+"""
 
 from typing import Annotated
 
@@ -7,10 +11,12 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser, own_dormitory
+from app.api.organization import Membership
 from app.db import get_db
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplate, ReportTemplateRow
+from app.report_templates import name_taken, own_template, visible_templates
 from app.schemas.report_template import (
     CreateReportTemplateRequest,
     ReportTemplateDetailResponse,
@@ -29,13 +35,17 @@ DbSession = Annotated[Session, Depends(get_db)]
 
 
 @router.get("", response_model=list[ReportTemplateResponse], summary="Список шаблонов отчёта")
-def list_templates(_user: SubscribedUser, db: DbSession) -> list[ReportTemplateResponse]:
-    result = db.execute(
-        select(ReportTemplate, func.count(ReportTemplateRow.id))
+def list_templates(
+    _user: SubscribedUser, membership: Membership, db: DbSession
+) -> list[ReportTemplateResponse]:
+    statement = (
+        visible_templates(membership.organization_id)
+        .add_columns(func.count(ReportTemplateRow.id))
         .outerjoin(ReportTemplateRow, ReportTemplateRow.template_id == ReportTemplate.id)
         .group_by(ReportTemplate.id)
         .order_by(ReportTemplate.created_at.desc(), ReportTemplate.id.desc())
     )
+    rows: list[tuple[ReportTemplate, int]] = list(db.execute(statement))
     return [
         ReportTemplateResponse(
             id=template.id,
@@ -43,7 +53,7 @@ def list_templates(_user: SubscribedUser, db: DbSession) -> list[ReportTemplateR
             row_count=count,
             created_at=template.created_at,
         )
-        for template, count in result
+        for template, count in rows
     ]
 
 
@@ -53,11 +63,10 @@ def list_templates(_user: SubscribedUser, db: DbSession) -> list[ReportTemplateR
 def read_template(
     template_id: Annotated[int, Path(ge=1, le=2147483647)],
     _user: SubscribedUser,
+    membership: Membership,
     db: DbSession,
 ) -> ReportTemplateDetailResponse:
-    template = db.get(ReportTemplate, template_id)
-    if template is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Шаблон не найден")
+    template = own_template(db, template_id, membership.organization_id)
     rows = list(
         db.scalars(
             select(ReportTemplateRow)
@@ -89,8 +98,13 @@ def read_template(
     summary="Сохранить структуру отчёта как шаблон",
 )
 def create_template(
-    payload: CreateReportTemplateRequest, user: SubscribedUser, db: DbSession
+    payload: CreateReportTemplateRequest,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
 ) -> ReportTemplateResponse:
+    # Шаблон копирует строки отчёта: чужое общежитие — тот же 404, что и несуществующее.
+    own_dormitory(db, payload.dormitory_id, membership)
     lock_dormitory(db, payload.dormitory_id)
     rows = list(
         db.scalars(
@@ -101,12 +115,13 @@ def create_template(
     )
     if not rows:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "В отчёте пока нет строк")
-    if any(
-        name.casefold() == payload.name.casefold()
-        for name in db.scalars(select(ReportTemplate.name))
-    ):
+    if name_taken(db, membership.organization_id, payload.name):
         raise HTTPException(status.HTTP_409_CONFLICT, "Шаблон с таким названием уже есть")
-    template = ReportTemplate(name=payload.name, created_by_id=user.id)
+    template = ReportTemplate(
+        name=payload.name,
+        created_by_id=user.id,
+        organization_id=membership.organization_id,
+    )
     db.add(template)
     try:
         db.flush()
@@ -137,11 +152,10 @@ def create_template(
 def delete_template(
     template_id: Annotated[int, Path(ge=1, le=2147483647)],
     _user: SubscribedUser,
+    membership: Membership,
     db: DbSession,
 ) -> None:
-    template = db.get(ReportTemplate, template_id)
-    if template is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Шаблон не найден")
+    template = own_template(db, template_id, membership.organization_id)
     db.execute(delete(ReportTemplateRow).where(ReportTemplateRow.template_id == template_id))
     db.delete(template)
     db.commit()

@@ -13,12 +13,12 @@ import { Pricing } from './pages/Pricing';
 import { Dormitories } from './workspace/Dormitories';
 import { DormitoryDetails } from './workspace/dormitories/DormitoryDetails';
 import { Documents } from './workspace/Documents';
+import { Journal } from './workspace/Journal';
 import { Members } from './workspace/Members';
 import { Notifications } from './workspace/Notifications';
 import { Organization } from './workspace/Organization';
 import { PersonalData } from './workspace/PersonalData';
 import { Shop } from './workspace/Shop';
-import { Tariffs } from './workspace/Tariffs';
 import { WorkspaceOverview } from './workspace/WorkspaceOverview';
 import { DormitoryDesignPreview } from './pages/DormitoryDesignPreview';
 
@@ -71,8 +71,11 @@ const Personnel = lazy(() =>
  * неактивный пользователь обязан до него дойти. Запрос восстановления пароля —
  * тоже отдельный адрес `/forgot-password`: на него ссылаются из формы входа и
  * из письма, и он доступен без сессии, как и `/activate`. Страница тарифов
- * `/pricing` тоже вне `RequireAuth`: прайс публичный, а в кабинете живёт раздел
- * «Тариф» с тарифом самой организации (`/cabinet/tariffs`).
+ * `/pricing` тоже вне `RequireAuth`: прайс публичный, и отдельного раздела
+ * «Тарифы» в кабинете больше нет — старые кабинетные адреса
+ * (`/cabinet/tariffs`, `/cabinet/tariffs/catalog`) редиректят сюда же, поэтому
+ * редиректы стоят рядом с `/pricing`, а не внутри дерева `/cabinet`: по старой
+ * закладке анонимный посетитель обязан попасть на прайс, а не на экран входа.
  * Публичные документы `/documents/:code` — там же, вне `RequireAuth`: на них
  * ведут ссылки из подвала, и открывать их обязан анонимный посетитель.
  * Плашка согласия на cookie смонтирована рядом с маршрутами, а не внутри них:
@@ -146,6 +149,10 @@ export function App(): JSX.Element {
         <Route path="/register" element={<Landing />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/pricing" element={<Pricing />} />
+        {/* Старые кабинетные адреса прайса: раздела «Тарифы» больше нет, но закладки
+            не должны давать 404 или экран входа — редирект ведёт на публичный прайс. */}
+        <Route path="/cabinet/tariffs" element={<Navigate to="/pricing" replace />} />
+        <Route path="/cabinet/tariffs/catalog" element={<Navigate to="/pricing" replace />} />
         <Route path="/documents/:code" element={<Document />} />
         <Route path="/activate" element={<Activate />} />
         <Route path="/activate/:token" element={<Activate />} />
@@ -162,7 +169,6 @@ export function App(): JSX.Element {
           <Route path="dormitories/:dormitoryId/*" element={<DormitoryDetails />} />
           <Route path="organization" element={<Organization />} />
           <Route path="organization/members" element={<Members />} />
-          <Route path="tariffs" element={<Tariffs />} />
           {/* «Магазин улучшений» работает и на закрытом пробном периоде: решение
               покупают именно тогда, когда кабинет закрыт. */}
           <Route path="shop" element={<Shop />} />
@@ -172,9 +178,6 @@ export function App(): JSX.Element {
           {/* Раздел «Документы» работает и на закрытом пробном периоде: счёт
               выставляется именно тогда, когда кабинет закрыт. */}
           <Route path="documents" element={<Documents />} />
-          {/* Старая ссылка на прайс-лист: редактора больше нет, но закладка не должна
-              давать 404 — редирект приводит в раздел «Тариф». */}
-          <Route path="tariffs/catalog" element={<Navigate to="/cabinet/tariffs" replace />} />
           <Route
             path="personnel"
             element={
@@ -199,6 +202,9 @@ export function App(): JSX.Element {
               </Suspense>
             }
           />
+          {/* «Журнал действий» — раздел владельца организации. Права проверяет
+              сервер (403 остальным ролям), экран показывает это состояние сам. */}
+          <Route path="journal" element={<Journal />} />
           <Route path="profile" element={<PersonalData />} />
         </Route>
         <Route path="*" element={<NotFound />} />

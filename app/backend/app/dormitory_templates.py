@@ -6,12 +6,13 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from app.custom_tab_options import mapped_options, options_for
 from app.models.custom_tab import CustomTab
 from app.models.dormitory import Dormitory
+from app.models.dormitory_template import DormitoryTemplate
 from app.models.hostel import Hostel
 from app.models.report import ReportRow
 from app.models.table_column import TableColumn
@@ -20,6 +21,29 @@ from app.schemas.table_column import report_link_adapter
 from app.section_state import SECTIONS, locked_dormitory, section_parents, section_status
 from app.tab_tree import all_tabs
 from app.table_data import DEFAULT_COLUMNS, columns_for, ensure_columns, validate_link
+
+TEMPLATE_NOT_FOUND_DETAIL = "Шаблон не найден"
+
+
+def visible_templates(organization_id: int) -> Select[DormitoryTemplate]:
+    """Шаблоны, доступные организации из сессии.
+
+    Принадлежность берётся из колонки `organization_id`, а не по автору: фильтр
+    по авторам повторял вычисление принадлежности в каждом запросе и уносил
+    шаблоны за сотрудником при смене организации. Шаблон без организации
+    (`NULL`) не виден никому — его судьбу решает владелец данных.
+    """
+    return select(DormitoryTemplate).where(DormitoryTemplate.organization_id == organization_id)
+
+
+def own_template(db: Session, template_id: int, organization_id: int) -> DormitoryTemplate:
+    """Шаблон из библиотеки организации. Чужой и несуществующий неразличимы: `404`."""
+    template = db.scalar(
+        visible_templates(organization_id).where(DormitoryTemplate.id == template_id)
+    )
+    if template is None:
+        raise HTTPException(404, TEMPLATE_NOT_FOUND_DETAIL)
+    return template
 
 
 def take_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:

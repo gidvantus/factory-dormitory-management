@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.security import ACTIVATION_REQUIRED_DETAIL, issue_activation_token
-from tests.conftest import create_user, login
+from tests.conftest import create_user, login, organizations_for
 
 # Свободные от guard адреса: вход, регистрация, активация, здоровье, /api/me,
 # публичный прайс (`GET /api/tariffs`, страница `/pricing`) и публичные документы
@@ -97,6 +97,9 @@ def test_inactive_user_gets_403_with_the_activation_hint(
 
 def test_active_user_passes_the_guard(client: TestClient, db_session: Session) -> None:
     user = create_user(db_session)
+    # Данные кабинета принадлежат организации: без неё рабочие разделы отвечают
+    # 404 «Организация не найдена», и проверка «активный проходит» не о том.
+    organizations_for(db_session, user)
     assert login(client, user.email).status_code == 200
 
     assert client.get("/api/dormitories").status_code == 200
@@ -115,6 +118,8 @@ def test_me_stays_open_for_inactive_user(client: TestClient, db_session: Session
         "full_name": "Неактивный Пользователь",
         "created_at": response.json()["created_at"],
         "is_active": False,
+        # Роль в организации (issue #74): у неактивированного кабинета её нет.
+        "role": None,
     }
 
 
@@ -127,7 +132,12 @@ def test_activation_opens_the_working_endpoints(client: TestClient, db_session: 
 
     activated = client.post(
         "/api/auth/activate",
-        json={"token": raw_token, "password": NEW_PASSWORD, "consent": True},
+        json={
+            "token": raw_token,
+            "password": NEW_PASSWORD,
+            "consent": True,
+            "terms_accepted": True,
+        },
     )
 
     assert activated.status_code == 200

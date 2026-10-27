@@ -164,9 +164,16 @@ def count(db_session: Session, model: Any) -> int:
 
 
 def activate(client: TestClient, token: str, password: str = NEW_PASSWORD) -> Response:
-    """Тело с согласием: приглашённый регистрацию не проходил и согласия не давал."""
+    """Тело с обеими отметками: приглашённый регистрацию не проходил и ни одного
+    документа не принимал, поэтому без согласия и правил сервер ответил бы 422."""
     return client.post(
-        "/api/auth/activate", json={"token": token, "password": password, "consent": True}
+        "/api/auth/activate",
+        json={
+            "token": token,
+            "password": password,
+            "consent": True,
+            "terms_accepted": True,
+        },
     )
 
 

@@ -56,6 +56,7 @@ from app.models.invoice import (
 from app.models.organization import Organization
 from app.models.solution import Solution
 from app.models.tariff import Tariff
+from app.offer import OFFER_ACCEPTANCE_REQUIRED_DETAIL, has_acceptance, record_acceptance
 from app.pricing import format_invoice_amount
 from app.schemas.invoice import (
     CreateInvoiceRequest,
@@ -218,13 +219,15 @@ def _pdf_response(content: bytes, filename: str) -> Response:
         },
         status.HTTP_422_UNPROCESSABLE_ENTITY: {
             "model": ErrorResponse,
-            "description": "Тело запроса не подходит по схеме: предмет не указан или указан дважды",
+            "description": "Тело запроса не подходит по схеме: предмет не указан или указан "
+            f"дважды, либо тариф покупается без отметки оферты — "
+            f"{OFFER_ACCEPTANCE_REQUIRED_DETAIL}",
         },
     },
 )
 def purchase_invoice(
     payload: CreateInvoiceRequest,
-    _user: ActiveUser,
+    user: ActiveUser,
     membership: EditableMembership,
     db: DbSession,
     response: Response,
@@ -240,6 +243,12 @@ def purchase_invoice(
     предмет** возвращается как `200` с тем же телом, а новый не создаётся. Счёт
     за тариф и счёт за решение друг другу не мешают. Строка организации берётся
     под блокировку, иначе два одновременных клика прошли бы проверку вместе.
+
+    Акцепт оферты пишется в ту же транзакцию, что и счёт: у только что созданного
+    тарифного счёта — всегда (без отметки тело не прошло бы схему), у
+    возвращаемого существующего — только если он ещё пуст. Здесь человек только
+    что нажал «Купить» с отметкой, но подменять прежнюю дату согласия нельзя.
+    Счёт за решение покупается без отметки, и его `offer_*` остаются `NULL`.
     """
     organization = db.scalar(
         select(Organization).where(Organization.id == membership.organization_id).with_for_update()
@@ -290,6 +299,14 @@ def purchase_invoice(
     )
     if existing is not None:
         response.status_code = status.HTTP_200_OK
+        # Человек только что нажал «Купить» с отметкой, а счёт за этот тариф уже
+        # висит неоплаченным: дописываем пустой акцепт, но не перезаписываем
+        # записанный — иначе прежняя дата согласия поехала бы на каждом клике.
+        # У счёта за решение отметки нет, и его акцепт остаётся `NULL`.
+        if tariff is not None and not has_acceptance(existing):
+            record_acceptance(db, existing, user)
+            db.commit()
+            db.refresh(existing)
         return _one_response(db, existing, membership)
 
     item = tariff if tariff is not None else solution
@@ -316,6 +333,10 @@ def purchase_invoice(
     )
     db.add(invoice)
     db.flush()
+    # Отметка оферты для тарифа обязательна по схеме, поэтому сюда без неё не
+    # дойти; у счёта за решение акцепта нет, и `offer_*` остаются `NULL`.
+    if tariff is not None:
+        record_acceptance(db, invoice, user)
     invoice.number = invoice_number(invoice.id, datetime.now(UTC).year)
     db.commit()
     db.refresh(invoice)

@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser, own_dormitory
+from app.api.organization import Membership
 from app.arrival_plans import plan_response
 from app.db import get_db
 from app.models.arrival_plan import ArrivalPlan
@@ -22,13 +23,17 @@ router = APIRouter(
 DbSession = Annotated[Session, Depends(get_db)]
 
 
-def writable_dormitory(db: Session, dormitory_id: int) -> None:
+def writable_dormitory(db: Session, dormitory_id: int, membership: Membership) -> Dormitory:
+    """Общежитие организации из сессии, готовое к правке плана заездов.
+
+    Порядок проверок: сначала права, потом блокировка. Чужое общежитие отвечает
+    тем же `404`, что и несуществующее, и не блокируется.
+    """
+    dorm = own_dormitory(db, dormitory_id, membership)
     lock_dormitory(db, dormitory_id)
-    dorm = db.get(Dormitory, dormitory_id)
-    if dorm is None:
-        raise HTTPException(404, "Общежитие не найдено")
     if dorm.is_archived:
         raise HTTPException(409, "План заездов доступен только для действующих общежитий")
+    return dorm
 
 
 def get_plan(db: Session, plan_id: UUID) -> ArrivalPlan:
@@ -51,8 +56,10 @@ def commit_plan(db: Session, plan: ArrivalPlan) -> dict[str, Any]:
 
 
 @router.post("", status_code=201)
-def create_arrival(payload: ArrivalInput, _user: SubscribedUser, db: DbSession) -> dict[str, Any]:
-    writable_dormitory(db, payload.dormitory_id)
+def create_arrival(
+    payload: ArrivalInput, _user: SubscribedUser, membership: Membership, db: DbSession
+) -> dict[str, Any]:
+    writable_dormitory(db, payload.dormitory_id, membership)
     existing = db.scalar(
         select(ArrivalPlan.id).where(
             ArrivalPlan.dormitory_id == payload.dormitory_id,
@@ -68,11 +75,15 @@ def create_arrival(payload: ArrivalInput, _user: SubscribedUser, db: DbSession) 
 
 @router.put("/{plan_id}")
 def update_arrival(
-    plan_id: UUID, payload: ArrivalUpdate, _user: SubscribedUser, db: DbSession
+    plan_id: UUID,
+    payload: ArrivalUpdate,
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
 ) -> dict[str, Any]:
     plan = get_plan(db, plan_id)
     for dormitory_id in sorted({plan.dormitory_id, payload.dormitory_id}):
-        writable_dormitory(db, dormitory_id)
+        writable_dormitory(db, dormitory_id, membership)
     db.refresh(plan, with_for_update=True)
     if plan.revision != payload.revision:
         raise HTTPException(409, "План уже изменён. Закройте окно и откройте запись заново.")
@@ -84,10 +95,14 @@ def update_arrival(
 
 @router.delete("/{plan_id}", status_code=204)
 def delete_arrival(
-    plan_id: UUID, _user: SubscribedUser, db: DbSession, revision: Annotated[int, Query(ge=0)]
+    plan_id: UUID,
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+    revision: Annotated[int, Query(ge=0)],
 ) -> None:
     plan = get_plan(db, plan_id)
-    writable_dormitory(db, plan.dormitory_id)
+    writable_dormitory(db, plan.dormitory_id, membership)
     db.refresh(plan, with_for_update=True)
     if plan.revision != revision:
         raise HTTPException(409, "План уже изменён. Закройте окно и откройте запись заново.")

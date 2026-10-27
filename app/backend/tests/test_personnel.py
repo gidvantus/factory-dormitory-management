@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.models.personnel import Employee, EmployeeMerge, EmployeePlan
 from app.models.resident import Resident
 from app.personnel import event, today
-from tests.conftest import login, sign_in
+from tests.conftest import add_colleague, login, sign_in
 from tests.test_custom_tabs import create_table, tab
 from tests.test_reports import create_dormitory
 from tests.test_resident_outflow import move, preview
@@ -389,7 +389,7 @@ def test_decisions_removed_but_residence_dates_and_history_remain_editable(
 def test_preferences_are_personal_and_use_revision_check(
     client: TestClient, db_session: Session
 ) -> None:
-    sign_in(client, db_session, email="first@example.com")
+    owner = sign_in(client, db_session, email="first@example.com")
     dorm = create_dormitory(client)
     employee = create(client, dorm)["employee_id"]
     lists = [{"id": "current", "name": "Проживающие", "filter": "current"}]
@@ -397,7 +397,9 @@ def test_preferences_are_personal_and_use_revision_check(
     response = client.put(API + "/preferences", json=prefs)
     assert response.status_code == 200, response.text
     assert client.put(API + "/preferences", json=prefs).status_code == 409
-    sign_in(client, db_session, email="second@example.com")
+    # Второй участник — коллега по организации: карточки общие, настройки личные.
+    colleague = add_colleague(db_session, owner.active_organization_id or 0, "second@example.com")
+    assert login(client, colleague.email).status_code == 200
     assert workspace(client)["preferences"]["revision"] == 0
     assert workspace(client)["preferences"]["lists"] == []
     assert "favorites" not in workspace(client)["preferences"]

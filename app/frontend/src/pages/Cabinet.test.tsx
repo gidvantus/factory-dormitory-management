@@ -275,7 +275,6 @@ describe('закрытый кабинет и пробный период', () =>
               <Route path="dormitories" element={<p>Страница общежитий</p>} />
               <Route path="organization" element={<p>Страница организации</p>} />
               <Route path="organization/members" element={<p>Страница сотрудников</p>} />
-              <Route path="tariffs" element={<p>Страница тарифа</p>} />
             </Route>
           </Routes>
         </SessionProvider>
@@ -299,7 +298,6 @@ describe('закрытый кабинет и пробный период', () =>
 
     for (const testId of [
       'workspace-nav-overview',
-      'workspace-nav-tariffs',
       'workspace-nav-shop',
       'workspace-nav-documents',
       'workspace-nav-organization',
@@ -307,6 +305,9 @@ describe('закрытый кабинет и пробный период', () =>
     ]) {
       expect(screen.getByTestId(testId)).not.toHaveAttribute('aria-disabled');
     }
+
+    // Раздел «Тарифы» убран из кабинета: пункта нет ни в каком состоянии.
+    expect(screen.queryByTestId('workspace-nav-tariffs')).not.toBeInTheDocument();
   });
 
   it('не уводит с обзора по клику на закрытый раздел', async () => {
@@ -334,14 +335,11 @@ describe('закрытый кабинет и пробный период', () =>
     expect(screen.queryByText('Страница сотрудников')).not.toBeInTheDocument();
   });
 
-  it('оставляет открытыми тариф и организацию', async () => {
+  it('оставляет открытой организацию на закрытом пробном периоде', async () => {
     const user = userEvent.setup();
     renderLocked('/cabinet');
 
-    await user.click(await screen.findByTestId('workspace-nav-tariffs'));
-    expect(await screen.findByText('Страница тарифа')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('workspace-nav-organization'));
+    await user.click(await screen.findByTestId('workspace-nav-organization'));
     expect(await screen.findByText('Страница организации')).toBeInTheDocument();
   });
 });

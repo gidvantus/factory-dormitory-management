@@ -265,7 +265,8 @@ def test_catalog_requires_an_activated_cabinet(client: TestClient, db_session: S
 def test_catalog_without_an_organization_is_not_found(
     client: TestClient, db_session: Session
 ) -> None:
-    sign_in(client, db_session)
+    # Организация не заводится: проверяется именно отказ без неё.
+    sign_in(client, db_session, organization=False)
 
     assert client.get(CATALOG_URL).status_code == 404
 
