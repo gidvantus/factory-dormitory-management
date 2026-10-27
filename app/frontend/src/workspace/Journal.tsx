@@ -2,8 +2,11 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
+import { useSession } from '../auth/SessionProvider';
 import { api, ApiError } from '../api/client';
 import type { JournalEntry, JournalKind, JournalParams } from '../api/client';
+import { useSolutions } from './SolutionsProvider';
+import { JOURNAL_CODE } from './solutions';
 import pageStyles from './Workspace.module.css';
 import styles from './Journal.module.css';
 
@@ -13,6 +16,9 @@ const LOAD_MORE_ERROR = 'Не удалось догрузить записи. П
 const FORBIDDEN_TITLE = 'Журнал доступен только владельцу организации';
 const FORBIDDEN_HINT =
   'Раздел видят только владельцы организации. Если журнал нужен вам, попросите владельца изменить вашу роль в разделе «Сотрудники».';
+const NO_SOLUTION_TITLE = 'Решение не подключено';
+const NO_SOLUTION_HINT =
+  'Журнал действий — отдельное решение: подключите его в магазине улучшений.';
 const EMPTY_TITLE = 'За выбранный период записей нет';
 
 /** Подписи видов действия: `security`, `data`, `noise` — значения контракта. */
@@ -57,7 +63,7 @@ const TIME_LABEL = new Intl.DateTimeFormat('ru-RU', {
   hour12: false,
 });
 
-type ViewStatus = 'loading' | 'ready' | 'error' | 'forbidden';
+type ViewStatus = 'loading' | 'ready' | 'error' | 'forbidden' | 'no-solution';
 
 /** Сегодняшний день в московском календаре — граница периода по умолчанию. */
 function todayMoscow(): string {
@@ -165,16 +171,34 @@ function queryParams(filters: AppliedFilters, cursor?: string): JournalParams {
  * Раздел «Журнал действий» кабинета владельца организации.
  *
  * Читает `GET /api/journal` и только читает: сам просмотр не оставляет строку в
- * журнале. Роль проверять на клиенте раньше ответа не нужно — сервер отвечает
- * `403` всем, кроме владельца, а экран показывает это состояние вместо ленты.
- * Поэтому прямой заход `/cabinet/journal` у `member` тоже даёт понятное
- * объяснение, а не пустую таблицу.
+ * журнале. Журнал — платное решение каталога магазина улучшений (`journal`, #95),
+ * поэтому права проверяются дважды и по-разному:
  *
- * Состояний четыре: загрузка (скелет в той же таблице), ошибка загрузки,
- * пусто и «только владельцу». Фильтры остаются на месте во всех состояниях,
- * кроме отказа: там их не к чему применять.
+ * * по каталогу (`useSolutions`) — чтобы не отправлять запрос, который сервер всё
+ *   равно закроет, и показать владельцу «Решение не подключено» со ссылкой в
+ *   магазин;
+ * * по ответу сервера — право решает он, а `403` у владельца означает, что право
+ *   истекло между загрузкой каталога и запросом. Клиент не угадывает текст отказа,
+ *   а выбирает состояние по роли.
+ *
+ * Роль проверять на клиенте раньше ответа тоже не нужно: сервер отвечает `403`
+ * всем, кроме владельца, а экран показывает «только владельцу». Поэтому прямой
+ * заход `/cabinet/journal` у `member` даёт понятное объяснение, а не пустую
+ * таблицу.
+ *
+ * Состояний пять: загрузка (скелет в той же таблице), ошибка загрузки, пусто,
+ * «только владельцу» и «решение не подключено». Фильтры остаются на месте во всех
+ * состояниях, кроме двух последних: там их не к чему применять.
  */
 export function Journal(): JSX.Element {
+  const { user } = useSession();
+  const { status: solutionsStatus, ownedCodes } = useSolutions();
+  const isOwner = user?.role === 'owner';
+  const hasRight = ownedCodes.has(JOURNAL_CODE);
+  // Каталог ещё не ответил — право неизвестно, ленту не запрашиваем вообще.
+  const catalogPending = solutionsStatus === 'loading';
+  // Каталог не прочитался: не угадываем, а спрашиваем сервер — он и решает.
+  const canRead = catalogPending ? false : hasRight || solutionsStatus === 'error';
   const [period] = useState(() => {
     const to = todayMoscow();
     return { from: shiftDay(to, -(DEFAULT_PERIOD_DAYS - 1)), to };
@@ -199,14 +223,30 @@ export function Journal(): JSX.Element {
   const moreRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const controller = new AbortController();
-    setStatus('loading');
     setEntries([]);
     setTotal(null);
     setNextCursor(null);
     setMoreError('');
     // Догрузка предыдущего набора на новой ленте уже не актуальна.
     setLoadingMore(false);
+
+    // Каталог решений ещё грузится: пока право неизвестно, показываем загрузку и
+    // не отправляем запрос, который сервер всё равно закроет 403.
+    if (catalogPending) {
+      setStatus('loading');
+      return;
+    }
+
+    // Права нет по каталогу: запрос не нужен. У владельца это «решение не
+    // подключено» со ссылкой в магазин; остальным ролям покупка ничего не
+    // откроет, поэтому им — прежний отказ по роли.
+    if (!canRead) {
+      setStatus(isOwner ? 'no-solution' : 'forbidden');
+      return;
+    }
+
+    const controller = new AbortController();
+    setStatus('loading');
     void api
       .journal(queryParams(filters), controller.signal)
       .then((page) => {
@@ -228,9 +268,16 @@ export function Journal(): JSX.Element {
           setStatus('error');
           return;
         }
-        // 403 — роль не владелец, 404 — пользователь без организации. Оба
-        // отказа приводят к одному состоянию: журнала для него нет.
-        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+        // 403 — роль не владелец или у организации нет права на решение. Текст
+        // отказа различается на сервере, а состояние выбирает роль: у владельца
+        // это «решение не подключено» (право истекло между загрузкой каталога и
+        // запросом), у остальных — прежнее «только владельцу». 404 — пользователь
+        // без организации: журнала для него нет.
+        if (error instanceof ApiError && error.status === 403) {
+          setStatus(isOwner ? 'no-solution' : 'forbidden');
+          return;
+        }
+        if (error instanceof ApiError && error.status === 404) {
           setStatus('forbidden');
           return;
         }
@@ -246,7 +293,7 @@ export function Journal(): JSX.Element {
       moreRef.current?.abort();
       moreRef.current = null;
     };
-  }, [filters, attempt]);
+  }, [filters, attempt, catalogPending, canRead, isOwner]);
 
   function applyFilters(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -281,7 +328,9 @@ export function Journal(): JSX.Element {
   }
 
   const loading = status === 'loading';
-  const showFilters = status !== 'forbidden';
+  // Фильтры скрыты там, где ленты нет вовсе: при отказе по роли и когда решение
+  // не подключено.
+  const showFilters = status !== 'forbidden' && status !== 'no-solution';
 
   return (
     <section aria-labelledby="journal-title" data-testid="journal-page">
@@ -351,6 +400,20 @@ export function Journal(): JSX.Element {
             Применить
           </button>
         </form>
+      )}
+
+      {/* «Решение не подключено» — тот же `.empty-state`, что у «Уведомлений»:
+          без иконки и `data-tone`, с ведущей в магазин кнопкой. Это не отказ по
+          роли: журнал продаётся отдельно, и человеку нужен один следующий шаг —
+          магазин улучшений. */}
+      {status === 'no-solution' && (
+        <div className={pageStyles['empty-state']} data-testid="journal-no-solution">
+          <h2>{NO_SOLUTION_TITLE}</h2>
+          <p>{NO_SOLUTION_HINT}</p>
+          <Link className="btn btn--primary btn--sm" to="/cabinet/shop">
+            В магазин улучшений
+          </Link>
+        </div>
       )}
 
       {status === 'forbidden' && (
