@@ -16,6 +16,26 @@ const PRIVACY_POLICY = {
   updated_at: '2026-05-01T12:00:00+00:00',
 };
 
+/**
+ * Фрагмент настоящего текста политики после ревизии `0050`: разделы и пункты —
+ * самостоятельные абзацы, разметки нет. На нём проверяется, что собранный
+ * документ читается абзацами, а не одним полотном.
+ */
+const LONG_PRIVACY_POLICY_BODY = [
+  '1. Общие положения',
+  '1.1. Политика описывает, какие персональные данные получает сервис «Домовой» (далее — Сервис), зачем он их обрабатывает, кому передаёт, сколько хранит и какими правами пользуется человек, чьи данные попали в Сервис.',
+  '1.2. Политика относится к сайту Сервиса, к личному кабинету и к служебным письмам, которые Сервис отправляет.',
+  '2. Кто обрабатывает данные',
+  '2.1. Оператор персональных данных: полное наименование —, ИНН —, ОГРН —, адрес —, адрес электронной почты —.',
+  '2.2. Данные учётной записи Сервис собирает сам, и их оператором является Сервис.',
+  '2.3. Сведения о проживающих, сотрудниках и других людях вносит в кабинет организация, которая пользуется Сервисом.',
+  '3. Какие данные хранятся в Сервисе',
+  '3.9. Журнал действий: кто, когда и что изменил в кабинете, адрес запроса, IP-адрес, сведения о браузере, необратимые отпечатки значений. Пароли и токены в журнал не попадают.',
+  '3.14. Cookie и локальное хранилище браузера: сеансовый cookie входа, cookie согласия на cookie, настройки интерфейса.',
+  '4. Зачем обрабатываются данные',
+  '4.5. Чтобы выставлять счета и подтверждать оплату.',
+].join('\n\n');
+
 function publicRoutes(document: MockResponse): MockHandler {
   return (url) => {
     if (url.endsWith('/api/documents/privacy-policy')) return document;
@@ -41,6 +61,44 @@ describe('публичная страница документа', () => {
     expect(paragraphs).toHaveLength(3);
     expect(paragraphs[0]).toHaveTextContent('Первый абзац про данные.');
     expect(paragraphs[2]).toHaveTextContent('Третий абзац про права.');
+  });
+
+  it('показывает собранный документ абзацами: разделы и пункты отдельными `<p>`', async () => {
+    mockFetch(
+      publicRoutes({ status: 200, body: { ...PRIVACY_POLICY, body: LONG_PRIVACY_POLICY_BODY } }),
+    );
+    const { container } = renderApp('/documents/privacy-policy');
+
+    expect(await screen.findByTestId('document-title')).toHaveTextContent(
+      'Политика конфиденциальности',
+    );
+
+    const expected = LONG_PRIVACY_POLICY_BODY.split('\n\n');
+    const paragraphs = screen.getAllByTestId('document-paragraph');
+    expect(paragraphs.map((paragraph) => paragraph.textContent)).toEqual(expected);
+
+    // Заголовок раздела — такой же абзац `<p>`, а не `h2`: текст документа
+    // приходит данными, и разметку по номерам пунктов страница не выдумывает.
+    expect(paragraphs[0].tagName).toBe('P');
+    expect(paragraphs[0]).toHaveTextContent('1. Общие положения');
+
+    // В самом тексте ровно один заголовок первого уровня и нет подзаголовков,
+    // которых не было в данных (заголовки колонок подвала лежат вне статьи).
+    const article = container.querySelector<HTMLElement>('.document__body');
+    if (article === null) {
+      throw new Error('Не найден текст документа');
+    }
+    expect(article.querySelectorAll('h1')).toHaveLength(1);
+    expect(article.querySelectorAll('h2, h3, h4')).toHaveLength(0);
+
+    // Абзацы не пустые, а markdown и HTML из текста не протекают.
+    for (const paragraph of paragraphs) {
+      const text = paragraph.textContent ?? '';
+      expect(text.trim().length).toBeGreaterThan(0);
+      for (const marker of ['<', '[', '](', '**']) {
+        expect(text).not.toContain(marker);
+      }
+    }
   });
 
   it('ставит заголовок документа в `document.title`', async () => {
