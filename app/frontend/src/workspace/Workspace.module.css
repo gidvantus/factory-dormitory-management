@@ -885,8 +885,10 @@
   font: 800 22px/1.3 var(--font-display);
   letter-spacing: -0.2px;
 }
-/* Пробный период закончился: заметный блок на обзоре. Он сообщает не об
-   ошибке, а о состоянии кабинета, поэтому цвет — «внимание», а не «опасность». */
+/* Пробный период или срок тарифа закончился: заметный блок на обзоре. Он
+   сообщает не об ошибке, а о состоянии кабинета, поэтому цвет — «внимание», а не
+   «опасность». */
+.shell .tariff-expired,
 .shell .trial-expired {
   display: grid;
   gap: 10px;
@@ -898,12 +900,71 @@
   background: var(--butter-100);
   color: var(--ink-900);
 }
+.shell .tariff-expired-title,
 .shell .trial-expired-title {
   font-size: 18px;
 }
+.shell .tariff-expired p,
 .shell .trial-expired p {
   margin: 0;
 }
+
+/* Предупреждение о скором конце тарифа (`days_left <= 14`): та же «внимание»-
+   плашка, но в строку — текст слева, кнопка справа. */
+.shell .tariff-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--gap-16);
+  padding: 18px 20px;
+  border: 1px solid var(--butter-200);
+  border-radius: 14px;
+  background: var(--butter-100);
+  color: var(--ink-900);
+}
+
+.shell .tariff-notice-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.shell .tariff-notice-title {
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.shell .tariff-notice-text {
+  max-width: 62ch;
+  font-size: 13px;
+  color: var(--ink-700);
+}
+
+.shell .tariff-notice-link {
+  flex: none;
+}
+
+/* Два периода подписки: действующий и оплаченный вперёд. */
+.shell .tariff-periods {
+  display: grid;
+  gap: 6px;
+  padding: 14px 20px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-page);
+}
+
+.shell .tariff-periods-line {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.shell .tariff-periods-line strong {
+  font-size: 13px;
+  color: var(--color-text);
+}
+
 /* Лента тарифа оформляется самостоятельно. Общая плашка нужна только
    закрытому кабинету, чтобы выделить сообщение об окончании пробного периода. */
 .shell .trial-card-block {
@@ -919,6 +980,7 @@
 }
 /* Рамку внутри выделенного блока держит он сам: у сообщения об окончании
    остаются только текст и ссылка. */
+.shell .trial-card-block[data-locked='true'] .tariff-expired,
 .shell .trial-card-block[data-locked='true'] .trial-expired {
   margin-bottom: 0;
   padding: 0;

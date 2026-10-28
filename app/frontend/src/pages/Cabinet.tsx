@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useSession } from '../auth/SessionProvider';
+import { SubscriptionProvider } from '../auth/SubscriptionProvider';
 import { TrialProvider, useTrial } from '../auth/TrialProvider';
 import { subscribeToTrialExpired } from '../auth/trial';
 import { SolutionsProvider, useSolutions } from '../workspace/SolutionsProvider';
@@ -75,18 +76,22 @@ const SOLUTION_NAV_ITEMS: readonly SolutionNavItem[] = [
 ];
 
 /**
- * Оболочка кабинета вместе с состоянием пробного периода и правами на решения.
+ * Оболочка кабинета вместе с состоянием пробного периода, подпиской и правами
+ * на решения.
  *
- * `SolutionsProvider` стоит рядом с `TrialProvider` и оборачивает ту же оболочку:
- * пункт меню платной функции появляется по праву организации, а право читается
- * один раз на весь кабинет.
+ * `SubscriptionProvider` стоит рядом с `TrialProvider` и оборачивает ту же
+ * оболочку: срок тарифа нужен и ленте обзора, и предупреждению о скором конце,
+ * и пределу мест на странице сотрудников, а читается он один раз на весь
+ * кабинет. `SolutionsProvider` отвечает за права на платные решения.
  */
 export function Cabinet(): JSX.Element {
   return (
     <TrialProvider>
-      <SolutionsProvider>
-        <CabinetShell />
-      </SolutionsProvider>
+      <SubscriptionProvider>
+        <SolutionsProvider>
+          <CabinetShell />
+        </SolutionsProvider>
+      </SubscriptionProvider>
     </TrialProvider>
   );
 }

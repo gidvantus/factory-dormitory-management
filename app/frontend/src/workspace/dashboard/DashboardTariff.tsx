@@ -1,89 +1,39 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { api, ApiError } from '../../api/client';
-import type { Tariff } from '../../api/client';
+import { useSubscription } from '../../auth/SubscriptionProvider';
 import { useTrial } from '../../auth/TrialProvider';
 import { TariffPrice } from '../../components/TariffPrice';
+import { daysPhrase, daysWord, formatTariffDate } from '../../components/tariffText';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import styles from './DashboardTariff.module.css';
-
-const LOAD_ERROR = 'Не удалось загрузить тариф организации';
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ApiError && error.status !== 401) return error.message;
-  return LOAD_ERROR;
-}
-
-/** Дата вида ДД.ММ.ГГГГ: сервер отдаёт ISO, человеку нужен привычный формат. */
-function formatTrialEnd(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    timeZone: 'Europe/Moscow',
-  }).format(date);
-}
-
-/** «осталось 5 дней»: без согласования числа текст читается как машинный. */
-function daysWord(days: number): string {
-  const tail = days % 100;
-  if (tail >= 11 && tail <= 14) return 'дней';
-  switch (days % 10) {
-    case 1:
-      return 'день';
-    case 2:
-    case 3:
-    case 4:
-      return 'дня';
-    default:
-      return 'дней';
-  }
-}
 
 /**
  * Тариф организации в обзоре: единственное место в кабинете, где он назван.
  *
  * Раздела «Тарифы» в кабинете больше нет — прайс живёт на публичной странице
  * `/pricing`, и «О тарифе» ведёт туда же. Здесь только показ: тариф
- * привязывается при покупке или администратором
- * платформы, а обзор ничего не меняет — поэтому ошибка загрузки не закрывает
- * дашборд и не превращается в красную плашку на весь экран: показатели обзора
- * важнее, а строка про тариф сообщает о себе сдержанно и предлагает повторить
- * запрос.
+ * привязывается при покупке или администратором платформы, а обзор ничего не
+ * меняет — поэтому ошибка загрузки не закрывает дашборд и не превращается в
+ * красную плашку на весь экран: показатели обзора важнее, а строка про тариф
+ * сообщает о себе сдержанно и предлагает повторить запрос.
  *
- * Срок пробного периода показывается здесь же: «Ваш тариф» — то место, где
- * человек ищет ответ, что с кабинетом и сколько это ещё продлится, поэтому
- * остаток дней не живёт отдельной строкой над блоком.
+ * Срок тарифа показывается здесь же: «Ваш тариф» — то место, где человек ищет
+ * ответ, что с кабинетом и до какого числа он оплачен. У тарифа с известным
+ * концом вместо цены стоит «Оплачен до <дата>» и остаток дней — те же данные,
+ * что рисует предупреждение о скором конце (`TrialNotice`), но без текста
+ * «истекает»: он появляется только при `is_expiring`. Остаток дней и дату
+ * отдаёт сервер, клиент их не считает.
+ *
+ * Срок пробного периода показывается здесь по той же причине: пока тарифа нет,
+ * это единственный срок, который у кабинета есть.
  */
 export function DashboardTariff(): JSX.Element {
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [tariff, setTariff] = useState<Tariff | null>(null);
-  const [error, setError] = useState('');
-  const [attempt, setAttempt] = useState(0);
+  const { state: subscription, status, error, reload } = useSubscription();
   const { state: trial } = useTrial();
 
-  useEffect(() => {
-    const controller = new AbortController();
-    setStatus('loading');
-    void api
-      .currentTariff(controller.signal)
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        setTariff(data.tariff);
-        setStatus('ready');
-      })
-      .catch((caught: unknown) => {
-        if (controller.signal.aborted) return;
-        setError(errorMessage(caught));
-        setStatus('error');
-      });
-    return () => controller.abort();
-  }, [attempt]);
-
-  const current = status === 'ready' ? tariff : null;
+  const current = status === 'ready' ? (subscription?.tariff ?? null) : null;
+  const endsAt = current ? (subscription?.ends_at ?? null) : null;
+  const daysLeft = subscription?.days_left ?? 0;
   const trialActive = !current && trial?.is_active && trial.ends_at !== null;
 
   return (
@@ -144,10 +94,16 @@ export function DashboardTariff(): JSX.Element {
             {trial.days_left} {daysWord(trial.days_left)}
           </strong>
           <span className="visually-hidden">, </span>
-          <span>до {formatTrialEnd(trial.ends_at)}</span>
+          <span>до {formatTariffDate(trial.ends_at)}</span>
         </p>
       )}
-      {current && (
+      {current && endsAt && (
+        <p className={styles.term} role="status" data-testid="dashboard-tariff-ends">
+          <strong>Оплачен до {formatTariffDate(endsAt)}</strong>
+          {daysLeft > 0 && <span>осталось {daysPhrase(daysLeft)}</span>}
+        </p>
+      )}
+      {current && !endsAt && (
         <TariffPrice
           label={current.price_label}
           className={`${styles.term} ${styles.price}`}
@@ -155,11 +111,7 @@ export function DashboardTariff(): JSX.Element {
         />
       )}
       {status === 'error' && (
-        <button
-          type="button"
-          className="btn btn--ghost btn--compact"
-          onClick={() => setAttempt((value) => value + 1)}
-        >
+        <button type="button" className="btn btn--ghost btn--compact" onClick={reload}>
           Повторить
         </button>
       )}

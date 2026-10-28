@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 
 import { api, ApiError } from '../api/client';
 import type { InviteRole, OrganizationMember } from '../api/client';
+import { useSubscription } from '../auth/SubscriptionProvider';
 import { useTrial } from '../auth/TrialProvider';
 import styles from './Workspace.module.css';
 
@@ -45,6 +46,7 @@ function statusLabel(member: OrganizationMember): string {
  */
 export function Members(): JSX.Element {
   const { state: trial } = useTrial();
+  const { state: subscription } = useSubscription();
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'not-linked' | 'error'>('loading');
   const [attempt, setAttempt] = useState(0);
@@ -54,8 +56,8 @@ export function Members(): JSX.Element {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState('');
   const [sendError, setSendError] = useState('');
-  // 409 по лимиту пробного периода сервер помечает заголовком: текст показывает
-  // та же плашка, а признак отличает этот отказ от конфликта по email.
+  // 409 по пределу мест сервер помечает заголовком `X-Member-Limit`: текст
+  // показывает та же плашка, а признак отличает этот отказ от конфликта по email.
   const [limitError, setLimitError] = useState(false);
   const inFlight = useRef(false);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -63,6 +65,15 @@ export function Members(): JSX.Element {
   // Куда вернуть фокус после отправки: пока идёт запрос, кнопка задизейблена и
   // фокус с неё слетает на `<body>`.
   const focusAfterSend = useRef<'email' | 'full_name' | null>(null);
+
+  /**
+   * Предел мест: `max_members` действующего тарифа, `null` — без ограничения; без
+   * тарифа — пробные три. Считает его сервер и отказывает он тоже сам — здесь
+   * число нужно только для подсказки и счётчика, а не для проверки.
+   */
+  const tariff = subscription?.tariff ?? null;
+  const memberLimit = tariff ? tariff.max_members : trial?.is_active ? trial.member_limit : null;
+  const seatsFull = memberLimit !== null && members.length >= memberLimit;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -101,7 +112,7 @@ export function Members(): JSX.Element {
       focusAfterSend.current = 'email';
     } catch (error) {
       setSendError(inviteErrorMessage(error));
-      setLimitError(error instanceof ApiError && error.trialLimit);
+      setLimitError(error instanceof ApiError && error.memberLimit);
       focusAfterSend.current = fieldForError(error);
     } finally {
       inFlight.current = false;
@@ -223,9 +234,25 @@ export function Members(): JSX.Element {
                   Мы отправим письмо со ссылкой: по ней сотрудник задаст пароль и войдёт в вашу
                   организацию.
                 </p>
-                {trial?.is_active && (
-                  <p className={styles['organization-hint']} data-testid="trial-member-limit">
+                {trial?.is_active && !tariff && (
+                  <p className={styles['organization-hint']} data-testid="members-seat-limit">
                     На пробном периоде — не больше {trial.member_limit} сотрудников.
+                  </p>
+                )}
+                {tariff && memberLimit !== null && (
+                  // Предел тарифа: понижение лимита никого не выгоняет, поэтому
+                  // подсказка говорит об этом прямо — иначе счётчик читается как
+                  // «лишних уберут».
+                  <p
+                    className={styles['organization-hint']}
+                    data-testid="members-seat-limit"
+                    data-limit={memberLimit}
+                  >
+                    Тариф допускает до {memberLimit} сотрудников. Занято {members.length} из{' '}
+                    {memberLimit}
+                    {seatsFull
+                      ? '. Сотрудники, приглашённые раньше, продолжают работать — предел касается только новых приглашений.'
+                      : '.'}
                   </p>
                 )}
               </div>
@@ -308,7 +335,9 @@ export function Members(): JSX.Element {
                   className="alert alert--error"
                   role="alert"
                   data-testid="invite-error"
-                  data-trial-limit={limitError ? 'true' : undefined}
+                  data-member-limit={
+                    limitError ? (memberLimit === null ? 'true' : String(memberLimit)) : undefined
+                  }
                 >
                   {sendError}
                 </p>

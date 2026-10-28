@@ -28,8 +28,45 @@ const TRIAL_ACTIVE: MockResponse = {
   },
 };
 
-const TRIAL_MEMBER_LIMIT_DETAIL =
-  'На пробном периоде в организации не может быть больше 3 сотрудников';
+const MEMBER_LIMIT_DETAIL = 'Достигнут предел мест (3). Перейдите на тариф «Рост»';
+
+/** Подписки нет: пробный период или закрытый кабинет — предел берётся из `/api/trial`. */
+const EMPTY_SUBSCRIPTION = {
+  tariff: null,
+  ends_at: null,
+  days_left: 0,
+  is_expiring: false,
+  next: null,
+};
+
+/** Тариф яруса «Рост»: пятнадцать мест, срок ещё идёт. */
+const GROWTH_TARIFF = {
+  id: 21,
+  name: 'Рост',
+  description: 'Все разделы, расширенная отчётность и статистика',
+  amount: '9900.00',
+  currency: 'RUB',
+  period: 'month',
+  unit_label: null,
+  position: 21,
+  max_members: 15,
+  tooltip: null,
+  group_code: 'growth',
+  price_label: '9 900 ₽ в месяц',
+};
+
+function subscriptionWith(maxMembers: number | null): MockResponse {
+  return {
+    status: 200,
+    body: {
+      tariff: { ...GROWTH_TARIFF, max_members: maxMembers },
+      ends_at: '2026-11-02T12:00:00Z',
+      days_left: 12,
+      is_expiring: true,
+      next: null,
+    },
+  };
+}
 
 const OWNER: OrganizationMember = {
   id: 1,
@@ -55,18 +92,20 @@ afterEach(() => {
 });
 
 /**
- * `SessionProvider` при монтировании сам ходит в `/api/me`, поэтому заглушка
- * отвечает на все маршруты экрана: профиль, пробный период, список участников
- * и приглашение.
+ * `SessionProvider` при монтировании сам ходит в `/api/me`, а `SubscriptionProvider`
+ * — в `/api/tariffs/current`, поэтому заглушка отвечает на все маршруты экрана:
+ * профиль, пробный период, подписку, список участников и приглашение.
  */
 function mountMembers(
   membersResponse: MockResponse,
   extra?: (url: string, init?: RequestInit) => MockResponse | null,
   trial: MockResponse = TRIAL_ACTIVE,
+  subscription: MockResponse = { status: 200, body: EMPTY_SUBSCRIPTION },
 ): ReturnType<typeof vi.fn> {
   return mockFetch((url, init) => {
     if (url.endsWith('/api/me')) return SESSION;
     if (url.endsWith('/api/trial')) return trial;
+    if (url.endsWith('/api/tariffs/current')) return subscription;
     if (url.endsWith('/api/organization/invitations')) {
       return extra?.(url, init) ?? { status: 201, body: INVITED };
     }
@@ -295,12 +334,12 @@ describe('экран сотрудников', () => {
   });
 });
 
-describe('лимит сотрудников на пробном периоде', () => {
+describe('предел мест в организации', () => {
   it('показывает подсказку о лимите рядом с формой приглашения', async () => {
     mountMembers({ status: 200, body: [OWNER] });
     renderApp('/cabinet/organization/members');
 
-    const hint = await screen.findByTestId('trial-member-limit');
+    const hint = await screen.findByTestId('members-seat-limit');
     expect(hint).toHaveTextContent('На пробном периоде — не больше 3 сотрудников');
   });
 
@@ -312,16 +351,16 @@ describe('лимит сотрудников на пробном периоде',
     renderApp('/cabinet/organization/members');
 
     expect(await screen.findByTestId('members-table')).toBeInTheDocument();
-    expect(screen.queryByTestId('trial-member-limit')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('members-seat-limit')).not.toBeInTheDocument();
   });
 
-  it('показывает 409 по лимиту текстом сервера и помечает его заголовком', async () => {
+  it('показывает 409 по пределу мест текстом сервера и помечает его заголовком', async () => {
     mountMembers({ status: 200, body: [OWNER] }, (_url, init) =>
       init?.method === 'POST'
         ? {
             status: 409,
-            body: { detail: TRIAL_MEMBER_LIMIT_DETAIL },
-            headers: { 'X-Trial-Limit': 'members' },
+            body: { detail: MEMBER_LIMIT_DETAIL },
+            headers: { 'X-Member-Limit': 'seats' },
           }
         : null,
     );
@@ -333,8 +372,9 @@ describe('лимит сотрудников на пробном периоде',
     await user.click(screen.getByTestId('invite-submit'));
 
     const error = await screen.findByTestId('invite-error');
-    expect(error).toHaveTextContent(TRIAL_MEMBER_LIMIT_DETAIL);
-    expect(error).toHaveAttribute('data-trial-limit', 'true');
+    expect(error).toHaveTextContent(MEMBER_LIMIT_DETAIL);
+    // Признак отказа по местам: без него это был бы обычный 409 по занятому адресу.
+    expect(error).toHaveAttribute('data-member-limit', '3');
     expect(screen.queryByTestId('invite-success')).not.toBeInTheDocument();
   });
 
@@ -353,6 +393,68 @@ describe('лимит сотрудников на пробном периоде',
 
     const error = await screen.findByTestId('invite-error');
     expect(error).toHaveTextContent('Пользователь с таким email уже зарегистрирован');
-    expect(error).not.toHaveAttribute('data-trial-limit');
+    expect(error).not.toHaveAttribute('data-member-limit');
+  });
+
+  it('берёт предел из действующего тарифа, а не из пробного периода', async () => {
+    mountMembers({ status: 200, body: [OWNER] }, undefined, TRIAL_ACTIVE, subscriptionWith(15));
+    renderApp('/cabinet/organization/members');
+
+    const hint = await screen.findByTestId('members-seat-limit');
+
+    expect(hint).toHaveAttribute('data-limit', '15');
+    expect(hint).toHaveTextContent('Тариф допускает до 15 сотрудников');
+    expect(hint).toHaveTextContent('Занято 1 из 15');
+    // Пробный предел рядом не показывается: он больше не определяет доступ.
+    expect(screen.queryByText(/На пробном периоде/)).not.toBeInTheDocument();
+  });
+
+  it('на заполненных местах говорит, что приглашённые раньше продолжают работать', async () => {
+    mountMembers(
+      { status: 200, body: [OWNER, INVITED] },
+      undefined,
+      TRIAL_ACTIVE,
+      subscriptionWith(2),
+    );
+    renderApp('/cabinet/organization/members');
+
+    const hint = await screen.findByTestId('members-seat-limit');
+
+    expect(hint).toHaveTextContent('Занято 2 из 2');
+    expect(hint).toHaveTextContent('Сотрудники, приглашённые раньше, продолжают работать');
+  });
+
+  it('не ограничивает места у тарифа без предела', async () => {
+    mountMembers({ status: 200, body: [OWNER] }, undefined, TRIAL_ACTIVE, subscriptionWith(null));
+    renderApp('/cabinet/organization/members');
+
+    expect(await screen.findByTestId('members-table')).toBeInTheDocument();
+    expect(screen.queryByTestId('members-seat-limit')).not.toBeInTheDocument();
+  });
+
+  it('показывает отказ тарифа по местам дословно и с его пределом', async () => {
+    mountMembers(
+      { status: 200, body: [OWNER] },
+      (_url, init) =>
+        init?.method === 'POST'
+          ? {
+              status: 409,
+              body: { detail: 'Достигнут предел мест (1). Перейдите на тариф «Рост»' },
+              headers: { 'X-Member-Limit': 'seats' },
+            }
+          : null,
+      TRIAL_ACTIVE,
+      subscriptionWith(1),
+    );
+    const user = userEvent.setup();
+    renderApp('/cabinet/organization/members');
+
+    await user.type(await screen.findByTestId('invite-email'), 'lishnii@example.com');
+    await user.type(screen.getByTestId('invite-full-name'), 'Лишний Пётр');
+    await user.click(screen.getByTestId('invite-submit'));
+
+    const error = await screen.findByTestId('invite-error');
+    expect(error).toHaveTextContent('Достигнут предел мест (1). Перейдите на тариф «Рост»');
+    expect(error).toHaveAttribute('data-member-limit', '1');
   });
 });
