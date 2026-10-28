@@ -5,11 +5,13 @@
 (`is_visible = true`) и не умеет показать скрытые ни при каких параметрах — этого
 не позволяет сам запрос, а не проверка после выборки.
 
-`/current` — тариф самой организации, а не прайс: его читает любой участник
-(роль не важна, это свои данные). Правки здесь нет: тариф привязывается при
-покупке или администратором платформы, поэтому кабинет только показывает
-назначенное и не может его сменить. Коды отказа у чтения: 401 без сессии, 403
-без активированного кабинета, 404 без членства в организации.
+`/current` — подписка самой организации, а не прайс: его читает любой участник
+(роль не важна, это свои данные). Ответ описывает действующий тариф и его конец,
+остаток дней, признак скорого конца и оплаченный вперёд период — всё это считает
+`app/subscription.py`. Правки здесь нет: тариф привязывается при покупке или
+администратором платформы, поэтому кабинет только показывает назначенное и не
+может его сменить. Коды отказа у чтения: 401 без сессии, 403 без активированного
+кабинета, 404 без членства в организации.
 
 Скрытый тариф (`is_visible = false`) не продаётся и в прайс не попадает, но у
 организации, которой он уже назначен, остаётся видимым: `is_visible` отсекает
@@ -18,17 +20,22 @@
 
 from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.organization import ORGANIZATION_NOT_FOUND_DETAIL, Membership
 from app.db import get_db
-from app.models.organization import Organization
 from app.models.tariff import Tariff
 from app.pricing import format_price
-from app.schemas.tariff import OrganizationTariffResponse, TariffPeriod, TariffResponse
+from app.schemas.tariff import (
+    NextTariffResponse,
+    OrganizationTariffResponse,
+    TariffPeriod,
+    TariffResponse,
+)
 from app.schemas.user import ErrorResponse
+from app.subscription import subscription_state
 
 router = APIRouter(prefix="/tariffs", tags=["tariffs"])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -61,32 +68,15 @@ def _response(tariff: Tariff) -> TariffResponse:
         unit_label=tariff.unit_label,
         position=tariff.position,
         is_visible=tariff.is_visible,
-        # В колонке `VARCHAR(10)` набор значений держит `CHECK` по тем же трём
+        max_members=tariff.max_members,
+        tooltip=tariff.tooltip,
+        group_code=tariff.group_code,
+        # В колонке `VARCHAR(10)` набор значений держит `CHECK` по тем же
         # периодам, что перечисляет `TariffPeriod`; приведение говорит об этом
         # типизатору, а не ослабляет проверку.
         period=cast(TariffPeriod, tariff.period),
         price_label=format_price(tariff.amount, tariff.currency, tariff.period, tariff.unit_label),
     )
-
-
-def _load_organization(db: Session, organization_id: int) -> Organization:
-    organization = db.get(Organization, organization_id)
-    if organization is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, ORGANIZATION_NOT_FOUND_DETAIL)
-    return organization
-
-
-def _organization_tariff(organization: Organization, db: Session) -> OrganizationTariffResponse:
-    """Собрать ответ по тарифу организации: `None` — тариф ещё не назначен."""
-    if organization.tariff_id is None:
-        return OrganizationTariffResponse(tariff=None)
-    tariff = db.get(Tariff, organization.tariff_id)
-    if tariff is None:
-        # Внешний ключ с `ON DELETE SET NULL` такого не допускает: ссылка на
-        # удалённый тариф обнуляется вместе с удалением. Ответ без тарифа лучше
-        # падения экрана, если строка всё же разошлась.
-        return OrganizationTariffResponse(tariff=None)
-    return OrganizationTariffResponse(tariff=_response(tariff))
 
 
 @router.get("", response_model=list[TariffResponse], summary="Опубликованные тарифы")
@@ -105,10 +95,23 @@ def list_tariffs(db: DbSession) -> list[TariffResponse]:
     responses=CURRENT_RESPONSES,
 )
 def read_organization_tariff(membership: Membership, db: DbSession) -> OrganizationTariffResponse:
-    """Купленный организацией тариф. Читает любой участник, роль не важна.
+    """Подписка организации: действующий тариф, его конец и оплаченное вперёд.
 
-    Ручка только на чтение: сменить тариф из кабинета нельзя, привязка появляется
-    при покупке или администратором платформы.
+    Читает любой участник, роль не важна. Ручка только на чтение: сменить тариф
+    из кабинета нельзя, привязка появляется при покупке или администратором
+    платформы. Истёкший текущий период и наступивший будущий — вычисление, а не
+    запись: ручка ничего не мутирует и воркера не требует.
     """
-    organization = _load_organization(db, membership.organization_id)
-    return _organization_tariff(organization, db)
+    state = subscription_state(db, membership.organization_id)
+    next_period = (
+        NextTariffResponse(tariff=_response(state.next_tariff), starts_at=state.next_starts_at)
+        if state.next_tariff is not None and state.next_starts_at is not None
+        else None
+    )
+    return OrganizationTariffResponse(
+        tariff=_response(state.tariff) if state.tariff is not None else None,
+        ends_at=state.ends_at,
+        days_left=state.days_left,
+        is_expiring=state.is_expiring,
+        next=next_period,
+    )

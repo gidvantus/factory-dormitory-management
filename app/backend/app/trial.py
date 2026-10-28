@@ -2,15 +2,21 @@
 
 Кабинет начинает работать активацией, и первый месяц работает без тарифа.
 Месяц задаётся настройкой `trial_days` и не продлевается правкой данных:
-продление — это выбор тарифа, то есть `organizations.tariff_id`.
+продление — это покупка тарифа, то есть подписка организации
+(`app/subscription.py`).
 
-Правило ровно одно, и оно живёт здесь: **кабинет закрыт, когда тарифа нет и
-пробный период не идёт**. Отсюда два производных признака:
+Правило ровно одно, и оно живёт здесь: **кабинет закрыт, когда действующего
+тарифа нет и пробный период не идёт**. Отсюда два производных признака:
 
 * `locked` — кабинет закрыт: рабочие разделы отвечают 403 (`SubscribedUser`),
   открытыми остаются обзор, тариф, организация и личные данные;
 * `is_active` — доступ определяется именно пробным периодом (тарифа нет, а
-  месяц ещё идёт): только в этом состоянии действует лимит сотрудников.
+  месяц ещё идёт): только в этом состоянии действует пробный лимит сотрудников.
+
+Истёкший тариф больше не держит кабинет открытым: срок считается в
+`app/subscription.py`, и если оплаченного вперёд периода нет — это закрытый
+кабинет, тот же, что был после пробного месяца. Если будущий период оплачен,
+действует он, и кабинет открыт — без фонового воркера.
 
 Пустое `trial_ends_at` — это «пробного периода нет», а не «период ещё не
 начался»: так аккаунты, созданные мимо активации, не получают доступа, которого
@@ -21,23 +27,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from math import ceil
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models.organization import Organization
 from app.models.user import User
+from app.subscription import subscription_state
 
 # Сколько сотрудников, кроме владельца, допускает пробный период.
 TRIAL_MEMBER_LIMIT = 3
 
-# Тексты отказа: первый — общий для закрытого кабинета, второй — про лимит.
+# Текст отказа закрытого кабинета. Отказ по местам собирает
+# `app/subscription.py`: он один и тот же у пробного периода и у тарифа.
 TRIAL_EXPIRED_DETAIL = "Пробный период закончился. Выберите тариф, чтобы продолжить работу"
-TRIAL_MEMBER_LIMIT_DETAIL = "На пробном периоде в организации не может быть больше 3 сотрудников"
-
-# Заголовок отказа по лимиту: по нему фронт отличает этот 409 от конфликта по email.
-TRIAL_LIMIT_HEADER = "X-Trial-Limit"
-TRIAL_LIMIT_HEADER_VALUE = "members"
 
 SECONDS_PER_DAY = 24 * 60 * 60
 
@@ -64,20 +65,16 @@ def trial_ends_at_for(now: datetime | None = None) -> datetime:
     return _as_utc(now or datetime.now(UTC)) + timedelta(days=get_settings().trial_days)
 
 
-def organization_has_tariff(db: Session, user: User) -> bool:
-    """Выбран ли тариф у организации пользователя.
+def organization_has_tariff(db: Session, user: User, now: datetime | None = None) -> bool:
+    """Есть ли у организации пользователя действующий тариф.
 
-    Смотрим на `tariff_id` активной организации: нет организации — нет и тарифа,
-    а `NULL` в колонке означает «тариф ещё не выбран».
+    Смотрим на подписку, а не на одну ссылку `tariff_id`: истёкший период тарифом
+    больше не считается, а оплаченный вперёд — считается, даже если текущий слот
+    уже кончился. Нет организации — нет и тарифа.
     """
     if user.active_organization_id is None:
         return False
-    return (
-        db.scalar(
-            select(Organization.tariff_id).where(Organization.id == user.active_organization_id)
-        )
-        is not None
-    )
+    return subscription_state(db, user.active_organization_id, now).is_active
 
 
 def trial_state(db: Session, user: User, now: datetime | None = None) -> TrialState:
@@ -87,7 +84,7 @@ def trial_state(db: Session, user: User, now: datetime | None = None) -> TrialSt
 
     # Период «идёт», только когда у него есть конец и он в будущем.
     running = ends_at is not None and ends_at > moment
-    has_tariff = organization_has_tariff(db, user)
+    has_tariff = organization_has_tariff(db, user, moment)
 
     days_left = 0
     started_at: datetime | None = None

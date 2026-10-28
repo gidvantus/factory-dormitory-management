@@ -1,11 +1,15 @@
-"""Чтение тарифов: публичный прайс и тариф организации (issue #34).
+"""Чтение тарифов: публичный прайс и тариф организации (issue #34, #99).
 
 Критерии готовности разложены по блокам:
 
 * публичная ручка открыта анониму и отдаёт только `is_visible=true` в порядке
   `position`, затем `id`, с непустым `price_label` и суммой-строкой;
+* у строки прайса есть настройки яруса (#99): `max_members` (`null` — без
+  лимита), `tooltip` и `group_code`; квартальный период даёт свою цену;
 * `GET /api/tariffs/current` читает любой участник организации: 401 без cookie,
-  404 без организации, `tariff: null` до привязки и сам тариф после;
+  404 без организации, пустая подписка до привязки и действующий тариф после;
+* **срок тарифа (#99):** ответ отдаёт `ends_at`, `days_left`, `is_expiring` и
+  `next` — дни и признак предупреждения считает сервер, а не клиент;
 * ручек правки больше нет: `GET /manage`, `POST`, `PATCH`/`DELETE /{id}` и
   `PUT /current` отвечают 404/405 и отсутствуют в `openapi.json`.
 
@@ -13,6 +17,7 @@
 списания и незнакомая валюта — это то, что видит аноним на странице.
 """
 
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -38,6 +43,9 @@ def add_tariff(
     currency: str = "RUB",
     period: str = "month",
     unit_label: str | None = None,
+    max_members: int | None = None,
+    tooltip: str | None = None,
+    group_code: str | None = None,
 ) -> Tariff:
     """Тариф прямо в базе: публичная ручка не требует, чтобы его кто-то создал через API."""
     tariff = Tariff(
@@ -49,6 +57,9 @@ def add_tariff(
         unit_label=unit_label,
         position=position,
         is_visible=is_visible,
+        max_members=max_members,
+        tooltip=tooltip,
+        group_code=group_code,
     )
     db_session.add(tariff)
     db_session.commit()
@@ -65,13 +76,20 @@ def member(
     return organization
 
 
-def bind_tariff(db_session: Session, organization: Organization, tariff: Tariff) -> None:
-    """Привязать тариф к организации так, как это сделает поток покупки.
+def bind_tariff(
+    db_session: Session,
+    organization: Organization,
+    tariff: Tariff,
+    ends_at: datetime | None = None,
+) -> None:
+    """Привязать тариф к организации так, как это сделает поток оплаты.
 
-    Ручки выбора тарифа в задаче нет намеренно: ссылку `organizations.tariff_id`
-    заполнит отдельная задача, поэтому тест ставит её в базу напрямую.
+    Ручки выбора тарифа в задаче нет намеренно: слоты подписки заполняет оплата
+    счёта (`app/invoice_status.py`), поэтому тест ставит их в базу напрямую.
+    `ends_at = None` — бессрочный тариф администратора.
     """
     organization.tariff_id = tariff.id
+    organization.tariff_ends_at = ends_at
     db_session.commit()
 
 
@@ -208,6 +226,17 @@ def test_public_list_gives_a_half_year_plan_its_own_price(
 # --- 2. Тариф организации: чтение ---------------------------------------------
 
 
+def empty_subscription() -> dict[str, object]:
+    """Ответ `/current` у организации без действующего тарифа."""
+    return {
+        "tariff": None,
+        "ends_at": None,
+        "days_left": 0,
+        "is_expiring": False,
+        "next": None,
+    }
+
+
 def test_current_tariff_is_empty_until_the_organization_gets_one(
     client: TestClient, db_session: Session
 ) -> None:
@@ -217,7 +246,7 @@ def test_current_tariff_is_empty_until_the_organization_gets_one(
 
     assert response.status_code == 200, response.text
     # `editable` из ответа убран: правки в кабинете больше нет.
-    assert response.json() == {"tariff": None}
+    assert response.json() == empty_subscription()
 
 
 def test_organization_sees_the_tariff_bound_to_it(client: TestClient, db_session: Session) -> None:
@@ -232,6 +261,127 @@ def test_organization_sees_the_tariff_bound_to_it(client: TestClient, db_session
     assert body["tariff"]["id"] == tariff.id
     assert body["tariff"]["name"] == "Базовый"
     assert body["tariff"]["price_label"] == f"5{NBSP}000 ₽ за одно место в месяц"
+    # Бессрочный тариф: конца нет, дней тоже, предупреждения нет.
+    assert body["ends_at"] is None
+    assert body["days_left"] == 0
+    assert body["is_expiring"] is False
+    assert body["next"] is None
+
+
+def test_tariff_row_carries_the_tier_settings(client: TestClient, db_session: Session) -> None:
+    """Настройки яруса (#99): места, подсказка и код яруса едут в ответе."""
+    add_tariff(
+        db_session,
+        name="Рост",
+        max_members=15,
+        tooltip="Место — сотрудник с доступом к кабинету",
+        group_code="growth",
+    )
+
+    body = client.get("/api/tariffs").json()[0]
+
+    assert body["max_members"] == 15
+    assert body["tooltip"] == "Место — сотрудник с доступом к кабинету"
+    assert body["group_code"] == "growth"
+
+
+def test_unlimited_tier_has_no_member_limit(client: TestClient, db_session: Session) -> None:
+    """`max_members = null` — «без ограничения», а не «ноль мест»."""
+    add_tariff(db_session, name="Безлимит", group_code="unlimited")
+
+    body = client.get("/api/tariffs").json()[0]
+
+    assert body["max_members"] is None
+
+
+def test_quarter_plan_has_its_own_price(client: TestClient, db_session: Session) -> None:
+    """Квартальный период проходит `CHECK` и читается как «за 3 месяца»."""
+    add_tariff(db_session, name="Старт · 3 месяца", amount="13200.00", period="quarter")
+
+    body = client.get("/api/tariffs").json()[0]
+
+    assert body["period"] == "quarter"
+    assert body["price_label"] == f"13{NBSP}200 ₽ за 3 месяца"
+
+
+def test_current_tariff_reports_the_days_left(client: TestClient, db_session: Session) -> None:
+    """Дни и признак скорого конца считает сервер: клиент их не вычитает."""
+    organization = member(client, db_session)
+    tariff = add_tariff(db_session)
+    ends_at = datetime.now(UTC) + timedelta(days=5, hours=1)
+    bind_tariff(db_session, organization, tariff, ends_at)
+
+    body = client.get("/api/tariffs/current").json()
+
+    assert body["tariff"]["id"] == tariff.id
+    assert body["days_left"] == 6
+    assert body["is_expiring"] is True
+    assert datetime.fromisoformat(body["ends_at"]) is not None
+
+
+def test_current_tariff_is_calm_further_than_fourteen_days(
+    client: TestClient, db_session: Session
+) -> None:
+    """15 суток — предупреждения нет: блок показывается только по флагу."""
+    organization = member(client, db_session)
+    tariff = add_tariff(db_session)
+    bind_tariff(db_session, organization, tariff, datetime.now(UTC) + timedelta(days=15))
+
+    body = client.get("/api/tariffs/current").json()
+
+    assert body["days_left"] == 15
+    assert body["is_expiring"] is False
+
+
+def test_current_tariff_reports_the_paid_future_period(
+    client: TestClient, db_session: Session
+) -> None:
+    """Оплаченный вперёд период показан отдельно, с днём начала."""
+    organization = member(client, db_session)
+    current = add_tariff(db_session, name="Старт")
+    future = add_tariff(db_session, name="Квартал", amount="13200.00", period="quarter")
+    ends_at = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
+    bind_tariff(db_session, organization, current, ends_at)
+    organization.next_tariff_id = future.id
+    organization.next_tariff_ends_at = datetime(2027, 2, 2, 12, 0, tzinfo=UTC)
+    db_session.commit()
+
+    body = client.get("/api/tariffs/current").json()
+
+    assert body["tariff"]["id"] == current.id
+    assert body["next"]["tariff"]["id"] == future.id
+    # Будущий период начинается ровно в момент конца текущего.
+    assert datetime.fromisoformat(body["next"]["starts_at"]) == ends_at
+
+
+def test_expired_tariff_without_a_future_is_not_a_tariff(
+    client: TestClient, db_session: Session
+) -> None:
+    """Истёкший срок и пустой слот продления: действующего тарифа нет."""
+    organization = member(client, db_session)
+    tariff = add_tariff(db_session)
+    bind_tariff(db_session, organization, tariff, datetime.now(UTC) - timedelta(seconds=1))
+
+    assert client.get("/api/tariffs/current").json() == empty_subscription()
+
+
+def test_expired_tariff_with_a_paid_future_is_the_future(
+    client: TestClient, db_session: Session
+) -> None:
+    """Будущий период становится действующим без фонового воркера."""
+    organization = member(client, db_session)
+    current = add_tariff(db_session, name="Старт")
+    future = add_tariff(db_session, name="Квартал", amount="13200.00", period="quarter")
+    bind_tariff(db_session, organization, current, datetime.now(UTC) - timedelta(days=1))
+    organization.next_tariff_id = future.id
+    organization.next_tariff_ends_at = datetime.now(UTC) + timedelta(days=30)
+    db_session.commit()
+
+    body = client.get("/api/tariffs/current").json()
+
+    assert body["tariff"]["id"] == future.id
+    assert body["days_left"] == 30
+    assert body["next"] is None
 
 
 def test_hidden_tariff_stays_visible_to_its_organization(
@@ -287,7 +437,7 @@ def test_organization_sees_only_its_own_tariff(client: TestClient, db_session: S
 
     member(client, db_session, email="second@example.com")
 
-    assert client.get("/api/tariffs/current").json() == {"tariff": None}
+    assert client.get("/api/tariffs/current").json() == empty_subscription()
 
 
 # --- 3. Ручки правки сняты ----------------------------------------------------

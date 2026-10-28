@@ -13,6 +13,19 @@
 `position` задаёт порядок вывода (меньше — выше), `is_visible` — публикацию:
 скрытый тариф остаётся в кабинете, но на `/pricing` не попадает ни при каких
 параметрах запроса.
+
+**Срок действия тарифа — это его `period`.** Второго поля срока здесь нет
+намеренно: два источника разошлись бы, и один из них оказался бы враньём.
+Конец оплаченного периода считается от `period` в момент оплаты и лежит уже у
+организации (`organizations.tariff_ends_at`), а не в строке прайса: у двух
+организаций один тариф начался в разные дни.
+
+**Прайс продаёт ярусы и сроки.** Строки одного яруса различаются только сроком и
+ценой, а общие признаки яруса у них одинаковые: `group_code` — машинный код
+яруса (`start`, `growth`, `team`, `unlimited`), `max_members` — сколько мест в
+ярусе (`NULL` — без ограничения), `tooltip` — подсказка к карточке. `name`
+остаётся именем строки: у месячной строки это просто название яруса, у остальных
+к нему добавлен срок.
 """
 
 from datetime import datetime
@@ -36,8 +49,9 @@ from app.models.base import Base
 # Периоды списания. Порядок — как в `CHECK`: список должен быть записан в модели
 # и в миграции одинаково. Полугодовой период (`half_year`) — не «шесть месяцев»
 # словами, а самостоятельный период оплаты: прайс продаёт подписку на полгода
-# сразу, и цена за неё не равна шести месячным платежам.
-TARIFF_PERIODS = ("month", "year", "once", "half_year")
+# сразу, и цена за неё не равна шести месячным платежам. Квартал (`quarter`) —
+# такой же самостоятельный период со своей ценой (скидка 10% к месячной).
+TARIFF_PERIODS = ("month", "quarter", "half_year", "year", "once")
 
 # Перечень значений для `CHECK` собирается из константы.
 TARIFF_PERIODS_SQL = ", ".join(f"'{period}'" for period in TARIFF_PERIODS)
@@ -63,6 +77,14 @@ class Tariff(Base):
     period: Mapped[str] = mapped_column(String(10), nullable=False, server_default="month")
     # Что именно стоит этих денег: «за одно место», «за общежитие».
     unit_label: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Сколько сотрудников, кроме владельца, допускает ярус. `NULL` — без лимита:
+    # так прайс говорит «без ограничения», а не «ноль мест».
+    max_members: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Подсказка к карточке: что считается местом. Необязательна, как `description`.
+    tooltip: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Код яруса: строки одного тарифа с разным сроком делят этот код, и клиент
+    # собирает из них переключатель срока, а не двенадцать независимых плашек.
+    group_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     is_visible: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
