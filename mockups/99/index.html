@@ -1,0 +1,3056 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Макет постановки · Тариф со сроком, лимитом мест и продлением (#99)</title>
+    <style>
+      /* ==========================================================================
+         МАКЕТ ПОСТАНОВКИ #99 · статичная страница: без сборки, зависимостей и сети.
+
+         Источники значений (скопированы, ни одно не придумано):
+         · токены, кнопки, теги, поля, алерты, панель, таблица — app/frontend/src/index.css;
+         · оболочка кабинета — app/frontend/src/workspace/Workspace.module.css (Cabinet.tsx);
+         · лента тарифа — workspace/dashboard/DashboardTariff.module.css;
+         · прайс и плашки — pages/Pricing.tsx, components/PricingPlans.module.css;
+         · окно покупки — components/PurchaseConfirmDialog.tsx;
+         · сотрудники — workspace/Members.tsx, workspace/Workspace.module.css.
+
+         Гарнитуры — стек продукта. Nunito по сети макет не грузит (запрещено):
+         на машине без установленного Nunito рендерится Segoe UI, сетка не зависит.
+         ========================================================================== */
+
+      /* --- Токены (index.css, слой 1 и 2) ------------------------------------ */
+      :root {
+        --cream-50: #fffdf9;
+        --cream-100: #fbf6ec;
+        --cream-200: #f4ebdc;
+        --cream-300: #e8dcc7;
+
+        --ink-900: #27313d;
+        --ink-700: #3f4c5c;
+        --ink-500: #4a5a6b;
+        --ink-300: #7b8794;
+
+        --mint-100: #dceee4;
+        --mint-200: #a9d6c1;
+        --mint-600: #2f7d62;
+        --mint-700: #26654f;
+
+        --peach-100: #fbe0d2;
+        --peach-200: #f5c0a4;
+        --clay-600: #c4623c;
+        --clay-700: #97431f;
+
+        --butter-100: #fcefc7;
+        --butter-200: #f2d793;
+        --butter-700: #7a5c0d;
+
+        --sky-100: #dce9f7;
+        --sky-200: #b7d3ec;
+        --blue-600: #34679e;
+
+        --lilac-100: #e6e1f5;
+
+        --color-bg-page: var(--cream-50);
+        --color-bg-alt: var(--cream-100);
+        --color-bg-surface: #ffffff;
+        --color-bg-tint: var(--cream-200);
+        --color-border: var(--cream-200);
+        --color-border-strong: var(--cream-300);
+
+        --color-text: var(--ink-900);
+        --color-text-body: var(--ink-500);
+        --color-text-muted: #5c6a78;
+        --color-text-placeholder: var(--ink-300);
+        --color-text-subtle: #9ba3a9;
+
+        --color-accent: var(--mint-600);
+        --color-accent-hover: var(--mint-700);
+        --color-on-accent: #ffffff;
+        --color-text-on-accent: var(--color-on-accent);
+        --color-on-ink: var(--cream-50);
+        --color-focus: var(--blue-600);
+        --focus-outline-width: 1px;
+        --color-danger: #9c3d24;
+
+        --color-status-neutral: #909ba4;
+        --color-status-ok: var(--mint-600);
+        --color-status-missing: #c34d4d;
+
+        --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        --font-body: 'Nunito Sans', 'Nunito', 'Segoe UI', system-ui, sans-serif;
+
+        --text-hero: clamp(2.125rem, 1.1rem + 3.4vw, 3.5rem);
+        --text-h2: clamp(1.625rem, 1.15rem + 1.7vw, 2.375rem);
+        --text-h3: clamp(1.125rem, 1rem + 0.4vw, 1.375rem);
+        --text-h4: 1.0625rem;
+        --text-lead: clamp(1.0625rem, 1rem + 0.35vw, 1.1875rem);
+        --text-body: 1rem;
+        --text-sm: 0.9375rem;
+        --text-xs: 0.8125rem;
+
+        --leading-tight: 1.1;
+        --leading-snug: 1.25;
+        --leading-body: 1.65;
+
+        --radius-xs: 6px;
+        --radius-2xs: 7px;
+        --radius-3xs: 8px;
+        --radius-4xs: 9px;
+        --radius-5xs: 10px;
+        --radius-sm: 12px;
+        --radius-md: 18px;
+        --radius-lg: 26px;
+        --radius-xl: 34px;
+        --radius-pill: 999px;
+
+        --control-h-sm: 32px;
+        --control-h-md: 39px;
+        --control-h-lg: 48px;
+        --control-px-sm: 13px;
+        --control-px-md: 15px;
+
+        --shadow-sm: 0 1px 2px rgba(39, 49, 61, 0.05);
+        --shadow-md: 0 10px 24px -14px rgba(39, 49, 61, 0.22);
+        --shadow-lg: 0 26px 60px -30px rgba(39, 49, 61, 0.32);
+
+        --container: 1140px;
+        --gutter: clamp(1.125rem, 0.6rem + 2vw, 2rem);
+        --section-y: clamp(3.5rem, 2rem + 6vw, 7rem);
+        --section-y-first: clamp(2rem, 1.25rem + 2vw, 2.5rem);
+        --space-1: 0.25rem;
+        --space-2: 0.5rem;
+        --space-3: 0.75rem;
+        --space-4: 1rem;
+        --space-5: 1.5rem;
+        --space-6: 2rem;
+        --space-7: 3rem;
+
+        --gap-2: 2px;
+        --gap-4: 4px;
+        --gap-6: 6px;
+        --gap-8: 8px;
+        --gap-10: 10px;
+        --gap-12: 12px;
+        --gap-14: 14px;
+        --gap-16: 16px;
+        --gap-18: 18px;
+        --gap-20: 20px;
+        --gap-24: 24px;
+        --gap-28: 28px;
+      }
+
+      /* --- База и утилиты --------------------------------------------------- */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--cream-200);
+        color: var(--color-text);
+        font: 16px/1.65 var(--font-body);
+        -webkit-font-smoothing: antialiased;
+      }
+      h1,
+      h2,
+      h3,
+      h4 {
+        font-family: var(--font-display);
+        font-weight: 800;
+        color: var(--color-text);
+        margin: 0;
+        letter-spacing: -0.015em;
+        text-wrap: balance;
+      }
+      h1 {
+        font-size: var(--text-hero);
+        line-height: var(--leading-tight);
+        letter-spacing: -0.028em;
+      }
+      h2 {
+        font-size: var(--text-h2);
+        line-height: var(--leading-snug);
+      }
+      h3 {
+        font-size: var(--text-h3);
+        line-height: 1.3;
+      }
+      p {
+        margin: 0;
+        text-wrap: pretty;
+      }
+      ul,
+      ol {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      a {
+        color: var(--color-accent);
+        text-decoration-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+        text-underline-offset: 3px;
+      }
+      a:hover {
+        color: var(--color-accent-hover);
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      :focus-visible {
+        outline: var(--focus-outline-width) solid var(--color-focus);
+        outline-offset: 3px;
+        border-radius: var(--radius-sm);
+      }
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+      .container {
+        width: min(100% - (var(--gutter) * 2), var(--container));
+        margin-inline: auto;
+      }
+      .icon {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: none;
+      }
+
+      /* --- Кнопки (index.css) ----------------------------------------------- */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: var(--control-h-lg);
+        padding: 0.75rem 1.5rem;
+        border-radius: var(--radius-pill);
+        white-space: nowrap;
+        flex: none;
+        border: 2px solid transparent;
+        background: none;
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: var(--text-sm);
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          background-color 180ms ease,
+          color 180ms ease,
+          border-color 180ms ease,
+          transform 180ms ease,
+          box-shadow 180ms ease;
+      }
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .btn--primary {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+        box-shadow: var(--shadow-md);
+      }
+      .btn--primary:hover:not(:disabled) {
+        background: var(--color-accent-hover);
+        color: var(--color-on-accent);
+        transform: translateY(-2px);
+      }
+      .btn--ink {
+        background: var(--color-text);
+        color: var(--color-on-ink);
+      }
+      .btn--outline {
+        background: transparent;
+        border-color: var(--color-border-strong);
+        color: var(--color-text);
+      }
+      .btn--outline:hover:not(:disabled) {
+        background: var(--color-bg-surface);
+        border-color: var(--ink-900);
+        color: var(--color-text);
+      }
+      .btn--ghost {
+        background: var(--color-bg-surface);
+        border-color: var(--color-border-strong);
+        color: var(--color-text);
+      }
+      .btn--sm {
+        min-height: 42px;
+        padding: 0.5rem 1.125rem;
+      }
+      .btn--compact {
+        min-height: var(--control-h-md);
+        padding: 8px var(--control-px-md);
+        border-radius: var(--radius-4xs);
+        font-size: var(--text-xs);
+      }
+      .btn--block {
+        width: 100%;
+      }
+      .btn > svg {
+        width: var(--gap-18);
+        height: var(--gap-18);
+      }
+
+      /* --- Теги, поля, алерты (index.css) ----------------------------------- */
+      .tag {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: var(--radius-pill);
+        font-size: 0.75rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .tag--ok {
+        background: var(--mint-100);
+        color: var(--mint-700);
+      }
+      .tag--wait {
+        background: var(--butter-100);
+        color: var(--butter-700);
+      }
+      .tag--neutral {
+        background: var(--color-bg-tint);
+        color: var(--color-text-body);
+      }
+      .field {
+        display: grid;
+        gap: var(--space-2);
+      }
+      .field__label {
+        font-weight: 700;
+        font-size: var(--text-sm);
+      }
+      .field__input {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border: 2px solid var(--color-border-strong);
+        border-radius: var(--radius-sm);
+        background: var(--color-bg-surface);
+        color: var(--color-text);
+        font: inherit;
+      }
+      .field__input::placeholder {
+        color: var(--color-text-placeholder);
+      }
+      .field__consent {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: var(--space-2);
+        align-items: start;
+        cursor: pointer;
+      }
+      .field__checkbox {
+        width: 1.15rem;
+        height: 1.15rem;
+        margin: 0.15rem 0 0;
+        accent-color: var(--color-accent);
+      }
+      .field__consent-text {
+        font-size: var(--text-sm);
+        color: var(--color-text-body);
+      }
+      .field__consent-link {
+        color: var(--color-accent);
+        text-decoration: underline;
+      }
+      .alert {
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-sm);
+        font-size: var(--text-sm);
+        font-weight: 700;
+      }
+      .alert--error {
+        background: var(--peach-100);
+        color: var(--color-danger);
+      }
+      .dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+      .muted {
+        color: var(--color-text-muted);
+      }
+
+      /* ==========================================================================
+         Публичная страница прайса
+         ========================================================================== */
+      .site-header {
+        background: var(--color-bg-page);
+        border-bottom: 1px solid var(--color-border);
+      }
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: clamp(1rem, 3vw, 2.5rem);
+        min-height: 76px;
+      }
+      .logo {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.625rem;
+        flex: none;
+        font-family: var(--font-display);
+        font-weight: 900;
+        font-size: 1.25rem;
+        letter-spacing: -0.02em;
+        color: var(--color-text);
+        text-decoration: none;
+      }
+      .logo__mark {
+        width: 40px;
+        height: 40px;
+        flex: none;
+      }
+      .nav__links {
+        display: flex;
+        align-items: center;
+        gap: clamp(0.75rem, 2vw, 1.75rem);
+        margin-inline-start: auto;
+        min-width: 0;
+      }
+      .nav__links a {
+        color: var(--color-text-body);
+        text-decoration: none;
+        font-weight: 600;
+        font-size: var(--text-sm);
+        padding: 0.5rem 0.125rem;
+        white-space: nowrap;
+      }
+      .nav__links a[aria-current='page'] {
+        color: var(--color-text);
+        font-weight: 800;
+        text-decoration: underline;
+        text-decoration-thickness: 2px;
+        text-decoration-color: var(--mint-200);
+      }
+      .nav__actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-inline-start: 0.5rem;
+      }
+      .section--first {
+        padding-block: var(--section-y-first) clamp(2.5rem, 2rem + 3vw, 4rem);
+      }
+      .section__head {
+        max-width: 46rem;
+        margin-bottom: clamp(2rem, 1rem + 3vw, 3.25rem);
+      }
+      .section__head--center {
+        margin-inline: auto;
+        text-align: center;
+      }
+      .section__head p {
+        margin-top: var(--space-4);
+        font-size: var(--text-lead);
+        color: var(--color-text-body);
+        max-width: 42rem;
+      }
+      .section__head--center p {
+        margin-inline: auto;
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: var(--space-4);
+        padding: 0.375rem 0.875rem;
+        background: var(--color-bg-surface);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-pill);
+        font-family: var(--font-display);
+        font-size: var(--text-xs);
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        color: var(--color-text-body);
+        text-transform: uppercase;
+      }
+
+      /* --- Переключатель срока: одна строка на весь прайс -------------------- */
+      .period-bar {
+        display: grid;
+        justify-items: center;
+        gap: var(--space-3);
+        margin-bottom: clamp(1.5rem, 1rem + 1.5vw, 2.25rem);
+      }
+      .period-switch {
+        display: inline-flex;
+        gap: 4px;
+        padding: 4px;
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-pill);
+        background: var(--color-bg-surface);
+      }
+      .period-option {
+        min-height: var(--control-h-md);
+        padding: 0 20px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-pill);
+        background: none;
+        color: var(--color-text-body);
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: var(--text-xs);
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .period-option:hover {
+        background: var(--color-bg-alt);
+        color: var(--color-text);
+      }
+      /* Выбранный период — тем же приёмом, что выбранный день в кабинете
+         (`PersonnelFocus .dayChoice[aria-pressed='true']`): заливка mint-100 и
+         рамка mint-200. Это язык продукта, а не новый акцент. */
+      .period-option[aria-checked='true'] {
+        background: var(--mint-100);
+        border-color: var(--mint-200);
+        color: var(--mint-700);
+      }
+      .period-hint {
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
+        text-align: center;
+      }
+
+      /* --- Плашки ярусов ---------------------------------------------------- */
+      .pricing__grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: clamp(1rem, 1.4vw, 1.25rem);
+        padding: 0;
+        list-style: none;
+      }
+      .plan {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        min-width: 0;
+        padding: var(--space-5);
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        overflow-wrap: anywhere;
+      }
+      /* Купленный тариф: рамка акцентом и лёгкая заливка — тот же приём, что у
+         ленты действующего тарифа в кабинете (`DashboardTariff` data-access). */
+      .plan[data-owned='true'] {
+        border-color: var(--mint-200);
+        background: color-mix(in srgb, var(--mint-100) 30%, var(--color-bg-surface));
+      }
+      .plan__head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-3);
+      }
+      .plan__name {
+        font-size: var(--text-h3);
+        line-height: 1.2;
+      }
+      .plan__seats {
+        display: flex;
+        align-items: center;
+        gap: var(--gap-6);
+        color: var(--color-text-body);
+        font-size: var(--text-xs);
+      }
+      .plan__seats .icon {
+        width: 16px;
+        height: 16px;
+        color: var(--color-text-muted);
+      }
+      .plan__tip {
+        display: grid;
+        place-items: center;
+        width: 20px;
+        height: 20px;
+        margin-inline-start: auto;
+        padding: 0;
+        border: 1px solid var(--color-border-strong);
+        border-radius: 50%;
+        background: var(--color-bg-page);
+        color: var(--color-text-muted);
+        cursor: help;
+      }
+      .plan__tip .icon {
+        width: 12px;
+        height: 12px;
+        color: inherit;
+      }
+      .plan__tip-box {
+        position: absolute;
+        right: var(--space-5);
+        top: 76px;
+        width: min(232px, calc(100% - var(--space-5) * 2));
+        z-index: 2;
+        padding: 10px 12px;
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-3xs);
+        background: var(--color-bg-surface);
+        box-shadow: var(--shadow-md);
+        color: var(--color-text-body);
+        font-size: var(--text-xs);
+        line-height: 1.45;
+      }
+      .plan__desc {
+        color: var(--color-text-body);
+        font-size: 0.875rem;
+        line-height: 1.5;
+      }
+      .plan__price {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-top: auto;
+        padding-top: var(--space-2);
+      }
+      .plan__price strong {
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: clamp(1.5rem, 1.1rem + 0.9vw, 1.875rem);
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text);
+      }
+      .plan__price span {
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
+      }
+      .plan__term {
+        font-size: var(--text-xs);
+        color: var(--mint-700);
+        font-weight: 700;
+      }
+      .plan .btn {
+        width: 100%;
+        min-height: var(--control-h-md);
+        padding: 8px var(--control-px-md);
+        border-radius: var(--radius-4xs);
+        font-size: var(--text-xs);
+      }
+      .plan__note {
+        font-size: 0.75rem;
+        line-height: 1.4;
+        color: var(--color-text-muted);
+      }
+      .pricing__note {
+        max-width: 34rem;
+        margin: clamp(1.5rem, 1rem + 1vw, 2rem) auto 0;
+        text-align: center;
+        color: var(--color-text-body);
+        font-size: var(--text-sm);
+      }
+
+      /* --- Блоки состояний прайса ------------------------------------------- */
+      .states {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--space-4);
+        margin-top: var(--space-7);
+      }
+      .state-box {
+        display: grid;
+        align-content: center;
+        justify-items: center;
+        gap: var(--space-3);
+        min-height: 112px;
+        padding: var(--space-4) var(--space-5);
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        text-align: center;
+      }
+      .state-box__cap {
+        align-self: start;
+        justify-self: start;
+        font-family: var(--font-display);
+        font-size: 0.75rem;
+        font-weight: 800;
+        color: var(--color-text-muted);
+      }
+      .state-box__text {
+        color: var(--color-text-body);
+        font-size: var(--text-sm);
+      }
+      .state-box__pair {
+        display: grid;
+        gap: 2px;
+        justify-items: center;
+      }
+      .state-box__pair .term {
+        font: 800 var(--text-sm) / 1.3 var(--font-display);
+        color: var(--mint-700);
+      }
+      .state-box__pair .note {
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
+      }
+      .state-box--error {
+        border-color: var(--peach-200);
+        background: var(--peach-100);
+        color: var(--color-danger);
+      }
+
+      /* ==========================================================================
+         Каркас кабинета (Workspace.module.css, Cabinet.tsx)
+         ========================================================================== */
+      .shell {
+        display: grid;
+        grid-template-columns: 248px minmax(0, 1fr);
+        min-height: 640px;
+        background: var(--color-bg-surface);
+        color: var(--color-text);
+        font: 15px/1.55 var(--font-body);
+      }
+      .shell h1,
+      .shell h2,
+      .shell h3,
+      .shell p {
+        margin: 0;
+      }
+      .shell h1,
+      .shell h2,
+      .shell h3 {
+        font-family: var(--font-display);
+      }
+      .sidebar {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        padding: 28px 18px 18px;
+        background: var(--color-bg-alt);
+        border-right: 1px solid var(--color-border);
+      }
+      .brand {
+        display: flex;
+        gap: 11px;
+        align-items: center;
+        padding: 0 12px;
+        text-decoration: none;
+        width: fit-content;
+      }
+      .brand-mark {
+        width: 42px;
+        height: 42px;
+      }
+      .brand-name {
+        font: 900 24px/1.15 var(--font-display);
+        letter-spacing: -0.6px;
+      }
+      .brand-note {
+        margin: 12px 12px 34px;
+        color: var(--color-text-muted);
+        font-size: 12px;
+      }
+      .nav-label {
+        margin: 0 12px 12px;
+        color: var(--color-text-muted);
+        font-size: 11px;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+      .nav-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 5px;
+      }
+      .nav-link {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        width: 100%;
+        min-height: 46px;
+        padding: 11px 13px;
+        border-radius: 12px;
+        border: 1px solid transparent;
+        color: var(--color-text-body);
+        text-align: left;
+        text-decoration: none;
+        background: transparent;
+        font-size: 14px;
+      }
+      .nav-link[aria-current='page'] {
+        background: var(--color-bg-surface);
+        border-color: var(--color-border);
+        box-shadow: var(--shadow-sm);
+        color: var(--color-text);
+        font-weight: 800;
+      }
+      .nav-link[aria-current='page'] .icon {
+        color: var(--mint-700);
+      }
+      .nav-link[aria-disabled='true'] {
+        cursor: default;
+        color: var(--color-text-subtle);
+      }
+      .sidebar-bottom {
+        margin-top: auto;
+        padding-top: 32px;
+      }
+      .account-nav {
+        padding-top: 17px;
+        border-top: 1px solid var(--color-border-strong);
+      }
+      .account {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 20px;
+        padding: 16px 10px 2px;
+        border-top: 1px solid var(--color-border);
+      }
+      .account-avatar {
+        width: 36px;
+        height: 36px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        border-radius: 50%;
+        background: var(--mint-100);
+        color: var(--mint-700);
+        font: 900 13px var(--font-display);
+      }
+      .account-info {
+        min-width: 0;
+        flex: 1;
+      }
+      .account-name {
+        font-weight: 700;
+        font-size: 13px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .account-email {
+        font-size: 11px;
+        color: var(--color-text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .logout {
+        display: grid;
+        place-items: center;
+        padding: 5px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--color-text-muted);
+        cursor: pointer;
+      }
+      .workspace {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .topbar {
+        height: 76px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 0 40px;
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-bg-page);
+      }
+      .breadcrumbs {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 13px;
+        color: var(--color-text-muted);
+      }
+      .breadcrumbs .icon {
+        width: 14px;
+        height: 14px;
+        color: var(--color-text-subtle);
+      }
+      .breadcrumbs strong {
+        color: var(--color-text);
+        font-weight: 700;
+      }
+      .menu-toggle {
+        display: none;
+        border: 1px solid var(--color-border);
+        background: var(--color-bg-surface);
+        border-radius: 10px;
+        padding: 9px;
+        cursor: pointer;
+      }
+      .main {
+        width: 100%;
+        min-width: 0;
+        padding: 36px 40px 48px;
+      }
+      .page-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        margin-bottom: 24px;
+      }
+      .page-heading .eyebrow-text {
+        margin-bottom: 6px;
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+      .shell h1.page-title {
+        font-size: clamp(23px, 2.2vw, 30px);
+        font-weight: 800;
+        letter-spacing: -0.6px;
+        line-height: 1.25;
+      }
+      .subtitle {
+        margin-top: 7px;
+        color: var(--color-text-body);
+        font-size: 14px;
+      }
+      .content {
+        display: grid;
+        gap: 24px;
+        min-width: 0;
+      }
+
+      /* --- Предупреждение о сроке тарифа (butter, как `trial-expired`) ------- */
+      .tariff-notice {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: var(--gap-16);
+        padding: 18px 20px;
+        border: 1px solid var(--butter-200);
+        border-radius: 14px;
+        background: var(--butter-100);
+        color: var(--ink-900);
+      }
+      .tariff-notice__copy {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }
+      .tariff-notice__title {
+        font-size: 18px;
+        line-height: 1.3;
+      }
+      .tariff-notice__text {
+        font-size: 13px;
+        color: var(--ink-700);
+        max-width: 62ch;
+      }
+      .tariff-notice__link {
+        flex: none;
+      }
+
+      /* --- Лента тарифа (DashboardTariff.module.css) ------------------------ */
+      .ribbon {
+        display: flex;
+        align-items: center;
+        gap: var(--gap-18);
+        min-width: 0;
+        padding: var(--gap-20);
+        background: var(--color-bg-surface);
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-md);
+        font-size: var(--text-xs);
+      }
+      .ribbon[data-access='paid'] {
+        background: color-mix(in srgb, var(--mint-100) 18%, var(--color-bg-surface));
+        border-color: var(--mint-200);
+      }
+      .ribbon__icon {
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        width: var(--control-h-lg);
+        height: var(--control-h-lg);
+        background: var(--mint-100);
+        color: var(--mint-700);
+        border-radius: var(--radius-sm);
+      }
+      .ribbon__copy {
+        flex: 1;
+        min-width: 0;
+      }
+      .ribbon__heading {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: var(--gap-10);
+      }
+      .ribbon__title {
+        font: 800 var(--text-body) / var(--leading-snug) var(--font-display);
+      }
+      .ribbon__status {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--gap-6);
+        color: var(--mint-700);
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .ribbon__status > span {
+        width: var(--gap-6);
+        height: var(--gap-6);
+        background: var(--color-accent);
+        border-radius: var(--radius-pill);
+      }
+      .ribbon__note {
+        margin-top: var(--gap-6);
+        color: var(--color-text-muted);
+      }
+      .ribbon__term {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap-4);
+        flex-shrink: 0;
+        padding-inline: var(--gap-18);
+        border-left: 1px solid var(--mint-200);
+      }
+      .ribbon__term strong {
+        font: 900 var(--text-h3) / var(--leading-snug) var(--font-display);
+        font-variant-numeric: tabular-nums;
+      }
+      .ribbon__term span {
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
+      }
+
+      /* --- Слоты: текущий период и оплаченный вперёд (tariff-next) ---------- */
+      .slots {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+        gap: 8px 6px;
+        padding: 16px 20px 18px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-page);
+      }
+      .slots__head {
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+      .slots__head strong {
+        color: var(--color-text);
+        font-size: 13px;
+      }
+      .slots__bar {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+        gap: 6px;
+        height: 8px;
+      }
+      .slots__part {
+        border-radius: var(--radius-pill);
+      }
+      .slots__part[data-kind='current'] {
+        background: var(--mint-600);
+      }
+      .slots__part[data-kind='next'] {
+        background: var(--mint-200);
+      }
+      .slots__dates {
+        font-size: 11px;
+        color: var(--color-text-muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .slots__dates--next {
+        padding-inline-start: 6px;
+      }
+
+      /* --- Показатели обзора (Dashboard.module.css) ------------------------- */
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+      }
+      .summary-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        padding: 24px;
+        border: 1px solid var(--color-border);
+        border-radius: 18px;
+        background: var(--cream-100);
+      }
+      .summary-label {
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .summary-value {
+        margin-top: 13px;
+        font: 900 38px/1.1 var(--font-display);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.7px;
+      }
+      .summary-value span {
+        margin-left: 10px;
+        font: 400 12px var(--font-body);
+        letter-spacing: 0;
+        color: var(--color-text-muted);
+      }
+      .summary-hint {
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--color-text-muted);
+      }
+      .summary-icon {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        flex: none;
+        border-radius: 13px;
+        background: var(--mint-100);
+        color: var(--mint-700);
+      }
+      .summary-card[data-tone='sky'] .summary-icon {
+        background: var(--sky-100);
+        color: var(--blue-600);
+      }
+      .card {
+        min-width: 0;
+        background: var(--color-bg-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 18px;
+        overflow: hidden;
+      }
+      .card-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 22px 24px 18px;
+      }
+      .card-title {
+        font: 800 16px/1.4 var(--font-display);
+        letter-spacing: -0.1px;
+      }
+      .card-subtitle {
+        margin-top: 5px;
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+      .metric-list {
+        list-style: none;
+        margin: 0;
+        padding: 0 24px 8px;
+      }
+      .metric-list li {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+        padding: 15px 0;
+        border-top: 1px solid var(--color-border);
+        font-size: 13px;
+      }
+      .metric-list strong {
+        font: 800 17px var(--font-display);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .report-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 8px;
+        border-radius: 7px;
+        background: var(--cream-100);
+        color: var(--color-text-muted);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .report-status[data-ready='true'] {
+        background: var(--mint-100);
+        color: var(--mint-700);
+      }
+      .report-status .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex: none;
+        background: #909ba4;
+      }
+      .report-status[data-ready='true'] .dot {
+        background: var(--mint-600);
+      }
+
+      /* --- Закрытый кабинет: блок на butter, как `trial-expired` ------------ */
+      .locked-block {
+        display: grid;
+        gap: 14px;
+        padding: 18px 20px 20px;
+        border: 1px solid var(--butter-200);
+        border-radius: 20px;
+        background: var(--butter-100);
+      }
+      .locked-note {
+        display: grid;
+        gap: 10px;
+        justify-items: start;
+      }
+      .locked-title {
+        font-size: 18px;
+      }
+      .locked-note p {
+        color: var(--ink-700);
+      }
+
+      /* --- Сотрудники (Workspace.module.css) -------------------------------- */
+      .panel {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        background: var(--color-bg-surface);
+      }
+      .table-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 19px 24px;
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-bg-alt);
+      }
+      .table-heading h2 {
+        font-size: 16px;
+        font-weight: 800;
+      }
+      .table-meta {
+        color: var(--color-text-muted);
+        font-size: 12px;
+      }
+      .table-scroll {
+        overflow-x: auto;
+      }
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+        font-size: 13px;
+      }
+      .data-table th,
+      .data-table td {
+        padding: 17px 20px;
+        border-bottom: 1px solid var(--color-border);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      .data-table th:first-child,
+      .data-table td:first-child {
+        padding-left: 24px;
+      }
+      .data-table th:last-child,
+      .data-table td:last-child {
+        padding-right: 24px;
+      }
+      .data-table th {
+        color: var(--color-text-body);
+        text-transform: uppercase;
+        font-size: 10px;
+        letter-spacing: 0.065em;
+        font-weight: 700;
+        padding-top: 14px;
+        padding-bottom: 14px;
+      }
+      .data-table tbody tr:last-child td {
+        border-bottom: 0;
+      }
+      .person {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        font-weight: 700;
+      }
+      .muted-cell {
+        color: var(--color-text-body);
+      }
+      .profile-card {
+        width: 100%;
+        overflow: hidden;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+      }
+      .profile-intro {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 26px 28px;
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-bg-alt);
+      }
+      .profile-intro h2 {
+        font-size: 19px;
+        font-weight: 800;
+      }
+      .profile-intro p {
+        color: var(--color-text-muted);
+        font-size: 13px;
+        margin-top: 3px;
+        max-width: 70ch;
+      }
+      .invite-card {
+        margin-top: 18px;
+      }
+      .organization-form {
+        display: grid;
+        gap: 18px;
+        padding: 24px 28px 28px;
+      }
+      .invite-form {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        align-items: start;
+      }
+      .invite-form .field {
+        min-width: 0;
+      }
+      .invite-form .alert,
+      .invite-form > .form-foot {
+        grid-column: 1 / -1;
+        justify-self: start;
+      }
+      .organization-hint {
+        color: var(--color-text-muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .form-foot {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .limit-meter {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+      .limit-meter__bar {
+        display: flex;
+        gap: 3px;
+      }
+      .limit-meter__bar span {
+        width: 16px;
+        height: 6px;
+        border-radius: var(--radius-pill);
+        background: var(--mint-200);
+      }
+      .limit-meter__bar span[data-free='true'] {
+        background: var(--color-bg-tint);
+      }
+
+      /* --- Модальное окно (index.css) --------------------------------------- */
+      .modal {
+        display: grid;
+        place-items: center;
+        padding: var(--space-4);
+        background: rgba(39, 49, 61, 0.45);
+        border-radius: var(--radius-md);
+      }
+      .modal__panel {
+        position: relative;
+        width: min(30rem, 100%);
+        padding: var(--space-6);
+        border-radius: var(--radius-lg);
+        background: var(--color-bg-surface);
+        box-shadow: var(--shadow-lg);
+      }
+      .modal__head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-4);
+        margin-bottom: var(--space-4);
+      }
+      .modal__title {
+        font-size: var(--text-h3);
+      }
+      .modal__close {
+        flex: none;
+        width: 2.25rem;
+        height: 2.25rem;
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-pill);
+        background: var(--color-bg-alt);
+        color: var(--color-text);
+        font-size: var(--text-body);
+        line-height: 1;
+        cursor: pointer;
+      }
+      .modal__body {
+        display: grid;
+        gap: var(--space-4);
+      }
+      .modal__amount {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .modal__amount strong {
+        font: 900 var(--text-h2) / 1.15 var(--font-display);
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+      }
+      .modal__amount span {
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
+      }
+
+      /* ==========================================================================
+         Рамка макета: подписи кадров и «окно браузера»
+         ========================================================================== */
+      .mock {
+        width: min(100% - 48px, 1440px);
+        margin-inline: auto;
+        padding-block: 40px 64px;
+        display: grid;
+        gap: 36px;
+      }
+      .mock-head {
+        display: grid;
+        gap: 10px;
+        max-width: 86ch;
+      }
+      .mock-kicker {
+        font: 700 12px/1.4 var(--font-body);
+        color: var(--color-text-muted);
+      }
+      .mock-title {
+        font: 800 clamp(26px, 2.6vw, 38px) / 1.15 var(--font-display);
+        letter-spacing: -0.028em;
+      }
+      .mock-lead {
+        font-size: var(--text-lead);
+        color: var(--color-text-body);
+        max-width: 74ch;
+      }
+      .mock-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 28px;
+        margin: 4px 0 0;
+        font-size: var(--text-xs);
+        color: var(--color-text-muted);
+      }
+      .mock-meta div {
+        display: flex;
+        gap: 6px;
+      }
+      .mock-meta dt {
+        font-weight: 700;
+      }
+      .mock-meta dd {
+        margin: 0;
+      }
+      .shot {
+        display: grid;
+        gap: 12px;
+        margin: 0;
+      }
+      .shot-cap {
+        display: grid;
+        gap: 3px;
+        max-width: 92ch;
+      }
+      .shot-title {
+        font: 800 19px/1.3 var(--font-display);
+        letter-spacing: -0.01em;
+      }
+      .shot-note {
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--color-text-muted);
+      }
+      .frame {
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        background: var(--color-bg-page);
+        box-shadow: var(--shadow-md);
+      }
+      .frame__bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 14px;
+        background: var(--color-bg-alt);
+        border-bottom: 1px solid var(--color-border);
+      }
+      .frame__url {
+        padding: 4px 12px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-pill);
+        background: var(--color-bg-surface);
+        font-size: 12px;
+        color: var(--color-text-body);
+        font-variant-numeric: tabular-nums;
+      }
+      .frame__tag {
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--color-text-subtle);
+      }
+      .mock-out {
+        display: grid;
+        gap: 12px;
+        max-width: 88ch;
+        padding-top: 4px;
+      }
+      .mock-out h2 {
+        font-size: 19px;
+      }
+      .mock-out ul {
+        display: grid;
+        gap: 8px;
+        font-size: 14px;
+        color: var(--color-text-body);
+      }
+      .mock-out li {
+        display: flex;
+        gap: 8px;
+      }
+      .mock-out li::before {
+        content: '—';
+        color: var(--color-text-subtle);
+        flex: none;
+      }
+
+      /* ==========================================================================
+         Адаптив
+         ========================================================================== */
+      @media (max-width: 1159px) {
+        .nav {
+          gap: 0.625rem;
+        }
+        .nav__links {
+          gap: 0.5rem;
+        }
+      }
+      @media (max-width: 1023px) {
+        .nav__links {
+          display: none;
+        }
+        .nav__actions {
+          margin-inline-start: auto;
+        }
+      }
+      @media (max-width: 1100px) {
+        .shell {
+          grid-template-columns: 220px minmax(0, 1fr);
+        }
+        .sidebar {
+          padding-inline: 12px;
+        }
+        .topbar {
+          padding-inline: 28px;
+        }
+        .main {
+          padding: 28px;
+        }
+      }
+      @media (max-width: 760px) {
+        .shell {
+          display: block;
+          min-height: 0;
+        }
+        .sidebar {
+          display: none;
+        }
+        .topbar {
+          height: 68px;
+          padding-inline: 20px;
+          gap: 12px;
+        }
+        .menu-toggle {
+          display: grid;
+        }
+        .breadcrumbs > span,
+        .breadcrumbs > .icon {
+          display: none;
+        }
+        .main {
+          padding: 26px 20px 36px;
+        }
+        .page-heading {
+          align-items: flex-start;
+          flex-wrap: wrap;
+          gap: 14px;
+        }
+        .summary {
+          gap: 12px;
+        }
+        .summary-card {
+          padding: 18px 16px;
+        }
+        .summary-icon {
+          display: none;
+        }
+        .summary-value {
+          font-size: 32px;
+        }
+        .ribbon {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          gap: var(--gap-14);
+          align-items: start;
+          padding: var(--gap-18);
+        }
+        .ribbon__term {
+          grid-column: 1 / -1;
+          gap: 2px;
+          margin: 0;
+          padding: 10px 0 0;
+          border-left: 0;
+          border-top: 1px solid var(--color-border);
+        }
+        .ribbon .btn {
+          grid-column: 1 / -1;
+        }
+        .tariff-notice {
+          align-items: flex-start;
+        }
+        .tariff-notice__link {
+          width: 100%;
+        }
+        .slots {
+          padding: 14px 16px 16px;
+        }
+        .slots__head,
+        .slots__dates {
+          font-size: 11px;
+        }
+        .card-head,
+        .metric-list {
+          padding-inline: 18px;
+        }
+        .data-table {
+          min-width: 640px;
+        }
+        .frame__tag {
+          display: none;
+        }
+        .pricing__grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .states {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .profile-intro {
+          padding: 22px 20px;
+        }
+        .organization-form {
+          padding: 20px;
+        }
+        .data-table th,
+        .data-table td {
+          padding-inline: 14px;
+        }
+        .data-table th:first-child,
+        .data-table td:first-child {
+          padding-left: 18px;
+        }
+      }
+      @media (max-width: 700px) {
+        .pricing__grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      @media (max-width: 560px) {
+        .mock {
+          width: min(100% - 24px, 1440px);
+          padding-block: 24px 40px;
+          gap: 28px;
+        }
+        .section__head--center {
+          text-align: start;
+        }
+        .period-switch {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          width: 100%;
+          border-radius: var(--radius-sm);
+        }
+        .period-option {
+          padding: 0 8px;
+          border-radius: var(--radius-3xs);
+        }
+        .nav {
+          min-height: 64px;
+          gap: 10px;
+        }
+        .logo {
+          font-size: 1rem;
+          gap: 0.5rem;
+        }
+        .logo__mark {
+          width: 32px;
+          height: 32px;
+        }
+        .nav__actions {
+          gap: 6px;
+          margin-inline-start: auto;
+        }
+        .nav__actions .btn {
+          min-height: 36px;
+          padding: 0.375rem 0.75rem;
+          font-size: 0.75rem;
+        }
+        .summary {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .modal__panel {
+          padding: var(--space-5) var(--space-4);
+        }
+        .modal {
+          padding: 10px;
+        }
+        .dialog-actions .btn {
+          flex: 1 1 auto;
+        }
+        .tariff-notice__title {
+          font-size: 16px;
+        }
+        .ribbon__term strong {
+          font-size: var(--text-body);
+        }
+        .account-name {
+          font-size: 12px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .btn {
+          transition: none;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Библиотека иконок: пути скопированы из WorkspaceIcon.tsx и landing/icons.tsx,
+         чтобы макет не тянул картинки из сети. -->
+    <svg class="visually-hidden" aria-hidden="true" focusable="false">
+      <symbol id="i-overview" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="8" height="8" rx="2" />
+        <rect x="13" y="3" width="8" height="5" rx="2" />
+        <rect x="13" y="10" width="8" height="11" rx="2" />
+        <rect x="3" y="13" width="8" height="8" rx="2" />
+      </symbol>
+      <symbol id="i-house" viewBox="0 0 24 24">
+        <path d="M3 21h18M5 21V8l7-5 7 5v13M10 21v-5h4v5M9 11h.01M15 11h.01" />
+      </symbol>
+      <symbol id="i-document" viewBox="0 0 24 24">
+        <path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
+        <path d="M14 3v5h5M9 13h6M9 17h6" />
+      </symbol>
+      <symbol id="i-people" viewBox="0 0 24 24">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      </symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24">
+        <path d="M3 3v18h18" />
+        <rect x="6" y="12" width="3.2" height="6" rx="1" />
+        <rect x="11" y="8" width="3.2" height="10" rx="1" />
+        <rect x="16" y="14" width="3.2" height="4" rx="1" />
+      </symbol>
+      <symbol id="i-info" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v6M12 7h.01" />
+      </symbol>
+      <symbol id="i-building" viewBox="0 0 24 24">
+        <path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h3a1 1 0 0 1 1 1v11M2 21h20" />
+        <path d="M8 7h1M8 11h1M8 15h1M12 7h1M12 11h1M12 15h1" />
+      </symbol>
+      <symbol id="i-profile" viewBox="0 0 24 24">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2" />
+      </symbol>
+      <symbol id="i-door" viewBox="0 0 24 24">
+        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" />
+      </symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24">
+        <path d="m9 5 7 7-7 7" />
+      </symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24">
+        <path d="M4 6h16M4 12h16M4 18h16" />
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24">
+        <rect x="4" y="10" width="16" height="11" rx="3" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3M12 15v2" />
+      </symbol>
+      <symbol id="i-arrow-right" viewBox="0 0 24 24">
+        <path d="M5 12h14M13 6l6 6-6 6" />
+      </symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24">
+        <rect x="3" y="5" width="18" height="16" rx="3" />
+        <path d="M3 10h18M8 3v4M16 3v4" />
+      </symbol>
+    </svg>
+
+    <div class="mock">
+      <header class="mock-head">
+        <p class="mock-kicker">Макет постановки · #99 · ступень «постановка», не реализация</p>
+        <h1 class="mock-title">Тариф со сроком действия, лимитом мест и продлением на будущий период</h1>
+        <p class="mock-lead">
+          Что меняется на экранах: прайс получает срок как переключатель и места как число, кабинет
+          получает дату окончания тарифа, предупреждение за 14 дней и оплаченный вперёд период, а
+          приглашение сотрудника упирается в предел мест серверным текстом.
+        </p>
+        <dl class="mock-meta">
+          <div><dt>Токены</dt><dd>index.css: cream / ink / mint / butter / peach</dd></div>
+          <div><dt>Гарнитуры</dt><dd>Nunito + Nunito Sans (стек продукта)</dd></div>
+          <div><dt>Ширины</dt><dd>1440 и 375</dd></div>
+          <div><dt>Кадров</dt><dd>6</dd></div>
+        </dl>
+      </header>
+
+      <!-- ====================================================================
+           КАДР 1 · Прайс, три срока одним переключателем
+           ==================================================================== -->
+      <figure class="shot" id="shot-1">
+        <figcaption class="shot-cap">
+          <p class="shot-title">1 · /pricing — четыре яруса, срок выбран один на весь прайс</p>
+          <p class="shot-note">
+            Ярусы стоят в один ряд и сравниваются по местам, а не по сроку: срок переключается одной
+            строкой над плашками, и в плашках меняются только сумма и подпись периода. Показан
+            выбранный срок «3 месяца». Цену и подпись собирает сервер (<code>price_label</code>),
+            проценты скидки в интерфейсе не считаются. У «Команды» раскрыта подсказка о местах —
+            это поле <code>tooltip</code>.
+          </p>
+        </figcaption>
+        <div class="frame">
+          <div class="frame__bar">
+            <span class="frame__url">domovoy.ru/pricing</span>
+            <span class="frame__tag">аноним · срок «3 месяца»</span>
+          </div>
+
+          <header class="site-header">
+            <div class="container">
+              <div class="nav">
+                <a class="logo" href="#">
+                  <svg class="logo__mark" viewBox="0 0 40 40" aria-hidden="true">
+                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <g
+                      fill="none"
+                      stroke="#27313D"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                    </g>
+                  </svg>
+                  <span>Домовой</span>
+                </a>
+                <nav class="nav__links" aria-label="Разделы сайта">
+                  <a href="#">Кому подходит</a>
+                  <a href="#">Возможности</a>
+                  <a href="#">Как работает</a>
+                  <a href="#">Интерфейс</a>
+                  <a href="#" aria-current="page">Тарифы</a>
+                  <a href="#">Вопросы</a>
+                </nav>
+                <div class="nav__actions">
+                  <button class="btn btn--outline btn--sm" type="button">Войти</button>
+                  <button class="btn btn--primary btn--sm" type="button">Регистрация</button>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          <section class="section--first" aria-labelledby="pricing-title-1">
+            <div class="container">
+              <div class="section__head section__head--center">
+                <p class="eyebrow">Тарифы</p>
+                <h1 id="pricing-title-1">Сколько стоит «Домовой»</h1>
+                <p>Платите за то, что ведёте: без установки, доплат за отчёты и скрытых условий.</p>
+              </div>
+
+              <div class="period-bar">
+                <div
+                  class="period-switch"
+                  role="radiogroup"
+                  aria-label="Срок оплаты"
+                  data-testid="tariff-period-switch"
+                >
+                  <button class="period-option" type="button" role="radio" aria-checked="false">
+                    1 месяц
+                  </button>
+                  <button class="period-option" type="button" role="radio" aria-checked="true">
+                    3 месяца
+                  </button>
+                  <button class="period-option" type="button" role="radio" aria-checked="false">
+                    12 месяцев
+                  </button>
+                </div>
+                <p class="period-hint">
+                  Срок начинается в день оплаты. За 3 и 12 месяцев цена ниже — она уже в плашках.
+                </p>
+              </div>
+
+              <ul class="pricing__grid">
+                <li>
+                  <article class="plan" data-testid="tariff-card">
+                    <div class="plan__head">
+                      <h2 class="plan__name">Старт</h2>
+                    </div>
+                    <p class="plan__seats">
+                      <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                      <span data-testid="tariff-seats">до 5 сотрудников</span>
+                      <button
+                        class="plan__tip"
+                        type="button"
+                        aria-label="Что считается местом на «Старте»"
+                        data-testid="tariff-tooltip"
+                      >
+                        <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                      </button>
+                    </p>
+                    <p class="plan__desc">Реестр проживающих, комнаты и места, базовые отчёты.</p>
+                    <p class="plan__price" data-testid="tariff-price">
+                      <strong>13&nbsp;200&nbsp;₽</strong>
+                      <span>за 3 месяца</span>
+                    </p>
+                    <button class="btn btn--outline" type="button" data-testid="tariff-buy">
+                      Купить
+                    </button>
+                  </article>
+                </li>
+
+                <li>
+                  <article class="plan" data-testid="tariff-card">
+                    <div class="plan__head">
+                      <h2 class="plan__name">Рост</h2>
+                    </div>
+                    <p class="plan__seats">
+                      <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                      <span data-testid="tariff-seats">до 15 сотрудников</span>
+                      <button
+                        class="plan__tip"
+                        type="button"
+                        aria-label="Что считается местом на «Росте»"
+                        data-testid="tariff-tooltip"
+                      >
+                        <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                      </button>
+                    </p>
+                    <p class="plan__desc">Все разделы, расширенная отчётность и статистика.</p>
+                    <p class="plan__price" data-testid="tariff-price">
+                      <strong>26&nbsp;700&nbsp;₽</strong>
+                      <span>за 3 месяца</span>
+                    </p>
+                    <button class="btn btn--outline" type="button" data-testid="tariff-buy">
+                      Купить
+                    </button>
+                  </article>
+                </li>
+
+                <li>
+                  <article class="plan" data-testid="tariff-card">
+                    <div class="plan__head">
+                      <h2 class="plan__name">Команда</h2>
+                    </div>
+                    <p class="plan__seats">
+                      <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                      <span data-testid="tariff-seats">до 30 сотрудников</span>
+                      <button
+                        class="plan__tip"
+                        type="button"
+                        aria-label="Что считается местом на «Команде»"
+                        data-testid="tariff-tooltip"
+                        aria-expanded="true"
+                      >
+                        <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                      </button>
+                      <span class="plan__tip-box" role="tooltip">
+                        Место — сотрудник с доступом к кабинету. Проживающие не считаются.
+                      </span>
+                    </p>
+                    <p class="plan__desc">Все разделы, несколько общежитий и отчёты по каждому.</p>
+                    <p class="plan__price" data-testid="tariff-price">
+                      <strong>40&nbsp;200&nbsp;₽</strong>
+                      <span>за 3 месяца</span>
+                    </p>
+                    <button class="btn btn--outline" type="button" data-testid="tariff-buy">
+                      Купить
+                    </button>
+                  </article>
+                </li>
+
+                <li>
+                  <article class="plan" data-testid="tariff-card">
+                    <div class="plan__head">
+                      <h2 class="plan__name">Безлимит</h2>
+                    </div>
+                    <p class="plan__seats">
+                      <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                      <span data-testid="tariff-seats">без ограничения</span>
+                      <button
+                        class="plan__tip"
+                        type="button"
+                        aria-label="Что значит «без ограничения»"
+                        data-testid="tariff-tooltip"
+                      >
+                        <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                      </button>
+                    </p>
+                    <p class="plan__desc">Все разделы без ограничения по сотрудникам.</p>
+                    <p class="plan__price" data-testid="tariff-price">
+                      <strong>53&nbsp;700&nbsp;₽</strong>
+                      <span>за 3 месяца</span>
+                    </p>
+                    <button class="btn btn--outline" type="button" data-testid="tariff-buy">
+                      Купить
+                    </button>
+                  </article>
+                </li>
+              </ul>
+
+              <p class="pricing__note">
+                Места — сотрудники с доступом к кабинету. Проживающие в лимит не входят, счета
+                выставляются на организацию.
+              </p>
+            </div>
+          </section>
+        </div>
+      </figure>
+
+      <!-- ====================================================================
+           КАДР 2 · Прайс организации: купленный тариф и продление
+           ==================================================================== -->
+      <figure class="shot" id="shot-2">
+        <figcaption class="shot-cap">
+          <p class="shot-title">2 · /pricing — у организации есть тариф, слот продления свободен</p>
+          <p class="shot-note">
+            Тариф организации — «Рост», купленный на 3 месяца. Вместо погашенной кнопки он получает
+            подпись «Оплачен до 02.11.2026» и действие «Продлить на будущий период»: новый срок
+            начнётся ровно в день после последнего оплаченного. Подпись «На будущий период — с
+            03.11.2026» снимает главный вопрос — с какого числа человек платит второй раз.
+          </p>
+        </figcaption>
+        <div class="frame">
+          <div class="frame__bar">
+            <span class="frame__url">domovoy.ru/pricing</span>
+            <span class="frame__tag">вошёл · тариф «Рост», слот продления свободен</span>
+          </div>
+
+          <header class="site-header">
+            <div class="container">
+              <div class="nav">
+                <a class="logo" href="#">
+                  <svg class="logo__mark" viewBox="0 0 40 40" aria-hidden="true">
+                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <g
+                      fill="none"
+                      stroke="#27313D"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                    </g>
+                  </svg>
+                  <span>Домовой</span>
+                </a>
+                <nav class="nav__links" aria-label="Разделы сайта">
+                  <a href="#">Кому подходит</a>
+                  <a href="#">Возможности</a>
+                  <a href="#">Как работает</a>
+                  <a href="#">Интерфейс</a>
+                  <a href="#" aria-current="page">Тарифы</a>
+                  <a href="#">Вопросы</a>
+                </nav>
+                <div class="nav__actions">
+                  <button class="btn btn--ink btn--sm" type="button">Личный кабинет</button>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          <section class="section--first" aria-labelledby="pricing-title-2">
+            <div class="container">
+              <div class="section__head section__head--center">
+                <p class="eyebrow">Тарифы</p>
+                <h1 id="pricing-title-2">Сколько стоит «Домовой»</h1>
+                <p>Платите за то, что ведёте: без установки, доплат за отчёты и скрытых условий.</p>
+              </div>
+
+              <div class="period-bar">
+                <div
+                  class="period-switch"
+                  role="radiogroup"
+                  aria-label="Срок оплаты"
+                  data-testid="tariff-period-switch"
+                >
+                  <button class="period-option" type="button" role="radio" aria-checked="false">
+                    1 месяц
+                  </button>
+                  <button class="period-option" type="button" role="radio" aria-checked="true">
+                    3 месяца
+                  </button>
+                  <button class="period-option" type="button" role="radio" aria-checked="false">
+                    12 месяцев
+                  </button>
+                </div>
+                <p class="period-hint">
+                  Продление занимает следующий период: начало — день после оплаченного.
+                </p>
+              </div>
+
+              <ul class="pricing__grid">
+                <li>
+                  <article class="plan" data-testid="tariff-card">
+                    <div class="plan__head">
+                      <h2 class="plan__name">Старт</h2>
+                    </div>
+                    <p class="plan__seats">
+                      <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                      <span data-testid="tariff-seats">до 5 сотрудников</span>
+                      <button
+                        class="plan__tip"
+                        type="button"
+                        aria-label="Что считается местом на «Старте»"
+                        data-testid="tariff-tooltip"
+                      >
+                        <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                      </button>
+                    </p>
+                    <p class="plan__desc">Реестр проживающих, комнаты и места, базовые отчёты.</p>
+                    <p class="plan__price" data-testid="tariff-price">
+                      <strong>13&nbsp;200&nbsp;₽</strong>
+                      <span>за 3 месяца</span>
+                    </p>
+                    <button class="btn btn--outline" type="button" data-testid="tariff-buy">
+                      Купить
+                    </button>
+                  </article>
+                </li>
+
+                <li>
+                  <article class="plan" data-owned="true" data-testid="tariff-card">
+                    <div class="plan__head">
+                      <h2 class="plan__name">Рост</h2>
+                      <span class="tag tag--ok" data-testid="tariff-owned">Куплен</span>
+                    </div>
+                    <p class="plan__seats">
+                      <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                      <span data-testid="tariff-seats">до 15 сотрудников</span>
+                      <button
+                        class="plan__tip"
+                        type="button"
+                        aria-label="Что считается местом на «Росте»"
+                        data-testid="tariff-tooltip"
+                      >
+                        <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                      </button>
+                    </p>
+                    <p class="plan__desc">Все разделы, расширенная отчётность и статистика.</p>
+                    <p class="plan__price" data-testid="tariff-price">
+                      <strong>26&nbsp;700&nbsp;₽</strong>
+                      <span>за 3 месяца</span>
+                    </p>
+                    <p class="plan__term" data-testid="tariff-term">Оплачен до 02.11.2026</p>
+                    <button class="btn btn--primary" type="button" data-testid="tariff-buy">
+                      Продлить
+                    </button>
+                    <p class="plan__note" data-testid="tariff-next-start">
+                      На будущий период — с 03.11.2026
+                    </p>
+                  </article>
+                </li>
+
+                <li>
+                  <article class="plan" data-testid="tariff-card">
+                    <div class="plan__head">
+                      <h2 class="plan__name">Команда</h2>
+                    </div>
+                    <p class="plan__seats">
+                      <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                      <span data-testid="tariff-seats">до 30 сотрудников</span>
+                      <button
+                        class="plan__tip"
+                        type="button"
+                        aria-label="Что считается местом на «Команде»"
+                        data-testid="tariff-tooltip"
+                      >
+                        <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                      </button>
+                    </p>
+                    <p class="plan__desc">Все разделы, несколько общежитий и отчёты по каждому.</p>
+                    <p class="plan__price" data-testid="tariff-price">
+                      <strong>40&nbsp;200&nbsp;₽</strong>
+                      <span>за 3 месяца</span>
+                    </p>
+                    <button class="btn btn--outline" type="button" data-testid="tariff-buy">
+                      Купить
+                    </button>
+                  </article>
+                </li>
+
+                <li>
+                  <article class="plan" data-testid="tariff-card">
+                    <div class="plan__head">
+                      <h2 class="plan__name">Безлимит</h2>
+                    </div>
+                    <p class="plan__seats">
+                      <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                      <span data-testid="tariff-seats">без ограничения</span>
+                      <button
+                        class="plan__tip"
+                        type="button"
+                        aria-label="Что значит «без ограничения»"
+                        data-testid="tariff-tooltip"
+                      >
+                        <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                      </button>
+                    </p>
+                    <p class="plan__desc">Все разделы без ограничения по сотрудникам.</p>
+                    <p class="plan__price" data-testid="tariff-price">
+                      <strong>53&nbsp;700&nbsp;₽</strong>
+                      <span>за 3 месяца</span>
+                    </p>
+                    <button class="btn btn--outline" type="button" data-testid="tariff-buy">
+                      Купить
+                    </button>
+                  </article>
+                </li>
+              </ul>
+
+              <p class="pricing__note">
+                Второй тариф встаёт в свободный период и начнётся в день после оплаченного. Когда
+                оплачены оба периода, покупка отвечает отказом.
+              </p>
+            </div>
+          </section>
+        </div>
+      </figure>
+
+      <!-- ====================================================================
+           КАДР 3 · Состояния прайса и отказы покупки
+           ==================================================================== -->
+      <figure class="shot" id="shot-3">
+        <figcaption class="shot-cap">
+          <p class="shot-title">3 · Состояния прайса и отказы покупки</p>
+          <p class="shot-note">
+            Три верхних блока — состояния загрузки, пустого прайса и отказа загрузки: те же строки и
+            плашка, что на странице сейчас. Четвёртый — плашка купленного тарифа, когда оплачены оба
+            периода. Внизу — окно покупки с отказом «Тариф уже оплачен на будущий период»: это ответ
+            сервера, показанный дословно, — окно не переписывает текст и не гасит чекбокс, потому что
+            причина не в отметке оферты.
+          </p>
+        </figcaption>
+        <div class="frame">
+          <div class="frame__bar">
+            <span class="frame__url">domovoy.ru/pricing</span>
+            <span class="frame__tag">блоки разных состояний одной страницы</span>
+          </div>
+          <div style="padding: 24px">
+            <div class="states">
+              <div class="state-box">
+                <p class="state-box__cap">Загрузка</p>
+                <p class="state-box__text" role="status">Загружаем тарифы…</p>
+              </div>
+
+              <div class="state-box">
+                <p class="state-box__cap">Пусто — тарифов нет</p>
+                <p class="state-box__text" data-testid="pricing-empty">Тарифы ещё не опубликованы</p>
+              </div>
+
+              <div class="state-box state-box--error">
+                <p class="state-box__cap">Сеть или сервер</p>
+                <p class="state-box__text" role="alert">
+                  Не удалось загрузить тарифы. Проверьте соединение и попробуйте ещё раз.
+                </p>
+                <button class="btn btn--outline btn--sm" type="button" data-testid="pricing-retry">
+                  Повторить
+                </button>
+              </div>
+
+              <div class="state-box">
+                <p class="state-box__cap">Оба периода оплачены</p>
+                <p class="state-box__pair">
+                  <span class="term">Оплачен до 02.11.2026</span>
+                  <span class="note">Продление оплачено до 02.11.2027</span>
+                </p>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 24px; max-width: 720px; margin-inline: auto">
+              <div class="modal">
+                <div class="modal__panel" data-testid="purchase-confirm">
+                  <div class="modal__head">
+                    <h2 class="modal__title">Покупка тарифа «Команда»</h2>
+                    <button class="modal__close" type="button" aria-label="Закрыть">×</button>
+                  </div>
+                  <div class="modal__body">
+                    <p class="modal__amount" data-testid="purchase-confirm-amount">
+                      <strong>40&nbsp;200&nbsp;₽</strong>
+                      <span>за 3 месяца</span>
+                    </p>
+
+                    <div class="field">
+                      <label class="field__consent" for="purchase-offer-1">
+                        <input class="field__checkbox" id="purchase-offer-1" type="checkbox" />
+                        <span class="field__consent-text">
+                          Подтверждаю согласие с
+                          <a class="field__consent-link" href="#">условиями оферты</a>
+                        </span>
+                      </label>
+                    </div>
+
+                    <p class="alert alert--error" role="alert" data-testid="purchase-confirm-request-error">
+                      Тариф уже оплачен на будущий период
+                    </p>
+
+                    <div class="dialog-actions">
+                      <button class="btn btn--ghost btn--compact" type="button">Отмена</button>
+                      <button class="btn btn--primary btn--compact" type="button" disabled>
+                        Выставить счёт
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <!-- ====================================================================
+           КАДР 4 · Кабинет: тариф истекает через 5 дней, будущий оплачен
+           ==================================================================== -->
+      <figure class="shot" id="shot-4">
+        <figcaption class="shot-cap">
+          <p class="shot-title">4 · Кабинет, обзор — тариф истекает через 5 дней</p>
+          <p class="shot-note">
+            Полоса предупреждения появляется только при <code>days_left ≤ 14</code>, число дней
+            приходит с сервера. Под лентой тарифа — два периода: действующий и уже оплаченный вперёд,
+            с датами. Человек видит, что доплачивать не нужно и что после 02.11 кабинет продолжит
+            работать.
+          </p>
+        </figcaption>
+        <div class="frame">
+          <div class="frame__bar">
+            <span class="frame__url">domovoy.ru/cabinet</span>
+            <span class="frame__tag">days_left = 5 · next оплачен</span>
+          </div>
+
+          <div class="shell">
+            <aside class="sidebar" aria-label="Боковая панель">
+              <a class="brand" href="#" aria-label="Домовой — главная">
+                <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+                  <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                  <g
+                    fill="none"
+                    stroke="#27313D"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                  </g>
+                </svg>
+                <span class="brand-name">Домовой</span>
+              </a>
+              <p class="brand-note">Учёт проживающих в общежитиях</p>
+              <nav aria-label="Основные разделы">
+                <p class="nav-label">Рабочее пространство</p>
+                <ul class="nav-list">
+                  <li>
+                    <a class="nav-link" href="#" aria-current="page">
+                      <svg class="icon" aria-hidden="true"><use href="#i-overview" /></svg>
+                      Обзор
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-house" /></svg>
+                      Общежития
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-document" /></svg>
+                      Документы
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                      Персонал
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-chart" /></svg>
+                      Статистика
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                      Магазин улучшений
+                    </a>
+                  </li>
+                </ul>
+              </nav>
+              <div class="sidebar-bottom">
+                <nav class="account-nav" aria-label="Учётная запись">
+                  <a class="nav-link" href="#">
+                    <svg class="icon" aria-hidden="true"><use href="#i-building" /></svg>
+                    Организация
+                  </a>
+                  <a class="nav-link" href="#">
+                    <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                    Сотрудники
+                  </a>
+                  <a class="nav-link" href="#">
+                    <svg class="icon" aria-hidden="true"><use href="#i-profile" /></svg>
+                    Личные данные
+                  </a>
+                </nav>
+                <div class="account">
+                  <span class="account-avatar" aria-hidden="true">КИ</span>
+                  <div class="account-info">
+                    <p class="account-name">Кузнецова Ирина</p>
+                    <p class="account-email">irina@dorm-5.ru</p>
+                  </div>
+                  <button class="logout" type="button" aria-label="Выйти">
+                    <svg class="icon" aria-hidden="true"><use href="#i-door" /></svg>
+                  </button>
+                </div>
+              </div>
+            </aside>
+
+            <div class="workspace">
+              <header class="topbar">
+                <button class="menu-toggle" type="button" aria-label="Открыть меню">
+                  <svg class="icon" aria-hidden="true"><use href="#i-menu" /></svg>
+                </button>
+                <div class="breadcrumbs">
+                  <span>Рабочее пространство</span>
+                  <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+                  <strong>Обзор</strong>
+                </div>
+              </header>
+
+              <main class="main">
+                <div class="page-heading">
+                  <div>
+                    <p class="eyebrow-text">Рабочее пространство</p>
+                    <h1 class="page-title">Обзор</h1>
+                    <p class="subtitle">Общежитие №5, Екатеринбург · на 28 октября 2026</p>
+                  </div>
+                </div>
+
+                <div class="content">
+                  <section class="tariff-notice" role="status" data-testid="tariff-notice">
+                    <div class="tariff-notice__copy">
+                      <h2 class="tariff-notice__title">
+                        Тариф истекает через
+                        <span data-testid="tariff-notice-days">5 дней</span>
+                      </h2>
+                      <p class="tariff-notice__text">
+                        «Рост» оплачен до 02.11.2026. С 03.11.2026 начнётся «Команда · 12 месяцев» —
+                        кабинет продолжит работать, доплачивать не нужно.
+                      </p>
+                    </div>
+                    <a
+                      class="btn btn--primary btn--compact tariff-notice__link"
+                      href="#"
+                      data-testid="tariff-notice-link"
+                    >
+                      Открыть тарифы
+                      <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+                    </a>
+                  </section>
+
+                  <section class="ribbon" data-access="paid" data-testid="dashboard-tariff">
+                    <span class="ribbon__icon" aria-hidden="true">
+                      <svg class="icon"><use href="#i-chart" /></svg>
+                    </span>
+                    <div class="ribbon__copy">
+                      <div class="ribbon__heading">
+                        <h2 class="ribbon__title">Тариф «Рост»</h2>
+                        <span class="ribbon__status"><span></span>Тариф активен</span>
+                      </div>
+                      <p class="ribbon__note">
+                        Все разделы, расширенная отчётность и статистика. До 15 сотрудников.
+                      </p>
+                    </div>
+                    <p class="ribbon__term">
+                      <strong data-testid="dashboard-tariff-ends">Оплачен до 02.11.2026</strong>
+                      <span>осталось 5 дней</span>
+                    </p>
+                    <a class="btn btn--ghost btn--compact" href="#" data-testid="dashboard-tariff-link">
+                      О тарифе
+                      <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+                    </a>
+                  </section>
+
+                  <section class="slots" data-testid="tariff-next">
+                    <p class="slots__head"><strong>Сейчас: «Рост · 3 месяца»</strong></p>
+                    <p class="slots__head">Оплачено вперёд: «Команда · 12 месяцев»</p>
+                    <div class="slots__bar" aria-hidden="true">
+                      <span class="slots__part" data-kind="current"></span>
+                      <span class="slots__part" data-kind="next"></span>
+                    </div>
+                    <p class="slots__dates">02.08.2026 — 02.11.2026</p>
+                    <p class="slots__dates slots__dates--next">03.11.2026 — 02.11.2027</p>
+                  </section>
+
+                  <div class="summary">
+                    <section class="summary-card" data-tone="mint">
+                      <div>
+                        <p class="summary-label">Проживают сейчас</p>
+                        <p class="summary-value">148<span>из 160 мест</span></p>
+                        <p class="summary-hint">12 мест свободно в двух корпусах</p>
+                      </div>
+                      <span class="summary-icon" aria-hidden="true">
+                        <svg class="icon"><use href="#i-house" /></svg>
+                      </span>
+                    </section>
+                    <section class="summary-card" data-tone="sky">
+                      <div>
+                        <p class="summary-label">Заселено за октябрь</p>
+                        <p class="summary-value">23<span>человека</span></p>
+                        <p class="summary-hint">14 новых, 9 переводов внутри</p>
+                      </div>
+                      <span class="summary-icon" aria-hidden="true">
+                        <svg class="icon"><use href="#i-people" /></svg>
+                      </span>
+                    </section>
+                  </div>
+
+                  <section class="card">
+                    <div class="card-head">
+                      <div>
+                        <h2 class="card-title">Отчёты за октябрь</h2>
+                        <p class="card-subtitle">Сдаются до 5 ноября</p>
+                      </div>
+                    </div>
+                    <ul class="metric-list">
+                      <li>
+                        <span>Заселение</span>
+                        <span class="report-status" data-ready="true">
+                          <span class="dot"></span>Готов
+                        </span>
+                      </li>
+                      <li>
+                        <span>Выселение</span>
+                        <span class="report-status" data-ready="true">
+                          <span class="dot"></span>Готов
+                        </span>
+                      </li>
+                      <li>
+                        <span>Оплаты</span>
+                        <span class="report-status"><span class="dot"></span>Не сформирован</span>
+                      </li>
+                    </ul>
+                  </section>
+                </div>
+              </main>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <!-- ====================================================================
+           КАДР 5 · Кабинет: тариф закончился, будущего нет
+           ==================================================================== -->
+      <figure class="shot" id="shot-5">
+        <figcaption class="shot-cap">
+          <p class="shot-title">5 · Кабинет, обзор — тариф закончился, будущего нет</p>
+          <p class="shot-note">
+            Закрытый кабинет: те же слова, что у закончившегося пробного периода, но про тариф.
+            Обзор остаётся открытым и показывает цифры — данные целы, разделы закрыты. Пункты меню
+            при этом недоступны так же, как сейчас на закрытом пробном периоде.
+          </p>
+        </figcaption>
+        <div class="frame">
+          <div class="frame__bar">
+            <span class="frame__url">domovoy.ru/cabinet</span>
+            <span class="frame__tag">тариф истёк 12.10.2026 · next = null</span>
+          </div>
+
+          <div class="shell">
+            <aside class="sidebar" aria-label="Боковая панель">
+              <a class="brand" href="#" aria-label="Домовой — главная">
+                <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+                  <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                  <g
+                    fill="none"
+                    stroke="#27313D"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                  </g>
+                </svg>
+                <span class="brand-name">Домовой</span>
+              </a>
+              <p class="brand-note">Учёт проживающих в общежитиях</p>
+              <nav aria-label="Основные разделы">
+                <p class="nav-label">Рабочее пространство</p>
+                <ul class="nav-list">
+                  <li>
+                    <a class="nav-link" href="#" aria-current="page">
+                      <svg class="icon" aria-hidden="true"><use href="#i-overview" /></svg>
+                      Обзор
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#" aria-disabled="true">
+                      <svg class="icon" aria-hidden="true"><use href="#i-house" /></svg>
+                      Общежития
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-document" /></svg>
+                      Документы
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#" aria-disabled="true">
+                      <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                      Персонал
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#" aria-disabled="true">
+                      <svg class="icon" aria-hidden="true"><use href="#i-chart" /></svg>
+                      Статистика
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                      Магазин улучшений
+                    </a>
+                  </li>
+                </ul>
+              </nav>
+              <div class="sidebar-bottom">
+                <nav class="account-nav" aria-label="Учётная запись">
+                  <a class="nav-link" href="#">
+                    <svg class="icon" aria-hidden="true"><use href="#i-building" /></svg>
+                    Организация
+                  </a>
+                  <a class="nav-link" href="#" aria-disabled="true">
+                    <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                    Сотрудники
+                  </a>
+                  <a class="nav-link" href="#">
+                    <svg class="icon" aria-hidden="true"><use href="#i-profile" /></svg>
+                    Личные данные
+                  </a>
+                </nav>
+                <div class="account">
+                  <span class="account-avatar" aria-hidden="true">КИ</span>
+                  <div class="account-info">
+                    <p class="account-name">Кузнецова Ирина</p>
+                    <p class="account-email">irina@dorm-5.ru</p>
+                  </div>
+                  <button class="logout" type="button" aria-label="Выйти">
+                    <svg class="icon" aria-hidden="true"><use href="#i-door" /></svg>
+                  </button>
+                </div>
+              </div>
+            </aside>
+
+            <div class="workspace">
+              <header class="topbar">
+                <button class="menu-toggle" type="button" aria-label="Открыть меню">
+                  <svg class="icon" aria-hidden="true"><use href="#i-menu" /></svg>
+                </button>
+                <div class="breadcrumbs">
+                  <span>Рабочее пространство</span>
+                  <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+                  <strong>Обзор</strong>
+                </div>
+              </header>
+
+              <main class="main">
+                <div class="page-heading">
+                  <div>
+                    <p class="eyebrow-text">Рабочее пространство</p>
+                    <h1 class="page-title">Обзор</h1>
+                    <p class="subtitle">Общежитие №5, Екатеринбург · на 28 октября 2026</p>
+                  </div>
+                </div>
+
+                <div class="content">
+                  <div class="locked-block">
+                    <div class="locked-note" role="status" data-testid="tariff-expired-notice">
+                      <h2 class="locked-title">Тариф закончился</h2>
+                      <p>
+                        «Рост» был оплачен до 12.10.2026. Выберите тариф, чтобы вернуть рабочие
+                        разделы.
+                      </p>
+                      <a class="btn btn--primary btn--compact" href="#" data-testid="tariff-expired-link">
+                        Выбрать тариф
+                      </a>
+                    </div>
+
+                    <section class="ribbon" data-testid="dashboard-tariff">
+                      <span class="ribbon__icon" aria-hidden="true">
+                        <svg class="icon"><use href="#i-lock" /></svg>
+                      </span>
+                      <div class="ribbon__copy">
+                        <div class="ribbon__heading">
+                          <h2 class="ribbon__title">Тариф «Рост»</h2>
+                        </div>
+                        <p class="ribbon__note">
+                          Разделы закрыты, данные и сотрудники сохранены. После оплаты кабинет
+                          откроется в полном составе.
+                        </p>
+                      </div>
+                      <p class="ribbon__term">
+                        <strong>Истёк 12.10.2026</strong>
+                        <span>16 дней назад</span>
+                      </p>
+                      <a class="btn btn--ghost btn--compact" href="#">О тарифе</a>
+                    </section>
+                  </div>
+
+                  <div class="summary">
+                    <section class="summary-card" data-tone="mint">
+                      <div>
+                        <p class="summary-label">Проживают сейчас</p>
+                        <p class="summary-value">148<span>из 160 мест</span></p>
+                        <p class="summary-hint">Данные сохранены полностью</p>
+                      </div>
+                      <span class="summary-icon" aria-hidden="true">
+                        <svg class="icon"><use href="#i-house" /></svg>
+                      </span>
+                    </section>
+                    <section class="summary-card" data-tone="sky">
+                      <div>
+                        <p class="summary-label">Сотрудников в организации</p>
+                        <p class="summary-value">4<span>человека</span></p>
+                        <p class="summary-hint">Доступ вернётся вместе с тарифом</p>
+                      </div>
+                      <span class="summary-icon" aria-hidden="true">
+                        <svg class="icon"><use href="#i-people" /></svg>
+                      </span>
+                    </section>
+                  </div>
+                </div>
+              </main>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <!-- ====================================================================
+           КАДР 6 · Сотрудники: предел мест
+           ==================================================================== -->
+      <figure class="shot" id="shot-6">
+        <figcaption class="shot-cap">
+          <p class="shot-title">6 · Кабинет, сотрудники — приглашение сверх предела мест</p>
+          <p class="shot-note">
+            Отказ по местам приходит с сервера текстом, а <code>X-Member-Limit</code> позволяет
+            отличить его от прочих <code>409</code>. Рядом — счётчик мест и фраза о том, что
+            приглашённые раньше сотрудники продолжают работать: понижение лимита никого не выгоняет.
+          </p>
+        </figcaption>
+        <div class="frame">
+          <div class="frame__bar">
+            <span class="frame__url">domovoy.ru/cabinet/organization/members</span>
+            <span class="frame__tag">тариф «Старт» · 5 из 5 мест</span>
+          </div>
+
+          <div class="shell">
+            <aside class="sidebar" aria-label="Боковая панель">
+              <a class="brand" href="#" aria-label="Домовой — главная">
+                <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+                  <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                  <g
+                    fill="none"
+                    stroke="#27313D"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                  </g>
+                </svg>
+                <span class="brand-name">Домовой</span>
+              </a>
+              <p class="brand-note">Учёт проживающих в общежитиях</p>
+              <nav aria-label="Основные разделы">
+                <p class="nav-label">Рабочее пространство</p>
+                <ul class="nav-list">
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-overview" /></svg>
+                      Обзор
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-house" /></svg>
+                      Общежития
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-document" /></svg>
+                      Документы
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                      Персонал
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-chart" /></svg>
+                      Статистика
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#">
+                      <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+                      Магазин улучшений
+                    </a>
+                  </li>
+                </ul>
+              </nav>
+              <div class="sidebar-bottom">
+                <nav class="account-nav" aria-label="Учётная запись">
+                  <a class="nav-link" href="#">
+                    <svg class="icon" aria-hidden="true"><use href="#i-building" /></svg>
+                    Организация
+                  </a>
+                  <a class="nav-link" href="#" aria-current="page">
+                    <svg class="icon" aria-hidden="true"><use href="#i-people" /></svg>
+                    Сотрудники
+                  </a>
+                  <a class="nav-link" href="#">
+                    <svg class="icon" aria-hidden="true"><use href="#i-profile" /></svg>
+                    Личные данные
+                  </a>
+                </nav>
+                <div class="account">
+                  <span class="account-avatar" aria-hidden="true">КИ</span>
+                  <div class="account-info">
+                    <p class="account-name">Кузнецова Ирина</p>
+                    <p class="account-email">irina@dorm-5.ru</p>
+                  </div>
+                  <button class="logout" type="button" aria-label="Выйти">
+                    <svg class="icon" aria-hidden="true"><use href="#i-door" /></svg>
+                  </button>
+                </div>
+              </div>
+            </aside>
+
+            <div class="workspace">
+              <header class="topbar">
+                <button class="menu-toggle" type="button" aria-label="Открыть меню">
+                  <svg class="icon" aria-hidden="true"><use href="#i-menu" /></svg>
+                </button>
+                <div class="breadcrumbs">
+                  <span>Рабочее пространство</span>
+                  <svg class="icon" aria-hidden="true"><use href="#i-chevron" /></svg>
+                  <strong>Сотрудники</strong>
+                </div>
+              </header>
+
+              <main class="main">
+                <div class="page-heading">
+                  <div>
+                    <p class="eyebrow-text">Рабочее пространство</p>
+                    <h1 class="page-title">Сотрудники</h1>
+                    <p class="subtitle">Пригласите сотрудника и выберите его роль</p>
+                  </div>
+                </div>
+
+                <div class="content">
+                  <section class="panel" data-testid="members-table">
+                    <div class="table-heading">
+                      <h2>Участники организации</h2>
+                      <p class="table-meta" data-testid="members-count">5 чел.</p>
+                    </div>
+                    <div class="table-scroll">
+                      <table class="data-table">
+                        <caption class="visually-hidden">Участники организации</caption>
+                        <thead>
+                          <tr>
+                            <th scope="col">ФИО</th>
+                            <th scope="col">Email</th>
+                            <th scope="col">Роль</th>
+                            <th scope="col">Статус</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td><span class="person">Кузнецова Ирина</span></td>
+                            <td class="muted-cell">irina@dorm-5.ru</td>
+                            <td>Владелец</td>
+                            <td><span class="tag tag--ok">Активирован</span></td>
+                          </tr>
+                          <tr>
+                            <td><span class="person">Сергеев Пётр</span></td>
+                            <td class="muted-cell">p.sergeev@dorm-5.ru</td>
+                            <td>Администратор</td>
+                            <td><span class="tag tag--ok">Активирован</span></td>
+                          </tr>
+                          <tr>
+                            <td><span class="person">Морозова Анна</span></td>
+                            <td class="muted-cell">a.morozova@dorm-5.ru</td>
+                            <td>Менеджер</td>
+                            <td><span class="tag tag--ok">Активирован</span></td>
+                          </tr>
+                          <tr>
+                            <td><span class="person">Гусев Илья</span></td>
+                            <td class="muted-cell">i.gusev@dorm-5.ru</td>
+                            <td>Комендант</td>
+                            <td><span class="tag tag--ok">Активирован</span></td>
+                          </tr>
+                          <tr>
+                            <td><span class="person">Лебедева Ольга</span></td>
+                            <td class="muted-cell">o.lebedeva@dorm-5.ru</td>
+                            <td>Менеджер</td>
+                            <td><span class="tag tag--wait">Приглашение отправлено</span></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+
+                  <section class="profile-card invite-card" data-testid="invite-card">
+                    <div class="profile-intro">
+                      <div>
+                        <h2>Пригласить сотрудника</h2>
+                        <p>
+                          Мы отправим письмо со ссылкой: по ней сотрудник задаст пароль и войдёт в
+                          вашу организацию.
+                        </p>
+                        <p class="organization-hint" data-testid="tariff-seats-used">
+                          На тарифе «Старт» — не больше 5 сотрудников. Сейчас 5 из 5.
+                        </p>
+                      </div>
+                    </div>
+                    <form class="organization-form invite-form">
+                      <div class="field">
+                        <label class="field__label" for="invite-email-1">Email</label>
+                        <input
+                          class="field__input"
+                          id="invite-email-1"
+                          type="email"
+                          value="s.volkov@dorm-5.ru"
+                        />
+                        <p class="organization-hint">На этот адрес уйдёт письмо-приглашение.</p>
+                      </div>
+                      <div class="field">
+                        <label class="field__label" for="invite-name-1">ФИО</label>
+                        <input
+                          class="field__input"
+                          id="invite-name-1"
+                          type="text"
+                          value="Волков Сергей"
+                        />
+                      </div>
+                      <div class="field">
+                        <label class="field__label" for="invite-role-1">Роль</label>
+                        <select class="field__input" id="invite-role-1">
+                          <option>Менеджер</option>
+                          <option>Администратор</option>
+                          <option>Комендант</option>
+                        </select>
+                        <p class="organization-hint">Роль показывается в списке сотрудников.</p>
+                      </div>
+
+                      <p
+                        class="alert alert--error"
+                        role="alert"
+                        data-testid="invite-error"
+                        data-member-limit="5"
+                      >
+                        Достигнут предел мест (5). Перейдите на тариф «Рост»
+                      </p>
+
+                      <div class="form-foot">
+                        <button class="btn btn--primary" type="button">Пригласить</button>
+                        <span class="limit-meter">
+                          <span class="limit-meter__bar" aria-hidden="true">
+                            <span></span><span></span><span></span><span></span><span></span>
+                          </span>
+                          Места заняты полностью
+                        </span>
+                      </div>
+
+                      <p class="organization-hint" style="grid-column: 1 / -1">
+                        Сотрудники, приглашённые на прошлом тарифе, продолжают работать. Лимит
+                        касается только новых приглашений.
+                      </p>
+                    </form>
+                  </section>
+                </div>
+              </main>
+            </div>
+          </div>
+        </div>
+      </figure>
+
+      <section class="mock-out">
+        <h2>Чего в макете нет</h2>
+        <ul>
+          <li>
+            Продуктового кода, миграций, ручек, тестов: макет — ступень постановки, реализация
+            следующая.
+          </li>
+          <li>
+            Кадров кабинета с <code>days_left &gt; 14</code>: он отличается от кадра 4 только
+            отсутствием полосы предупреждения, остальное — та же лента.
+          </li>
+          <li>
+            Окна покупки с отметкой оферты в состоянии «успех», пакетов дополнительных мест, счёта
+            с несколькими строками, эквайринга и автопродления.
+          </li>
+          <li>
+            Кадров прайса для месяцев 1 и 12: меняются только сумма и подпись периода, плашки стоят
+            на месте.
+          </li>
+        </ul>
+      </section>
+    </div>
+  </body>
+</html>
