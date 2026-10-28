@@ -130,6 +130,25 @@ def test_downgrade_removes_only_the_added_columns() -> None:
     assert set(dropped_columns(migration())) == set(NEW_COLUMNS)
 
 
+def test_future_tariff_reference_has_the_model_index() -> None:
+    """Индекс объявлен в модели — ревизия обязана завести его же.
+
+    Иначе схема боевой базы расходится с моделью: в тестах `create_all` создаёт
+    индекс сам, а в PostgreSQL после `upgrade head` его нет, и `ON DELETE SET
+    NULL` при удалении строки прайса идёт по `organizations` без индекса.
+    """
+    module = migration()
+    create_sql = normalized(module.CREATE_INDEX_SQL)
+    drop_sql = normalized(module.DROP_INDEX_SQL)
+
+    assert "CREATE INDEX IF NOT EXISTS ix_organizations_next_tariff_id" in create_sql
+    assert "ON organizations (next_tariff_id)" in create_sql
+    # Откат снимает ровно этот индекс: забытый `drop_index` оставил бы его на
+    # снятой колонке и уронил следующий `downgrade`.
+    assert drop_sql == "DROP INDEX IF EXISTS ix_organizations_next_tariff_id"
+    assert Organization.__table__.columns["next_tariff_id"].index is True
+
+
 def test_backfill_gives_the_sold_tariffs_their_period() -> None:
     """Срок считается от момента выкатки по периоду тарифа."""
     engine = sa.create_engine("sqlite://")

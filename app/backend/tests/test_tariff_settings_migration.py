@@ -32,7 +32,10 @@ VERSIONS = BACKEND / "alembic/versions"
 ALEMBIC_DIR = BACKEND / "alembic"
 
 REVISION = "0050_tariff_settings"
-PARENT = "0049_solution_journal"
+# Родитель — ревизия соседнего PR #102, а не `0049`: две ветки ставили свои первые
+# ревизии на один и тот же `0049`, и это давало в alembic две головы. Вторая по
+# слиянию ветка ставит своей головой голову первой, поэтому и тест ждёт её.
+PARENT = "0050_public_document_texts"
 
 # Колонки яруса, которые заводит ревизия.
 NEW_COLUMNS = ("max_members", "tooltip", "group_code")

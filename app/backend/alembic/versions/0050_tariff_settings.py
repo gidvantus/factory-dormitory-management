@@ -29,6 +29,15 @@
 
 Идентификатор ревизии короче 32 символов: колонка `alembic_version.version_num`
 имеет тип `varchar(32)`.
+
+**Стек поверх #102.** В `develop-m` одновременно приходят две ветки, и обе ставили
+свою первую ревизию на `0049_solution_journal`: `0050_public_document_texts`
+(PR #102, сливается первым) и эта. Две ревизии с одним родителем дают в alembic
+две головы, и `alembic upgrade head` в entrypoint `api` падает с `Multiple head
+revisions are present for given argument 'head'`. Поэтому родитель этой ветки —
+`0050_public_document_texts`, а не `0049`: файл той ревизии едет в этой ветке,
+чтобы цепочка читалась целиком. Идентификаторы не перенумеровываются: alembic идёт
+по `down_revision`, а не по номеру в имени.
 """
 
 from collections.abc import Sequence
@@ -36,7 +45,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "0050_tariff_settings"
-down_revision: str | None = "0049_solution_journal"
+down_revision: str | None = "0050_public_document_texts"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

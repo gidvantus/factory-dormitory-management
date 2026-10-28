@@ -10,6 +10,9 @@
   намеренно: будущий период начинается ровно в `tariff_ends_at` текущего, и
   второе поле разошлось бы с первым.
 
+Индекс `ix_organizations_next_tariff_id` заводится здесь же: в модели колонка
+объявлена с `index=True`, и схема базы обязана совпадать с моделью.
+
 **Backfill обязателен.** Без него у всех уже проданных тарифов `tariff_ends_at`
 остался бы `NULL`, а `NULL` в этом поле означает бессрочный тариф: кабинеты
 продолжили бы работать. Вопрос в другом — с какого момента считать срок, ведь
@@ -59,6 +62,17 @@ DROP_COLUMNS_SQL = (
     "ALTER TABLE organizations DROP COLUMN IF EXISTS tariff_ends_at",
 )
 
+# Индекс на `next_tariff_id` объявлен в модели (`index=True`), поэтому его обязана
+# завести и ревизия: иначе схема боевой базы расходится с моделью, `ON DELETE SET
+# NULL` при удалении строки прайса идёт по `organizations` без индекса, а следующая
+# автогенерация предлагает «создать уже объявленный индекс». Имя — то, которое
+# SQLAlchemy выводит из таблицы и колонки; у `tariff_id` такой же (`0018`).
+CREATE_INDEX_SQL = (
+    "CREATE INDEX IF NOT EXISTS ix_organizations_next_tariff_id ON organizations (next_tariff_id)"
+)
+
+DROP_INDEX_SQL = "DROP INDEX IF EXISTS ix_organizations_next_tariff_id"
+
 # Сколько календарных месяцев прибавляет период. `once` здесь нет: он даёт
 # бессрочный тариф, и `NULL` в `tariff_ends_at` — правильное состояние.
 MONTHS_BY_PERIOD = {"month": 1, "quarter": 3, "half_year": 6, "year": 12}
@@ -94,7 +108,7 @@ def backfill_tariff_ends_at(connection: sa.Connection, now: datetime | None = No
     """Проставить срок уже проданным тарифам: момент выкатки плюс их период."""
     moment = now or datetime.now(UTC)
     for organization_id, period in connection.execute(SELECT_SOLD_TARIFFS_SQL).all():
-        months = MONTHS_BY_PERIOD.get(period)
+        months = MONTHS_BY_PERIOD.get(str(period))
         if months is None:
             # `once` продаётся бессрочно: `NULL` и есть его срок.
             continue
@@ -107,9 +121,11 @@ def backfill_tariff_ends_at(connection: sa.Connection, now: datetime | None = No
 def upgrade() -> None:
     for statement in ADD_COLUMNS_SQL:
         op.execute(statement)
+    op.execute(CREATE_INDEX_SQL)
     backfill_tariff_ends_at(op.get_bind())
 
 
 def downgrade() -> None:
+    op.execute(DROP_INDEX_SQL)
     for statement in DROP_COLUMNS_SQL:
         op.execute(statement)
