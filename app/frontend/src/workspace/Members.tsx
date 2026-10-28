@@ -25,6 +25,13 @@ const INVITE_ROLES: { value: InviteRole; label: string }[] = [
 
 const DEFAULT_INVITE_ROLE: InviteRole = 'manager';
 
+/**
+ * Роль владельца. Владелец есть в списке участников, но места не занимает:
+ * `max_members` — «сколько сотрудников, кроме владельца» (`_employee_count` на
+ * сервере фильтрует `role != 'owner'`).
+ */
+const OWNER_ROLE = 'owner';
+
 const STATUS_ACTIVE = 'Активирован';
 const STATUS_INVITED = 'Приглашение отправлено';
 
@@ -73,7 +80,12 @@ export function Members(): JSX.Element {
    */
   const tariff = subscription?.tariff ?? null;
   const memberLimit = tariff ? tariff.max_members : trial?.is_active ? trial.member_limit : null;
-  const seatsFull = memberLimit !== null && members.length >= memberLimit;
+  // Место занимает сотрудник, а не владелец: сервер считает предел по
+  // `_employee_count` (`role != 'owner'`), а владелец в списке участников есть.
+  // Счёт по длине списка врал бы в обе стороны — писал «мест нет», когда одно
+  // свободно, и «6 из 5» на пяти местах.
+  const seatsUsed = members.filter((member) => member.role !== OWNER_ROLE).length;
+  const seatsFull = memberLimit !== null && seatsUsed >= memberLimit;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -248,7 +260,7 @@ export function Members(): JSX.Element {
                     data-testid="members-seat-limit"
                     data-limit={memberLimit}
                   >
-                    Тариф допускает до {memberLimit} сотрудников. Занято {members.length} из{' '}
+                    Тариф допускает до {memberLimit} сотрудников. Занято {seatsUsed} из{' '}
                     {memberLimit}
                     {seatsFull
                       ? '. Сотрудники, приглашённые раньше, продолжают работать — предел касается только новых приглашений.'

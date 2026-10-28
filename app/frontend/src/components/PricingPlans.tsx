@@ -133,10 +133,12 @@ export function PricingPlans({
   const period = periods.includes(chosen) ? chosen : (periods[0] ?? DEFAULT_PERIOD);
 
   const ownedKey = subscription?.tariff ? tierKey(subscription.tariff) : null;
-  const nextStartsAt = subscription?.next ? subscription.next.starts_at : null;
+  const paidAhead = subscription?.next ?? null;
   // Продление свободного слота начнётся ровно в момент конца оплаченного
-  // периода: граница исключающая, отдельного поля начала у сервера нет.
-  const renewalStartsAt = nextStartsAt ?? subscription?.ends_at ?? null;
+  // периода: граница исключающая, отдельного поля начала у сервера нет. Когда
+  // будущий слот уже оплачен, это не «следующий период», а начало уже купленного
+  // — тогда карточка говорит о нём другим текстом и берёт дату из `next.starts_at`.
+  const renewalStartsAt = paidAhead ? null : (subscription?.ends_at ?? null);
 
   function card(tier: Tier): JSX.Element | null {
     const row = rowForPeriod(tier, period);
@@ -215,6 +217,15 @@ export function PricingPlans({
           {endsAt && (
             <p className={styles.term} data-testid="tariff-term">
               Оплачен до {endsAt}
+            </p>
+          )}
+          {owned && paidAhead && (
+            // Будущий слот занят: это не «следующий период», а уже оплаченный.
+            // Дословное макетное «Продление оплачено до …» требует `next.ends_at`,
+            // которого в контракте нет, поэтому дата — только начало периода.
+            <p className={styles.note} data-testid="tariff-next-paid">
+              Продление оплачено: «{paidAhead.tariff.name}» с{' '}
+              {formatTariffDate(paidAhead.starts_at)}
             </p>
           )}
           {owned && renewalStartsAt && (

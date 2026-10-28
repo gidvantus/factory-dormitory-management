@@ -404,9 +404,27 @@ describe('предел мест в организации', () => {
 
     expect(hint).toHaveAttribute('data-limit', '15');
     expect(hint).toHaveTextContent('Тариф допускает до 15 сотрудников');
-    expect(hint).toHaveTextContent('Занято 1 из 15');
+    // Владелец места не занимает: сервер считает сотрудников без него.
+    expect(hint).toHaveTextContent('Занято 0 из 15');
     // Пробный предел рядом не показывается: он больше не определяет доступ.
     expect(screen.queryByText(/На пробном периоде/)).not.toBeInTheDocument();
+  });
+
+  it('считает места по сотрудникам, а не по владельцу', async () => {
+    mountMembers(
+      { status: 200, body: [OWNER, INVITED, { ...INVITED, id: 3, email: 'vtoroi@example.com' }] },
+      undefined,
+      TRIAL_ACTIVE,
+      subscriptionWith(5),
+    );
+    renderApp('/cabinet/organization/members');
+
+    const hint = await screen.findByTestId('members-seat-limit');
+
+    // В списке три человека, но мест занято два: владелец в `max_members` не входит.
+    expect(hint).toHaveTextContent('Занято 2 из 5');
+    expect(hint).not.toHaveTextContent('Занято 3 из 5');
+    expect(hint).not.toHaveTextContent('Сотрудники, приглашённые раньше');
   });
 
   it('на заполненных местах говорит, что приглашённые раньше продолжают работать', async () => {
@@ -414,14 +432,31 @@ describe('предел мест в организации', () => {
       { status: 200, body: [OWNER, INVITED] },
       undefined,
       TRIAL_ACTIVE,
-      subscriptionWith(2),
+      subscriptionWith(1),
     );
     renderApp('/cabinet/organization/members');
 
     const hint = await screen.findByTestId('members-seat-limit');
 
-    expect(hint).toHaveTextContent('Занято 2 из 2');
+    expect(hint).toHaveTextContent('Занято 1 из 1');
     expect(hint).toHaveTextContent('Сотрудники, приглашённые раньше, продолжают работать');
+  });
+
+  it('не объявляет места занятыми, пока свободное место есть', async () => {
+    // Пятнадцать мест, владелец и один приглашённый: счёт по списку сказал бы
+    // «2 из 15» и напугал бы раньше времени, а сервер приглашение разрешит.
+    mountMembers(
+      { status: 200, body: [OWNER, INVITED] },
+      undefined,
+      TRIAL_ACTIVE,
+      subscriptionWith(15),
+    );
+    renderApp('/cabinet/organization/members');
+
+    const hint = await screen.findByTestId('members-seat-limit');
+
+    expect(hint).toHaveTextContent('Занято 1 из 15');
+    expect(hint).not.toHaveTextContent('Сотрудники, приглашённые раньше');
   });
 
   it('не ограничивает места у тарифа без предела', async () => {

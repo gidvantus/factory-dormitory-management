@@ -73,9 +73,16 @@ const TIER_GRID: {
 
 const PERIODS: Period[] = ['month', 'quarter', 'year'];
 
+/** Суффикс имени строки прайса — как в сетке `0052`: «Старт · 12 месяцев». */
+const NAME_SUFFIX = {
+  month: '',
+  quarter: '3 месяца',
+  year: '12 месяцев',
+} as const;
+
 /** Имя строки прайса: месячная называется ярусом, остальные — со сроком. */
 function rowName(title: string, period: Period): string {
-  return period === 'month' ? title : `${title} · ${PERIOD_SUFFIX[period].replace('за ', '')}`;
+  return period === 'month' ? title : `${title} · ${NAME_SUFFIX[period]}`;
 }
 
 const PLANS = TIER_GRID.flatMap((tier, tierIndex) =>
@@ -753,7 +760,7 @@ describe('шапка и подвал страницы тарифов', () => {
     }
   });
 
-  it('при оплаченном вперёд периоде ведёт продление на его начало', async () => {
+  it('при оплаченном вперёд периоде говорит, что продление уже оплачено', async () => {
     mockFetch(
       signedInRoutes({ status: 200, body: PLANS }, undefined, {
         status: 200,
@@ -775,10 +782,35 @@ describe('шапка и подвал страницы тарифов', () => {
       .getAllByTestId('tariff-card')
       .find((card) => within(card).queryByTestId('tariff-name')?.textContent === 'Рост');
     if (!growth) throw new Error('нет плашки «Рост»');
-    // Дата начала — `next.starts_at` с сервера, а не пересчёт срока на клиенте.
-    expect(within(growth).getByTestId('tariff-next-start')).toHaveTextContent(
-      'На будущий период — с 02.11.2026',
+
+    // Будущий слот занят: строка «На будущий период» больше не предлагает
+    // свободное место, а называет уже купленный период и день его начала.
+    expect(within(growth).queryByTestId('tariff-next-start')).not.toBeInTheDocument();
+    const paid = within(growth).getByTestId('tariff-next-paid');
+    expect(paid).toHaveTextContent('Продление оплачено: «Команда · 12 месяцев» с 02.11.2026');
+    // Остатки срока текущего периода остаются на месте.
+    expect(within(growth).getByTestId('tariff-term')).toHaveTextContent('Оплачен до 02.11.2026');
+  });
+
+  it('при свободном слоте продления ничего не называет оплаченным', async () => {
+    mockFetch(
+      signedInRoutes({ status: 200, body: PLANS }, undefined, {
+        status: 200,
+        body: {
+          tariff: plan('growth', 'quarter'),
+          ends_at: '2026-11-02T12:00:00Z',
+          days_left: 5,
+          is_expiring: true,
+          next: null,
+        },
+      }),
     );
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await screen.findAllByTestId('tariff-card');
+
+    expect(screen.queryByTestId('tariff-next-paid')).not.toBeInTheDocument();
   });
 
   it('не гасит кнопки, пока тариф организации не выбран', async () => {
