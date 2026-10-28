@@ -21,13 +21,15 @@
 
 Предмет счёта бывает двух видов, и оплата у них разная:
 
-* **тариф** (`item_kind = 'tariff'`) — организации привязывается тариф счёта.
-  Снимок тарифа в счёте остаётся главным: организация получает `tariff_id` из
-  счёта, а не из текущего прайса. Если у организации уже есть **другой** тариф —
-  это `409` «Тариф организации уже выбран»: смена тарифа покупкой не делается;
+* **тариф** (`item_kind = 'tariff'`) — оплата записывает организации оплаченный
+  период (`app/subscription.py::record_payment`): свободен текущий слот — он и
+  заполняется, занят — заполняется будущий, а оба заняты — `409` «Тариф уже
+  оплачен на будущий период». Срок считается от `period` снимка счёта, а не от
+  текущего прайса: организация получает то, за что заплатила. Смена тарифа
+  посреди оплаченного периода покупкой не делается — меняется только срок;
 * **решение** (`item_kind = 'solution'`) — оплата выдаёт или продлевает право
-  организации на решение (`app/solutions.py::grant`), а `organizations.tariff_id`
-  **не трогается**: решение не открывает кабинет и не меняет тариф.
+  организации на решение (`app/solutions.py::grant`), а подписку
+  **не трогает**: решение не открывает кабинет и не меняет тариф.
 """
 
 from datetime import UTC, datetime
@@ -40,6 +42,7 @@ from app.models.invoice import SOLUTION_ITEM_KIND, Invoice, InvoiceDocument
 from app.models.organization import Organization
 from app.models.solution import Solution
 from app.solutions import grant
+from app.subscription import record_payment
 
 # Подписи статусов для кабинета. Собирает сервер: экран показывает то же, что
 # видит и выгрузка, и формулировка живёт в одном месте.
@@ -59,7 +62,6 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 INVALID_STATUS_DETAIL = "Так нельзя изменить статус счёта"
-TARIFF_ALREADY_CHOSEN_DETAIL = "Тариф организации уже выбран"
 INVOICE_NOT_FOUND_DETAIL = "Счёт не найден"
 
 # Вид документа, который появляется при оплате.
@@ -137,9 +139,10 @@ def change_status(db: Session, invoice: Invoice, target: str) -> Invoice:
             # ссылку): тогда выдавать нечего — оплата всё равно фиксируется, а
             # право не появляется. Молчаливой выдачи «не того» решения нет.
         else:
-            if organization.tariff_id is not None and organization.tariff_id != invoice.tariff_id:
-                raise HTTPException(status.HTTP_409_CONFLICT, TARIFF_ALREADY_CHOSEN_DETAIL)
-            organization.tariff_id = invoice.tariff_id
+            # Период берётся из снимка счёта: организация получает ровно то, за что
+            # заплатила, даже если прайс с тех пор поменялся. Оба слота заняты —
+            # `record_payment` откажет `409`, и счёт останется неоплаченным.
+            record_payment(organization, invoice.tariff_id, invoice.tariff_period)
         invoice.paid_at = datetime.now(UTC)
         db.add(InvoiceDocument(invoice_id=invoice.id, kind=ACT_KIND))
 

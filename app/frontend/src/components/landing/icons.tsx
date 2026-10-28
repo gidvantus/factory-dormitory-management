@@ -94,6 +94,16 @@ export function UsersIcon(props: IconProps): JSX.Element {
   );
 }
 
+/** Подсказка к плашке прайса: круг с восклицанием, 24×24, текущим цветом. */
+export function InfoIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v6M12 7h.01" />
+    </Icon>
+  );
+}
+
 export function TransferIcon(props: IconProps): JSX.Element {
   return (
     <Icon {...props}>

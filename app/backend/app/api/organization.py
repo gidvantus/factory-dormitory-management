@@ -33,6 +33,7 @@ from app.db import get_db
 from app.mail import send_invitation_email_task
 from app.models.activation import ActivationToken
 from app.models.organization import Organization, OrganizationMember
+from app.models.tariff import Tariff
 from app.models.user import User
 from app.schemas.organization import (
     INN_FORMAT_MESSAGE,
@@ -51,13 +52,12 @@ from app.security import (
     hash_password,
     issue_activation_token,
 )
-from app.trial import (
-    TRIAL_LIMIT_HEADER,
-    TRIAL_LIMIT_HEADER_VALUE,
-    TRIAL_MEMBER_LIMIT,
-    TRIAL_MEMBER_LIMIT_DETAIL,
-    trial_state,
+from app.subscription import (
+    MEMBER_LIMIT_HEADER,
+    MEMBER_LIMIT_HEADER_VALUE,
+    subscription_state,
 )
+from app.trial import TRIAL_MEMBER_LIMIT, trial_state
 
 router = APIRouter(
     prefix="/organization",
@@ -85,12 +85,12 @@ INVITATION_TOKEN_KIND = "invitation"
 # Роли, которым разрешена правка. Остальные роли читают организацию, но не меняют.
 EDIT_ROLES = frozenset({"owner", "admin"})
 
-# Роль владельца: она не считается сотрудником в лимите пробного периода.
+# Роль владельца: она не считается сотрудником в пределе мест.
 OWNER_ROLE = "owner"
 
-# Описание заголовка отказа по лимиту для опубликованной схемы.
-TRIAL_LIMIT_HEADER_DESCRIPTION = (
-    f"{TRIAL_MEMBER_LIMIT_DETAIL} (значение: {TRIAL_LIMIT_HEADER_VALUE})"
+# Описание заголовка отказа по местам для опубликованной схемы.
+MEMBER_LIMIT_HEADER_DESCRIPTION = (
+    f"Отказ по пределу мест тарифа (значение: {MEMBER_LIMIT_HEADER_VALUE})"
 )
 
 NOT_FOUND_RESPONSES: dict[int | str, dict[str, object]] = {
@@ -241,20 +241,82 @@ def _employee_count(db: Session, organization_id: int) -> int:
     )
 
 
-def _ensure_trial_member_limit(db: Session, user: User, organization_id: int) -> None:
-    """Отказать, когда пробный период исчерпал лимит сотрудников.
+def _suggested_tariff_name(db: Session, limit: int) -> str | None:
+    """Тариф, на который стоит перейти при пределе `limit`: ближайший просторный.
 
-    Лимит действует только пока доступ определяет пробный период: с выбранным
-    тарифом ограничения нет (`trial_state(...).is_active` это и означает).
+    Ищем среди опубликованного прайса ярус с наименьшим пределом, который больше
+    текущего, а если такого нет — первый безлимитный. Имя берётся у месячной
+    строки яруса: у остальных к названию добавлен срок, и в тексте отказа «Рост ·
+    12 месяцев» читался бы как отдельный тариф.
     """
-    if not trial_state(db, user).is_active:
+    candidates = list(
+        db.scalars(
+            select(Tariff).where(Tariff.is_visible.is_(True)).order_by(Tariff.position, Tariff.id)
+        )
+    )
+    wider = [
+        tariff
+        for tariff in candidates
+        if tariff.max_members is not None and tariff.max_members > limit
+    ]
+    if wider:
+        # Ближайший ярус по местам, а внутри яруса — первая по порядку строка.
+        best_limit = min(tariff.max_members for tariff in wider if tariff.max_members is not None)
+        return next(tariff.name for tariff in wider if tariff.max_members == best_limit)
+    unlimited = [tariff for tariff in candidates if tariff.max_members is None]
+    return unlimited[0].name if unlimited else None
+
+
+def _member_limit(db: Session, user: User, organization_id: int) -> tuple[int | None, str | None]:
+    """Предел мест организации и тариф, на который стоит перейти.
+
+    `None` в пределе — без ограничения: так продаётся безлимитный ярус, а на
+    закрытом кабинете без тарифа и пробного периода ограничивать нечего. Без
+    тарифа предел даёт пробный период — прежние три места.
+    """
+    state = subscription_state(db, organization_id)
+    if state.tariff is not None:
+        limit = state.member_limit
+    elif trial_state(db, user).is_active:
+        limit = TRIAL_MEMBER_LIMIT
+    else:
+        limit = None
+    if limit is None:
+        return None, None
+    return limit, _suggested_tariff_name(db, limit)
+
+
+def _member_limit_detail(limit: int, tariff_name: str | None) -> str:
+    """Текст отказа по местам: дословно тот, что показывает фронт.
+
+    Название тарифа подставляется только тогда, когда в прайсе есть куда
+    переходить: обещать «перейдите на тариф», которого нет, нельзя.
+    """
+    if tariff_name is None:
+        return f"Достигнут предел мест ({limit})"
+    return f"Достигнут предел мест ({limit}). Перейдите на тариф «{tariff_name}»"
+
+
+def _ensure_member_limit(db: Session, user: User, organization_id: int) -> None:
+    """Отказать, когда приглашение упирается в предел мест.
+
+    Предел — это `max_members` действующего тарифа, а без тарифа — три места
+    пробного периода. Понижение предела никогда не выгоняет людей: проверка
+    стоит только на приглашении, поэтому уже приглашённые продолжают работать.
+
+    Блокировка организации нужна и здесь: два одновременных приглашения иначе
+    посчитали бы сотрудников по одному и тому же состоянию и вместе проскочили
+    бы предел.
+    """
+    limit, tariff_name = _member_limit(db, user, organization_id)
+    if limit is None:
         return
     _lock_organization(db, organization_id)
-    if _employee_count(db, organization_id) >= TRIAL_MEMBER_LIMIT:
+    if _employee_count(db, organization_id) >= limit:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            TRIAL_MEMBER_LIMIT_DETAIL,
-            headers={TRIAL_LIMIT_HEADER: TRIAL_LIMIT_HEADER_VALUE},
+            _member_limit_detail(limit, tariff_name),
+            headers={MEMBER_LIMIT_HEADER: MEMBER_LIMIT_HEADER_VALUE},
         )
 
 
@@ -435,10 +497,10 @@ def read_members(membership: Membership, db: DbSession) -> list[OrganizationMemb
         },
         status.HTTP_409_CONFLICT: {
             "model": ErrorResponse,
-            "description": f"{EMAIL_TAKEN_DETAIL} или {TRIAL_MEMBER_LIMIT_DETAIL}",
+            "description": f"{EMAIL_TAKEN_DETAIL} или отказ по пределу мест тарифа",
             "headers": {
-                TRIAL_LIMIT_HEADER: {
-                    "description": TRIAL_LIMIT_HEADER_DESCRIPTION,
+                MEMBER_LIMIT_HEADER: {
+                    "description": MEMBER_LIMIT_HEADER_DESCRIPTION,
                     "schema": {"type": "string"},
                 }
             },
@@ -465,16 +527,17 @@ def invite_member(
     Роль проверяется только схемой (`admin`, `manager`, `commandant`): прав по
     ней в этой задаче нет, она хранится и показывается.
 
-    На пробном периоде число сотрудников ограничено (`TRIAL_MEMBER_LIMIT`):
-    отказ приходит как `409` с заголовком `X-Trial-Limit`, чтобы фронт отличил
-    его от конфликта по занятому email.
+    Предел мест берётся у действующего тарифа (`max_members`), а без тарифа —
+    у пробного периода (три сотрудника). Отказ приходит как `409` с заголовком
+    `X-Member-Limit`: по нему фронт отличает предел мест от конфликта по
+    занятому email, а текст отказа показывает дословно.
     """
     email = normalize_email(payload.email)
 
     caller = db.get(User, membership.user_id)
     if caller is None:  # pragma: no cover - строка членства без пользователя невозможна
         raise HTTPException(status.HTTP_404_NOT_FOUND, ORGANIZATION_NOT_FOUND_DETAIL)
-    _ensure_trial_member_limit(db, caller, membership.organization_id)
+    _ensure_member_limit(db, caller, membership.organization_id)
 
     # Занятый email — 409 до любых вставок: ничего не создаём и письма не шлём.
     if db.scalar(select(User.id).where(User.email == email)) is not None:

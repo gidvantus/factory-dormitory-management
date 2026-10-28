@@ -11,11 +11,18 @@ import type {
 export const TRIAL_EXPIRED_DETAIL =
   'Пробный период закончился. Выберите тариф, чтобы продолжить работу';
 
-/** Заголовок 409 «на пробном периоде больше нельзя приглашать». */
-export const TRIAL_LIMIT_HEADER = 'X-Trial-Limit';
+/**
+ * Заголовок 409 «предел мест исчерпан».
+ *
+ * Один и тот же отказ у пробного периода (предел 3) и у тарифа (`max_members`
+ * его яруса): текст серверный, а по заголовку отказ по местам отличается от
+ * прочих `409` (занятый адрес, занятые слоты подписки). Без заголовка идёт
+ * обычный путь ошибки — так и должно быть.
+ */
+export const MEMBER_LIMIT_HEADER = 'X-Member-Limit';
 
-/** Значение этого заголовка: отказ именно по лимиту сотрудников. */
-export const TRIAL_LIMIT_HEADER_VALUE = 'members';
+/** Значение этого заголовка: отказ именно по пределу мест. */
+export const MEMBER_LIMIT_HEADER_VALUE = 'seats';
 
 /**
  * Роль пользователя в организации.
@@ -136,9 +143,25 @@ export interface OrganizationLookup {
   details: OrganizationLookupDetails | null;
 }
 
-/** Период списания тарифа: код в базе, «в месяц»/«в год»/«разово» собирает сервер. */
-export type TariffPeriod = 'month' | 'year' | 'once' | 'half_year';
+/**
+ * Период списания тарифа: код в базе, «в месяц»/«раз в квартал»/«в год»
+ * собирает сервер.
+ *
+ * Набор общий с решениями магазина улучшений (`SOLUTION_PERIODS` на сервере):
+ * `quarter` появился в #99, `half_year` остался ради уже проданного «Стандарта».
+ */
+export type TariffPeriod = 'month' | 'quarter' | 'half_year' | 'year' | 'once';
 
+/**
+ * Строка прайса.
+ *
+ * `group_code` — код яруса: строки одного яруса с разными сроками делят его, и
+ * страница собирает из них переключатель срока. У прежних строк кода нет —
+ * тогда ярусом считается само имя, и строка стоит в прайсе одна.
+ *
+ * `max_members` — предел мест яруса, `null` — без ограничения. `tooltip` —
+ * подсказка к плашке, `null` — подсказки нет.
+ */
 export interface Tariff {
   id: number;
   name: string;
@@ -150,13 +173,38 @@ export interface Tariff {
   /** «За что» именно эти деньги: «за одно место». */
   unit_label: string | null;
   position: number;
+  max_members: number | null;
+  tooltip: string | null;
+  group_code: string | null;
   /** Готовая цена от сервера: «5 000 ₽ за одно место в месяц». */
   price_label: string;
 }
 
-/** Тариф организации: `tariff` = null, пока тариф не назначен. */
+/** Оплаченный вперёд период: тариф и день, с которого он действует. */
+export interface NextTariff {
+  tariff: Tariff;
+  /**
+   * Момент начала. Равен `ends_at` текущего периода: граница исключающая, в
+   * этот момент текущий тариф уже не действует.
+   */
+  starts_at: string;
+}
+
+/**
+ * Подписка организации.
+ *
+ * `tariff: null` — действующего тарифа нет: работал и кончился, либо его ещё не
+ * было. `ends_at: null` при непустом `tariff` — бессрочный тариф. `days_left`,
+ * `is_expiring` и `next` считает сервер (`app/subscription.py`): клиент не
+ * вычитает дни из `ends_at` и не держит вторую копию правила «за 14 дней
+ * предупредить».
+ */
 export interface OrganizationTariff {
   tariff: Tariff | null;
+  ends_at: string | null;
+  days_left: number;
+  is_expiring: boolean;
+  next: NextTariff | null;
 }
 
 /**
@@ -557,14 +605,14 @@ export interface DashboardResponse {
 
 export class ApiError extends Error {
   readonly status: number;
-  /** 409 по лимиту пробного периода: сервер помечает его заголовком `X-Trial-Limit`. */
-  readonly trialLimit: boolean;
+  /** 409 по пределу мест: сервер помечает его заголовком `X-Member-Limit`. */
+  readonly memberLimit: boolean;
 
-  constructor(status: number, message: string, trialLimit = false) {
+  constructor(status: number, message: string, memberLimit = false) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
-    this.trialLimit = trialLimit;
+    this.memberLimit = memberLimit;
   }
 }
 
@@ -624,7 +672,7 @@ async function sendRequest<T>(path: string, init: RequestInit = {}): Promise<T> 
     throw new ApiError(
       response.status,
       message,
-      response.headers.get(TRIAL_LIMIT_HEADER) === TRIAL_LIMIT_HEADER_VALUE,
+      response.headers.get(MEMBER_LIMIT_HEADER) === MEMBER_LIMIT_HEADER_VALUE,
     );
   }
   if (response.status === 204) {
@@ -1231,7 +1279,11 @@ export const api = {
     return request<Tariff[]>('/tariffs', { signal });
   },
 
-  /** Тариф организации: только чтение. 404 — у пользователя нет организации. */
+  /**
+   * Подписка организации: действующий тариф, его конец, остаток дней и
+   * оплаченный вперёд период. Только чтение: 404 — у пользователя нет
+   * организации, `tariff: null` — действующего тарифа нет (не ошибка).
+   */
   currentTariff(signal?: AbortSignal): Promise<OrganizationTariff> {
     return request<OrganizationTariff>('/tariffs/current', { signal });
   },
@@ -1259,8 +1311,12 @@ export const api = {
    * true`; без неё сервер отвечает `422`, и это его правило, а не проверка
    * клиента. Повторный клик безопасен: живой неоплаченный счёт за тот же
    * предмет сервер вернёт как есть (`200`), а не создаст второй, и уже
-   * записанный акцепт не перезапишет. Тариф уже куплен — `409` с текстом
-   * причины.
+   * записанный акцепт не перезапишет.
+   *
+   * Покупка тарифа — продление на будущий период: свободен текущий слот —
+   * заполняется он, занят — будущий (`201`), а когда оплачены оба, сервер
+   * отвечает `409` «Тариф уже оплачен на будущий период». Клиент слоты не
+   * размечает: правило одно и живёт на сервере.
    */
   purchaseInvoice(input: CreateInvoiceInput): Promise<Invoice> {
     return request<Invoice>('/billing/invoices', {

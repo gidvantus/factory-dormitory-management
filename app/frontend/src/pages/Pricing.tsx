@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
-import type { Tariff } from '../api/client';
+import type { OrganizationTariff, Tariff } from '../api/client';
 import { useSession } from '../auth/SessionProvider';
 import { SiteActions } from '../components/SiteActions';
 import { SiteHeader } from '../components/SiteHeader';
@@ -48,8 +48,13 @@ function purchaseErrorMessage(error: unknown): string {
  * «Тарифы» здесь лишний: человек уже на прайсе.
  *
  * Если тариф у организации уже есть, список об этом говорит сам: купленная плашка
- * помечена подписью «Куплен», а кнопки покупки погашены. Отдельного блока с
- * рассказом про купленный тариф на странице нет — он дублировал бы список.
+ * помечена подписью «Куплен», показывает «Оплачен до <дата>» и предлагает
+ * «Продлить» — продление занимает следующий период, а не текущий. Отдельного
+ * блока с рассказом про купленный тариф на странице нет — он дублировал бы
+ * список.
+ *
+ * Срок и дни считает сервер (`/api/tariffs/current`): страница показывает
+ * `ends_at`, `next` и `days_left` как есть и не вычитает дни из даты сама.
  */
 export function Pricing(): JSX.Element {
   const [tariffs, setTariffs] = useState<Tariff[]>([]);
@@ -61,9 +66,9 @@ export function Pricing(): JSX.Element {
   const [buyError, setBuyError] = useState('');
   // Тариф, по которому нажали «Купить»: пока он задан, открыто окно подтверждения.
   const [pending, setPending] = useState<Tariff | null>(null);
-  // Тариф организации: пока он пуст, покупка доступна; после привязки список
-  // только помечает купленное, а кнопки гаснут.
-  const [ownedTariffId, setOwnedTariffId] = useState<number | null>(null);
+  // Подписка организации: пока её нет, покупка заполнит текущий слот; после
+  // привязки список помечает купленное и предлагает продление.
+  const [subscription, setSubscription] = useState<OrganizationTariff | null>(null);
   const { openLogin, openRegister, dialogElement } = useAuthDialog();
   const { status: sessionStatus } = useSession();
   const navigate = useNavigate();
@@ -77,18 +82,18 @@ export function Pricing(): JSX.Element {
    * на главную. Вошедшего после покупки ведёт в раздел «Документы» — именно там
    * виден выставленный счёт.
    *
-   * Закрытый пробный период покупку не блокирует: 403 «пробный период
-   * закончился» обрабатывает `client.ts` (`notifyTrialExpired`), а текст отказа
-   * от сервера показывается в окне как есть.
+   * Занятые слоты покупку не гасят: сервер сам решает, куда встанет оплата — в
+   * текущий период или в будущий, — а когда заняты оба, он отвечает `409`
+   * «Тариф уже оплачен на будущий период», и окно показывает этот текст как есть.
+   * Закрытый пробный период тоже не блокирует: `403` обрабатывает `client.ts`
+   * (`notifyTrialExpired`).
    */
-  function startPurchase(tariffId: number): void {
+  function startPurchase(tariff: Tariff): void {
     if (sessionStatus !== 'authenticated') {
       openRegister();
       return;
     }
     if (buying) return;
-    const tariff = tariffs.find((plan) => plan.id === tariffId);
-    if (!tariff) return;
     setBuyError('');
     setPending(tariff);
   }
@@ -133,7 +138,8 @@ export function Pricing(): JSX.Element {
   }, [attempt]);
 
   /**
-   * Купленный тариф организации — чтобы пометить его в самом списке.
+   * Подписка организации — чтобы пометить купленное в самом списке и показать
+   * срок оплаты.
    *
    * Аноним ничего не покупал, и лишний запрос ему ни к чему. У вошедшего без
    * организации ручка отвечает `404`, а не «нет тарифа», — и это тоже просто
@@ -141,7 +147,7 @@ export function Pricing(): JSX.Element {
    */
   useEffect(() => {
     if (sessionStatus !== 'authenticated') {
-      setOwnedTariffId(null);
+      setSubscription(null);
       return;
     }
     const controller = new AbortController();
@@ -149,11 +155,11 @@ export function Pricing(): JSX.Element {
       .currentTariff(controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
-        setOwnedTariffId(data.tariff ? data.tariff.id : null);
+        setSubscription(data);
       })
       .catch(() => {
         if (controller.signal.aborted) return;
-        setOwnedTariffId(null);
+        setSubscription(null);
       });
     return () => controller.abort();
   }, [sessionStatus]);
@@ -207,7 +213,7 @@ export function Pricing(): JSX.Element {
             {status === 'ready' && tariffs.length > 0 && (
               <PricingPlans
                 tariffs={tariffs}
-                ownedTariffId={ownedTariffId}
+                subscription={subscription}
                 buying={buying}
                 onBuy={startPurchase}
               />

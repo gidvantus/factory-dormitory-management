@@ -1,17 +1,21 @@
-"""Счета организации: покупка, статусы и печатные формы (issue #49, #61).
+"""Счета организации: покупка, статусы и печатные формы (issue #49, #61, #99).
 
 Критерии готовности разложены по блокам:
 
 * покупка заводит счёт со снимком реквизитов покупателя и предмета, номер вида
   `СЧ-<год>-<id>`, статус «Новый» и подписи от сервера;
 * повторный клик не плодит счета: живой `new` **за тот же предмет** возвращается
-  как `200`, а уже выбранный тариф — это `409`;
+  как `200`;
 * пустые название и ИНН, незнакомый тариф, чужая роль и чужой счёт дают разные
   коды: `409`, `404`, `403` и `404`;
-* `new → paid` привязывает организации тариф и создаёт акт, `paid → closed`
-  разрешён, `cancelled → paid` — `409`;
+* `new → paid` записывает организации оплаченный период тарифа и создаёт акт,
+  `paid → closed` разрешён, `cancelled → paid` — `409`;
+* **продление (#99):** вторая покупка при живом тарифе заполняет будущий слот,
+  начало которого ровно равно `tariff_ends_at` текущего, а третья покупка до
+  наступления будущего — `409` «Тариф уже оплачен на будущий период», и этот же
+  `409` ждёт оплату счёта, если слоты заняли за время его жизни;
 * счёт за решение (#61) покупается тем же путём, оплата выдаёт право и **не
-  трогает** тариф организации, а счета за тариф и за решение не мешают друг другу;
+  трогает** подписку, а счета за тариф и за решение не мешают друг другу;
 * тариф без отметки оферты не покупается (#86): пропущенное поле и `false` дают
   `422` с текстом «Отметьте согласие с условиями оферты», а успешная покупка
   пишет в строку счёта момент, код `offer`, редакцию `documents.updated_at` и
@@ -46,6 +50,7 @@ from app.models.solution import OrganizationSolution
 from app.models.tariff import Tariff
 from app.offer import OFFER_ACCEPTANCE_REQUIRED_DETAIL, OFFER_DOCUMENT_CODE
 from app.pricing import format_invoice_amount
+from app.subscription import TARIFF_ALREADY_BOUGHT_DETAIL
 from tests.conftest import add_solution, organizations_for, sign_in
 
 # Неразрывный пробел — разделитель разрядов в подписи суммы.
@@ -80,6 +85,7 @@ def add_tariff(
     amount: str = "10000.00",
     period: str = "month",
     is_visible: bool = True,
+    max_members: int | None = None,
 ) -> Tariff:
     """Тариф прайса прямо в базе: покупка читает его по `id`."""
     tariff = Tariff(
@@ -91,6 +97,7 @@ def add_tariff(
         unit_label=None,
         position=1,
         is_visible=is_visible,
+        max_members=max_members,
     )
     db_session.add(tariff)
     db_session.commit()
@@ -145,6 +152,14 @@ def purchase_id(client: TestClient, tariff_id: int) -> int:
 
 def set_status(client: TestClient, invoice_id: int, value: str) -> Response:
     return client.patch(f"{INVOICE_URL}/{invoice_id}", json={"status": value})
+
+
+def pay_tariff(client: TestClient, tariff_id: int) -> int:
+    """Купить и сразу оплатить тариф. Возвращает номер оплаченного счёта."""
+    invoice_id = purchase_id(client, tariff_id)
+    paid = set_status(client, invoice_id, PAID)
+    assert paid.status_code == 200, paid.text
+    return invoice_id
 
 
 def add_invoice(
@@ -262,17 +277,42 @@ def test_second_purchase_returns_the_live_invoice_and_creates_nothing(
     assert len(invoices_of(db_session, organization.id)) == 1
 
 
-def test_purchase_after_payment_is_a_conflict(client: TestClient, db_session: Session) -> None:
-    """Тариф уже выбран: второй раз его не покупают."""
-    owner(client, db_session)
+def test_second_purchase_after_payment_fills_the_future_period(
+    client: TestClient, db_session: Session
+) -> None:
+    """Живой тариф — не отказ: вторая покупка оплачивает будущий период."""
+    organization = owner(client, db_session)
     tariff = add_tariff(db_session)
-    invoice_id = purchase_id(client, tariff.id)
-    assert set_status(client, invoice_id, PAID).status_code == 200
+    first_id = pay_tariff(client, tariff.id)
+    db_session.refresh(organization)
+    current_end = organization.tariff_ends_at
+    assert current_end is not None
 
     response = purchase(client, tariff.id)
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Тариф организации уже выбран"
+    assert response.status_code == 201, response.text
+    assert response.json()["id"] != first_id
+    assert len(invoices_of(db_session, organization.id)) == 2
+
+
+def test_third_purchase_before_the_future_period_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Третий тариф до наступления будущего не продаётся: оба слота заняты."""
+    organization = owner(client, db_session)
+    monthly = add_tariff(db_session, name="Старт")
+    quarter = add_tariff(db_session, name="Квартал", amount="13200.00", period="quarter")
+    yearly = add_tariff(db_session, name="Год", amount="47000.00", period="year")
+    pay_tariff(client, monthly.id)
+    pay_tariff(client, quarter.id)
+    db_session.refresh(organization)
+    assert organization.next_tariff_id == quarter.id
+
+    response = purchase(client, yearly.id)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == TARIFF_ALREADY_BOUGHT_DETAIL
+    assert len(invoices_of(db_session, organization.id)) == 2
 
 
 def test_purchase_without_name_and_inn_is_a_conflict(
@@ -500,6 +540,7 @@ def test_paid_binds_the_tariff_and_creates_the_act(client: TestClient, db_sessio
     organization = owner(client, db_session)
     tariff = add_tariff(db_session)
     invoice_id = purchase_id(client, tariff.id)
+    before = datetime.now(UTC)
 
     response = set_status(client, invoice_id, PAID)
 
@@ -512,9 +553,50 @@ def test_paid_binds_the_tariff_and_creates_the_act(client: TestClient, db_sessio
 
     db_session.refresh(organization)
     assert organization.tariff_id == tariff.id
+    # Срок пошёл с момента оплаты: месяц вперёд, границы проверяются с запасом.
+    assert organization.tariff_ends_at is not None
+    ends_at = as_utc(organization.tariff_ends_at)
+    assert before + timedelta(days=27) < ends_at < before + timedelta(days=32)
     assert len(acts_of(db_session, invoice_id)) == 1
     # Запись тарифа открывает кабинет: пробный режим доступа больше не действует.
     assert client.get("/api/tariffs/current").json()["tariff"]["id"] == tariff.id
+
+
+def test_paid_quarter_runs_three_months(client: TestClient, db_session: Session) -> None:
+    """Квартальный тариф: срок — три календарных месяца от оплаты."""
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session, name="Старт · 3 месяца", period="quarter")
+    invoice_id = purchase_id(client, tariff.id)
+    before = datetime.now(UTC)
+
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    db_session.refresh(organization)
+    assert organization.tariff_ends_at is not None
+    ends_at = as_utc(organization.tariff_ends_at)
+    assert before + timedelta(days=87) < ends_at < before + timedelta(days=93)
+
+
+def test_future_period_starts_at_the_current_end(client: TestClient, db_session: Session) -> None:
+    """Второй оплаченный период начинается ровно в конце первого, а не с оплаты."""
+    organization = owner(client, db_session)
+    monthly = add_tariff(db_session, name="Старт")
+    quarter = add_tariff(db_session, name="Квартал", amount="13200.00", period="quarter")
+    # Текущий период задан явно: так проверяется именно календарная арифметика.
+    current_end = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
+    organization.tariff_id = monthly.id
+    organization.tariff_ends_at = current_end
+    db_session.commit()
+
+    pay_tariff(client, quarter.id)
+
+    db_session.refresh(organization)
+    assert organization.tariff_id == monthly.id
+    assert organization.tariff_ends_at is not None
+    assert as_utc(organization.tariff_ends_at) == current_end
+    assert organization.next_tariff_id == quarter.id
+    assert organization.next_tariff_ends_at is not None
+    assert as_utc(organization.next_tariff_ends_at) == datetime(2027, 2, 2, 12, 0, tzinfo=UTC)
 
 
 def test_paid_invoice_cannot_be_paid_twice(client: TestClient, db_session: Session) -> None:
@@ -580,21 +662,43 @@ def test_foreign_invoice_is_not_found(client: TestClient, db_session: Session) -
     assert set_status(client, invoice_id, PAID).status_code == 404
 
 
-def test_paid_requires_the_organization_to_have_no_other_tariff(
+def test_paid_refuses_when_both_slots_were_taken_meanwhile(
     client: TestClient, db_session: Session
 ) -> None:
-    """Смена тарифа покупкой не делается: у организации уже есть другой."""
+    """Счёт жил, пока оплачивали другие периоды: оплатить его некуда — `409`."""
     organization = owner(client, db_session)
-    other = add_tariff(db_session, name="Максимум", amount="90000.00", period="year")
-    tariff = add_tariff(db_session, name="Старт")
-    organization.tariff_id = other.id
+    current = add_tariff(db_session, name="Старт")
+    future = add_tariff(db_session, name="Квартал", amount="13200.00", period="quarter")
+    late = add_tariff(db_session, name="Год", amount="47000.00", period="year")
+    late_invoice = purchase_id(client, late.id)
+    pay_tariff(client, current.id)
+    pay_tariff(client, future.id)
+    db_session.refresh(organization)
+
+    response = set_status(client, late_invoice, PAID)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == TARIFF_ALREADY_BOUGHT_DETAIL
+    assert acts_of(db_session, late_invoice) == []
+    assert organization.tariff_id == current.id
+    assert organization.next_tariff_id == future.id
+
+
+def test_paid_does_not_postpone_an_indefinite_tariff(
+    client: TestClient, db_session: Session
+) -> None:
+    """Бессрочный тариф продлить нечем: будущему периоду не от чего считаться."""
+    organization = owner(client, db_session)
+    indefinite = add_tariff(db_session, name="Бессрочный")
+    organization.tariff_id = indefinite.id
     db_session.commit()
+    tariff = add_tariff(db_session, name="Старт")
     invoice = add_invoice(db_session, organization, tariff)
 
     response = set_status(client, invoice.id, PAID)
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Тариф организации уже выбран"
+    assert response.json()["detail"] == TARIFF_ALREADY_BOUGHT_DETAIL
     assert acts_of(db_session, invoice.id) == []
 
 

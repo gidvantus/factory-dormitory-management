@@ -52,8 +52,9 @@ SOLUTION_REQUIRED_DETAIL = "Решение не подключено. Оформ
 ONCE_PERIOD = "once"
 
 # Сколько календарных месяцев прибавляет период. `once` здесь нет: он даёт
-# бессрочное право, а не «ноль месяцев».
-MONTHS_BY_PERIOD = {"month": 1, "half_year": 6, "year": 12}
+# бессрочное право, а не «ноль месяцев» — так же считается и срок тарифа
+# (`app/subscription.py`), поэтому оба срока живут в одной арифметике.
+MONTHS_BY_PERIOD = {"month": 1, "quarter": 3, "half_year": 6, "year": 12}
 
 DbSession = Annotated[Session, Depends(get_db)]
 
