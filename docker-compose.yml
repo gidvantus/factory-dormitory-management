@@ -67,6 +67,47 @@ services:
     ports:
       - "${FRONTEND_PORT:-8080}:80"
 
+  # ---------- TLS-терминация: домен и сертификат Let's Encrypt -------------
+  # Включается профилем `tls`, нужен только на сервере:
+  #   docker compose --profile tls up -d --build
+  # Локально профиль не поднимается: у Let's Encrypt есть лимиты, а DNS домена
+  # указывает на сервер, а не на машину разработчика. Без профиля caddy нет,
+  # и локальные стенды работают как раньше.
+  # Домен и правила — ./caddy/Caddyfile, эксплуатация — docs/ssl.md.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    depends_on:
+      - web
+    environment:
+      # Домен приходит только из .env: в конфиге его нет.
+      # Пусто — Caddyfile не соберётся, и caddy не стартует (защита от
+      # случайного запуска ACME без домена).
+      SITE_DOMAIN: ${SITE_DOMAIN:-}
+      # Почта для писем об истечении сертификата (ACME принимает только ASCII).
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      # ACME-директория: боевая по умолчанию, staging — для первой проверки.
+      CADDY_ACME_CA: ${CADDY_ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}
+    volumes:
+      # Монтируется КАТАЛОГ, а не отдельный файл: при замене файла bind-mount
+      # одного файла продолжает указывать на старый inode, и правки Caddyfile
+      # не применялись бы. С каталогом конфиг всегда актуальный.
+      - ./caddy:/etc/caddy:ro
+      # Сертификаты и аккаунт ACME — в томе, переживают пересборку контейнера.
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    healthcheck:
+      # /healthz отдаёт сам Caddy (блок :80 в Caddyfile) — без редиректа.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
   # Бот Telegram: тонкий воркер на том же образе, что и `api`, но со своей
   # командой запуска. Своего Dockerfile у него нет, портов тоже: наружу бот не
   # открыт — он сам ходит в Bot API и в CRM по внутренней сети compose.
@@ -83,3 +124,6 @@ volumes:
   pgdata:
   # Файлы локального хранилища: переживают пересборку контейнера `api`.
   uploads:
+  # Сертификаты и аккаунт ACME: том удалять нельзя (см. docs/ssl.md).
+  caddy_data:
+  caddy_config:

@@ -480,7 +480,8 @@ no-store`.
 ├── app/
 │   ├── backend/          — FastAPI: app/, alembic/, tests/, Dockerfile
 │   └── frontend/         — React + TypeScript: src/, Dockerfile, nginx.conf
-├── docker-compose.yml    — стенд: db + api + web + bot
+├── caddy/                — Caddyfile: домен и сертификат (профиль tls)
+├── docker-compose.yml    — стенд: db + api + web + bot (+ caddy по профилю tls)
 ├── .env.example          — значения стенда по умолчанию (.env переопределяет)
 └── README.md
 ```
@@ -502,6 +503,23 @@ docker compose up -d --build
 ```bash
 docker compose -p <имя-стенда> up -d --build
 ```
+
+### HTTPS на сервере
+
+Локально профиль `tls` не нужен: `docker compose up -d` не поднимает `caddy`,
+и стенд работает по HTTP на прежних портах. Поднять его на машине разработчика
+или стенде отдела всё равно не получится: порты 80 и 443 там заняты стендом
+Vahta, и `--profile tls up -d` падает на `bind: address already in use`.
+На сервере TLS терминирует caddy, он же выпускает и продлевает сертификат
+Let's Encrypt:
+
+```bash
+docker compose --profile tls up -d --build
+```
+
+Домен приходит из `.env` (`SITE_DOMAIN`), конфиг — `caddy/Caddyfile`.
+Подробности, чек-лист `.env` сервера, первый выпуск на staging и откат на HTTP —
+`docs/ssl.md`.
 
 ## Проверки кода
 
