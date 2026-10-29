@@ -37,6 +37,12 @@ const CATALOG = {
           kind: 'text',
           operators: ['equals', 'not_equals', 'not_empty', 'is_empty'],
         },
+        {
+          id: 14,
+          name: 'Готов к заселению',
+          kind: 'checkbox',
+          operators: ['equals', 'not_empty', 'is_empty'],
+        },
       ],
     },
     {
@@ -151,6 +157,13 @@ describe('блок «Правила уведомлений»', () => {
     // Архивное общежитие в селектор не попадает.
     const selector = screen.getByTestId('telegram-rule-dormitory');
     expect(selector).not.toHaveTextContent('Архивное общежитие');
+    // Сломанное правило сервер не сохранит, поэтому переключатель погашен и
+    // подписан, а удаление при этом остаётся доступным.
+    expect(screen.getByTestId('telegram-rule-toggle-14')).toBeDisabled();
+    expect(screen.getByText('Сначала исправьте условие')).toBeInTheDocument();
+    expect(screen.getByTestId('telegram-rule-delete-14')).toBeEnabled();
+    // Рабочее правило переключается как обычно.
+    expect(screen.getByTestId('telegram-rule-toggle-12')).toBeEnabled();
   });
 
   it('без правил показывает пустое состояние', async () => {
@@ -307,5 +320,57 @@ describe('блок «Правила уведомлений»', () => {
     expect(await screen.findByTestId('telegram-rule-condition-0-column')).toHaveValue('12');
     // Варианты списка подставлены подписями: значение условия — идентификатор.
     expect(await screen.findByTestId('telegram-rule-condition-0-value')).toHaveValue('male');
+  });
+
+  it('потолок условий: «4 из 4», добавление неактивно, пятого условия нет', async () => {
+    const user = userEvent.setup();
+    mount();
+
+    await user.click(await screen.findByTestId('telegram-rule-add'));
+    for (let index = 0; index < 4; index += 1) {
+      await user.click(screen.getByTestId('telegram-rule-condition-add'));
+    }
+
+    expect(screen.getByTestId('telegram-rule-conditions')).toHaveTextContent('4 из 4');
+    expect(screen.getByTestId('telegram-rule-condition-3-column')).toBeInTheDocument();
+    expect(screen.getByTestId('telegram-rule-condition-add')).toBeDisabled();
+    // Клик по погашенной кнопке не добавляет пятого условия и не двигает счётчик.
+    await user.click(screen.getByTestId('telegram-rule-condition-add'));
+    expect(screen.queryByTestId('telegram-rule-condition-4-column')).not.toBeInTheDocument();
+    expect(screen.getByTestId('telegram-rule-conditions')).toHaveTextContent('4 из 4');
+  });
+
+  it('условие по чекбоксу — список «Да/Нет», в теле запроса значение false', async () => {
+    const user = userEvent.setup();
+    const fetchMock = mount();
+
+    await user.click(await screen.findByTestId('telegram-rule-add'));
+    await user.type(screen.getByTestId('telegram-rule-name'), 'Готов к заселению');
+    await user.click(screen.getByTestId('telegram-rule-condition-add'));
+    await user.selectOptions(screen.getByTestId('telegram-rule-condition-0-column'), '14');
+
+    const value = await screen.findByTestId('telegram-rule-condition-0-value');
+    // Вид контроля значения задаёт тип столбца: чекбокс — список, а не поле ввода.
+    expect(value.tagName).toBe('SELECT');
+    expect(value).toHaveTextContent('Да');
+    expect(value).toHaveTextContent('Нет');
+    expect(value).toHaveValue('false');
+
+    await user.click(screen.getByTestId('telegram-rule-save'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('telegram-rule-dialog')).not.toBeInTheDocument(),
+    );
+
+    const call = fetchMock.mock.calls.find(
+      (item) =>
+        String(item[0]).endsWith('/api/dormitories/1/telegram-rules') && item[1]?.method === 'POST',
+    );
+    expect(call).toBeDefined();
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+      name: 'Готов к заселению',
+      table_key: 'residents',
+      is_enabled: true,
+      conditions: [{ column_id: 14, operator: 'equals', value: false }],
+    });
   });
 });

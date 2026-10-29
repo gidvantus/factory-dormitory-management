@@ -1115,6 +1115,16 @@
   height: 16px;
   accent-color: var(--mint-600);
 }
+/* Подсказка к погашенному переключателю: причина, а не только серый контрол. */
+.shell .rule-toggle {
+  display: grid;
+  gap: 4px;
+}
+.shell .rule-check-hint {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
 .shell .rule-action {
   text-align: right;
 }

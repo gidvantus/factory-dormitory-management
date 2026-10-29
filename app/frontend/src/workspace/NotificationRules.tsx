@@ -338,23 +338,37 @@ export function NotificationRules(): JSX.Element {
                   {rule.table_title}
                 </div>
                 <div className={styles['rule-toggle']}>
+                  {/*
+                    Сломанное правило сервер не сохранит: `PUT` уходит с его же
+                    условиями, а условие ссылается на удалённый столбец (`422`).
+                    Поэтому переключатель погашен, а причина видна рядом; удаление
+                    при этом остаётся доступным всегда.
+                    Пока в полёте любой запрос, гасим контролы всех строк: иначе
+                    клик по чужой строке молча ничего не делает.
+                  */}
                   <label className={styles['rule-check']}>
                     <input
                       type="checkbox"
                       checked={rule.is_enabled}
-                      disabled={busyId === rule.id}
+                      disabled={rule.broken || busyId !== null}
+                      aria-describedby={rule.broken ? `rule-toggle-hint-${rule.id}` : undefined}
                       data-testid={`telegram-rule-toggle-${rule.id}`}
                       onChange={(event) => void toggle(rule, event.target.checked)}
                     />
                     <span>{rule.is_enabled ? 'Вкл' : 'Выкл'}</span>
                   </label>
+                  {rule.broken && (
+                    <span className={styles['rule-check-hint']} id={`rule-toggle-hint-${rule.id}`}>
+                      Сначала исправьте условие
+                    </span>
+                  )}
                 </div>
                 <div className={styles['rule-action']}>
                   <button
                     className="link-button"
                     type="button"
                     data-testid={`telegram-rule-delete-${rule.id}`}
-                    disabled={busyId === rule.id}
+                    disabled={busyId !== null}
                     onClick={() => void remove(rule)}
                   >
                     Удалить
