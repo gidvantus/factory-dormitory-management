@@ -30,6 +30,10 @@ dependencies = [
     # defusedxml и fonttools, поставляет `py.typed` и умеет встраивать TrueType
     # с кириллицей. Сам шрифт приходит из образа, а не из git.
     "fpdf2>=2.8,<3.0",
+    # Файловое хранилище (`app/storage.py`): S3-совместимый бакет Timeweb Cloud.
+    # Импортируется лениво — в режиме локального диска пакет не нужен, но в
+    # образ ставится, чтобы режим переключался `.env`, а не пересборкой.
+    "boto3>=1.34,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -68,6 +72,14 @@ warn_redundant_casts = true
 no_implicit_optional = true
 strict_equality = true
 exclude = ["alembic/versions"]
+
+[[tool.mypy.overrides]]
+# У boto3 и botocore нет `py.typed`: типы к ним поставляются отдельным пакетом
+# boto3-stubs, который тянет весь API облака ради двух вызовов (`put_object`,
+# `get_object`). Падение mypy на импорте здесь ничего не проверяет, поэтому
+# модули объявлены нетипизированными.
+module = ["boto3", "boto3.*", "botocore", "botocore.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

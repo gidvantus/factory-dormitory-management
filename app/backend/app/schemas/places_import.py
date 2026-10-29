@@ -41,10 +41,16 @@ class PlacesImportRow(BaseModel):
 
 
 class PlacesImportResult(BaseModel):
-    """Результат разбора. `status = "failed"` приходит с ответом 422."""
+    """Результат разбора. `status = "failed"` приходит с ответом 422.
+
+    `file_url` — адрес исходного файла в хранилище (`/uploads/<ключ>`), готовый
+    для `href`. Клиент подставляет его как есть и не собирает из ключа. Пустой
+    адрес — у заданий, разобранных до появления хранилища.
+    """
 
     import_id: int
     status: Literal["ready", "failed"]
+    file_url: str = ""
     months: list[date]
     counts: PlacesImportCounts
     rows: list[PlacesImportRow]

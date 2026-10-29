@@ -1,6 +1,7 @@
 """Настройки сервиса. Всё, что является секретом, приходит только из окружения."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -39,6 +40,26 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = ""
     smtp_use_tls: bool = True
+
+    # --- S3 (облачное хранилище файлов) ---
+    # Единый механизм хранения (`app/storage.py`) использует S3, когда заданы
+    # endpoint, бакет и ключи активной среды. Ключи задаются ТОЛЬКО в `.env`
+    # (файл в `.gitignore`, в репозиторий не попадает) и в коде их нет никогда.
+    s3_endpoint: str = "https://s3.twcstorage.ru"
+    s3_bucket: str = ""  # имя бакета, задаётся только в .env
+    # `Literal`, а не `str`: опечатка (`production`, `Prod`) роняет приложение на
+    # старте с внятным отказом. Свободная строка молча давала бы пустые ключи,
+    # `s3_enabled = False` и хранилище переключалось бы на локальный диск —
+    # импорты легли бы в `/app/uploads` вместо бакета `crm-prod`.
+    s3_env: Literal["test", "prod"] = "test"
+    # Тестовая среда → префикс crm-agent-test
+    s3_access_key_test: str = ""
+    s3_secret_key_test: str = ""
+    s3_prefix_test: str = "crm-agent-test"
+    # Боевая среда → префикс crm-prod
+    s3_access_key_prod: str = ""
+    s3_secret_key_prod: str = ""
+    s3_prefix_prod: str = "crm-prod"
 
     # --- DaData ---
     # Токен подстановки (suggestions). Пустая строка — нормальное состояние:
@@ -96,6 +117,33 @@ class Settings(BaseSettings):
     # Адрес CRM для бота: бот ходит в тот же API, что и фронт, но по внутренней
     # сети compose. Публичного адреса у бота нет.
     telegram_crm_api_url: str = "http://api:8000"
+
+    @property
+    def s3_region(self) -> str:
+        """Регион подписи SigV4 для Timeweb Cloud S3."""
+        return "ru-1"
+
+    @property
+    def s3_access_key(self) -> str:
+        """Ключ активной среды: `s3_access_key_test` или `s3_access_key_prod`."""
+        return getattr(self, f"s3_access_key_{self.s3_env}", "")
+
+    @property
+    def s3_secret_key(self) -> str:
+        """Секрет активной среды: `s3_secret_key_test` или `s3_secret_key_prod`."""
+        return getattr(self, f"s3_secret_key_{self.s3_env}", "")
+
+    @property
+    def s3_prefix(self) -> str:
+        """Префикс среды в бакете: `crm-agent-test` или `crm-prod`."""
+        return getattr(self, f"s3_prefix_{self.s3_env}", "")
+
+    @property
+    def s3_enabled(self) -> bool:
+        """S3 активен, когда заданы endpoint, бакет и ключи активной среды."""
+        return bool(
+            self.s3_endpoint and self.s3_bucket and self.s3_access_key and self.s3_secret_key
+        )
 
 
 @lru_cache

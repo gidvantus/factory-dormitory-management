@@ -1,14 +1,16 @@
 """Точка входа FastAPI."""
 
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import FastAPI, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 from starlette.middleware.base import RequestResponseEndpoint
 
 from app import audit
@@ -52,8 +54,35 @@ from app.api import (
 # подменил бы его.
 from app.api.audit import router as journal_router
 from app.config import get_settings
+from app.db import get_db
+from app.file_access import can_read, content_type_for, normalize_key
+from app.schemas.user import ErrorResponse
+from app.security import OptionalUser
+from app.storage import StorageNotFoundError, log_storage_mode, storage
 
 API_PREFIX = "/api"
+
+# Логи приложения видны в контейнере `api`. Uvicorn поднимает только свои
+# логгеры (`uvicorn`, `uvicorn.error`, `uvicorn.access`), а корневой оставляет на
+# WARNING — поэтому INFO самого проекта (режим файлового хранилища при импорте
+# `app.storage`, сохранённые объекты S3, письма) в лог не попадал вовсе. Так же
+# поступает бот (`app.bot.main`). `basicConfig` ничего не делает, если корневой
+# логгер уже настроен, поэтому чужая конфигурация не ломается.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+# Ключ хранилища в URL приходит без префикса `uploads/`:
+# `/uploads/2026-10-29/<uuid>.xlsx`. Тексты отказов — часть контракта с
+# клиентом: фронт их не показывает и не переписывает (отказ скачивания рисует
+# браузер), но тестировщик сверяет их дословно.
+UPLOAD_NOT_FOUND_DETAIL = "Файл не найден"
+UPLOAD_FORBIDDEN_DETAIL = "Нет доступа к файлу"
+
+# Описание отказов раздачи файлов для `responses=`: они и есть контракт.
+UPLOAD_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_200_OK: {"description": "Байты файла, `Content-Type` по расширению"},
+    status.HTTP_403_FORBIDDEN: {"model": ErrorResponse, "description": UPLOAD_FORBIDDEN_DETAIL},
+    status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": UPLOAD_NOT_FOUND_DETAIL},
+}
 
 # Методы, у которых бывает тело. `DELETE` в этом списке нет: тела у удалений
 # в этом API не бывает, а лишнее чтение потока запроса ни к чему.
@@ -129,7 +158,11 @@ async def lifespan(_application: FastAPI) -> AsyncIterator[None]:
     Подготовка идемпотентна и делается один раз на процесс: повторный подъём
     приложения тем же процессом (а в тестах — каждый `TestClient`) не гоняет
     `CREATE TABLE IF NOT EXISTS` по тринадцати партициям заново.
+
+    Здесь же пишется режим файлового хранилища: при импорте модуля `app.storage`
+    это было бы раньше настройки логирования, и строка терялась бы.
     """
+    log_storage_mode()
     if audit.month_guard():
         audit.refresh_audit_storage()
     yield
@@ -238,6 +271,61 @@ def create_app() -> FastAPI:
     application.include_router(trial.router, prefix=API_PREFIX)
     application.include_router(documents.router, prefix=API_PREFIX)
     application.include_router(telegram.router, prefix=API_PREFIX)
+
+    # -----------------------------------------------------------------------
+    # Раздача загруженных файлов: `/uploads/<ключ>` читается через единый
+    # механизм хранения (`app.storage`) — из S3 с префиксом среды либо с
+    # локального диска. Ключ — без префикса `uploads/` (например
+    # `2026-10-29/<uuid>.xlsx`). nginx проксирует `/uploads/` на этот адрес,
+    # поэтому ссылка из SPA открывается тем же origin, что и сама страница.
+    #
+    # Маршрут живёт ВНЕ `/api` намеренно: это ссылка на файл, её открывает
+    # браузер, и cookie сессии (`crm_session`, `path=/`) уходит сама.
+    #
+    # Доступ проверяется по умолчанию ЗАКРЫТО (`app/file_access.can_read`).
+    # Аноним на закрытый файл получает 404 — само существование файла не
+    # подтверждается; вошедший без прав — 403. Пустой ключ, ключ с `..` и
+    # отсутствующий в хранилище объект дают тот же 404.
+    # -----------------------------------------------------------------------
+    @application.get(
+        "/uploads/{key:path}",
+        tags=["files"],
+        response_class=Response,
+        summary="Скачать загруженный файл",
+        responses=UPLOAD_RESPONSES,
+    )
+    def get_upload(
+        key: str,
+        user: OptionalUser,
+        db: Annotated[Session, Depends(get_db)],
+    ) -> Response:
+        """Отдать файл из хранилища. Право чтения считает `app.file_access`."""
+        storage_key = normalize_key(key)
+        if storage_key is None or user is None:
+            # Аноним не узнаёт, существует ли файл: для него всё — 404.
+            raise HTTPException(status.HTTP_404_NOT_FOUND, UPLOAD_NOT_FOUND_DETAIL)
+        if not can_read(db, storage_key, user):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, UPLOAD_FORBIDDEN_DETAIL)
+        try:
+            data = storage.read_bytes(storage_key)
+        except StorageNotFoundError:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, UPLOAD_NOT_FOUND_DETAIL) from None
+        content_type = content_type_for(storage_key)
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={
+                # Загруженный файл — документ: при открытии по прямой ссылке он
+                # не должен исполнить скрипт на нашем origin. `nosniff` и
+                # песочница это запрещают.
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                # Файл закрытый: копия не должна пережить отзыв доступа ни в
+                # браузере, ни в общем прокси.
+                "Cache-Control": "private, no-store",
+            },
+        )
+
     return application
 
 

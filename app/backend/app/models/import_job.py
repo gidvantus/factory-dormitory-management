@@ -33,6 +33,12 @@ class ImportJob(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Ключ исходного файла в хранилище (`app/storage.py`) — без префикса
+    # `uploads/`, например `2026-10-29/<uuid>.xlsx`. Nullable: у заданий,
+    # разобранных до появления хранилища, файла нет. По этой колонке
+    # `app/file_access.can_read` находит общежитие и его организацию, поэтому
+    # доступ к файлу решает принадлежность данных, а не факт загрузки.
+    file_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Автор импорта: пользователя можно удалить, задание при этом остаётся.
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
