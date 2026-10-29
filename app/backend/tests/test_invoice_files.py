@@ -14,7 +14,12 @@
   с `purpose='act'`;
 * чужой счёт — `404`, и файл не создаётся;
 * объект, удалённый из хранилища при живом ключе, пересоздаётся по тому же ключу;
-* сохранённый PDF читается `pypdf` и содержит номер счёта.
+* сохранённый PDF читается `pypdf` и содержит номер счёта;
+* на пути скачивания нет `storage.exists`: файл читается сразу, а пересборка
+  случается только по `StorageNotFoundError` (иначе сбой хранилища затирал бы
+  выданный документ свежей сборкой);
+* гонка регистрации в реестре не даёт `500`: `IntegrityError` на уникальном
+  ключе гасится откатом, и ответ всё равно приходит из хранилища.
 
 Хелперы (`owner`, `add_tariff`, `purchase_id`, `set_status`) берутся из
 `tests/test_billing.py`: это тот же сценарий выставления счёта, и вторая копия
@@ -33,9 +38,10 @@ import pytest
 from fastapi.testclient import TestClient
 from pypdf import PdfReader
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import billing_forms
+from app import billing_forms, invoice_files
 from app.invoice_files import ACT_PURPOSE, INVOICE_PURPOSE
 from app.models.invoice import Invoice, InvoiceDocument
 from app.models.uploaded_file import UploadedFile
@@ -272,3 +278,75 @@ def test_a_lost_object_is_restored_under_the_same_key(
     assert upload_storage.read_bytes(key) == second.content
     # Запись реестра осталась одна: ключ тот же, повторной регистрации нет.
     assert len(registered(db_session, key)) == 1
+
+
+# --- 4. Доработка по ревью #107 ------------------------------------------------
+
+
+def test_the_download_never_asks_the_storage_whether_the_object_exists(
+    client: TestClient,
+    db_session: Session,
+    upload_storage: LocalStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`storage.exists` на пути скачивания не вызывается вовсе.
+
+    `S3Storage.exists` превращает любую ошибку boto3 в `False`: при 503 SlowDown
+    или таймауте сохранённый счёт выглядел бы пропавшим и затирался бы свежей
+    сборкой с другим `/CreationDate`. Поэтому файл читается сразу, а пересборку
+    решает только `StorageNotFoundError` от самого чтения — это и проверяется:
+    подменённый `exists`, который падает при любом вызове, скачиванию не мешает.
+
+    Заодно закреплено второе следствие правки: на повторное скачивание уходит
+    одно обращение к хранилищу (GET), а не HEAD + GET.
+    """
+
+    def fail_exists(name: str) -> bool:
+        raise AssertionError(f"storage.exists вызван на пути скачивания: {name}")
+
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+
+    # Первое скачивание пишет объект; `exists` здесь тоже не нужен.
+    monkeypatch.setattr(LocalStorage, "exists", fail_exists)
+    first = client.get(f"{INVOICE_URL}/{invoice_id}/file")
+    second = client.get(f"{INVOICE_URL}/{invoice_id}/file")
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert second.content == first.content
+
+
+def test_the_lost_registry_race_does_not_turn_into_an_error(
+    client: TestClient,
+    db_session: Session,
+    upload_storage: LocalStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`IntegrityError` на уникальном `uploaded_file.key` гасится откатом.
+
+    Гонка двух первых скачиваний одного счёта: соседний запрос успел вставить
+    строку реестра первым, и наш `flush` падает на уникальном индексе. Ручка
+    обязана отдать PDF, а не `500`, — ключ к этому моменту записан, объект в
+    хранилище лежит. Здесь падение вставки подставляется подменой `register_upload`:
+    настоящую гонку двух потоков в SQLite-прогоне не воспроизвести.
+    """
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+
+    def duplicate_key(*args: object, **kwargs: object) -> None:
+        raise IntegrityError("INSERT INTO uploaded_file", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr(invoice_files, "register_upload", duplicate_key)
+    response = client.get(f"{INVOICE_URL}/{invoice_id}/file")
+
+    assert response.status_code == 200, response.text
+    assert response.content.startswith(b"%PDF-")
+    # Откат снял нашу неудавшуюся вставку (и назначение ключа в этой сессии —
+    # поэтому в базе ключа нет), но объект в хранилище остался и именно он
+    # отдан клиенту.
+    keys = stored_keys(upload_storage)
+    assert len(keys) == 1
+    assert upload_storage.read_bytes(keys[0]) == response.content

@@ -457,10 +457,12 @@ no-store`.
 «Размещение персонала»: файл сохраняется под ключом дня, ключ пишется в
 `import_jobs.file_key`, а ответ разбора (`200` и `422`) отдаёт `file_url` вида
 `/uploads/<ключ>`. Второй — печатные формы счёта и акта: PDF собирается один раз,
-при первом скачивании, и сохраняется под ключом `invoices/<вид>-<id>.pdf`; ключ
-пишется в `invoices.invoice_file_key` (счёт) или `invoice_documents.file_key`
-(акт), а раздаются они по-прежнему своими ручками `/api/billing/...`, потому что
-у файла есть имя и `Content-Disposition: attachment` (см. «Магазин улучшений»).
+при первом скачивании, и сохраняется под ключом дня и имени
+`<YYYY-MM-DD>/invoices/<вид>-<id>.pdf` (например
+`2026-10-29/invoices/invoice-7.pdf`); ключ пишется в `invoices.invoice_file_key`
+(счёт) или `invoice_documents.file_key` (акт), а раздаются они по-прежнему своими
+ручками `/api/billing/...`, потому что у файла есть имя и
+`Content-Disposition: attachment` (см. «Магазин улучшений»).
 
 Правила доступа, реестр загрузок `uploaded_file` и порядок добавления нового вида
 файлов — `docs/file-access.md` и `app/backend/app/file_access.py`.

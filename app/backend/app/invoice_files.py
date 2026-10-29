@@ -15,7 +15,10 @@ fpdf2 пишет в метаданные `/CreationDate`, поэтому «од�
    служебная, человека за ней нет) и вернуть прочитанное из хранилища;
 2. ключ есть, а объекта в хранилище нет (бакет почистили, объект потерялся) —
    собрать форму заново и перезаписать **по тому же ключу** `storage.put_raw`:
-   ключ в базе остаётся прежним, ссылка не меняется;
+   ключ в базе остаётся прежним, ссылка не меняется. «Объекта нет» решает само
+   чтение (`StorageNotFoundError`), а не предварительный `storage.exists`:
+   отдельная проверка добавила бы HEAD к каждому GET и приняла бы сбой хранилища
+   за пропавший файл;
 3. ключ есть и объект на месте — просто прочитать.
 
 Ответ всегда читается из хранилища, а не отдаётся из памяти: так тело ответа
@@ -41,13 +44,14 @@ fpdf2 пишет в метаданные `/CreationDate`, поэтому «од�
 """
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import billing_forms
 from app.file_access import register_upload
 from app.invoice_status import ACT_KIND
 from app.models.invoice import Invoice, InvoiceDocument
-from app.storage import storage
+from app.storage import StorageNotFoundError, storage
 
 # Значения `uploaded_file.purpose` для сгенерированных документов. Колонка —
 # `String(32)`, значения короткие намеренно.
@@ -88,22 +92,21 @@ def _current_key(db: Session, invoice: Invoice, kind: str) -> str | None:
     return None if document is None else document.file_key
 
 
-def _remember_key(db: Session, invoice: Invoice, kind: str, key: str) -> bool:
-    """Записать ключ в колонку. `False` — записывать некуда.
+def _remember_key(db: Session, invoice: Invoice, kind: str, key: str) -> None:
+    """Записать ключ в колонку документа.
 
-    Строки акта нет — ключ класть некуда: акт заводит оплата, а не скачивание, и
-    этот модуль строку не создаёт. Такая ситуация до ручки не доходит (она
-    отвечает `404` до первого скачивания акта), поэтому файл остаётся
-    несохранённым — см. `read_or_store`.
+    Для счёта ключ лежит в самой строке счёта, для акта — в строке
+    `invoice_documents`. Строки акта нет — писать некуда: её заводит оплата, а не
+    скачивание. До ручки такой случай не доходит (акт до оплаты отвечает `404`),
+    поэтому ветка ничего не делает, а объект остаётся без ссылки: перезаписи по
+    чужому ключу не будет, следующий запрос снова соберёт форму.
     """
     if kind == INVOICE_PURPOSE:
         invoice.invoice_file_key = key
-        return True
+        return
     document = _act_document(db, invoice)
-    if document is None:
-        return False
-    document.file_key = key
-    return True
+    if document is not None:
+        document.file_key = key
 
 
 def _object_name(invoice: Invoice, kind: str) -> str:
@@ -116,12 +119,14 @@ def _object_name(invoice: Invoice, kind: str) -> str:
 
 
 def _build(invoice: Invoice, kind: str) -> bytes:
-    """Собрать печатную форму. Генератор остаётся чистым и про хранилище не знает."""
-    if kind == INVOICE_PURPOSE:
-        return billing_forms.invoice_pdf(invoice)
+    """Собрать печатную форму. Генератор остаётся чистым и про хранилище не знает.
+
+    Вид документа проверяет `read_or_store`: сюда приходят только два значения,
+    и повторять проверку незачем.
+    """
     if kind == ACT_PURPOSE:
         return billing_forms.act_pdf(invoice)
-    raise ValueError(f"Неизвестный вид документа: {kind!r}")
+    return billing_forms.invoice_pdf(invoice)
 
 
 def read_or_store(db: Session, invoice: Invoice, kind: str) -> bytes:
@@ -135,10 +140,22 @@ def read_or_store(db: Session, invoice: Invoice, kind: str) -> bytes:
     транзакцию базы не входит: он записан до коммита, и сбой коммита оставит
     объект без ссылки — это то же поведение, что у импорта «Места».
 
+    **Проверки «объект есть?» нет.** Файл читается сразу, а пересборка случается
+    только тогда, когда само чтение ответило `StorageNotFoundError`. Отдельный
+    `storage.exists` стоил бы второго обращения к S3 на каждое скачивание **и**
+    врал бы при сбое хранилища: `S3Storage.exists` превращает любую ошибку boto3
+    в `False`, поэтому 503 SlowDown или таймаут выглядели бы как «объект
+    пропал», и сохранённый документ затирался бы свежей сборкой — ровно то, что
+    постановка запрещает. При отказе хранилища скачивание теперь падает, а не
+    отдаёт другой файл.
+
     Гонка двух первых скачиваний принята: оба соберут форму и запишут её по
     одному ключу, в бакете останется последняя запись, и только первый и второй
     ответы могут различаться. Побайтовая повторяемость нужна повторному
-    скачиванию, а не первому.
+    скачиванию, а не первому. Второй участник гонки не получает `500`: уникальный
+    индекс `uploaded_file.key` отвергает его вставку, а ключ к этому моменту уже
+    записан соседним запросом, поэтому `IntegrityError` гасится откатом
+    транзакции и ответ всё равно собирается из хранилища.
     """
     if kind not in DOCUMENT_KINDS:
         raise ValueError(f"Неизвестный вид документа: {kind!r}")
@@ -146,17 +163,20 @@ def read_or_store(db: Session, invoice: Invoice, kind: str) -> bytes:
     if key is None:
         pdf = _build(invoice, kind)
         key = storage.save_bytes(pdf, _object_name(invoice, kind), content_type=PDF_MEDIA_TYPE)
-        if not _remember_key(db, invoice, kind, key):
-            # Строки акта нет — записывать ключ некуда. Форма отдаётся как есть:
-            # выдумывать строку `invoice_documents` этот модуль не должен, а
-            # терять ответ из-за отсутствия строки, которую заводит оплата,
-            # незачем. До ручки этот путь не доходит: она отвечает `404`.
-            return pdf
-        register_upload(db, key, None, purpose=kind, commit=False)
-        db.commit()
+        _remember_key(db, invoice, kind, key)
+        try:
+            register_upload(db, key, None, purpose=kind, commit=False)
+            db.commit()
+        except IntegrityError:
+            # Соседний запрос успел зарегистрировать тот же ключ первым: строка
+            # реестра уже есть, объект под этим ключом лежит, и ответ от неё не
+            # зависит. Откат снимает только нашу неудавшуюся вставку.
+            db.rollback()
         return storage.read_bytes(key)
-    if not storage.exists(key):
+    try:
+        return storage.read_bytes(key)
+    except StorageNotFoundError:
         # Ключ есть, объекта нет: пересобираем и перезаписываем по тому же
         # ключу. Ключ в базе не меняется — меняется только содержимое объекта.
         storage.put_raw(_build(invoice, kind), key, content_type=PDF_MEDIA_TYPE)
-    return storage.read_bytes(key)
+        return storage.read_bytes(key)
