@@ -32,6 +32,8 @@ from app.telegram import render_message
 from tests.conftest import add_colleague, give_solution, login, sign_in
 from tests.test_custom_tabs import create_table, tab
 from tests.test_reports import create_dormitory
+from tests.test_resident_outflow import move as outflow_move
+from tests.test_resident_outflow import preview as outflow_preview
 
 # Операторы по типам столбцов: та же таблица, что в `app/notification_rules.py`.
 EQUALITY_OPERATORS = {"equals", "not_equals", "not_empty", "is_empty"}
@@ -622,3 +624,193 @@ def test_delivery_is_not_created_without_a_connected_chat(
     client.post(base + "/rows")
 
     assert deliveries(db_session) == []
+
+
+# --- Проводка хуков по точкам записи -----------------------------------------
+#
+# Каждый путь записи обязан ставить правила своей таблицы. Регрессия здесь
+# невидима иначе: правило в списке включено и не сломано, а сообщения нет.
+
+
+def test_rule_on_outflow_fires_when_the_row_is_created(
+    client: TestClient, db_session: Session
+) -> None:
+    """Строка «Оттока», добавленная кнопкой «+», — событие правила этой таблицы."""
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    rule = create_rule(client, dorm, name="Новая строка оттока", table_key="outflow").json()
+
+    assert client.post(f"/api/dormitories/{dorm}/outflow").status_code == 201
+
+    assert [row.title for row in deliveries(db_session)] == [rule["name"]]
+
+
+def test_rule_on_outflow_fires_on_move_from_residents(
+    client: TestClient, db_session: Session
+) -> None:
+    """Кнопка «В отток» тоже пишет строку «Оттока» — правило срабатывает."""
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    resident = client.post(f"/api/dormitories/{dorm}/residents").json()["id"]
+    assert (
+        client.patch(
+            f"/api/dormitories/{dorm}/residents/{resident}?month=2026-10-01",
+            json={"full_name": "Иванов Иван"},
+        ).status_code
+        == 200
+    )
+    assert create_rule(client, dorm, name="Ушёл в отток", table_key="outflow").status_code == 201
+
+    plan = outflow_preview(client, dorm, resident)
+    assert outflow_move(client, dorm, resident, plan).status_code == 201
+
+    assert [row.title for row in deliveries(db_session)] == ["Ушёл в отток"]
+
+
+def test_rule_on_residents_fires_on_row_creation_and_on_patch(
+    client: TestClient, db_session: Session
+) -> None:
+    """«Добавить строку» и сохранение полей — два разных пути записи."""
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    columns = table_columns(client, dorm, "residents")
+    assert create_rule(client, dorm, name="Добавление", table_key="residents").status_code == 201
+    assert (
+        create_rule(
+            client,
+            dorm,
+            name="ФИО заполнено",
+            table_key="residents",
+            conditions=[{"column_id": columns["ФИО"]["id"], "operator": "not_empty"}],
+        ).status_code
+        == 201
+    )
+
+    resident = client.post(f"/api/dormitories/{dorm}/residents").json()["id"]
+    assert [row.title for row in deliveries(db_session)] == ["Добавление"]
+
+    assert (
+        client.patch(
+            f"/api/dormitories/{dorm}/residents/{resident}?month=2026-10-01",
+            json={"full_name": "Иванов Иван"},
+        ).status_code
+        == 200
+    )
+    assert [row.title for row in deliveries(db_session)] == ["Добавление", "ФИО заполнено"]
+
+
+def test_rule_on_advance_fires_on_row_creation_and_on_patch(
+    client: TestClient, db_session: Session
+) -> None:
+    """«На аванс» пишется и кнопкой «+», и правкой строки — оба пути под правилом."""
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    columns = table_columns(client, dorm, "advance")
+    assert create_rule(client, dorm, name="Новая выплата", table_key="advance").status_code == 201
+    assert (
+        create_rule(
+            client,
+            dorm,
+            name="Аванс больше девяти",
+            table_key="advance",
+            conditions=[
+                {
+                    "column_id": columns["Сумма аванса"]["id"],
+                    "operator": "greater",
+                    "value": "9",
+                }
+            ],
+        ).status_code
+        == 201
+    )
+
+    row = client.post(f"/api/dormitories/{dorm}/payments/advance").json()
+    assert [item.title for item in deliveries(db_session)] == ["Новая выплата"]
+
+    assert (
+        client.patch(
+            f"/api/dormitories/{dorm}/payments/advance/{row['id']}",
+            json={"advance_amount": "10"},
+        ).status_code
+        == 200
+    )
+    assert [item.title for item in deliveries(db_session)] == [
+        "Новая выплата",
+        "Аванс больше девяти",
+    ]
+
+
+def test_rule_on_advance_fires_when_a_resident_is_registered_for_payment(
+    client: TestClient, db_session: Session
+) -> None:
+    """Запись проживающего на аванс создаёт строку «На аванс» — это событие."""
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    resident = client.post(f"/api/dormitories/{dorm}/residents").json()["id"]
+    assert (
+        client.patch(
+            f"/api/dormitories/{dorm}/residents/{resident}?month=2026-10-01",
+            json={"full_name": "Иванов Иван", "personnel_number": "123"},
+        ).status_code
+        == 200
+    )
+    assert (
+        create_rule(client, dorm, name="Выписан на аванс", table_key="advance").status_code == 201
+    )
+
+    response = client.post(f"/api/dormitories/{dorm}/residents/{resident}/payments/advance")
+
+    assert response.status_code == 201, response.text
+    assert [row.title for row in deliveries(db_session)] == ["Выписан на аванс"]
+
+
+def test_rule_on_archive_fires_when_the_row_is_created(
+    client: TestClient, db_session: Session
+) -> None:
+    """«Архив» есть в каталоге — значит, и его пути записи обязаны ставить правила."""
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    assert create_rule(client, dorm, name="Запись в архив", table_key="archive").status_code == 201
+
+    assert client.post(f"/api/dormitories/{dorm}/tables/archive/rows").status_code == 201
+
+    assert [row.title for row in deliveries(db_session)] == ["Запись в архив"]
+
+
+# --- Заголовок удалённой таблицы ----------------------------------------------
+
+
+def test_deleted_tab_is_named_in_the_broken_rule(client: TestClient, db_session: Session) -> None:
+    """Удалённая вкладка: технический ключ `custom_7` человеку ничего не говорит."""
+    cabinet_user(client, db_session)
+    dorm = create_dormitory(client)
+    item = tab(client, dorm)
+    create_table(client, dorm, item)
+    table_key = item["table_key"]
+    assert create_rule(client, dorm, name="Сломалось", table_key=table_key).status_code == 201
+    assert client.delete(f"/api/dormitories/{dorm}/tabs/{item['id']}").status_code == 204
+
+    listed = client.get(rules_url(dorm)).json()
+
+    assert listed[0]["broken"] is True
+    assert listed[0]["table_title"] == "Таблица удалена"
+    assert listed[0]["table_key"] == table_key
+
+
+def test_deleted_section_keeps_its_human_name(client: TestClient, db_session: Session) -> None:
+    """Раздел восстановим, поэтому имя берётся из каталога разделов, а не из ключа."""
+    cabinet_user(client, db_session)
+    dorm = create_dormitory(client)
+    assert create_rule(client, dorm, name="Архивная запись", table_key="archive").status_code == 201
+    assert client.delete(f"/api/dormitories/{dorm}/sections/archive").status_code == 200
+
+    listed = client.get(rules_url(dorm)).json()
+
+    assert listed[0]["broken"] is True
+    assert listed[0]["table_title"] == "Архив"

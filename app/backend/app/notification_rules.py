@@ -102,6 +102,9 @@ OPERATOR_MISMATCH_DETAIL = "Этот оператор не подходит дл
 RULE_NOT_FOUND_DETAIL = "Правило не найдено"
 
 
+DELETED_TABLE_TITLE = "Таблица удалена"
+
+
 @dataclass(frozen=True)
 class RuleCondition:
     """Условие правила в том виде, в каком оно хранится в JSON.
@@ -197,21 +200,24 @@ def _available_columns(columns: list[TableColumn]) -> list[TableColumn]:
 
 
 def table_title(db: Session, dormitory: Dormitory, table_key: str) -> str:
-    """Заголовок таблицы для ответа. Незнакомый ключ отдаётся как есть.
+    """Заголовок таблицы для ответа: по нему человек узнаёт, что восстанавливать.
 
-    Удалённая вкладка оставляет правило в списке («сломанным»), поэтому ответ
-    обязан уметь назвать таблицу, которой уже нет: ключ — единственное, что от
-    неё осталось.
+    Удалённая таблица оставляет правило в списке «сломанным», и ответ обязан
+    назвать её по-человечески: технический ключ (`custom_7`, `residents`) в
+    строке списка ничего не значит. У удалённого раздела имя остаётся в
+    `SECTIONS` — раздел восстановим, поэтому имя берётся оттуда; у удалённой
+    вкладки имени не осталось, и ответ говорит прямо «Таблица удалена».
+    Совсем незнакомый ключ (правило, записанное другой версией) отдаётся как есть.
     """
     if table_key in DEFAULT_COLUMNS:
-        return (
-            _section_title(dormitory, table_key)
-            if _section_exists(dormitory, table_key)
-            else table_key
-        )
+        if _section_exists(dormitory, table_key):
+            return _section_title(dormitory, table_key)
+        return SECTIONS[table_key]
     tab_id = _tab_id(table_key)
     tab = _custom_tab(db, dormitory.id, tab_id) if tab_id is not None else None
-    return _custom_title(db, dormitory, tab) if tab is not None else table_key
+    if tab is not None:
+        return _custom_title(db, dormitory, tab)
+    return DELETED_TABLE_TITLE if tab_id is not None else table_key
 
 
 def catalog(db: Session, dormitory: Dormitory) -> list[CatalogTable]:
@@ -263,13 +269,20 @@ def _catalog_columns(columns: list[TableColumn]) -> list[CatalogColumn]:
     ]
 
 
-def _rule_columns(db: Session, dormitory_id: int, table_key: str) -> list[TableColumn] | None:
+def _table_columns(
+    db: Session, dormitory_id: int, table_key: str, *, create_missing: bool
+) -> list[TableColumn] | None:
     """Столбцы таблицы правила. `None` — такой таблицы у общежития нет.
 
-    Для встроенных таблиц отсутствующие столбцы заводятся (`ensure_columns`) —
-    тем же путём, что и в каталоге: правило не должно зависеть от того,
-    открывали ли до него конструктор. Для пользовательской вкладки столбцы
-    только читаются: их набор задаёт человек.
+    Одна функция на два вопроса: «можно ли сохранить правило» (`create_missing=
+    True` — у встроенной таблицы недостающие столбцы заводятся тем же путём, что
+    и в каталоге, чтобы правило не зависело от того, открывали ли до него
+    конструктор) и «работает ли уже сохранённое правило» (`False` — только
+    чтение, чтобы список правил не писал в базу). Ветки проверок у обоих
+    вопросов обязаны совпадать, поэтому они живут здесь, а не в двух копиях.
+
+    У пользовательской вкладки столбцы только читаются в обоих случаях: их
+    набор задаёт человек, и создавать там нечего.
     """
     if table_key.startswith("custom_"):
         tab_id = _tab_id(table_key)
@@ -281,21 +294,8 @@ def _rule_columns(db: Session, dormitory_id: int, table_key: str) -> list[TableC
     dormitory = db.get(Dormitory, dormitory_id)
     if dormitory is None or not _section_exists(dormitory, table_key):
         return None
-    return _available_columns(ensure_columns(db, dormitory_id, table_key))
-
-
-def _read_columns(db: Session, dormitory_id: int, table_key: str) -> list[TableColumn] | None:
-    """Те же столбцы, но без создания недостающих: для чтения списка правил."""
-    if table_key.startswith("custom_"):
-        tab_id = _tab_id(table_key)
-        if tab_id is None or _custom_tab(db, dormitory_id, tab_id) is None:
-            return None
-        return _available_columns(columns_for(db, dormitory_id, table_key))
-    if table_key not in DEFAULT_COLUMNS:
-        return None
-    dormitory = db.get(Dormitory, dormitory_id)
-    if dormitory is None or not _section_exists(dormitory, table_key):
-        return None
+    if create_missing:
+        return _available_columns(ensure_columns(db, dormitory_id, table_key))
     return _available_columns(columns_for(db, dormitory_id, table_key))
 
 
@@ -362,7 +362,7 @@ def validate_rule(
         raise HTTPException(422, NAME_TOO_LONG_DETAIL)
     if len(conditions) > MAX_CONDITIONS:
         raise HTTPException(422, TOO_MANY_CONDITIONS_DETAIL)
-    columns = _rule_columns(db, dormitory_id, table_key)
+    columns = _table_columns(db, dormitory_id, table_key, create_missing=True)
     if columns is None:
         raise HTTPException(422, COLUMN_UNAVAILABLE_DETAIL)
     by_id = {column.id: column for column in columns}
@@ -403,7 +403,7 @@ def is_broken(db: Session, dormitory_id: int, rule: NotificationRule) -> bool:
     остаётся доступным всегда, а оценка такое правило просто пропускает.
     """
     conditions = stored_conditions(rule)
-    columns = _read_columns(db, dormitory_id, rule.table_key)
+    columns = _table_columns(db, dormitory_id, rule.table_key, create_missing=False)
     if columns is None:
         return True
     by_id = {column.id: column for column in columns}
@@ -678,7 +678,7 @@ def preview(
     cleaned, normalized = validate_rule(
         db, dormitory_id, name=name, table_key=table_key, conditions=conditions
     )
-    columns = _rule_columns(db, dormitory_id, table_key)
+    columns = _table_columns(db, dormitory_id, table_key, create_missing=True)
     assert columns is not None  # validate_rule уже отверг отсутствующую таблицу
     by_id = {column.id: column for column in columns}
     rows = records_for(db, dormitory_id, table_key)

@@ -107,6 +107,15 @@ def create_resident(
     db.add(resident)
     db.commit()
     db.refresh(resident)
+    # «Добавить строку» — полноценная запись «Проживающих»: правило этой таблицы
+    # обязано срабатывать и здесь, а не только на заселении из притока.
+    notification_rules.notify_row_written(
+        db,
+        dormitory_id=dormitory_id,
+        table_key="residents",
+        row_id=resident.id,
+        actor_id=_user.id,
+    )
     return resident_response(db, resident)
 
 
@@ -154,6 +163,16 @@ def register_payment(
     db.add(row)
     db.commit()
     db.refresh(row)
+    # Строка «На аванс»/«На расчёт» записана в свою таблицу — правила этой
+    # таблицы ставятся после коммита. Ветка «строка уже есть» выше доставок не
+    # создаёт: новой записи там нет.
+    notification_rules.notify_row_written(
+        db,
+        dormitory_id=dormitory_id,
+        table_key=kind,
+        row_id=row.id,
+        actor_id=_user.id,
+    )
     return ResidentPaymentResponse(
         payment=PaymentResponse.model_validate(row),
         created=True,
@@ -275,6 +294,11 @@ def move_to_outflow(
     # Уведомление — не часть транзакции выселения: падение рассылки не должно
     # откатывать подтверждённый отток, поэтому очередь ставится после коммита.
     queue_resident_outflow(db, resident=outflow_event, actor_id=_user.id)
+    # Перенос «Проживающие → Отток» пишет строку в таблицу «Отток»: правило этой
+    # таблицы срабатывает так же, как у строки, добавленной кнопкой «+».
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="outflow", row_id=row.id, actor_id=_user.id
+    )
     db.refresh(row)
     return row
 

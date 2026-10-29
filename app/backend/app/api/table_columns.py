@@ -283,6 +283,11 @@ def create_archive(
     db.add(row)
     db.commit()
     db.refresh(row)
+    # Строка архива — такая же запись своей таблицы, как и остальные: правило на
+    # «Архив» обязано срабатывать, раз таблица есть в каталоге.
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="archive", row_id=row.id, actor_id=_user.id
+    )
     return row
 
 
