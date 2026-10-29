@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import billing_forms
+from app import billing_forms, invoice_files
 from app.api.organization import (
     EDIT_ROLES,
     ORGANIZATION_EDIT_FORBIDDEN_DETAIL,
@@ -76,8 +76,9 @@ SOLUTION_NOT_FOUND_DETAIL = "Решение не найдено"
 BUYER_REQUISITES_DETAIL = "Заполните название и ИНН организации на странице «Организация»"
 ACT_NOT_FOUND_DETAIL = "Акт по счёту ещё не сформирован"
 
-# Печатные формы счёта и акта отдаются PDF: файл собирается в памяти и уходит
-# вложением, на диск ничего не пишется и адреса ручек не меняются.
+# Печатные формы счёта и акта отдаются PDF-файлом: форма собирается один раз,
+# сохраняется в файловое хранилище (`app/invoice_files.py`) и дальше отдаётся
+# сохранённое. Адреса ручек, коды ответов и имена файлов не меняются.
 PDF_MEDIA_TYPE = "application/pdf"
 
 # 404 у этих роутов приходит с тремя разными текстами: нет организации у
@@ -429,9 +430,15 @@ def update_invoice_status(
     },
 )
 def download_invoice(invoice_id: int, membership: Membership, db: DbSession) -> Response:
-    """Счёт на скачивание. Доступ как у чтения: любой участник организации."""
+    """Счёт на скачивание. Доступ как у чтения: любой участник организации.
+
+    Байты берутся из файлового хранилища (`app/invoice_files.py`): форма
+    собирается один раз, при первом скачивании, и дальше отдаётся сохранённая.
+    Контракт ручки не меняется — код, тип и имя файла прежние.
+    """
     invoice = _load_own_invoice(db, membership, invoice_id)
-    return _pdf_response(billing_forms.invoice_pdf(invoice), f"invoice-{invoice.number}.pdf")
+    content = invoice_files.read_or_store(db, invoice, invoice_files.INVOICE_PURPOSE)
+    return _pdf_response(content, f"invoice-{invoice.number}.pdf")
 
 
 @router.get(
@@ -453,8 +460,14 @@ def download_invoice(invoice_id: int, membership: Membership, db: DbSession) -> 
     },
 )
 def download_act(invoice_id: int, membership: Membership, db: DbSession) -> Response:
-    """Акт на скачивание. До оплаты акта нет — `404`."""
+    """Акт на скачивание. До оплаты акта нет — `404`.
+
+    Как и у счёта, байты приходят из хранилища: акт оплаты собирается один раз и
+    дальше отдаётся сохранённое. Проверка «акт уже есть» остаётся здесь и
+    отвечает `404` до первой оплаты — файл она не создаёт.
+    """
     invoice = _load_own_invoice(db, membership, invoice_id)
     if invoice.id not in _act_invoice_ids(db, [invoice.id]):
         raise HTTPException(status.HTTP_404_NOT_FOUND, ACT_NOT_FOUND_DETAIL)
-    return _pdf_response(billing_forms.act_pdf(invoice), f"act-{invoice.number}.pdf")
+    content = invoice_files.read_or_store(db, invoice, invoice_files.ACT_PURPOSE)
+    return _pdf_response(content, f"act-{invoice.number}.pdf")

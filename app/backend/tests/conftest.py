@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import db as db_module
+from app import invoice_files as invoice_files_module
 from app import main as main_module
 from app import solutions
 from app.api import hostels as hostels_api
@@ -93,10 +94,11 @@ def upload_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> LocalStor
     """Файлы тестов уходят во временный каталог, а не в настоящий `uploads`.
 
     Юнит-прогон герметичен: без этой подмены импорт «Места» писал бы `.xlsx` в
-    `app/backend/uploads` рабочей копии, а тесты — делили бы файлы между собой.
-    Подменяются оба места, где хранилище взято при импорте: раздача файлов
-    (`app.main`) и импорт (`app.api.hostels`). Обе половины обязаны смотреть в
-    ОДИН каталог, иначе скачанное не совпало бы с загруженным.
+    `app/backend/uploads` рабочей копии, а счета и акты — PDF туда же, и тесты
+    делили бы файлы между собой. Подменяются три места, где хранилище взято при
+    импорте: раздача файлов (`app.main`), импорт (`app.api.hostels`) и печатные
+    формы (`app.invoice_files`). Все три обязаны смотреть в ОДИН каталог, иначе
+    скачанное не совпало бы с загруженным, а сохранённый счёт — с отданным.
 
     Возвращается сам `LocalStorage`: тесту раздачи нужно положить файл по ключу
     до запроса.
@@ -104,6 +106,7 @@ def upload_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> LocalStor
     local = LocalStorage(tmp_path / "uploads")
     monkeypatch.setattr(main_module, "storage", local)
     monkeypatch.setattr(hostels_api, "storage", local)
+    monkeypatch.setattr(invoice_files_module, "storage", local)
     return local
 
 
