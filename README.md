@@ -507,8 +507,11 @@ docker compose -p <имя-стенда> up -d --build
 ### HTTPS на сервере
 
 Локально профиль `tls` не нужен: `docker compose up -d` не поднимает `caddy`,
-и стенд работает по HTTP на прежних портах. На сервере TLS терминирует caddy,
-он же выпускает и продлевает сертификат Let's Encrypt:
+и стенд работает по HTTP на прежних портах. Поднять его на машине разработчика
+или стенде отдела всё равно не получится: порты 80 и 443 там заняты стендом
+Vahta, и `--profile tls up -d` падает на `bind: address already in use`.
+На сервере TLS терминирует caddy, он же выпускает и продлевает сертификат
+Let's Encrypt:
 
 ```bash
 docker compose --profile tls up -d --build
