@@ -1,6 +1,7 @@
 """Независимые подвкладки, стандартные разделы и запрет записи после скрытия."""
 
-from datetime import date
+from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +13,19 @@ from app.models.inflow import PersonnelInflow
 from app.models.table_column import TableColumn
 from tests.conftest import sign_in
 from tests.test_reports import create_dormitory
+
+# Календарь продукта московский: отчёт раскладывает созданные строки по дням
+# `Europe/Moscow` (`app/table_data.py:linked_counts`), а `created_at` хранится
+# в UTC. Брать `created_at.date()` нельзя: с 00:00 до 03:00 МСК день в UTC ещё
+# вчерашний, и ожидаемая ячейка отчёта оказывается пустой.
+MOSCOW = ZoneInfo("Europe/Moscow")
+
+
+def moscow_day(created_at: datetime) -> date:
+    """День строки так, как его считает отчёт."""
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
+    return created_at.astimezone(MOSCOW).date()
 
 
 def setup_dorm(client: TestClient, db: Session) -> str:
@@ -140,12 +154,11 @@ def test_independent_standard_subtab_hidden_data_and_report_dependency(
         ).status_code
         == 409
     )
-    report = client.get(
-        base + f"/report?from={historical.created_at.date()}&to={historical.created_at.date()}"
-    ).json()
+    day = moscow_day(historical.created_at)
+    report = client.get(base + f"/report?from={day}&to={day}").json()
     assert (
         next(item for item in report["rows"] if item["name"] == "Приехали")["values"][
-            historical.created_at.date().isoformat()
+            day.isoformat()
         ]
         == "1"
     )
