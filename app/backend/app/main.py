@@ -5,6 +5,8 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from functools import lru_cache
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 from typing import Annotated, Any
 from uuid import uuid4
 
@@ -127,19 +129,95 @@ async def read_request_body(request: Request) -> Any | None:
         return None
 
 
-def client_ip(request: Request) -> str | None:
-    """IP клиента: за nginx это `X-Real-IP`, дальше — первый `X-Forwarded-For`.
+IPAddress = IPv4Address | IPv6Address
+IPNetwork = IPv4Network | IPv6Network
 
-    Прямое подключение (без прокси) видно в `request.client`. Значение обрезается
-    до длины колонки: заголовок задаёт клиент, а не мы.
+# Доверенные сети прокси разбираются из настроек с кэшем по самому значению:
+# правка `.env` даёт новую строку и новый разбор, а опечатка предупреждает в лог
+# один раз, а не на каждый запрос.
+
+
+@lru_cache(maxsize=8)
+def _parse_trusted_networks(value: str) -> tuple[IPNetwork, ...]:
+    """Разобрать список сетей прокси; некорректный элемент пропускается.
+
+    Опечатка в настройке не должна ронять каждый запрос: сеть, которую не удалось
+    разобрать, просто не считается доверенной, и в журнал пишется предупреждение.
     """
-    forwarded = request.headers.get("x-real-ip")
-    if not forwarded:
-        chain = request.headers.get("x-forwarded-for", "")
-        forwarded = chain.split(",")[0].strip()
-    if not forwarded and request.client is not None:
-        forwarded = request.client.host
-    return forwarded[:IP_LIMIT] or None
+    networks: list[IPNetwork] = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            networks.append(ip_network(item, strict=False))
+        except ValueError:
+            logging.getLogger(__name__).warning(
+                "TRUSTED_PROXY_NETWORKS: %r — не адрес и не сеть, пропущено", item
+            )
+    return tuple(networks)
+
+
+def _trusted_proxies() -> tuple[IPNetwork, ...]:
+    """Доверенные сети прокси из текущих настроек."""
+    return _parse_trusted_networks(get_settings().trusted_proxy_networks)
+
+
+def _as_ip(value: str) -> IPAddress | None:
+    """Адрес как объект `ipaddress`; всё, что не адрес, — `None`."""
+    try:
+        return ip_address(value.strip())
+    except ValueError:
+        return None
+
+
+def _is_trusted_proxy(value: str, trusted: tuple[IPNetwork, ...]) -> bool:
+    """Пришёл ли адрес от доверенного прокси (неопознанное доверенным не считается)."""
+    address = _as_ip(value)
+    if address is None:
+        return False
+    return any(address in network for network in trusted)
+
+
+def _forwarded_hops(request: Request) -> list[str]:
+    """Цепочка `X-Forwarded-For` по порядку: от клиента (левый) к прокси (правый)."""
+    chain = request.headers.get("x-forwarded-for", "")
+    return [hop.strip() for hop in chain.split(",") if hop.strip()]
+
+
+def _clip(value: str | None) -> str | None:
+    """Обрезка до длины колонки: длинное значение задаёт клиент, а не мы."""
+    if not value:
+        return None
+    return value[:IP_LIMIT]
+
+
+def client_ip(request: Request) -> str | None:
+    """IP клиента: ближайший справа адрес `X-Forwarded-For` вне доверенных сетей.
+
+    Заголовки задаёт клиент, поэтому вера им выдаётся только за прокси: если
+    непосредственный сосед (`request.client`) не входит в `TRUSTED_PROXY_NETWORKS`,
+    адрес берётся из соединения, а заголовки игнорируются. За прокси цепочка
+    читается с конца — каждый прокси дописывает в неё адрес того, кто к нему
+    пришёл, поэтому первый справа адрес вне доверенной сети и есть клиент, а всё,
+    что левее, прислал сам клиент и верить этому нельзя.
+
+    `X-Real-IP` не читается вовсе. Пока прокси его перезаписывал, он равнялся
+    `X-Forwarded-For`; после TLS-слоя (#105) caddy его не выставляет, nginx не
+    трогает, и единственным автором заголовка остаётся сам запрос — приоритет
+    этого заголовка давал любому клиенту подменить свой адрес в журнале аудита.
+    """
+    peer = request.client.host if request.client is not None else None
+    trusted = _trusted_proxies()
+    if peer is not None and not _is_trusted_proxy(peer, trusted):
+        # Прямое подключение: заголовкам здесь верить некому.
+        return _clip(peer)
+    hops = [hop for hop in _forwarded_hops(request) if _as_ip(hop) is not None]
+    for hop in reversed(hops):
+        if not _is_trusted_proxy(hop, trusted):
+            return _clip(hop)
+    # Вся цепочка — доверенные прокси: ближе к клиенту самый дальний адрес.
+    return _clip(hops[0]) if hops else _clip(peer)
 
 
 def client_user_agent(request: Request) -> str | None:
