@@ -1,6 +1,7 @@
 """Точка входа FastAPI."""
 
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -57,9 +58,17 @@ from app.db import get_db
 from app.file_access import can_read, content_type_for, normalize_key
 from app.schemas.user import ErrorResponse
 from app.security import OptionalUser
-from app.storage import StorageNotFoundError, storage
+from app.storage import StorageNotFoundError, log_storage_mode, storage
 
 API_PREFIX = "/api"
+
+# Логи приложения видны в контейнере `api`. Uvicorn поднимает только свои
+# логгеры (`uvicorn`, `uvicorn.error`, `uvicorn.access`), а корневой оставляет на
+# WARNING — поэтому INFO самого проекта (режим файлового хранилища при импорте
+# `app.storage`, сохранённые объекты S3, письма) в лог не попадал вовсе. Так же
+# поступает бот (`app.bot.main`). `basicConfig` ничего не делает, если корневой
+# логгер уже настроен, поэтому чужая конфигурация не ломается.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 # Ключ хранилища в URL приходит без префикса `uploads/`:
 # `/uploads/2026-10-29/<uuid>.xlsx`. Тексты отказов — часть контракта с
@@ -149,7 +158,11 @@ async def lifespan(_application: FastAPI) -> AsyncIterator[None]:
     Подготовка идемпотентна и делается один раз на процесс: повторный подъём
     приложения тем же процессом (а в тестах — каждый `TestClient`) не гоняет
     `CREATE TABLE IF NOT EXISTS` по тринадцати партициям заново.
+
+    Здесь же пишется режим файлового хранилища: при импорте модуля `app.storage`
+    это было бы раньше настройки логирования, и строка терялась бы.
     """
+    log_storage_mode()
     if audit.month_guard():
         audit.refresh_audit_storage()
     yield

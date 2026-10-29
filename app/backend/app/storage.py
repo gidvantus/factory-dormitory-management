@@ -33,6 +33,7 @@ import logging
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from app.config import get_settings
 
@@ -46,6 +47,17 @@ UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
 def _today_dir() -> str:
     """Подпапка текущего дня (UTC), например 2026-10-29."""
     return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
+def _boto_errors() -> tuple[type[Exception], ...]:
+    """Исключения boto3, которые обязан поймать `S3Storage`.
+
+    Импорт ленивый, как и сам boto3: режим локального диска не требует ни
+    библиотеки, ни этого модуля, а `except` принимает любое выражение-кортеж.
+    """
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    return (ClientError, BotoCoreError)
 
 
 class StorageError(Exception):
@@ -100,6 +112,22 @@ class Storage:
         raise NotImplementedError
 
 
+def _put_object(client: Any, **kwargs: Any) -> None:
+    """`put_object` без утечки ошибок boto3 наружу.
+
+    Сбой записи — «в бакете нет прав на запись», «площадка не отвечает»,
+    «ключ доступа истёк» — обязан стать `StorageError`: только его ловит ручка
+    импорта и превращает в `503` «Хранилище файлов недоступно, файл не
+    сохранён». `ClientError` и `BotoCoreError` — не `StorageError`, и без этого
+    перевода клиент получал бы `500` от общего обработчика, а обещанного
+    текста не было бы вовсе.
+    """
+    try:
+        client.put_object(**kwargs)
+    except _boto_errors() as e:
+        raise _map_client_error(e, str(kwargs.get("Key", ""))) from e
+
+
 class S3Storage(Storage):
     """Хранение в S3-совместимом объектном хранилище (Timeweb Cloud)."""
 
@@ -143,7 +171,8 @@ class S3Storage(Storage):
         """
         safe = _safe_key(name)
         key = f"{_today_dir()}/{safe}"
-        self._client.put_object(
+        _put_object(
+            self._client,
             Bucket=self._bucket,
             Key=self._prefix + key,
             Body=data,
@@ -155,7 +184,8 @@ class S3Storage(Storage):
     def put_raw(self, data: bytes, key: str, content_type: str | None = None) -> str:
         """Сохраняет объект ровно по ключу key внутри префикса среды."""
         safe = _safe_key(key)
-        self._client.put_object(
+        _put_object(
+            self._client,
             Bucket=self._bucket,
             Key=self._prefix + safe,
             Body=data,
@@ -178,28 +208,27 @@ class S3Storage(Storage):
         return keys
 
     def read_bytes(self, name: str) -> bytes:
-        from botocore.exceptions import ClientError
-
         safe = _safe_key(name)
         try:
             resp = self._client.get_object(Bucket=self._bucket, Key=self._prefix + safe)
             return resp["Body"].read()
-        except ClientError as e:
+        except _boto_errors() as e:
             raise _map_client_error(e, name) from e
 
     def delete(self, name: str) -> None:
         safe = _safe_key(name)
-        self._client.delete_object(Bucket=self._bucket, Key=self._prefix + safe)
+        try:
+            self._client.delete_object(Bucket=self._bucket, Key=self._prefix + safe)
+        except _boto_errors() as e:
+            raise _map_client_error(e, name) from e
         log.info("S3: удалён объект %s%s", self._prefix, safe)
 
     def exists(self, name: str) -> bool:
-        from botocore.exceptions import ClientError
-
         safe = _safe_key(name)
         try:
             self._client.head_object(Bucket=self._bucket, Key=self._prefix + safe)
             return True
-        except ClientError:
+        except _boto_errors():
             return False
 
 
@@ -267,7 +296,13 @@ class LocalStorage(Storage):
 
 
 def _map_client_error(e: Exception, name: str) -> StorageError:
-    """Превращает ошибки boto3 в StorageError / StorageNotFoundError."""
+    """Превращает ошибки boto3 в StorageError / StorageNotFoundError.
+
+    Сюда приходят и ответы сервиса (`ClientError`: нет прав, нет бакета), и
+    сетевые отказы (`BotoCoreError`: площадка не отвечает, соединение
+    оборвалось, подпись не собралась). И то и другое — `StorageError`, а не
+    исключение boto3: вызывающий код умеет обращаться только с ним.
+    """
     from botocore.exceptions import ClientError
 
     if isinstance(e, ClientError):
@@ -275,7 +310,7 @@ def _map_client_error(e: Exception, name: str) -> StorageError:
         if code in ("NoSuchKey", "NoSuchBucket", "NotFound"):
             return StorageNotFoundError(name)
         return StorageError(f"S3: {code}: {e}")
-    return StorageError(str(e))
+    return StorageError(f"S3: {e}")
 
 
 def get_storage() -> Storage:
@@ -295,3 +330,22 @@ def get_storage() -> Storage:
 
 # Единая точка доступа для всего проекта.
 storage = get_storage()
+
+
+def log_storage_mode() -> None:
+    """Пишет в лог выбранный режим хранилища — один раз, на старте приложения.
+
+    Вызывается из `app.main.lifespan`, а не при импорте этого модуля:
+    `app.storage` импортируется из `app.api.hostels` раньше, чем приложение
+    успевает настроить логирование, и строка на уровне INFO тогда просто
+    терялась (корневой логгер до этой настройки стоит на WARNING). Смысл тот же —
+    при старте видно, куда пойдут файлы, — но запись действительно доходит до
+    лога контейнера.
+
+    Ключи и секреты в лог не попадают: только тип хранилища и префикс среды.
+    """
+    log.info(
+        "Хранилище файлов: %s%s",
+        type(storage).__name__,
+        f", префикс {get_settings().s3_prefix}" if isinstance(storage, S3Storage) else "",
+    )

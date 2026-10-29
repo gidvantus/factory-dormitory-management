@@ -19,6 +19,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
@@ -437,8 +438,16 @@ async def upload_places_import(
     # Имя объекта — случайное: коллизий имён файлов не бывает, а имя из запроса
     # (его задаёт клиент) в ключ хранилища не попадает. Подпапку дня добавляет
     # сам `storage.save_bytes`.
+    #
+    # Запись идёт в threadpool: в режиме S3 это сетевой вызов (`connect_timeout`
+    # 10 с, `read_timeout` 60 с, две попытки), а процесс uvicorn один. Сделанный
+    # прямо в `async def`, он на десятки секунд остановил бы event loop — вместе
+    # с дашбордом, входом и `/api/health` у всех остальных. Синхронный
+    # `get_upload` уходит в threadpool по той же причине.
     try:
-        file_key = storage.save_bytes(content, f"{uuid4().hex}.xlsx", content_type=XLSX_MEDIA_TYPE)
+        file_key = await run_in_threadpool(
+            storage.save_bytes, content, f"{uuid4().hex}.xlsx", XLSX_MEDIA_TYPE
+        )
     except StorageError as error:
         # Подробность (адрес бакета, код S3) в ответ не попадает: клиенту она
         # не нужна, а в лог уходит без ключей доступа.

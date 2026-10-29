@@ -1,20 +1,23 @@
 """Единый механизм хранения файлов: раскладка по дням, чтение и защита ключа.
 
 Проверяется локальный режим (`LocalStorage`) — он же режим юнит-прогона и
-стенда без ключей S3. S3-режим здесь только выбирается: клиент boto3 создаётся
-без обращения к сети, а настоящий бакет проверяется на стенде
-(`docs/file-access.md`).
+стенда без ключей S3 — и перевод ошибок boto3 в `StorageError`: на этом держится
+обещанный `503` «Хранилище файлов недоступно…» из ручки импорта. Сам S3-клиент
+подменяется заглушкой: обращений к сети в юнит-прогоне нет, а настоящий бакет
+проверяется на стенде (`docs/file-access.md`).
 
 Раскладка по дням важна не сама по себе: ключ, который вернул `save_bytes`,
 попадает в `import_jobs.file_key` и в ссылку `/uploads/<ключ>`, поэтому формат
 `YYYY-MM-DD/имя` — часть контракта хранилища, а не деталь реализации.
 """
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from app import storage as storage_module
 from app.config import Settings
@@ -163,6 +166,171 @@ def test_empty_bucket_turns_s3_off() -> None:
     assert settings.s3_enabled is False
 
 
+@pytest.mark.parametrize("env", ["production", "Prod", ""])
+def test_a_typo_in_the_environment_fails_the_application_at_start(env: str) -> None:
+    """`S3_ENV` — `Literal`: опечатка роняет старт, а не переключает хранилище молча.
+
+    Свободная строка дала бы пустые ключи активной среды, `s3_enabled = False` и
+    локальный диск вместо бакета: импорты легли бы в `/app/uploads`, и нашлось бы
+    это только глазами в каталоге.
+    """
+    with pytest.raises(ValidationError):
+        Settings(
+            database_url="sqlite+pysqlite:///:memory:",
+            jwt_secret="unit-test-secret-value-0123456789",
+            s3_bucket="bucket",
+            s3_env=env,
+        )
+
+
+def s3_storage() -> S3Storage:
+    """S3-хранилище с фиктивными ключами: клиент создаётся без обращения к сети."""
+    return S3Storage(
+        endpoint="https://s3.example.test",
+        access_key="key",
+        secret_key="secret",
+        bucket="bucket",
+        prefix="crm-agent-test",
+    )
+
+
+class FailingClient:
+    """Заглушка клиента S3, которая падает на любом вызове."""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def put_object(self, **_kwargs: object) -> None:
+        raise self._error
+
+    def get_object(self, **_kwargs: object) -> None:
+        raise self._error
+
+    def delete_object(self, **_kwargs: object) -> None:
+        raise self._error
+
+    def head_object(self, **_kwargs: object) -> None:
+        raise self._error
+
+
+def failing_storage(error: Exception) -> S3Storage:
+    storage = s3_storage()
+    storage._client = FailingClient(error)
+    return storage
+
+
+def access_denied() -> Exception:
+    """Ответ S3 «нет прав на запись» — `ClientError`, а не `StorageError`."""
+    from botocore.exceptions import ClientError
+
+    return ClientError({"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}, "PutObject")
+
+
+def endpoint_is_down() -> Exception:
+    """Сетевой отказ boto3 — `BotoCoreError`."""
+    from botocore.exceptions import EndpointConnectionError
+
+    return EndpointConnectionError(endpoint_url="https://s3.example.test")
+
+
+@pytest.mark.parametrize("error", [access_denied(), endpoint_is_down()])
+@pytest.mark.parametrize("call", ["save_bytes", "put_raw", "delete"])
+def test_a_failed_s3_call_becomes_a_storage_error(error: Exception, call: str) -> None:
+    """Ошибки boto3 наружу не выходят: их ловит ручка и отдаёт 503.
+
+    `ClientError` (нет прав, бакета нет) и `BotoCoreError` (площадка не
+    отвечает) — не `StorageError`. Без перевода `except StorageError` в ручке
+    импорта их не поймал бы, и клиент получил бы `500` вместо обещанного
+    «Хранилище файлов недоступно, файл не сохранён».
+    """
+    storage = failing_storage(error)
+
+    with pytest.raises(StorageError) as raised:
+        if call == "save_bytes":
+            storage.save_bytes(PAYLOAD, "abc123.xlsx")
+        elif call == "put_raw":
+            storage.put_raw(PAYLOAD, KEY)
+        else:
+            storage.delete(KEY)
+
+    # Ошибка «файла нет» здесь была бы неверной: сбой записи — не отсутствие файла.
+    assert not isinstance(raised.value, StorageNotFoundError)
+
+
+def test_a_missing_object_is_a_not_found_error() -> None:
+    from botocore.exceptions import ClientError
+
+    storage = failing_storage(ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject"))
+
+    with pytest.raises(StorageNotFoundError):
+        storage.read_bytes(KEY)
+
+
+def test_a_network_failure_on_read_is_a_storage_error() -> None:
+    """Сеть не отвечает — это 500 через `StorageError`, а не «файла нет»."""
+    storage = failing_storage(endpoint_is_down())
+
+    with pytest.raises(StorageError) as raised:
+        storage.read_bytes(KEY)
+
+    assert not isinstance(raised.value, StorageNotFoundError)
+
+
+def test_s3_exists_treats_a_failed_call_as_absent() -> None:
+    storage = failing_storage(endpoint_is_down())
+
+    assert storage.exists(KEY) is False
+
+
 def test_storage_is_the_single_shared_object() -> None:
     """Проект берёт хранилище из одного места: `from app.storage import storage`."""
     assert isinstance(storage_module.storage, Storage)
+
+
+def test_the_storage_mode_is_written_to_the_log(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Режим хранилища видно в логе: раньше «S3 выключен» находили только по каталогу.
+
+    Строка пишется на старте приложения (`app.main.lifespan`), а не при импорте
+    `app.storage`: импорт идёт раньше настройки логирования, и запись на уровне
+    INFO терялась.
+    """
+    caplog.set_level(logging.INFO, logger="app.storage")
+
+    storage_module.log_storage_mode()
+
+    assert "Хранилище файлов" in caplog.text
+    assert "LocalStorage" in caplog.text
+
+
+def test_the_mode_log_line_shows_the_prefix_and_no_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """В лог попадают только тип хранилища и префикс среды: ключей там нет."""
+    lines: list[str] = []
+
+    class Collector(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            lines.append(record.getMessage())
+
+    handler = Collector()
+    logger = logging.getLogger("app.storage")
+    logger.addHandler(handler)
+    try:
+        monkeypatch.setattr(storage_module, "storage", s3_storage())
+        monkeypatch.setattr(
+            storage_module,
+            "get_settings",
+            lambda: SimpleNamespace(s3_prefix="crm-agent-test"),
+        )
+        storage_module.log_storage_mode()
+    finally:
+        logger.removeHandler(handler)
+
+    assert lines, "режим хранилища не попал в лог"
+    written = " ".join(lines)
+    assert "S3Storage" in written
+    assert "crm-agent-test" in written
+    # Ключ доступа лежит в самом хранилище — в строку лога он попасть не должен.
+    assert "secret" not in written.lower()

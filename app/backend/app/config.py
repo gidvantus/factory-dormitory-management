@@ -1,6 +1,7 @@
 """Настройки сервиса. Всё, что является секретом, приходит только из окружения."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,7 +47,11 @@ class Settings(BaseSettings):
     # (файл в `.gitignore`, в репозиторий не попадает) и в коде их нет никогда.
     s3_endpoint: str = "https://s3.twcstorage.ru"
     s3_bucket: str = ""  # имя бакета, задаётся только в .env
-    s3_env: str = "test"  # test | prod — выбирает пару ключей и префикс
+    # `Literal`, а не `str`: опечатка (`production`, `Prod`) роняет приложение на
+    # старте с внятным отказом. Свободная строка молча давала бы пустые ключи,
+    # `s3_enabled = False` и хранилище переключалось бы на локальный диск —
+    # импорты легли бы в `/app/uploads` вместо бакета `crm-prod`.
+    s3_env: Literal["test", "prod"] = "test"
     # Тестовая среда → префикс crm-agent-test
     s3_access_key_test: str = ""
     s3_secret_key_test: str = ""

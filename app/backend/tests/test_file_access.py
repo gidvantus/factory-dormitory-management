@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.file_access import (
+    CONTENT_TYPES_BY_SUFFIX,
     can_read,
     content_type_for,
     normalize_key,
@@ -99,13 +100,20 @@ def test_public_url_is_rooted_at_the_site() -> None:
     ("key", "expected"),
     [
         (KEY, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        ("2026-10-29/act.pdf", "application/pdf"),
+        # Таблица закрывает только те виды файлов, что проект отдаёт сегодня:
+        # остальное берёт `mimetypes`, а неизвестное расширение — набор байт.
         ("2026-10-29/unknown.bin", "application/octet-stream"),
+        ("2026-10-29/no-extension", "application/octet-stream"),
     ],
 )
 def test_content_type_is_taken_from_the_extension(key: str, expected: str) -> None:
     """`.xlsx` знает только наша таблица: `/etc/mime.types` в slim-образе нет."""
     assert content_type_for(key) == expected
+
+
+def test_the_content_type_table_holds_only_the_files_the_project_serves() -> None:
+    """Мёртвых настроек не заводим: других видов файлов постановка не разрешает."""
+    assert set(CONTENT_TYPES_BY_SUFFIX) == {".xlsx"}
 
 
 def test_the_owning_organization_reads_its_import_file(db_session: Session) -> None:

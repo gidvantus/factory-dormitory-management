@@ -26,7 +26,7 @@ from app.places_import import (
     TEMPLATE_ERROR_DETAIL,
     month_days,
 )
-from app.storage import LocalStorage, StorageError
+from app.storage import LocalStorage, S3Storage, StorageError
 from tests.conftest import sign_in
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -531,6 +531,50 @@ def test_unavailable_storage_fails_the_request_and_creates_no_import(
     sign_in(client, db_session, email=PLACES_EMAIL)
     base = places_base(create_dormitory(client))
     monkeypatch.setattr(hostels_api.storage, "save_bytes", broken_save)
+    before = db_session.query(ImportJob).count()
+
+    response = upload(client, base, places_file(NOVEMBER, [("Хостел 1", "Проживает М", {})]))
+
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"] == "Хранилище файлов недоступно, файл не сохранён"
+    assert db_session.query(ImportJob).count() == before
+
+
+def test_a_refused_s3_write_answers_503_not_500(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Отказ самого S3 («нет прав на запись») тоже даёт 503, а не 500.
+
+    Здесь подменяется не `save_bytes`, а клиент boto3: проверяется весь путь
+    `S3Storage.save_bytes` → `StorageError` → обработчик ручки. Именно этот
+    случай писали текстом «Хранилище файлов недоступно, файл не сохранён»:
+    `ClientError` не является `StorageError`, и без перевода наружу уходил бы
+    `500` от общего обработчика FastAPI.
+    """
+    from botocore.exceptions import ClientError
+
+    denied = ClientError(
+        {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}, "PutObject"
+    )
+
+    class RefusingClient:
+        def put_object(self, **_kwargs: object) -> None:
+            raise denied
+
+    s3_storage = S3Storage(
+        endpoint="https://s3.example.test",
+        access_key="key",
+        secret_key="secret",
+        bucket="bucket",
+        prefix="crm-agent-test",
+    )
+    s3_storage._client = RefusingClient()
+
+    sign_in(client, db_session, email=PLACES_EMAIL)
+    base = places_base(create_dormitory(client))
+    monkeypatch.setattr(hostels_api, "storage", s3_storage)
     before = db_session.query(ImportJob).count()
 
     response = upload(client, base, places_file(NOVEMBER, [("Хостел 1", "Проживает М", {})]))

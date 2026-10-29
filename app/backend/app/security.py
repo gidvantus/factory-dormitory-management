@@ -135,6 +135,33 @@ def issue_activation_token(db: Session, user_id: int, *, kind: str = "activation
     return token
 
 
+def session_user(request: Request, db: Session) -> User | None:
+    """Пользователь из cookie сессии или `None`. Единственное чтение сессии.
+
+    Здесь живёт вся политика аутентификации: откуда берётся токен, как он
+    разбирается, какой claim считается субъектом и что значит «пользователя
+    нет». И `get_current_user`, и `get_optional_user` вызывают этот помощник —
+    поэтому новая проверка (отзыв токена, версия, дополнительный claim)
+    появляется в одном месте и действует сразу и на кабинет, и на раздачу
+    файлов. Двух копий этой политики быть не должно: раздача файлов — маршрут,
+    который отдаёт файлы, и отставшее правило пускало бы по старому.
+    """
+    settings = get_settings()
+    token = request.cookies.get(settings.session_cookie_name)
+    if not token:
+        return None
+
+    payload = decode_access_token(token)
+    if payload is None:
+        return None
+
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject.isdigit():
+        return None
+
+    return db.get(User, int(subject))
+
+
 def get_current_user(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
@@ -145,20 +172,7 @@ def get_current_user(
     активации, а не получить 401 «нет сессии». Рабочие ручки закрывает
     `require_active_user`.
     """
-    settings = get_settings()
-    token = request.cookies.get(settings.session_cookie_name)
-    if not token:
-        raise unauthorized()
-
-    payload = decode_access_token(token)
-    if payload is None:
-        raise unauthorized()
-
-    subject = payload.get("sub")
-    if not isinstance(subject, str) or not subject.isdigit():
-        raise unauthorized()
-
-    user = db.get(User, int(subject))
+    user = session_user(request, db)
     if user is None:
         raise unauthorized()
 
@@ -200,23 +214,14 @@ def get_optional_user(
 
     Для раздачи файлов (`/uploads/{key}`): ссылку открывает браузер, и «сессии
     нет» — это не ошибка клиента, а аноним, которому файл закрыт. Поэтому здесь
-    нет ни 401, ни `WWW-Authenticate`, в отличие от `get_current_user`.
+    нет ни 401, ни `WWW-Authenticate`, в отличие от `get_current_user`. Само
+    чтение сессии — то же самое (`session_user`), а не его копия.
 
     Актором журнала действий пользователь здесь **не становится**: скачивание
     файла — чтение, а не действие кабинета, и записывать его в журнал от имени
     пользователя незачем (иначе каждая ссылка из письма была бы строкой журнала).
     """
-    settings = get_settings()
-    token = request.cookies.get(settings.session_cookie_name)
-    if not token:
-        return None
-    payload = decode_access_token(token)
-    if payload is None:
-        return None
-    subject = payload.get("sub")
-    if not isinstance(subject, str) or not subject.isdigit():
-        return None
-    return db.get(User, int(subject))
+    return session_user(request, db)
 
 
 # Тот же пользователь, но «может быть анонимом»: значение `None` — нормальный

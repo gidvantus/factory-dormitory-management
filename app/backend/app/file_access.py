@@ -92,13 +92,12 @@ def public_url(key: str) -> str:
 # `mimetypes` знает `.xlsx` только при наличии `/etc/mime.types`, а в образе
 # `python:*-slim` его нет: без таблицы файл уходил бы как
 # `application/octet-stream` и браузер не открыл бы его как таблицу.
+#
+# Здесь ровно те виды файлов, которые проект отдаёт сегодня. Список расширений
+# «на будущее» не заводится: другие виды файлов постановка прямо запрещает, а
+# `mimetypes.guess_type` закрывает неизвестное и без таблицы.
 CONTENT_TYPES_BY_SUFFIX = {
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".pdf": "application/pdf",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".txt": "text/plain; charset=utf-8",
 }
 
 
