@@ -233,6 +233,23 @@ class S3Storage(Storage):
             return False
 
 
+def _write_file(path: Path, data: bytes) -> None:
+    """Запись файла на диск без утечки `OSError` наружу.
+
+    Полный том, каталог только для чтения, кончившееся место, отобранные права —
+    всё это `OSError`, и он обязан стать `StorageError`: только его ловит ручка
+    импорта и превращает в `503` «Хранилище файлов недоступно, файл не
+    сохранён». Иначе клиент получал бы `500` и повторял загрузку в тот же
+    переполненный диск, а локальный диск — не редкая ветка, а рабочий режим:
+    ключей S3 на стенде и в разработке нет.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    except OSError as e:
+        raise StorageError(f"Не удалось записать файл {path.name}: {e}") from e
+
+
 class LocalStorage(Storage):
     """Хранение в локальном каталоге (разработка без S3)."""
 
@@ -255,17 +272,13 @@ class LocalStorage(Storage):
         """
         safe = _safe_key(name)
         key = f"{_today_dir()}/{safe}"
-        path = self._path(key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        _write_file(self._path(key), data)
         return key
 
     def put_raw(self, data: bytes, key: str, content_type: str | None = None) -> str:
         """Сохраняет файл ровно по ключу key (без подпапки даты)."""
         safe = _safe_key(key)
-        path = self._path(safe)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        _write_file(self._path(safe), data)
         return safe
 
     def list_folder(self, folder: str = "") -> list[str]:

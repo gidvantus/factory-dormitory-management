@@ -94,6 +94,47 @@ def test_an_empty_folder_lists_the_whole_storage(tmp_path: Path) -> None:
     assert local.list_folder() == ["2026-10-29/a.xlsx", "2026-10-30/b.xlsx"]
 
 
+@pytest.mark.parametrize("call", ["save_bytes", "put_raw"])
+def test_a_failed_disk_write_becomes_a_storage_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, call: str
+) -> None:
+    """Отказ диска — `StorageError`, а не `OSError`: иначе клиент увидит 500.
+
+    Локальный диск — рабочий режим стенда и разработки (ключей S3 там нет).
+    Полный том или каталог только для чтения дают `OSError` из `mkdir` либо
+    `write_bytes`; ручка импорта ловит только `StorageError`, поэтому без
+    перевода обещанный `503` «Хранилище файлов недоступно, файл не сохранён»
+    не выполнялся бы ровно в основном режиме.
+    """
+    local = local_storage(tmp_path)
+
+    def full_disk(_path: Path, _data: bytes) -> int:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_bytes", full_disk)
+
+    with pytest.raises(StorageError):
+        if call == "save_bytes":
+            local.save_bytes(PAYLOAD, "abc123.xlsx")
+        else:
+            local.put_raw(PAYLOAD, KEY)
+
+
+def test_a_failed_folder_creation_becomes_a_storage_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`mkdir` падает так же, как запись: каталог только для чтения — `StorageError`."""
+    local = local_storage(tmp_path)
+
+    def read_only_folder(*_args: object, **_kwargs: object) -> None:
+        raise OSError(30, "Read-only file system")
+
+    monkeypatch.setattr(Path, "mkdir", read_only_folder)
+
+    with pytest.raises(StorageError):
+        local.save_bytes(PAYLOAD, "abc123.xlsx")
+
+
 @pytest.mark.parametrize("name", ["../evil.xlsx", "2026-10-29/../../evil.xlsx", "", "/"])
 def test_keys_with_traversal_or_empty_are_rejected(tmp_path: Path, name: str) -> None:
     local = local_storage(tmp_path)

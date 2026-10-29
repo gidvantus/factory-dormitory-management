@@ -517,9 +517,12 @@ async def upload_places_import(
     except Exception:
         # Коммит не прошёл — задания и строки реестра нет, а объект в хранилище
         # уже лежит. Без удаления он остался бы мусором, которого никто не
-        # уберёт: уборки в проекте нет, а ключ нигде не сохранён.
+        # уберёт: уборки в проекте нет, а ключ нигде не сохранён. Удаление —
+        # тоже в threadpool: в режиме S3 это такой же сетевой вызов, как запись,
+        # и делать его на event loop нельзя тем более, что происходит это в
+        # момент, когда система уже сбоит.
         db.rollback()
-        _discard_stored_file(file_key)
+        await run_in_threadpool(_discard_stored_file, file_key)
         raise
     return JSONResponse(
         content=result.model_dump(mode="json"),

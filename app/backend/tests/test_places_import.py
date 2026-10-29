@@ -7,6 +7,7 @@
 import re
 from datetime import date
 from io import BytesIO
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -569,6 +570,39 @@ def test_a_failed_commit_removes_the_file_that_has_no_import(
     assert upload_storage.list_folder("") == []
 
 
+def test_the_cleanup_after_a_failed_commit_runs_off_the_event_loop(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Уборка уходит в threadpool: в режиме S3 это такой же сетевой вызов.
+
+    `storage.delete` в режиме S3 — `delete_object` с теми же тайм-аутами и двумя
+    попытками, что и запись. Прямо в `async def` он остановил бы единственный
+    event loop — ровно так же, как останавливала запись до правки Б2, только
+    происходит это в момент, когда система уже сбоит.
+    """
+    sign_in(client, db_session, email=PLACES_EMAIL)
+    base = places_base(create_dormitory(client))
+    offloaded: list[object] = []
+    real_run_in_threadpool = hostels_api.run_in_threadpool
+
+    async def spy(func: object, *args: object, **kwargs: object) -> object:
+        offloaded.append(func)
+        return await real_run_in_threadpool(func, *args, **kwargs)  # type: ignore[arg-type]
+
+    def broken_commit() -> None:
+        raise RuntimeError("обрыв соединения на коммите")
+
+    monkeypatch.setattr(hostels_api, "run_in_threadpool", spy)
+    monkeypatch.setattr(db_session, "commit", broken_commit)
+
+    with pytest.raises(RuntimeError):
+        upload(client, base, places_file(NOVEMBER, [("Хостел 1", "Проживает М", {})]))
+
+    assert hostels_api._discard_stored_file in offloaded
+
+
 def test_a_file_that_could_not_be_removed_after_the_failure_is_only_logged(
     client: TestClient,
     db_session: Session,
@@ -627,6 +661,34 @@ def test_a_refused_s3_write_answers_503_not_500(
     base = places_base(create_dormitory(client))
     monkeypatch.setattr(hostels_api, "storage", s3_storage)
     before = db_session.query(ImportJob).count()
+
+    response = upload(client, base, places_file(NOVEMBER, [("Хостел 1", "Проживает М", {})]))
+
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"] == "Хранилище файлов недоступно, файл не сохранён"
+    assert db_session.query(ImportJob).count() == before
+
+
+def test_a_full_disk_answers_503_not_500(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Отказ локального диска — тоже 503, а не 500.
+
+    Подменяется не `save_bytes`, а сама запись на диск (`Path.write_bytes`):
+    проверяется путь `LocalStorage → OSError → StorageError → 503`. Локальный
+    режим — рабочий на стенде и в разработке, а прежний тест подменял
+    `save_bytes` целиком и этой ветки не видел.
+    """
+    sign_in(client, db_session, email=PLACES_EMAIL)
+    base = places_base(create_dormitory(client))
+    before = db_session.query(ImportJob).count()
+
+    def full_disk(_path: Path, _data: bytes) -> int:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_bytes", full_disk)
 
     response = upload(client, base, places_file(NOVEMBER, [("Хостел 1", "Проживает М", {})]))
 
