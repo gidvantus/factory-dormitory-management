@@ -39,6 +39,7 @@ from app.models.statistics_report import StatisticsReport
 from app.models.table_column import ArchiveEntry, TableColumn
 from app.models.tariff import Tariff
 from app.models.telegram import NotificationDelivery, NotificationSubscription, TelegramLink
+from app.models.uploaded_file import UploadedFile
 from app.models.user import User
 
 __all__ = [
@@ -90,5 +91,6 @@ __all__ = [
     "TableColumn",
     "Tariff",
     "TelegramLink",
+    "UploadedFile",
     "User",
 ]

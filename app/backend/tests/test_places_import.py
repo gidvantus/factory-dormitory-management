@@ -4,6 +4,7 @@
 проверяется на тех же книгах, что отдаёт ручка шаблона.
 """
 
+import re
 from datetime import date
 from io import BytesIO
 from typing import cast
@@ -16,6 +17,8 @@ from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy.orm import Session
 
 from app.api import hostels as hostels_api
+from app.models.import_job import ImportJob
+from app.models.uploaded_file import UploadedFile
 from app.places_import import (
     FIELD_HEADER,
     HOSTEL_HEADER,
@@ -23,6 +26,7 @@ from app.places_import import (
     TEMPLATE_ERROR_DETAIL,
     month_days,
 )
+from app.storage import LocalStorage, StorageError
 from tests.conftest import sign_in
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -455,3 +459,82 @@ def test_template_month_must_be_the_first_day(client: TestClient, db_session: Se
 
     assert response.status_code == 422
     assert response.json()["detail"] == "Укажите первый день месяца"
+
+
+def test_uploaded_file_is_returned_as_file_url_and_gives_back_the_same_bytes(
+    client: TestClient, db_session: Session, upload_storage: LocalStorage
+) -> None:
+    """Исходный файл сохраняется, а `file_url` отдаёт ровно то, что загрузили."""
+    sign_in(client, db_session, email=PLACES_EMAIL)
+    base = places_base(create_dormitory(client))
+    content = places_file(NOVEMBER, [("Хостел 1", "Проживает М", {"05.11.2025": 4})])
+
+    response = upload(client, base, content)
+
+    assert response.status_code == 200, response.text
+    file_url = response.json()["file_url"]
+    assert file_url.startswith("/uploads/")
+    # Ключ дня — часть контракта хранилища, а не деталь реализации.
+    assert re.fullmatch(r"/uploads/\d{4}-\d{2}-\d{2}/[0-9a-f]{32}\.xlsx", file_url)
+    assert upload_storage.read_bytes(file_url.removeprefix("/uploads/")) == content
+
+    # Ссылка из ответа открывается браузером без заголовков авторизации:
+    # cookie сессии `path=/` уходит сама.
+    downloaded = client.get(file_url)
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.content == content
+
+
+def test_key_of_the_saved_file_is_stored_in_the_import_job(
+    client: TestClient, db_session: Session, upload_storage: LocalStorage
+) -> None:
+    """По `file_key` правило доступа находит общежитие, поэтому его нельзя потерять."""
+    sign_in(client, db_session, email=PLACES_EMAIL)
+    base = places_base(create_dormitory(client))
+
+    body = upload(client, base, places_file(NOVEMBER, [("Хостел 1", "Проживает М", {})])).json()
+
+    job = db_session.get(ImportJob, body["import_id"])
+    assert job is not None
+    assert job.file_key == body["file_url"].removeprefix("/uploads/")
+    registered = db_session.query(UploadedFile).filter(UploadedFile.key == job.file_key).one()
+    assert registered.purpose == "places_import"
+
+
+def test_a_file_with_parse_errors_also_gets_a_file_url(
+    client: TestClient, db_session: Session, upload_storage: LocalStorage
+) -> None:
+    """Файл с ошибками нужен человеку больше всего: по нему он их и исправляет."""
+    sign_in(client, db_session, email=PLACES_EMAIL)
+    base = places_base(create_dormitory(client))
+    broken = places_file(NOVEMBER, [("Хостел 1", "Неизвестное поле", {"05.11.2025": 1})])
+
+    response = upload(client, base, broken)
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["file_url"].startswith("/uploads/")
+    assert client.get(body["file_url"]).content == broken
+
+
+def test_unavailable_storage_fails_the_request_and_creates_no_import(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Задание импорта без файла бессмысленно, поэтому 503 и импорта нет вовсе."""
+
+    def broken_save(*_args: object, **_kwargs: object) -> str:
+        raise StorageError("S3 недоступен")
+
+    sign_in(client, db_session, email=PLACES_EMAIL)
+    base = places_base(create_dormitory(client))
+    monkeypatch.setattr(hostels_api.storage, "save_bytes", broken_save)
+    before = db_session.query(ImportJob).count()
+
+    response = upload(client, base, places_file(NOVEMBER, [("Хостел 1", "Проживает М", {})]))
+
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"] == "Хранилище файлов недоступно, файл не сохранён"
+    assert db_session.query(ImportJob).count() == before

@@ -23,6 +23,7 @@ os.environ["DADATA_API_KEY"] = ""
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,7 +33,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import db as db_module
+from app import main as main_module
 from app import solutions
+from app.api import hostels as hostels_api
 from app.config import get_settings
 from app.db import get_db
 from app.main import app
@@ -42,6 +45,7 @@ from app.models.organization import Organization, OrganizationMember
 from app.models.solution import OrganizationSolution, Solution
 from app.models.user import User
 from app.security import hash_password
+from app.storage import LocalStorage
 
 # Пароль, которым тесты входят в кабинет. Сервер его не показывает, поэтому
 # пользователь с известным паролем создаётся прямо в базе (см. create_user).
@@ -82,6 +86,25 @@ def _attach_dormitory_organization(
             item.organization_id = latest.active_organization_id
             continue
         item.organization_id = _test_organization(session)
+
+
+@pytest.fixture(autouse=True)
+def upload_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> LocalStorage:
+    """Файлы тестов уходят во временный каталог, а не в настоящий `uploads`.
+
+    Юнит-прогон герметичен: без этой подмены импорт «Места» писал бы `.xlsx` в
+    `app/backend/uploads` рабочей копии, а тесты — делили бы файлы между собой.
+    Подменяются оба места, где хранилище взято при импорте: раздача файлов
+    (`app.main`) и импорт (`app.api.hostels`). Обе половины обязаны смотреть в
+    ОДИН каталог, иначе скачанное не совпало бы с загруженным.
+
+    Возвращается сам `LocalStorage`: тесту раздачи нужно положить файл по ключу
+    до запроса.
+    """
+    local = LocalStorage(tmp_path / "uploads")
+    monkeypatch.setattr(main_module, "storage", local)
+    monkeypatch.setattr(hostels_api, "storage", local)
+    return local
 
 
 @pytest.fixture

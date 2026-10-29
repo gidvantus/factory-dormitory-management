@@ -1,7 +1,9 @@
 """Помесячные хостелы и таблицы мест в общежитии."""
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any
+from uuid import uuid4
 
 from fastapi import (
     APIRouter,
@@ -20,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
+from app.file_access import public_url, register_upload
 from app.models.hostel import Hostel, HostelCell
 from app.models.import_job import (
     IMPORT_STATUS_APPLIED,
@@ -55,6 +58,7 @@ from app.schemas.places_import import (
 )
 from app.schemas.user import ErrorResponse
 from app.section_state import require_section_writable
+from app.storage import StorageError, storage
 from app.table_data import lock_dormitory
 
 router = APIRouter(
@@ -82,6 +86,13 @@ IMPORT_FILE_TOO_BIG_DETAIL = "Файл больше 20 МБ — уменьшит
 IMPORT_NOT_FOUND_DETAIL = "Импорт не найден"
 IMPORT_NOT_READY_DETAIL = "Этот импорт уже применён или не готов"
 NOT_FIRST_DAY_DETAIL = "Укажите первый день месяца"
+# Файл не сохранён — импорта нет вовсе: задание без файла раздать было бы
+# нечем, а «сделать вид, что сохранили» нельзя.
+STORAGE_UNAVAILABLE_DETAIL = "Хранилище файлов недоступно, файл не сохранён"
+# Назначение загрузки в реестре `uploaded_file` (`app/file_access`).
+PLACES_IMPORT_PURPOSE = "places_import"
+
+log = logging.getLogger(__name__)
 
 NOT_FOUND_RESPONSE: dict[int | str, dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "Общежитие не найдено"},
@@ -387,6 +398,10 @@ def download_places_import_template(
             "model": PlacesImportResult,
             "description": "Ошибки разбора или файл не похож на шаблон",
         },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ErrorResponse,
+            "description": STORAGE_UNAVAILABLE_DETAIL,
+        },
     },
 )
 async def upload_places_import(
@@ -400,6 +415,12 @@ async def upload_places_import(
 
     Ответ 422 приходит с полным результатом разбора: по нему экран показывает
     ошибки и номер задания. Ячейки «Размещение персонала» при ошибках не меняются вовсе.
+
+    Исходный файл сохраняется в хранилище (`app/storage`) и остаётся доступным по
+    ссылке `file_url` — в том числе при ошибках разбора: человеку нужно увидеть
+    файл, который он загрузил, чтобы исправить ошибки. Файл, задание импорта и
+    строка реестра `uploaded_file` пишутся одной транзакцией: задания без файла
+    не бывает, поэтому ошибка хранилища — это 503 и импорта не создаётся.
     """
     require_section_writable(db, dormitory_id, "places")
     filename = file.filename or ""
@@ -413,6 +434,19 @@ async def upload_places_import(
     except TemplateError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error
 
+    # Имя объекта — случайное: коллизий имён файлов не бывает, а имя из запроса
+    # (его задаёт клиент) в ключ хранилища не попадает. Подпапку дня добавляет
+    # сам `storage.save_bytes`.
+    try:
+        file_key = storage.save_bytes(content, f"{uuid4().hex}.xlsx", content_type=XLSX_MEDIA_TYPE)
+    except StorageError as error:
+        # Подробность (адрес бакета, код S3) в ответ не попадает: клиенту она
+        # не нужна, а в лог уходит без ключей доступа.
+        log.warning("Импорт «Места»: файл не сохранён: %s", error)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, STORAGE_UNAVAILABLE_DETAIL
+        ) from error
+
     ready = not parsed.errors
     job = ImportJob(
         dormitory_id=dormitory_id,
@@ -420,14 +454,19 @@ async def upload_places_import(
         status=IMPORT_STATUS_READY if ready else IMPORT_STATUS_FAILED,
         filename=filename[:255],
         size_bytes=len(content),
+        file_key=file_key,
         created_by=user.id,
         result={},
     )
     db.add(job)
     db.flush()
+    # Реестр загрузок — часть той же транзакции (`commit=False`): строка учёта
+    # не должна появиться без задания и наоборот.
+    register_upload(db, file_key, user, purpose=PLACES_IMPORT_PURPOSE, commit=False)
     result = PlacesImportResult(
         import_id=job.id,
         status="ready" if ready else "failed",
+        file_url=public_url(file_key),
         months=[parsed.month],
         counts=PlacesImportCounts(
             hostels=len(parsed.hostels),

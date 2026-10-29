@@ -191,6 +191,38 @@ def require_active_user(user: CurrentUser) -> User:
 
 ActiveUser = Annotated[User, Depends(require_active_user)]
 
+
+def get_optional_user(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> User | None:
+    """Пользователь из cookie сессии или `None`, если сессии нет.
+
+    Для раздачи файлов (`/uploads/{key}`): ссылку открывает браузер, и «сессии
+    нет» — это не ошибка клиента, а аноним, которому файл закрыт. Поэтому здесь
+    нет ни 401, ни `WWW-Authenticate`, в отличие от `get_current_user`.
+
+    Актором журнала действий пользователь здесь **не становится**: скачивание
+    файла — чтение, а не действие кабинета, и записывать его в журнал от имени
+    пользователя незачем (иначе каждая ссылка из письма была бы строкой журнала).
+    """
+    settings = get_settings()
+    token = request.cookies.get(settings.session_cookie_name)
+    if not token:
+        return None
+    payload = decode_access_token(token)
+    if payload is None:
+        return None
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject.isdigit():
+        return None
+    return db.get(User, int(subject))
+
+
+# Тот же пользователь, но «может быть анонимом»: значение `None` — нормальный
+# результат, а не ошибка.
+OptionalUser = Annotated[User | None, Depends(get_optional_user)]
+
 # Единое описание этого 403 для `responses=` рабочих роутеров.
 ACTIVE_USER_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_403_FORBIDDEN: {
