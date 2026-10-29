@@ -31,9 +31,12 @@ from app.solutions import SOLUTION_REQUIRED_DETAIL, TELEGRAM_NOTIFICATIONS
 from app.telegram import render_message
 from tests.conftest import add_colleague, give_solution, login, sign_in
 from tests.test_custom_tabs import create_table, tab
+from tests.test_personnel import create as personnel_create
 from tests.test_reports import create_dormitory
 from tests.test_resident_outflow import move as outflow_move
 from tests.test_resident_outflow import preview as outflow_preview
+from tests.test_resident_transfer import payload as transfer_payload
+from tests.test_resident_transfer import preview as transfer_preview
 
 # Операторы по типам столбцов: та же таблица, что в `app/notification_rules.py`.
 EQUALITY_OPERATORS = {"equals", "not_equals", "not_empty", "is_empty"}
@@ -781,6 +784,76 @@ def test_rule_on_archive_fires_when_the_row_is_created(
     assert client.post(f"/api/dormitories/{dorm}/tables/archive/rows").status_code == 201
 
     assert [row.title for row in deliveries(db_session)] == ["Запись в архив"]
+
+
+def test_rule_on_custom_tab_fires_when_the_row_comes_from_personnel(
+    client: TestClient, db_session: Session
+) -> None:
+    """«Кадры» — второй писатель вкладки: строку можно создать и оттуда."""
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    item = tab(client, dorm)
+    create_table(client, dorm, item)
+    table_key = item["table_key"]
+    assert create_rule(client, dorm, name="Из кадров", table_key=table_key).status_code == 201
+
+    created = personnel_create(client, dorm, table=table_key)
+
+    assert created["row_id"] > 0
+    assert [row.title for row in deliveries(db_session)] == ["Из кадров"]
+
+
+def test_rule_on_archive_fires_when_the_row_comes_from_personnel(
+    client: TestClient, db_session: Session
+) -> None:
+    """Тот же второй писатель у «Архива»: `create_record` создаёт и его строки."""
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    assert create_rule(client, dorm, name="Кадры в архив", table_key="archive").status_code == 201
+
+    personnel_create(client, dorm, table="archive")
+
+    assert [row.title for row in deliveries(db_session)] == ["Кадры в архив"]
+
+
+def test_rule_on_residents_fires_when_the_resident_moves_into_the_dormitory(
+    client: TestClient, db_session: Session
+) -> None:
+    """Перевод — штатный способ попасть в общежитие: правило целевого срабатывает."""
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    source = create_dormitory(client, "Северное")
+    target = create_dormitory(client, "Южное")
+    resident = client.post(f"/api/dormitories/{source}/residents").json()["id"]
+    assert (
+        client.patch(
+            f"/api/dormitories/{source}/residents/{resident}?month=2026-10-01",
+            json={"full_name": "Иванов Иван"},
+        ).status_code
+        == 200
+    )
+    columns = table_columns(client, target, "residents")
+    assert (
+        create_rule(
+            client,
+            target,
+            name="Заселение в Южное",
+            table_key="residents",
+            conditions=[{"column_id": columns["ФИО"]["id"], "operator": "not_empty"}],
+        ).status_code
+        == 201
+    )
+
+    plan = transfer_preview(client, source, resident, target)
+    response = client.post(
+        f"/api/dormitories/{source}/residents/{resident}/transfer",
+        json=transfer_payload(target, plan, confirm=True),
+    )
+
+    assert response.status_code == 200, response.text
+    assert [row.title for row in deliveries(db_session)] == ["Заселение в Южное"]
 
 
 # --- Заголовок удалённой таблицы ----------------------------------------------

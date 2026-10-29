@@ -228,6 +228,16 @@ def transfer_resident(
     record_changed(db, plan.resident, _user.id, kind="transfer", title="Перевод · новое проживание")
     db.commit()
     db.refresh(plan.resident)
+    # Перевод — штатный путь появления строки «Проживающих» в целевом общежитии,
+    # поэтому правило срабатывает у **целевого** общежития: строка теперь живёт
+    # в нём. Источник события не получает — там строка ушла.
+    notification_rules.notify_row_written(
+        db,
+        dormitory_id=payload.target_dormitory_id,
+        table_key="residents",
+        row_id=plan.resident.id,
+        actor_id=_user.id,
+    )
     return resident_response(db, plan.resident)
 
 
