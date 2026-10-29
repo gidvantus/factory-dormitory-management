@@ -540,6 +540,57 @@ def test_unavailable_storage_fails_the_request_and_creates_no_import(
     assert db_session.query(ImportJob).count() == before
 
 
+def test_a_failed_commit_removes_the_file_that_has_no_import(
+    client: TestClient,
+    db_session: Session,
+    upload_storage: LocalStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Файл пишется до транзакции, поэтому сбой коммита не должен оставлять мусор.
+
+    Хранилище не участвует в транзакции базы: объект уже лежит, а задания нет.
+    Уборки в проекте нет, и без удаления каждая повторная попытка оставляла бы
+    в бакете (или на диске) ещё один объект, на который никто не ссылается.
+    """
+    sign_in(client, db_session, email=PLACES_EMAIL)
+    base = places_base(create_dormitory(client))
+
+    def broken_commit() -> None:
+        raise RuntimeError("обрыв соединения на коммите")
+
+    monkeypatch.setattr(db_session, "commit", broken_commit)
+    before = db_session.query(ImportJob).count()
+
+    with pytest.raises(RuntimeError):
+        upload(client, base, places_file(NOVEMBER, [("Хостел 1", "Проживает М", {})]))
+
+    assert db_session.query(ImportJob).count() == before
+    # Объект, оставшийся без задания, удалён: в хранилище пусто.
+    assert upload_storage.list_folder("") == []
+
+
+def test_a_file_that_could_not_be_removed_after_the_failure_is_only_logged(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Если и удаление не удалось, наружу уходит исходная причина, а не ошибка уборки."""
+    sign_in(client, db_session, email=PLACES_EMAIL)
+    base = places_base(create_dormitory(client))
+
+    def broken_commit() -> None:
+        raise RuntimeError("обрыв соединения на коммите")
+
+    def broken_delete(_key: str) -> None:
+        raise StorageError("S3 недоступен")
+
+    monkeypatch.setattr(db_session, "commit", broken_commit)
+    monkeypatch.setattr(hostels_api.storage, "delete", broken_delete)
+
+    with pytest.raises(RuntimeError, match="обрыв соединения"):
+        upload(client, base, places_file(NOVEMBER, [("Хостел 1", "Проживает М", {})]))
+
+
 def test_a_refused_s3_write_answers_503_not_500(
     client: TestClient,
     db_session: Session,

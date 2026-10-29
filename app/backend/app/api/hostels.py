@@ -299,6 +299,20 @@ def import_issue(issue: ImportIssue) -> PlacesImportIssue:
     return PlacesImportIssue(row=issue.row, column=issue.column, message=issue.message)
 
 
+def _discard_stored_file(key: str) -> None:
+    """Убрать объект, который остался без задания импорта.
+
+    Вызывается, когда коммит не прошёл: файл уже лежит в хранилище, а ссылки на
+    него в базе нет. Удаление best-effort — если и оно не удалось, ошибку
+    хранилища только логируем: настоящая причина отказа — сбой коммита, он и
+    уходит наверх.
+    """
+    try:
+        storage.delete(key)
+    except StorageError as error:
+        log.warning("Импорт «Места»: не удалось убрать файл %s: %s", key, error)
+
+
 def count_deleted_cells(db: Session, dormitory_id: int, parsed: ParsedImport) -> int:
     """Сколько сохранённых значений исчезнет после полной замены месяца.
 
@@ -419,9 +433,17 @@ async def upload_places_import(
 
     Исходный файл сохраняется в хранилище (`app/storage`) и остаётся доступным по
     ссылке `file_url` — в том числе при ошибках разбора: человеку нужно увидеть
-    файл, который он загрузил, чтобы исправить ошибки. Файл, задание импорта и
-    строка реестра `uploaded_file` пишутся одной транзакцией: задания без файла
-    не бывает, поэтому ошибка хранилища — это 503 и импорта не создаётся.
+    файл, который он загрузил, чтобы исправить ошибки.
+
+    **Атомарность здесь частичная, и это осознанно.** Хранилище — не база: объект
+    пишется ДО транзакции и в неё не входит. Одним коммитом уходят только
+    задание `import_jobs` и строка реестра `uploaded_file` — они и обязаны
+    появляться вместе. Обратный порядок (сначала коммит, потом файл) дал бы
+    задание со ссылкой на несуществующий объект — то есть неработающую ссылку у
+    человека. Поэтому при выбранном порядке файл пишется первым, а если коммит
+    не прошёл, объект удаляется ниже: иначе каждая повторная попытка оставляла бы
+    в бакете мусор, а уборки в проекте нет. Ошибка хранилища — это `503` и
+    импорта не создаётся.
     """
     require_section_writable(db, dormitory_id, "places")
     filename = file.filename or ""
@@ -490,7 +512,15 @@ async def upload_places_import(
         warnings=[import_issue(issue) for issue in parsed.warnings],
     )
     job.result = result.model_dump(mode="json")
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        # Коммит не прошёл — задания и строки реестра нет, а объект в хранилище
+        # уже лежит. Без удаления он остался бы мусором, которого никто не
+        # уберёт: уборки в проекте нет, а ключ нигде не сохранён.
+        db.rollback()
+        _discard_stored_file(file_key)
+        raise
     return JSONResponse(
         content=result.model_dump(mode="json"),
         status_code=status.HTTP_200_OK if ready else status.HTTP_422_UNPROCESSABLE_ENTITY,

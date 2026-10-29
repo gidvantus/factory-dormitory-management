@@ -196,7 +196,8 @@ class S3Storage(Storage):
 
     def list_folder(self, folder: str = "") -> list[str]:
         """Список файлов (относительные ключи) внутри folder, без префикса среды."""
-        folder = _safe_key(folder)
+        # Пустая папка — весь префикс среды, а не недопустимый ключ.
+        folder = _safe_key(folder) if str(folder).strip() else ""
         prefix = self._prefix + (folder + "/" if folder else "")
         keys: list[str] = []
         paginator = self._client.get_paginator("list_objects_v2")
@@ -268,8 +269,11 @@ class LocalStorage(Storage):
         return safe
 
     def list_folder(self, folder: str = "") -> list[str]:
-        """Список файлов (относительные ключи) внутри folder."""
-        folder_key = _safe_key(folder)
+        """Список файлов (относительные ключи) внутри folder; пусто — весь каталог."""
+        # Пустая папка — это «весь каталог», а не недопустимый ключ: `_safe_key`
+        # пустую строку отвергает, поэтому значение по умолчанию проверяется
+        # отдельно.
+        folder_key = _safe_key(folder) if str(folder).strip() else ""
         base = self._path(folder_key) if folder_key else self._base_dir
         out: list[str] = []
         if base.is_dir():
@@ -295,6 +299,11 @@ class LocalStorage(Storage):
         return self._path(_safe_key(name)).is_file()
 
 
+# Коды ответа S3, которые означают «объекта нет». `NoSuchBucket` здесь
+# намеренно НЕ стоит: бакета нет — это ошибка конфигурации, а не пропавший файл.
+NOT_FOUND_CODES = ("NoSuchKey", "NotFound")
+
+
 def _map_client_error(e: Exception, name: str) -> StorageError:
     """Превращает ошибки boto3 в StorageError / StorageNotFoundError.
 
@@ -302,14 +311,23 @@ def _map_client_error(e: Exception, name: str) -> StorageError:
     сетевые отказы (`BotoCoreError`: площадка не отвечает, соединение
     оборвалось, подпись не собралась). И то и другое — `StorageError`, а не
     исключение boto3: вызывающий код умеет обращаться только с ним.
+
+    «Объекта нет» (`NoSuchKey`, `NotFound`) — единственный случай, когда это
+    `StorageNotFoundError`: он превращается в `404` «Файл не найден». Остальные
+    коды остаются `StorageError` и в лог пишутся ошибкой. Прежде `NoSuchBucket`
+    тоже считался «файла нет», и переименованный бакет или опечатка в
+    `S3_BUCKET` выглядели как пропавшие файлы: каждая ссылка отвечала `404`, а в
+    логах не было ни строки, и оператор искал файлы вместо имени бакета.
     """
     from botocore.exceptions import ClientError
 
     if isinstance(e, ClientError):
         code = e.response.get("Error", {}).get("Code", "")
-        if code in ("NoSuchKey", "NoSuchBucket", "NotFound"):
+        if code in NOT_FOUND_CODES:
             return StorageNotFoundError(name)
+        log.error("S3: отказ сервиса на объекте %s: %s: %s", name, code, e)
         return StorageError(f"S3: {code}: {e}")
+    log.error("S3: нет связи с хранилищем на объекте %s: %s", name, e)
     return StorageError(f"S3: {e}")
 
 

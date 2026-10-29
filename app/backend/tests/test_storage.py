@@ -85,6 +85,15 @@ def test_list_folder_returns_relative_keys(tmp_path: Path) -> None:
     assert local.list_folder("2026-10-29") == ["2026-10-29/a.xlsx", "2026-10-29/b.xlsx"]
 
 
+def test_an_empty_folder_lists_the_whole_storage(tmp_path: Path) -> None:
+    """Значение по умолчанию `folder=""` — «весь каталог», а не недопустимый ключ."""
+    local = local_storage(tmp_path)
+    local.put_raw(PAYLOAD, "2026-10-29/a.xlsx")
+    local.put_raw(PAYLOAD, "2026-10-30/b.xlsx")
+
+    assert local.list_folder() == ["2026-10-29/a.xlsx", "2026-10-30/b.xlsx"]
+
+
 @pytest.mark.parametrize("name", ["../evil.xlsx", "2026-10-29/../../evil.xlsx", "", "/"])
 def test_keys_with_traversal_or_empty_are_rejected(tmp_path: Path, name: str) -> None:
     local = local_storage(tmp_path)
@@ -264,6 +273,40 @@ def test_a_missing_object_is_a_not_found_error() -> None:
 
     with pytest.raises(StorageNotFoundError):
         storage.read_bytes(KEY)
+
+
+@pytest.mark.parametrize("code", ["NoSuchBucket", "AccessDenied", "InvalidAccessKeyId"])
+def test_a_configuration_or_rights_failure_is_not_a_missing_file(
+    code: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`NoSuchBucket` — ошибка настройки, а не пропавший файл.
+
+    Раньше код «нет бакета» мапился в `StorageNotFoundError`: переименованный
+    бакет или опечатка в `S3_BUCKET` выглядели как удалённые файлы — каждая
+    ссылка отвечала `404`, а в логе не было ни строки. Теперь это
+    `StorageError` (наружу — `500`) и запись в логе с кодом отказа.
+    """
+    from botocore.exceptions import ClientError
+
+    storage = failing_storage(ClientError({"Error": {"Code": code}}, "GetObject"))
+
+    with pytest.raises(StorageError) as raised:
+        storage.read_bytes(KEY)
+
+    assert not isinstance(raised.value, StorageNotFoundError)
+    assert "отказ сервиса" in caplog.text
+
+
+def test_a_bucketless_delete_is_reported_as_a_failure() -> None:
+    """`delete` тоже не должен выдавать ошибку настройки за «файла нет»."""
+    from botocore.exceptions import ClientError
+
+    storage = failing_storage(ClientError({"Error": {"Code": "NoSuchBucket"}}, "DeleteObject"))
+
+    with pytest.raises(StorageError) as raised:
+        storage.delete(KEY)
+
+    assert not isinstance(raised.value, StorageNotFoundError)
 
 
 def test_a_network_failure_on_read_is_a_storage_error() -> None:
