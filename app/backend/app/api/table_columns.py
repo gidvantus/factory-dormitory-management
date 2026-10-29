@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import notification_rules
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.models.custom_tab import CustomTabEntry
@@ -228,6 +229,11 @@ def save_custom_cell(
     if isinstance(row, (Resident, PersonnelInflow, PersonnelOutflow, CustomTabEntry, ArchiveEntry)):
         record_changed(db, row, _user.id)
     db.commit()
+    # Правила уведомлений ставятся после коммита ячейки: падение рассылки не
+    # откатывает и не превращает подтверждённую правку в 500.
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key=table_key, row_id=row_id, actor_id=_user.id
+    )
     return CellRequest(value=value)
 
 

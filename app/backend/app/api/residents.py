@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, st
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app import notification_rules
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser, own_dormitory
 from app.api.organization import Membership
 from app.db import get_db
@@ -316,6 +317,11 @@ def update_resident(
     record_changed(db, resident, _user.id)
     db.commit()
     db.refresh(resident)
+    # Правка строки уже подтверждена: правила ставятся после коммита, а их
+    # падение не меняет ответ ручки.
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="residents", row_id=resident.id, actor_id=_user.id
+    )
     return resident_response(db, resident)
 
 
