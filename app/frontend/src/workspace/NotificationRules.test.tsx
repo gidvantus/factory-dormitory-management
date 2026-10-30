@@ -406,4 +406,55 @@ describe('блок «Правила уведомлений»', () => {
       conditions: [{ column_id: 14, operator: 'equals', value: false }],
     });
   });
+
+  it('условие «заполнено» уходит без значения: контроля значения нет', async () => {
+    const user = userEvent.setup();
+    const fetchMock = mount();
+
+    await user.click(await screen.findByTestId('telegram-rule-add'));
+    await user.type(screen.getByTestId('telegram-rule-name'), 'Заполненный пол');
+    await user.click(screen.getByTestId('telegram-rule-condition-add'));
+    await user.selectOptions(screen.getByTestId('telegram-rule-condition-0-column'), '13');
+    await user.selectOptions(screen.getByTestId('telegram-rule-condition-0-operator'), 'not_empty');
+
+    // У «заполнено/не заполнено» значения нет — оператор не просит контроль.
+    expect(screen.queryByTestId('telegram-rule-condition-0-value')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('telegram-rule-save'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('telegram-rule-dialog')).not.toBeInTheDocument(),
+    );
+
+    const call = fetchMock.mock.calls.find(
+      (item) =>
+        String(item[0]).endsWith('/api/dormitories/1/telegram-rules') && item[1]?.method === 'POST',
+    );
+    expect(call).toBeDefined();
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+      name: 'Заполненный пол',
+      table_key: 'residents',
+      is_enabled: true,
+      conditions: [{ column_id: 13, operator: 'not_empty', value: null }],
+    });
+  });
+
+  it('отказ 422 при сохранении показывается дословно и не закрывает диалог', async () => {
+    const user = userEvent.setup();
+    mount({
+      extra: (url, init) =>
+        url.endsWith('/telegram-rules') && init?.method === 'POST'
+          ? { status: 422, body: { detail: 'Укажите название правила' } }
+          : null,
+    });
+
+    await user.click(await screen.findByTestId('telegram-rule-add'));
+    await user.click(screen.getByTestId('telegram-rule-save'));
+
+    // Текст отказа — из `detail` дословно: по нему человек правит правило.
+    expect(await screen.findByTestId('telegram-rule-error')).toHaveTextContent(
+      'Укажите название правила',
+    );
+    // Диалог остаётся открытым: введённое не теряется, можно исправить и повторить.
+    expect(screen.getByTestId('telegram-rule-dialog')).toBeInTheDocument();
+  });
 });
