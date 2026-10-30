@@ -13,8 +13,10 @@ CRM. Здесь только два HTTP-разговора — с Bot API (`app
 получателя, а сервисный секрет вообще не должен покидать процесс.
 """
 
+import enum
 import logging
 import time
+from dataclasses import dataclass
 
 import httpx
 
@@ -43,6 +45,32 @@ SEND_FAILED_REASON = "send_failed"
 
 # Потолок ленты одного чата за один заход.
 FEED_LIMIT = 20
+
+# Чаты, где бот не отвечает на посторонний текст: в группе бот сидит ради
+# уведомлений, а не ради подсказок, и ответ на каждое сообщение был бы шумом.
+GROUP_CHAT_TYPES = frozenset({"group", "supergroup"})
+
+
+class LinkOutcome(enum.Enum):
+    """Чем закончилась привязка чата по коду.
+
+    Исходы различаются, потому что человеку нужны разные ответы: успех с ФИО,
+    непригодный код и сбой на стороне CRM — три разные ситуации. Раньше все три
+    выглядели как «код не подошёл», и человек с исправным кодом получал совет,
+    который ничем не помогал.
+    """
+
+    LINKED = "linked"
+    INVALID_CODE = "invalid_code"
+    FAILURE = "failure"
+
+
+@dataclass(frozen=True)
+class LinkResult:
+    """Исход привязки и, только для `LINKED`, ФИО владельца кода."""
+
+    outcome: LinkOutcome
+    full_name: str = ""
 
 
 def is_start(text: str) -> bool:
@@ -94,6 +122,24 @@ def _crm_request(
         return None
 
 
+def is_group_chat(chat: dict[str, object]) -> bool:
+    """Групповой чат. Отсутствующий `type` считается приватным чатом."""
+    return chat.get("type") in GROUP_CHAT_TYPES
+
+
+def link_reply_text(result: LinkResult) -> str:
+    """Текст ответа человеку по исходу привязки.
+
+    Тексты живут здесь, а не в кабинете: карточка не дублирует то, что бот пишет
+    в чат, иначе две копии одной фразы разъезжаются.
+    """
+    if result.outcome is LinkOutcome.LINKED:
+        return LINKED_TEXT.format(full_name=result.full_name)
+    if result.outcome is LinkOutcome.INVALID_CODE:
+        return INVALID_CODE_TEXT
+    return FAILURE_TEXT
+
+
 def link_chat_via_crm(
     code: str,
     chat_id: str,
@@ -101,11 +147,14 @@ def link_chat_via_crm(
     *,
     crm_client: httpx.Client,
     settings: Settings,
-) -> str | None:
-    """Привязать чат по коду. Возвращает ФИО владельца или `None`.
+) -> LinkResult:
+    """Привязать чат по коду: «привязан (ФИО)», «код не подошёл» или «сбой».
 
-    `None` — код не подошёл (410) или CRM не ответила: человеку в обоих случаях
-    показывается один текст, а причина остаётся в логе CRM.
+    Разбор ответа CRM намеренно узкий: непригодным код считается только по
+    `410` — единственному ответу, который CRM даёт именно за неизвестный,
+    просроченный или погашенный код. Всё остальное (`None` — CRM недоступна,
+    `401`, `5xx`, `200` без `linked: true`) — сбой на нашей стороне, и человеку
+    нельзя говорить «код не подошёл»: новый код в этой ситуации не поможет.
     """
     response = _crm_request(
         "POST",
@@ -114,16 +163,22 @@ def link_chat_via_crm(
         settings=settings,
         json={"code": code, "chat_id": chat_id, "username": username},
     )
-    if response is None or response.status_code != httpx.codes.OK:
-        return None
+    if response is None:
+        return LinkResult(LinkOutcome.FAILURE)
+    if response.status_code == httpx.codes.GONE:
+        return LinkResult(LinkOutcome.INVALID_CODE)
+    if response.status_code != httpx.codes.OK:
+        return LinkResult(LinkOutcome.FAILURE)
     try:
         body = response.json()
     except ValueError:
-        return None
+        return LinkResult(LinkOutcome.FAILURE)
     if not isinstance(body, dict) or body.get("linked") is not True:
-        return None
+        return LinkResult(LinkOutcome.FAILURE)
     full_name = body.get("full_name")
-    return full_name if isinstance(full_name, str) and full_name else None
+    if not isinstance(full_name, str) or not full_name:
+        return LinkResult(LinkOutcome.FAILURE)
+    return LinkResult(LinkOutcome.LINKED, full_name)
 
 
 def fetch_feed(
@@ -224,7 +279,17 @@ def handle_update(
     chat_id = str(chat["id"])
 
     text = message.get("text")
-    if not isinstance(text, str) or not is_start(text):
+    if not isinstance(text, str) or not text.strip():
+        return chat_id
+
+    if not is_start(text):
+        # Сообщение без команды. В приватном чате это чаще всего код, вставленный
+        # без `/start`, — человек ждёт ответа, и молчание выглядит как поломка.
+        # В группе бот молчит: там он ради уведомлений, а не ради подсказок.
+        if not is_group_chat(chat):
+            telegram_client.send_message(
+                chat_id=chat_id, text=HELP_TEXT, client=bot_client, settings=settings
+            )
         return chat_id
 
     code = start_code(text)
@@ -236,7 +301,7 @@ def handle_update(
 
     sender = message.get("from")
     username = sender.get("username") if isinstance(sender, dict) else None
-    full_name = link_chat_via_crm(
+    result = link_chat_via_crm(
         code,
         chat_id,
         username if isinstance(username, str) else None,
@@ -245,7 +310,7 @@ def handle_update(
     )
     telegram_client.send_message(
         chat_id=chat_id,
-        text=LINKED_TEXT.format(full_name=full_name) if full_name else INVALID_CODE_TEXT,
+        text=link_reply_text(result),
         client=bot_client,
         settings=settings,
     )
