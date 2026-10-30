@@ -392,8 +392,20 @@ def stored_conditions(rule: NotificationRule) -> list[RuleCondition]:
 
 
 def _usable(column: TableColumn | None, condition: RuleCondition) -> bool:
-    """Годится ли столбец для условия: он есть, не архивный и оператор подходит."""
-    return column is not None and condition.operator in OPERATORS_BY_KIND.get(column.kind, ())
+    """Годится ли столбец для условия: он есть, не архивный и оператор подходит.
+
+    Архивность проверяется здесь ещё раз, хотя набор столбцов уже приходит из
+    `_available_columns`: раньше ответ на вопрос «работает ли правило» давали две
+    копии проверки — список правил фильтровал архивные столбцы, а оценка события
+    брала все, — и правило с удалённым столбцом продолжало присылать сообщения.
+    Теперь оба пути идут через `_table_columns`, а эта проверка держит инвариант
+    «сломанное правило молчит» на уровне самого признака сломанности.
+    """
+    return (
+        column is not None
+        and not column.archived
+        and condition.operator in OPERATORS_BY_KIND.get(column.kind, ())
+    )
 
 
 def is_broken(db: Session, dormitory_id: int, rule: NotificationRule) -> bool:
@@ -580,7 +592,12 @@ def queue_rule_events(
     if row is None:
         return 0
 
-    columns = {column.id: column for column in columns_for(db, dormitory_id, table_key)}
+    # Тот же набор столбцов, что у списка правил (`is_broken`): архивные и
+    # удалённые в условия не входят, и правило с таким столбцом молчит.
+    available = _table_columns(db, dormitory_id, table_key, create_missing=False)
+    if available is None:
+        return 0
+    columns = {column.id: column for column in available}
     created = 0
     for rule in rules:
         conditions = stored_conditions(rule)

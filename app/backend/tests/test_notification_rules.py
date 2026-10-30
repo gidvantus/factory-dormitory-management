@@ -9,7 +9,8 @@
   столбца, пока значения условия не изменились;
 * сообщение — это название правила, и тот же текст отдаёт предпросмотр;
 * отказы 422/404/403 приходят дословными текстами контракта;
-* архивный столбец делает правило «сломанным», но не удаляет его.
+* архивный столбец делает правило «сломанным», но не удаляет его, и такое
+  правило молчит при записи строки.
 
 Тесты герметичны: SQLite в памяти, Telegram-чат подключается через домен, а не
 через сеть.
@@ -471,6 +472,47 @@ def test_archived_column_breaks_the_rule_and_cannot_join_a_new_one(
     # Удаление сломанного правила доступно всегда.
     assert client.delete(f"{rules_url(dorm)}/{rule['id']}").status_code == 204
     assert client.get(rules_url(dorm)).json() == []
+
+
+def test_archived_column_makes_the_saved_rule_silent_on_later_writes(
+    client: TestClient, db_session: Session
+) -> None:
+    """Дефект Б1 из вердикта тестировщика: сломанное правило молчит на записи.
+
+    Столбец условия удалён уже после сохранения правила, а значение в строке под
+    условие подходит. Раньше оценка события брала столбцы из `columns_for` (с
+    архивными), и запись любой другой ячейки присылала сообщение от правила,
+    помеченного в списке `broken`. Здесь проверяется, что доставки нет, — тот же
+    ответ на вопрос «работает ли правило», что даёт список.
+    """
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    base, table_key, columns = custom_table(client, dorm)
+
+    row = client.post(base + "/rows").json()
+    edit_cell(client, dorm, table_key, row["id"], columns, "ФИО", "Иванов Иван")
+
+    rule = create_rule(
+        client,
+        dorm,
+        name="Есть ФИО",
+        table_key=table_key,
+        conditions=[{"column_id": columns["ФИО"]["id"], "operator": "not_empty"}],
+    ).json()
+    assert rule["broken"] is False
+    # Правило заведено на уже заполненную строку и без доставки по ней.
+    assert deliveries(db_session) == []
+
+    column_id = columns["ФИО"]["id"]
+    assert (
+        client.delete(f"/api/dormitories/{dorm}/tables/{table_key}/columns/{column_id}").status_code
+        == 204
+    )
+    assert client.get(rules_url(dorm)).json()[0]["broken"] is True
+
+    edit_cell(client, dorm, table_key, row["id"], columns, "Дата", "2026-10-09")
+    assert deliveries(db_session) == []
 
 
 # --- Отказы контракта ---------------------------------------------------------
