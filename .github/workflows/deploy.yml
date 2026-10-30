@@ -37,6 +37,11 @@ jobs:
       SSH_USER: ${{ secrets.CRM_SSH_USER }}
       SSH_PORT: ${{ secrets.CRM_SSH_PORT || '22' }}
       REMOTE_DIR: /srv/crm-dormitory
+      # Псевдоним хоста из ~/.ssh/config, который пишется на шаге настройки
+      # ключа: в нём собраны ключ, порт и все ssh-опции. Шаги обращаются к
+      # серверу только по нему, поэтому параметры подключения заданы в одном
+      # месте, а не повторены в каждом ssh/scp.
+      SSH_TARGET: crm-deploy
       # Единственный адрес в этом файле — loopback, и он означает «проверяем
       # на самом сервере». Адрес сервера и домен сюда не вписаны: хост — из
       # секрета, домен — из SITE_DOMAIN в .env сервера.
@@ -48,7 +53,11 @@ jobs:
       - name: "Проверка: деплой только из ветки develop-m"
         if: github.ref != 'refs/heads/develop-m'
         run: |
-          echo "::error::Деплой разрешён только из ветки develop-m. Текущая: ${{ github.ref }}. Файл workflow лежит и в main, но main отстаёт от develop-m — запуск из main выкатил бы на сервер устаревший код."
+          # Имя ветки — управляемый извне текст, поэтому в скрипт оно приходит
+          # переменной окружения, а не подстановкой выражения GitHub: иначе
+          # ветка вида feature/x$(...) исполнилась бы прямо на раннере, где в
+          # окружении лежат адрес и пользователь боевого сервера.
+          echo "::error::Деплой разрешён только из ветки develop-m. Текущая: $GITHUB_REF. Файл workflow лежит и в main, но main отстаёт от develop-m — запуск из main выкатил бы на сервер устаревший код."
           exit 1
 
       - name: "Проверка: секреты деплоя заданы"
@@ -73,8 +82,10 @@ jobs:
       - name: "Ревизия: какой коммит поедет на сервер"
         run: |
           set -euo pipefail
-          echo "Ветка:  ${{ github.ref_name }}"
-          echo "Коммит: ${{ github.sha }}"
+          # $GITHUB_REF_NAME и $GITHUB_SHA — переменные окружения раннера:
+          # имя ветки не подставляется в скрипт выражением GitHub (см. шаг 2).
+          echo "Ветка:  $GITHUB_REF_NAME"
+          echo "Коммит: $GITHUB_SHA"
           git log -1 --oneline
 
       - name: "SSH: настроить ключ доступа"
@@ -92,17 +103,30 @@ jobs:
             echo "::error::ssh не может прочитать приватный ключ CRM_SSH_KEY. Скопируйте ключ целиком, без CRLF, — см. docs/deploy.md."
             exit 1
           fi
-          echo "Приватный ключ прочитан."
+          # Один источник истины для подключения: псевдоним хоста в
+          # ~/.ssh/config. Дальше шаги пишут только `ssh $SSH_TARGET …`, поэтому
+          # новая опция (например ConnectTimeout) добавляется в одном месте,
+          # а не в тринадцати. ConnectTimeout важен: без него подключение к
+          # «чёрной дыре» держится до общего timeout-minutes: 90.
+          {
+            echo "Host $SSH_TARGET"
+            echo "  HostName $SSH_HOST"
+            echo "  User $SSH_USER"
+            echo "  Port $SSH_PORT"
+            echo "  IdentityFile $HOME/.ssh/id_ed25519"
+            echo "  IdentitiesOnly yes"
+            echo "  BatchMode yes"
+            echo "  StrictHostKeyChecking accept-new"
+            echo "  ConnectTimeout 20"
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          echo "Приватный ключ прочитан, параметры подключения записаны."
 
       - name: "SSH: проверка подключения"
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/id_ed25519 \
-              -p "$SSH_PORT" \
-              -o BatchMode=yes \
-              -o StrictHostKeyChecking=accept-new \
-              -o IdentitiesOnly=yes \
-              "${SSH_USER}@${SSH_HOST}" 'echo ===SSH-OK===; hostname; whoami'
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" 'echo ===SSH-OK===; hostname; whoami'
 
       - name: "Сервер: проверка .env по чек-листу TLS"
         # .env правится руками на сервере и деплоем не перезаписывается
@@ -112,12 +136,8 @@ jobs:
         run: |
           set -euo pipefail
           remote() {
-            ssh -i ~/.ssh/id_ed25519 \
-                -p "$SSH_PORT" \
-                -o BatchMode=yes \
-                -o StrictHostKeyChecking=accept-new \
-                -o IdentitiesOnly=yes \
-                "${SSH_USER}@${SSH_HOST}" "$@"
+            # shellcheck disable=SC2029
+            ssh "$SSH_TARGET" "$@"
           }
           ENV_LOCAL="$(mktemp)"
           trap 'rm -f "$ENV_LOCAL"' EXIT
@@ -142,7 +162,11 @@ jobs:
             printf '%s' "$value"
           }
           missing=""
-          for key in SITE_DOMAIN ACME_EMAIL CADDY_ACME_CA FRONTEND_PORT API_PORT FRONTEND_BASE_URL; do
+          # TELEGRAM_BOT_TOKEN/TELEGRAM_SERVICE_TOKEN обязательны: без них
+          # app/bot/__init__.py пишет ошибку и выходит, контейнер bot уходит в
+          # рестарт по кругу (restart: unless-stopped), и шаг запуска стека
+          # падает на --wait. Проверяем их здесь, чтобы падение назвало ключ.
+          for key in SITE_DOMAIN ACME_EMAIL CADDY_ACME_CA FRONTEND_PORT API_PORT FRONTEND_BASE_URL TELEGRAM_BOT_TOKEN TELEGRAM_SERVICE_TOKEN; do
             if [ -z "$(env_get "$key")" ]; then
               missing="$missing $key"
             fi
@@ -175,19 +199,25 @@ jobs:
         run: |
           set -euo pipefail
           remote() {
-            ssh -i ~/.ssh/id_ed25519 \
-                -p "$SSH_PORT" \
-                -o BatchMode=yes \
-                -o StrictHostKeyChecking=accept-new \
-                -o IdentitiesOnly=yes \
-                "${SSH_USER}@${SSH_HOST}" "$@"
+            # shellcheck disable=SC2029
+            ssh "$SSH_TARGET" "$@"
           }
           # Имя контейнера БД не хардкодим: оно зависит от COMPOSE_PROJECT_NAME
           # в .env сервера, поэтому контейнер ищется через compose.
-          DB_CONTAINER="$(remote "cd $REMOTE_DIR && docker compose ps -q db")"
+          # -a обязателен: без него остановленная база неотличима от отсутствия
+          # контейнера, и бэкап молча пропускался бы перед миграциями по живой
+          # боевой базе. `|| true` нужен на первом деплое: compose-файл приезжает
+          # только на шаге распаковки, и до него `docker compose ps` в каталоге с
+          # одним .env завершается ошибкой «no configuration file provided».
+          DB_CONTAINER="$(remote "cd $REMOTE_DIR && docker compose ps -aq db 2>/dev/null || true")"
           if [ -z "$DB_CONTAINER" ]; then
             echo "::warning::Контейнер БД не запущен — это первый деплой на чистом сервере. Бэкап БД пропущен: откатывать пока нечего, но и страховки у этого деплоя нет."
             exit 0
+          fi
+          DB_RUNNING="$(remote "docker inspect -f '{{.State.Running}}' $DB_CONTAINER 2>/dev/null || true")"
+          if [ "$DB_RUNNING" != "true" ]; then
+            echo "::error::Контейнер БД $DB_CONTAINER существует, но не запущен (State.Running=$DB_RUNNING). Бэкап снять нельзя, а миграции на шаге запуска стека поехали бы без страховки. Поднимите базу (docker compose --profile tls up -d db) и запустите деплой снова — docs/deploy.md."
+            exit 1
           fi
           # POSTGRES_USER/POSTGRES_DB берём из окружения самого контейнера:
           # compose передаёт их из .env, значения в workflow не дублируются.
@@ -210,12 +240,7 @@ jobs:
           # без автоконвертации переводов строк.
           git -c core.autocrlf=false archive --format=tar -o /tmp/deploy.tar HEAD
           ls -lh /tmp/deploy.tar
-          scp -i ~/.ssh/id_ed25519 \
-              -P "$SSH_PORT" \
-              -o BatchMode=yes \
-              -o StrictHostKeyChecking=accept-new \
-              -o IdentitiesOnly=yes \
-              /tmp/deploy.tar "${SSH_USER}@${SSH_HOST}:/tmp/deploy.tar"
+          scp /tmp/deploy.tar "$SSH_TARGET:/tmp/deploy.tar"
 
       - name: "Сервер: распаковка в $REMOTE_DIR"
         run: |
@@ -226,12 +251,8 @@ jobs:
           # backups/ (дампы). Исключения .env* быть НЕ должно: .env.example
           # отслеживается git, compose подключает его как env_file с
           # required: true, и без него стек не соберётся.
-          ssh -i ~/.ssh/id_ed25519 \
-              -p "$SSH_PORT" \
-              -o BatchMode=yes \
-              -o StrictHostKeyChecking=accept-new \
-              -o IdentitiesOnly=yes \
-              "${SSH_USER}@${SSH_HOST}" \
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" \
               "rm -rf /tmp/crm-deploy-stage && mkdir -p /tmp/crm-deploy-stage && tar -xf /tmp/deploy.tar -C /tmp/crm-deploy-stage && rsync -a --delete --exclude='.env' --exclude='backups/' /tmp/crm-deploy-stage/ $REMOTE_DIR/ && rm -rf /tmp/crm-deploy-stage && echo extract-ok"
 
       - name: "Сервер: сборка образов"
@@ -240,12 +261,8 @@ jobs:
           # -p не передаём: имя проекта берётся из COMPOSE_PROJECT_NAME в .env
           # сервера, иначе compose завёл бы второй набор контейнеров и томов.
           # Сборка не запускает миграции и ничего не останавливает.
-          ssh -i ~/.ssh/id_ed25519 \
-              -p "$SSH_PORT" \
-              -o BatchMode=yes \
-              -o StrictHostKeyChecking=accept-new \
-              -o IdentitiesOnly=yes \
-              "${SSH_USER}@${SSH_HOST}" \
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" \
               "cd $REMOTE_DIR && docker compose --profile tls build"
 
       - name: "Сервер: запуск стека (здесь же миграции)"
@@ -257,12 +274,8 @@ jobs:
           # --wait проверяет только healthcheck'и, а они есть лишь у db и
           # caddy: зелёный шаг ещё не доказывает, что api, web и bot живы.
           # Настоящие проверки — шаги /healthz и /api/health ниже.
-          ssh -i ~/.ssh/id_ed25519 \
-              -p "$SSH_PORT" \
-              -o BatchMode=yes \
-              -o StrictHostKeyChecking=accept-new \
-              -o IdentitiesOnly=yes \
-              "${SSH_USER}@${SSH_HOST}" \
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" \
               "cd $REMOTE_DIR && docker compose --profile tls up -d --no-build --remove-orphans --wait --wait-timeout 180"
 
       - name: "Сервер: ANALYZE после миграций"
@@ -272,12 +285,8 @@ jobs:
           # планировщика ещё нет, и он может выбрать плохой план. ANALYZE
           # снимает эту мину сразу после обновления схемы.
           remote() {
-            ssh -i ~/.ssh/id_ed25519 \
-                -p "$SSH_PORT" \
-                -o BatchMode=yes \
-                -o StrictHostKeyChecking=accept-new \
-                -o IdentitiesOnly=yes \
-                "${SSH_USER}@${SSH_HOST}" "$@"
+            # shellcheck disable=SC2029
+            ssh "$SSH_TARGET" "$@"
           }
           DB_CONTAINER="$(remote "cd $REMOTE_DIR && docker compose ps -q db")"
           if [ -z "$DB_CONTAINER" ]; then
@@ -294,12 +303,8 @@ jobs:
           # caddy/). Если reload не удался — пересоздаём контейнер: сертификаты
           # и аккаунт ACME лежат в томе caddy_data и не теряются. Том не удалять.
           remote() {
-            ssh -i ~/.ssh/id_ed25519 \
-                -p "$SSH_PORT" \
-                -o BatchMode=yes \
-                -o StrictHostKeyChecking=accept-new \
-                -o IdentitiesOnly=yes \
-                "${SSH_USER}@${SSH_HOST}" "$@"
+            # shellcheck disable=SC2029
+            ssh "$SSH_TARGET" "$@"
           }
           CADDY_CONTAINER="$(remote "cd $REMOTE_DIR && docker compose --profile tls ps -q caddy")"
           if [ -z "$CADDY_CONTAINER" ]; then
@@ -317,12 +322,8 @@ jobs:
         run: |
           set -euo pipefail
           # /healthz отдаёт сам caddy по HTTP, без редиректа на HTTPS.
-          CODE="$(ssh -i ~/.ssh/id_ed25519 \
-              -p "$SSH_PORT" \
-              -o BatchMode=yes \
-              -o StrictHostKeyChecking=accept-new \
-              -o IdentitiesOnly=yes \
-              "${SSH_USER}@${SSH_HOST}" "curl -s -o /dev/null -w '%{http_code}' http://localhost/healthz")"
+          # shellcheck disable=SC2029
+          CODE="$(ssh "$SSH_TARGET" "curl -s -o /dev/null -w '%{http_code}' http://localhost/healthz")"
           echo "http://localhost/healthz -> $CODE"
           if [ "$CODE" != "200" ]; then
             echo "::error::/healthz по HTTP отвечает $CODE вместо 200 — caddy не поднялся или сломан блок :80 в caddy/Caddyfile."
@@ -341,12 +342,8 @@ jobs:
             exit 1
           fi
           remote() {
-            ssh -i ~/.ssh/id_ed25519 \
-                -p "$SSH_PORT" \
-                -o BatchMode=yes \
-                -o StrictHostKeyChecking=accept-new \
-                -o IdentitiesOnly=yes \
-                "${SSH_USER}@${SSH_HOST}" "$@"
+            # shellcheck disable=SC2029
+            ssh "$SSH_TARGET" "$@"
           }
           CODE="$(remote "curl -s -o /dev/null -w '%{http_code}' --resolve $DOMAIN:443:$LOOPBACK https://$DOMAIN/api/health")"
           BODY="$(remote "curl -s --resolve $DOMAIN:443:$LOOPBACK https://$DOMAIN/api/health")"
@@ -369,12 +366,8 @@ jobs:
       - name: "Итог: деплой завершён"
         run: |
           set -euo pipefail
-          echo "OK: на сервере развёрнут develop-m @ ${{ github.sha }}"
+          echo "OK: на сервере развёрнут develop-m @ $GITHUB_SHA"
           echo "Домен: https://${SITE_DOMAIN:-<не прочитан>}/"
-          ssh -i ~/.ssh/id_ed25519 \
-              -p "$SSH_PORT" \
-              -o BatchMode=yes \
-              -o StrictHostKeyChecking=accept-new \
-              -o IdentitiesOnly=yes \
-              "${SSH_USER}@${SSH_HOST}" \
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" \
               "cd $REMOTE_DIR && docker compose --profile tls ps"
