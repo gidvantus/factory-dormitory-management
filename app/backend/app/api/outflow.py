@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app import notification_rules
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.models.outflow import PersonnelOutflow
@@ -84,6 +85,9 @@ def create_outflow(
     db.add(row)
     db.commit()
     db.refresh(row)
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="outflow", row_id=row.id, actor_id=_user.id
+    )
     return row
 
 
@@ -117,6 +121,9 @@ def update_outflow(
     record_changed(db, row, _user.id)
     db.commit()
     db.refresh(row)
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="outflow", row_id=row.id, actor_id=_user.id
+    )
     return row
 
 

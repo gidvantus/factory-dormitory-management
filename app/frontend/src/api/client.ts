@@ -331,6 +331,92 @@ export interface TelegramConnectResult {
   expires_at: string;
 }
 
+/**
+ * Оператор условия правила.
+ *
+ * Словарь повторяет `app/notification_rules.py::OPERATORS_BY_KIND`: набор
+ * допустимых операторов зависит от типа столбца, и его присылает каталог —
+ * клиент операторы не выдумывает.
+ */
+export type RuleOperator = 'equals' | 'not_equals' | 'greater' | 'less' | 'not_empty' | 'is_empty';
+
+/** Типы столбцов, по которым можно построить условие: `action` и `hostel` не годятся. */
+export type RuleColumnKind = 'text' | 'number' | 'date' | 'checkbox' | 'select';
+
+/**
+ * Условие правила.
+ *
+ * `value` уже приведено к типу столбца: число — строкой, дата — ISO-строкой,
+ * чекбокс — `bool`; у «заполнено/не заполнено» значения нет (`null`). У столбца
+ * вида `select` значение — идентификатор варианта списка, а не подпись.
+ */
+export interface NotificationRuleCondition {
+  column_id: number;
+  operator: RuleOperator;
+  value: string | boolean | number | null;
+}
+
+/**
+ * Правило уведомлений: что человек назвал событием, к какой таблице оно
+ * относится и при каких условиях по столбцам срабатывает.
+ *
+ * `table_title` — человеческое название таблицы для чтения (`table_key` нужен
+ * запросам). `broken` — правило ссылается на удалённый столбец или таблицу:
+ * оно молчит, но остаётся в списке и удаляется.
+ */
+export interface NotificationRule {
+  id: number;
+  name: string;
+  table_key: TableKey;
+  table_title: string;
+  is_enabled: boolean;
+  conditions: NotificationRuleCondition[];
+  broken: boolean;
+}
+
+/**
+ * Тело `POST`/`PUT` правила. `dormitory_id` в теле нет: общежитие берётся из
+ * пути, иначе ручку можно было бы перевести в чужое общежитие телом запроса.
+ */
+export interface NotificationRuleInput {
+  name: string;
+  table_key: TableKey;
+  is_enabled: boolean;
+  conditions: NotificationRuleCondition[];
+}
+
+/** Столбец каталога и операторы, которые к нему подходят. */
+export interface NotificationRuleCatalogColumn {
+  id: number;
+  name: string;
+  kind: RuleColumnKind;
+  operators: RuleOperator[];
+}
+
+/** Таблица каталога: встроенный раздел или пользовательская вкладка. */
+export interface NotificationRuleCatalogTable {
+  key: TableKey;
+  title: string;
+  columns: NotificationRuleCatalogColumn[];
+}
+
+/** Каталог конструктора: таблицы только этого общежития. */
+export interface NotificationRuleCatalog {
+  tables: NotificationRuleCatalogTable[];
+}
+
+/**
+ * Ответ предпросмотра: ровно текст сообщения Telegram и число подходящих строк.
+ *
+ * `text` — название правила, когда под правило подходит хотя бы одна строка, и
+ * `null`, когда не подходит ни одна. Клиент показывает `text` как есть и никогда
+ * не склеивает сообщение сам.
+ */
+export interface NotificationRulePreview {
+  text: string | null;
+  matched: number;
+}
+
 /** Роли, которые можно выдать приглашением. `owner` у организации один. */
 export type InviteRole = 'admin' | 'manager' | 'commandant';
 export interface OrganizationMember {
@@ -956,6 +1042,17 @@ export interface JournalParams {
   cursor?: string;
 }
 
+/**
+ * Адрес конструктора правил по общежитию.
+ *
+ * `dormitory_id` живёт только в пути: в теле запроса его нет, и подменить
+ * общежитие телом нельзя. Один помощник на все шесть ручек — чтобы путь не
+ * разъезжался между ними.
+ */
+function rulePath(dormitoryId: number): string {
+  return `/dormitories/${encodeURIComponent(String(dormitoryId))}/telegram-rules`;
+}
+
 export const api = {
   dormitorySettings(id: string, signal?: AbortSignal): Promise<DormitorySettings> {
     return request(`/dormitories/${encodeURIComponent(id)}/settings`, { signal });
@@ -1369,6 +1466,63 @@ export const api = {
   /** Тестовое уведомление: проверка всей цепочки до Telegram. */
   sendTelegramTestMessage(): Promise<{ queued: boolean }> {
     return request<{ queued: boolean }>('/telegram/test-message', { method: 'POST' });
+  },
+
+  /**
+   * Правила уведомлений пользователя в этом общежитии.
+   *
+   * Правила персональные: у коллеги по организации свои, и список за него сервер
+   * не дополняет. 403 — нет права на решение, 404 — общежитие не наше.
+   */
+  notificationRules(dormitoryId: number, signal?: AbortSignal): Promise<NotificationRule[]> {
+    return request<NotificationRule[]>(rulePath(dormitoryId), { signal });
+  },
+
+  /** Каталог «таблица → столбцы → операторы» для условий правила. */
+  notificationRuleCatalog(
+    dormitoryId: number,
+    signal?: AbortSignal,
+  ): Promise<NotificationRuleCatalog> {
+    return request<NotificationRuleCatalog>(`${rulePath(dormitoryId)}/catalog`, { signal });
+  },
+
+  /** Завести правило. 201 — создано, `422` приходит как `ApiError` с текстом контракта. */
+  createNotificationRule(
+    dormitoryId: number,
+    input: NotificationRuleInput,
+  ): Promise<NotificationRule> {
+    return request<NotificationRule>(rulePath(dormitoryId), {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+
+  /** Переписать правило целиком: `PUT`, а не `PATCH` — так же правило читает клиент. */
+  updateNotificationRule(
+    dormitoryId: number,
+    ruleId: number,
+    input: NotificationRuleInput,
+  ): Promise<NotificationRule> {
+    return request<NotificationRule>(`${rulePath(dormitoryId)}/${ruleId}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    });
+  },
+
+  /** Удалить правило. 404 (правило уже удалено) приходит как `ApiError`. */
+  deleteNotificationRule(dormitoryId: number, ruleId: number): Promise<void> {
+    return request<void>(`${rulePath(dormitoryId)}/${ruleId}`, { method: 'DELETE' });
+  },
+
+  /** Предпросмотр: текст сообщения собирает сервер, клиент его не пересобирает. */
+  previewNotificationRule(
+    dormitoryId: number,
+    input: Omit<NotificationRuleInput, 'is_enabled'>,
+  ): Promise<NotificationRulePreview> {
+    return request<NotificationRulePreview>(`${rulePath(dormitoryId)}/preview`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
   },
 
   reportReadiness(id: string, signal?: AbortSignal): Promise<DailyReportReadiness> {

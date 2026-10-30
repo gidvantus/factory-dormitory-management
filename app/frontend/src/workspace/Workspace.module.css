@@ -987,3 +987,419 @@
   border: 0;
   background: none;
 }
+
+/* ========================================================================
+   Правила уведомлений (#109)
+   ======================================================================== */
+
+/* Блок правил — вторая карточка раздела «Уведомления»: та же рамка, что у
+   карточки подключения, поэтому `.profile-card` переиспользуется. */
+.shell .rules-card {
+  margin-top: 18px;
+}
+.shell .rules-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 26px 28px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
+}
+.shell .rules-head h2 {
+  font-size: 19px;
+  font-weight: 800;
+}
+.shell .rules-head p {
+  max-width: 62ch;
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+.shell .rules-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+.shell .rules-head-actions .rule-control {
+  min-width: 232px;
+}
+.shell .rules-body {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  padding: 24px 28px;
+}
+.shell .rules-body .view-note {
+  margin: 0;
+}
+
+/* Строка правила — грид, а не <table>: на узком экране он перестраивается по
+   областям без второй вёрстки. */
+.shell .rule-row-head,
+.shell .rule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 120px 76px;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--color-border);
+}
+.shell .rule-row-head {
+  padding-block: 13px;
+  color: var(--color-text-body);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.065em;
+  text-transform: uppercase;
+}
+.shell .rule-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.shell .rule-list .rule-row:last-child {
+  border-bottom: 0;
+}
+.shell .rule-main {
+  min-width: 0;
+}
+.shell .rule-name {
+  font: 700 14px/1.4 var(--font-body);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.shell .rule-cond {
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.shell .rule-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--color-danger);
+  font-size: 12px;
+  font-weight: 700;
+}
+.shell .rule-warn .icon {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+}
+/* Подпись ячейки нужна только в мобильной раскладке: в строке её заменяет шапка
+   столбцов. */
+.shell .rule-cell-label {
+  display: none;
+}
+.shell .rule-table {
+  color: var(--color-text-body);
+  font-size: 13px;
+}
+.shell .rule-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--color-text-body);
+  font-size: 13px;
+}
+.shell .rule-check input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--mint-600);
+}
+/* Подсказка к погашенному переключателю: причина, а не только серый контрол. */
+.shell .rule-toggle {
+  display: grid;
+  gap: 4px;
+}
+.shell .rule-check-hint {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.shell .rule-action {
+  text-align: right;
+}
+.shell .rules-action-error {
+  margin: 0 28px 20px;
+}
+
+/* Поля формы правила: локальный контрол, потому что общей формы (`index.css`)
+   без рамки в кабинете нет. */
+.shell .rule-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-text);
+  font: 700 12px var(--font-body);
+}
+.shell .rule-field-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.shell .rule-control {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 9px;
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  font: 400 13px var(--font-body);
+}
+.shell .rule-control[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+.shell .rule-counter {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.shell .rule-hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.shell .rule-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.shell .rule-section-head h3 {
+  font: 800 14px/1.3 var(--font-display);
+}
+
+/* Условие — фраза: столбец, оператор и значение стоят в одном лотке. */
+.shell .rule-condition {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-page);
+}
+.shell .rule-condition-remove {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-3xs);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.shell .rule-condition-remove:hover {
+  background: var(--cream-200);
+  color: var(--color-danger);
+}
+.shell .rule-condition-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Диалог правила: две колонки — форма и превью; превью не уезжает под форму,
+   пока правило правится на широком экране. */
+.shell .rule-dialog-panel {
+  width: min(960px, 100%);
+  max-width: 100%;
+  max-height: 90vh;
+  overflow: auto;
+}
+.shell .rule-dialog {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.shell .rule-dialog-subtitle {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.shell .rule-dialog-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+  min-width: 0;
+}
+.shell .rule-dialog-form {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.shell .rule-dialog-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+.shell .rule-preview {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 2px;
+}
+.shell .rule-preview-message {
+  padding: 14px 16px;
+  border: 1px solid var(--mint-200);
+  border-radius: var(--radius-sm);
+  background: var(--cream-50);
+  font: 800 14px/1.4 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.shell .rule-preview-empty {
+  display: grid;
+  place-items: center;
+  min-height: 132px;
+  padding: 16px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+.shell .rule-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 1100px) {
+  .shell .rules-head {
+    padding-inline: 22px;
+  }
+  .shell .rule-row-head,
+  .shell .rule-row {
+    grid-template-columns: minmax(0, 1fr) 118px 108px 64px;
+    gap: 12px;
+    padding-inline: 22px;
+  }
+  .shell .rules-body {
+    padding-inline: 22px;
+  }
+}
+@media (max-width: 900px) {
+  .shell .rule-dialog-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .shell .rule-preview {
+    padding-top: 4px;
+    border-top: 1px solid var(--color-border);
+  }
+}
+@media (max-width: 760px) {
+  .shell .rules-head {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px;
+  }
+  .shell .rules-head-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .shell .rules-head-actions .rule-control {
+    min-width: 0;
+  }
+  .shell .rules-head-actions .btn {
+    width: 100%;
+  }
+  .shell .rule-row-head,
+  .shell .rule-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'main toggle'
+      'table toggle'
+      'action action';
+    gap: 6px 12px;
+    padding: 16px 20px;
+  }
+  .shell .rule-row-head {
+    display: none;
+  }
+  .shell .rule-row > .rule-main {
+    grid-area: main;
+  }
+  .shell .rule-row > .rule-table {
+    grid-area: table;
+  }
+  .shell .rule-row > .rule-toggle {
+    grid-area: toggle;
+    align-self: start;
+    padding-top: 2px;
+  }
+  .shell .rule-row > .rule-action {
+    grid-area: action;
+    margin-top: 8px;
+    text-align: left;
+  }
+  .shell .rule-cell-label {
+    display: inline;
+    margin-right: 4px;
+    color: var(--color-text-muted);
+    font-size: 11px;
+  }
+  .shell .rules-body {
+    padding: 20px;
+  }
+  .shell .rules-action-error {
+    margin: 0 20px 20px;
+  }
+}
+@media (max-width: 600px) {
+  .shell .rule-dialog-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell .rule-condition {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'col remove'
+      'op op'
+      'value value';
+    gap: 8px;
+  }
+  .shell .rule-condition > .rule-condition-column {
+    grid-area: col;
+  }
+  .shell .rule-condition > .rule-condition-operator {
+    grid-area: op;
+  }
+  .shell .rule-condition > .rule-condition-value {
+    grid-area: value;
+  }
+  .shell .rule-condition > .rule-condition-remove {
+    grid-area: remove;
+  }
+  .shell .rule-condition-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .shell .rule-dialog-actions {
+    flex-direction: column-reverse;
+  }
+  .shell .rule-dialog-actions .btn {
+    width: 100%;
+  }
+}

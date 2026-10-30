@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 
 import { TelegramNotifications } from './TelegramNotifications';
+import { NotificationRules } from './NotificationRules';
 import { useSolutions } from './SolutionsProvider';
 import { TELEGRAM_NOTIFICATIONS_CODE } from './solutions';
 import styles from './Workspace.module.css';
@@ -40,7 +41,12 @@ export function Notifications(): JSX.Element {
         </p>
       )}
 
-      {status !== 'loading' && hasAccess && <TelegramNotifications />}
+      {status !== 'loading' && hasAccess && (
+        <>
+          <TelegramNotifications />
+          <NotificationRules />
+        </>
+      )}
 
       {status !== 'loading' && !hasAccess && (
         <div className={styles['empty-state']} data-testid="notifications-no-solution">

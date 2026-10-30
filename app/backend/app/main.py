@@ -31,6 +31,7 @@ from app.api import (
     health,
     hostels,
     inflow,
+    notification_rules,
     organization,
     outflow,
     payments,
@@ -349,6 +350,7 @@ def create_app() -> FastAPI:
     application.include_router(trial.router, prefix=API_PREFIX)
     application.include_router(documents.router, prefix=API_PREFIX)
     application.include_router(telegram.router, prefix=API_PREFIX)
+    application.include_router(notification_rules.router, prefix=API_PREFIX)
 
     # -----------------------------------------------------------------------
     # Раздача загруженных файлов: `/uploads/<ключ>` читается через единый

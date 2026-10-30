@@ -295,3 +295,67 @@ def test_invoice_status_broken_json_400_is_documented(
 
     assert response.status_code == 400
     assert "400" in documented_statuses(client, "/api/billing/invoices/{invoice_id}", "patch")
+
+
+# --- Правила уведомлений (issue #109) -----------------------------------------
+#
+# Конструктор правил: список, каталог, создание, правка, удаление и предпросмотр.
+# Отказы 401 (нет cookie), 403 (нет права на решение), 404 (чужое общежитие или
+# правило) и 422 (тексты проверки правила) — часть контракта с клиентом.
+
+RULES_PATH = "/api/dormitories/{dormitory_id}/telegram-rules"
+RULE_PATH = RULES_PATH + "/{rule_id}"
+
+
+def test_notification_rules_list_documents_every_status_it_returns(client: TestClient) -> None:
+    assert {"200", "401", "403", "404"} <= documented_statuses(client, RULES_PATH, "get")
+
+
+def test_notification_rules_create_documents_every_status_it_returns(client: TestClient) -> None:
+    assert {"201", "400", "401", "403", "404", "422"} <= documented_statuses(
+        client, RULES_PATH, "post"
+    )
+
+
+def test_notification_rule_update_documents_every_status_it_returns(client: TestClient) -> None:
+    assert {"200", "400", "401", "403", "404", "422"} <= documented_statuses(
+        client, RULE_PATH, "put"
+    )
+
+
+def test_notification_rule_delete_documents_every_status_it_returns(client: TestClient) -> None:
+    assert {"204", "401", "403", "404"} <= documented_statuses(client, RULE_PATH, "delete")
+
+
+def test_notification_rules_catalog_documents_every_status_it_returns(
+    client: TestClient,
+) -> None:
+    assert {"200", "401", "403", "404"} <= documented_statuses(
+        client, RULES_PATH + "/catalog", "get"
+    )
+
+
+def test_notification_rules_preview_documents_every_status_it_returns(
+    client: TestClient,
+) -> None:
+    assert {"200", "400", "401", "403", "404", "422"} <= documented_statuses(
+        client, RULES_PATH + "/preview", "post"
+    )
+
+
+def test_notification_rules_broken_json_400_is_documented(
+    client: TestClient, db_session: Session
+) -> None:
+    """Та же регрессия, что у `register`/`login`, но у новой ручки правил."""
+    user = create_user(db_session, email="owner@example.com")
+    organizations_for(db_session, user)
+    assert login(client, user.email).status_code == 200
+
+    response = client.post(
+        RULES_PATH.replace("{dormitory_id}", "1"),
+        content=BROKEN_JSON_BODY,
+        headers=BROKEN_JSON_HEADERS,
+    )
+
+    assert response.status_code == 400
+    assert "400" in documented_statuses(client, RULES_PATH, "post")
