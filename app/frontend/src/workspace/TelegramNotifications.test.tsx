@@ -41,6 +41,9 @@ const PENDING_EXPIRED = {
   expires_at: new Date(Date.now() - TEN_MINUTES_MS).toISOString(),
 };
 
+/** Сколько ждать тика, который должен переключить карточку в «код истёк». */
+const EXPIRY_WAIT_MS = 5000;
+
 /** Второй код: его выдаёт сервер после «Получить новый код». */
 const PENDING_RENEWED = {
   ...PENDING,
@@ -189,6 +192,47 @@ describe('карточка уведомлений в Telegram', () => {
     // Мёртвый код не предлагаем отправить.
     expect(screen.getByTestId('telegram-copy-button')).toBeDisabled();
     expect(screen.getByTestId('telegram-deep-link')).toHaveAttribute('aria-disabled', 'true');
+    // Порядок как в макете, кадр «Код истёк»: главное действие первым — на узком
+    // экране действия встают в столбик, и порядок в разметке виден на экране.
+    expect(renew.parentElement?.firstElementChild).toBe(renew);
+  });
+
+  it(
+    'карточка сама переключается в «Код истёк», когда срок вышел на экране',
+    async () => {
+      // Срок выходит через две с половиной секунды после выдачи кода: карточка уже
+      // открыта и показывает действующий код, а «Код истёк» появляется по тику
+      // интервала. Без `setInterval`/`setNow` в эффекте срока этот тест падает:
+      // снимок `now`, снятый при монтировании, так и остался бы меньше `expires_at`.
+      const expiresSoon = {
+        ...PENDING,
+        code: 'истекающий-код',
+        expires_at: new Date(Date.now() + 2500).toISOString(),
+      };
+      mountTelegram({ connect: [{ status: 200, body: expiresSoon }] });
+      await issueCode();
+
+      expect(screen.getByTestId('telegram-code-expiry')).toHaveTextContent('Код действует до');
+      expect(screen.getByTestId('telegram-copy-button')).toBeEnabled();
+
+      // Ни нажатия, ни перезагрузки: строка меняется сама, по времени сервера.
+      expect(
+        await screen.findByText(TELEGRAM_CODE_EXPIRED_TEXT, undefined, { timeout: EXPIRY_WAIT_MS }),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId('telegram-copy-button')).toBeDisabled();
+      expect(screen.getByTestId('telegram-code')).toHaveTextContent('истекающий-код');
+      // Таймаут с запасом над ожиданием: без тика тест падает на тексте, а не на
+      // общем лимите вит-раннера.
+    },
+    EXPIRY_WAIT_MS * 2,
+  );
+
+  it('в действующем состоянии первым идёт «Открыть в Telegram»', async () => {
+    mountTelegram();
+    await issueCode();
+
+    const link = screen.getByTestId('telegram-deep-link');
+    expect(link.parentElement?.firstElementChild).toBe(link);
   });
 
   it('«Получить новый код» просит у сервера второй код и заменяет карточку', async () => {

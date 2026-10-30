@@ -189,6 +189,37 @@ export function TelegramNotifications(): JSX.Element {
     }
   }
 
+  // Два действия под шагами. Порядок в разметке становится порядком на экране,
+  // когда на узком экране `telegram-actions` встаёт в столбик, поэтому главное
+  // действие идёт первым: пока код действует — «Открыть в Telegram», после
+  // истечения — «Получить новый код» (макет #111, кадр «Код истёк»). Мёртвый код
+  // отправить не предлагаем: неактивные «Скопировать код» и ссылку заменил
+  // активный выпуск нового.
+  const deepLinkAction = pending ? (
+    <a
+      className={expired ? 'btn btn--ghost' : 'btn btn--primary'}
+      data-testid="telegram-deep-link"
+      href={pending.deep_link}
+      target="_blank"
+      rel="noreferrer"
+      aria-disabled={expired ? true : undefined}
+      onClick={expired ? (event) => event.preventDefault() : undefined}
+    >
+      Открыть в Telegram
+    </a>
+  ) : null;
+  const renewAction = (
+    <button
+      className={expired ? 'btn btn--primary' : 'btn btn--ghost'}
+      type="button"
+      data-testid="telegram-renew-button"
+      onClick={() => void startConnect()}
+      disabled={busy}
+    >
+      Получить новый код
+    </button>
+  );
+
   return (
     <section
       className={`${styles['profile-card']} ${styles['telegram-card']}`}
@@ -306,28 +337,17 @@ export function TelegramNotifications(): JSX.Element {
                 </p>
 
                 <div className={styles['telegram-actions']}>
-                  {/* Мёртвый код не предлагаем отправить: акцент и доступность
-                      переезжают к «Получить новый код». */}
-                  <a
-                    className={expired ? 'btn btn--ghost' : 'btn btn--primary'}
-                    data-testid="telegram-deep-link"
-                    href={pending.deep_link}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-disabled={expired ? true : undefined}
-                    onClick={expired ? (event) => event.preventDefault() : undefined}
-                  >
-                    Открыть в Telegram
-                  </a>
-                  <button
-                    className={expired ? 'btn btn--primary' : 'btn btn--ghost'}
-                    type="button"
-                    data-testid="telegram-renew-button"
-                    onClick={() => void startConnect()}
-                    disabled={busy}
-                  >
-                    Получить новый код
-                  </button>
+                  {expired ? (
+                    <>
+                      {renewAction}
+                      {deepLinkAction}
+                    </>
+                  ) : (
+                    <>
+                      {deepLinkAction}
+                      {renewAction}
+                    </>
+                  )}
                 </div>
               </div>
             )}
