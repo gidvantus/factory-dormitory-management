@@ -25,20 +25,27 @@ upgrade head`, `alembic downgrade -1` и снова `alembic upgrade head`).
 """
 
 from datetime import datetime
-from pathlib import Path
 from types import ModuleType
-from typing import NamedTuple
 
 import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 
-from tests.migration_support import assert_on_previous_head, assert_single_head, load_migration
+from tests.migration_support import (
+    VERSIONS,
+    assert_on_previous_head,
+    assert_single_head,
+    build_documents,
+    documents_table,
+    load_migration,
+    move_all_to_old_moment,
+    revision_source,
+    rows,
+    with_operations,
+)
 
-BACKEND = Path(__file__).resolve().parents[1]
-VERSIONS = BACKEND / "alembic" / "versions"
-ALEMBIC_DIR = BACKEND / "alembic"
+ALEMBIC_DIR = VERSIONS.parent
 REVISION_PATH = VERSIONS / "0050_public_document_texts.py"
 
 REVISION = "0050_public_document_texts"
@@ -78,62 +85,7 @@ def migration() -> ModuleType:
 
 
 def source() -> str:
-    return REVISION_PATH.read_text(encoding="utf-8")
-
-
-def with_operations(module: ModuleType, operations: Operations) -> ModuleType:
-    """Подставить ревизии рабочий `op` — так же, как это делает Alembic.
-
-    `setattr`, а не `module.op = operations`: у `ModuleType` объявленного атрибута
-    `op` нет, и присваивание добавило бы ошибку типизатора.
-    """
-    setattr(module, "op", operations)  # noqa: B010 - см. докстринг: так требует mypy
-    return module
-
-
-def build_documents(connection: sa.Connection) -> None:
-    """Схема до `0050`: настоящие `0017_documents` и `0039_consent` на пустой базе."""
-    metadata = sa.MetaData()
-    sa.Table("users", metadata, sa.Column("id", sa.Integer(), primary_key=True))
-    metadata.create_all(connection)
-
-    operations = Operations(MigrationContext.configure(connection))
-    for filename in ("0017_documents.py", "0039_consent.py"):
-        with_operations(load_migration(VERSIONS / filename), operations).upgrade()
-
-
-def documents_table(connection: sa.Connection) -> sa.Table:
-    return sa.Table("documents", sa.MetaData(), autoload_with=connection)
-
-
-class DocumentRow(NamedTuple):
-    """Строка `documents` в том виде, в каком её проверяет тест."""
-
-    code: str
-    body: str
-    updated_at: datetime
-
-
-def rows(connection: sa.Connection) -> dict[str, DocumentRow]:
-    """Документы по коду: тело и редакция, без прочих колонок.
-
-    Кортеж, а не словарь: `updated_at` нужен типизированным `datetime`, иначе
-    сравнение редакций не проходит проверку типов.
-    """
-    documents = documents_table(connection)
-    result = connection.execute(sa.select(documents)).mappings()
-    return {
-        str(row["code"]): DocumentRow(
-            code=str(row["code"]), body=str(row["body"]), updated_at=row["updated_at"]
-        )
-        for row in result
-    }
-
-
-def move_all_to_old_moment(connection: sa.Connection) -> None:
-    """Все строки получают давнюю редакцию: тогда сдвиг `updated_at` виден."""
-    documents = documents_table(connection)
-    connection.execute(documents.update().values(updated_at=OLD_MOMENT))
+    return revision_source(REVISION_PATH)
 
 
 # --- Метаданные ревизии ------------------------------------------------------
@@ -241,7 +193,7 @@ def test_upgrade_rewrites_only_three_documents() -> None:
     engine = sa.create_engine("sqlite://")
     with engine.begin() as connection:
         build_documents(connection)
-        move_all_to_old_moment(connection)
+        move_all_to_old_moment(connection, OLD_MOMENT)
         module = migration()
 
         with_operations(module, Operations(MigrationContext.configure(connection))).upgrade()
@@ -283,7 +235,7 @@ def test_downgrade_returns_previous_texts_and_moves_revision() -> None:
     engine = sa.create_engine("sqlite://")
     with engine.begin() as connection:
         build_documents(connection)
-        move_all_to_old_moment(connection)
+        move_all_to_old_moment(connection, OLD_MOMENT)
         module = migration()
         with_operations(module, Operations(MigrationContext.configure(connection)))
 
