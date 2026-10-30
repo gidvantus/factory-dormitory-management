@@ -572,29 +572,127 @@
   font-weight: 700;
   font-size: 15px;
 }
-.shell .telegram-actions,
-.shell .telegram-link {
+.shell .telegram-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
-.shell .telegram-link p {
+/* Состояние «код выдан»: инструкция в четыре шага, код полосой, срок действия.
+   Раскладка — из макета #111; токены и ритм те же, что у остальных карточек. */
+.shell .telegram-pending {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px;
-  color: var(--color-text-body);
-  font-size: 13px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  width: 100%;
 }
-.shell .telegram-link code {
-  padding: 2px 7px;
-  border: 1px solid var(--color-border);
+.shell .telegram-steps {
+  counter-reset: step;
+  display: grid;
+  gap: 15px;
+  padding-left: 38px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-text-body);
+}
+.shell .telegram-steps > li {
+  counter-increment: step;
+  position: relative;
+}
+/* Номера шагов несёт CSS-счётчик: последовательность важна, маркер не ломается
+   на шаге в две строки. */
+.shell .telegram-steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: -38px;
+  top: -1px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--mint-100);
+  color: var(--mint-700);
+  font: 800 12px/26px var(--font-display);
+  text-align: center;
+}
+/* Чип «наберите это»: имя бота и команда `/start` — текст, который человек
+   вводит в другом приложении руками, поэтому моноширинный. */
+.shell .telegram-chip {
+  padding: 1px 7px;
+  border: 1px solid var(--color-border-strong);
   border-radius: 7px;
   background: var(--color-bg-page);
+  font-family: var(--font-mono);
+  font-size: 0.9375em;
   font-weight: 700;
-  /* Длинный код не должен ломать вёрстку на узком экране. */
+  color: var(--color-text);
   overflow-wrap: anywhere;
+}
+/* Код — не абзац, а отдельный объект: его копируют. Пунктир взят у
+   «выданного пароля», фон — как у полей ввода. */
+.shell .telegram-code-strip {
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px;
+  border: 2px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-alt);
+}
+.shell .telegram-code-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.shell .telegram-code {
+  flex: 1 1 240px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  /* Длинный код ломается по символам, а не вылезает за карточку. */
+  word-break: break-all;
+  user-select: all;
+}
+.shell .telegram-code-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.shell .telegram-code-note::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--mint-600);
+}
+.shell .telegram-code-note strong {
+  color: var(--color-text);
+}
+/* Истёкший код: тон и статус меняются, геометрия — нет, чтобы карточка не
+   прыгала в момент истечения. */
+.shell .telegram-code-strip-expired {
+  border-color: var(--peach-200);
+  background: var(--color-bg-page);
+}
+.shell .telegram-code-strip-expired .telegram-code {
+  color: var(--color-text-muted);
+}
+.shell .telegram-code-strip-expired .telegram-code-note {
+  color: var(--color-danger);
+  font-weight: 700;
+}
+.shell .telegram-code-strip-expired .telegram-code-note::before {
+  background: var(--color-danger);
+}
+.shell .telegram-hint {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  max-width: 62ch;
 }
 .shell .telegram-subscriptions {
   display: flex;
@@ -747,6 +845,46 @@
   }
   .shell .view-note .icon {
     margin-top: 2px;
+  }
+  .shell .telegram-body {
+    padding: 20px 20px 24px;
+    gap: 15px;
+  }
+  .shell .telegram-steps {
+    padding-left: 34px;
+    font-size: 14.5px;
+    gap: 13px;
+  }
+  .shell .telegram-steps > li::before {
+    left: -34px;
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+    line-height: 24px;
+  }
+  .shell .telegram-code-strip {
+    padding: 15px 16px;
+  }
+  .shell .telegram-code-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .shell .telegram-code {
+    flex: none;
+    font-size: 14px;
+  }
+  .shell .telegram-code-row :global(.btn) {
+    width: 100%;
+  }
+  /* Три действия в столбик на всю ширину: на 360 px рядом они не читаются. */
+  .shell .telegram-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .shell .telegram-actions :global(.btn) {
+    width: 100%;
+    white-space: normal;
   }
 }
 @media (prefers-reduced-motion: reduce) {
