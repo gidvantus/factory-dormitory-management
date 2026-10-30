@@ -26,6 +26,9 @@ export const MAX_RULE_NAME_LENGTH = 80;
 export const RULE_SAVE_ERROR_TEXT = 'Не удалось сохранить правило. Проверьте соединение.';
 export const RULE_PREVIEW_ERROR_TEXT = 'Не удалось проверить правило. Проверьте соединение.';
 
+/** Подпись удалённой таблицы в селекторе: в каталоге её уже нет, а правило есть. */
+export const DELETED_TABLE_LABEL = 'Таблица удалена';
+
 /** Редактируемое условие: значение ещё не приведено к типу столбца сервером. */
 interface DraftCondition {
   columnId: number;
@@ -269,6 +272,12 @@ export function NotificationRuleDialog({
                   data-testid="telegram-rule-table"
                   onChange={(event) => changeTable(event.target.value)}
                 >
+                  {/* Удалённой таблицы в каталоге нет: без своего `option`
+                      селектор выглядел бы пустым у сломанного правила, которое
+                      человек как раз и пришёл починить. */}
+                  {table === undefined && tableKey && (
+                    <option value={tableKey}>{DELETED_TABLE_LABEL}</option>
+                  )}
                   {catalog.tables.map((item) => (
                     <option key={item.key} value={item.key}>
                       {item.title}

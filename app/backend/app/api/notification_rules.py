@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app import notification_rules
 from app.access import DORMITORY_NOT_FOUND_DETAIL, OwnDormitory
 from app.db import get_db
+from app.models.custom_tab import CustomTab
 from app.models.dormitory import Dormitory
 from app.models.telegram import NotificationRule
 from app.models.user import User
@@ -117,19 +118,28 @@ def _conditions(payload: RuleRequest | RulePreviewRequest) -> list[dict[str, obj
 
 
 def _response(
-    db: Session, dormitory: Dormitory, rule: NotificationRule
+    db: Session,
+    dormitory: Dormitory,
+    rule: NotificationRule,
+    *,
+    tabs_by_id: dict[int, CustomTab] | None = None,
 ) -> NotificationRuleResponse:
     """Правило в ответе: название таблицы для чтения и признак «сломано».
 
     Условия отдаются как сохранены: значения уже приведены к типу столбца при
     проверке правила. Текст сообщения в ответе правила не участвует — он есть
     только у предпросмотра и всегда равен названию.
+
+    `tabs_by_id` — вкладки общежития, прочитанные один раз на весь список: без
+    него каждое правило с пользовательской вкладкой тянуло бы их отдельно.
     """
     return NotificationRuleResponse(
         id=rule.id,
         name=rule.name,
         table_key=rule.table_key,
-        table_title=notification_rules.table_title(db, dormitory, rule.table_key),
+        table_title=notification_rules.table_title(
+            db, dormitory, rule.table_key, tabs_by_id=tabs_by_id
+        ),
         is_enabled=rule.is_enabled,
         conditions=[
             RuleConditionResponse(
@@ -143,6 +153,19 @@ def _response(
     )
 
 
+def _responses(
+    db: Session, dormitory: Dormitory, rules: list[NotificationRule]
+) -> list[NotificationRuleResponse]:
+    """Список правил: вкладки общежития читаются один раз на весь ответ.
+
+    Читаем их, только если в ответе есть правило с пользовательской вкладкой:
+    список из одних встроенных таблиц лишнего запроса не делает.
+    """
+    custom = any(rule.table_key.startswith("custom_") for rule in rules)
+    tabs = notification_rules.tabs_index(db, dormitory) if custom else None
+    return [_response(db, dormitory, rule, tabs_by_id=tabs) for rule in rules]
+
+
 @router.get("", response_model=list[NotificationRuleResponse], summary="Правила общежития")
 def list_rules(
     user: SolutionUser,
@@ -154,10 +177,7 @@ def list_rules(
     Правила персональные: коллега по организации своих не видит и чужих не
     получает, хотя право на решение у организации общее.
     """
-    return [
-        _response(db, dormitory, rule)
-        for rule in notification_rules.rules_for_user(db, user, dormitory.id)
-    ]
+    return _responses(db, dormitory, notification_rules.rules_for_user(db, user, dormitory.id))
 
 
 @router.post(

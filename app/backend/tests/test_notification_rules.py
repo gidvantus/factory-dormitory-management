@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import notifications, solutions
+from app import notification_rules, notifications, solutions
 from app.models.organization import Organization
 from app.models.solution import Solution
 from app.models.telegram import NOTIFICATION_RULE_KIND, NotificationDelivery
@@ -378,6 +378,69 @@ def test_checkbox_and_select_equals_compare_by_value(
     assert len(deliveries(db_session)) == 1
 
 
+def test_checkbox_empty_and_filled_follow_the_tick(client: TestClient, db_session: Session) -> None:
+    """Замечание Б1 ревью: у чекбокса «пусто» — это снятая галка.
+
+    `record_value` отдаёт для незаполненного чекбокса `False`, поэтому `_filled`
+    считал его заполненным: `is_empty` не выполнялся никогда, а `not_empty` —
+    всегда, хотя каталог предлагает чекбоксу оба оператора. Проверяются и
+    превью, и срабатывание на записи — оба ответа сходятся.
+    """
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    base, table_key, columns = custom_table(client, dorm)
+    row = client.post(base + "/rows").json()
+    checkbox_id = columns["Отметка"]["id"]
+
+    unfilled = create_rule(
+        client,
+        dorm,
+        name="Отметка не заполнено",
+        table_key=table_key,
+        conditions=[{"column_id": checkbox_id, "operator": "is_empty"}],
+    ).json()
+    filled = create_rule(
+        client,
+        dorm,
+        name="Отметка заполнено",
+        table_key=table_key,
+        conditions=[{"column_id": checkbox_id, "operator": "not_empty"}],
+    ).json()
+
+    # Превью: у строки со снятой галкой подходит ровно «не заполнено».
+    unfilled_preview = client.post(
+        f"{rules_url(dorm)}/preview",
+        json={
+            "name": "Отметка не заполнено",
+            "table_key": table_key,
+            "conditions": [{"column_id": checkbox_id, "operator": "is_empty"}],
+        },
+    )
+    assert unfilled_preview.json() == {"text": "Отметка не заполнено", "matched": 1}
+    filled_preview = client.post(
+        f"{rules_url(dorm)}/preview",
+        json={
+            "name": "Отметка заполнено",
+            "table_key": table_key,
+            "conditions": [{"column_id": checkbox_id, "operator": "not_empty"}],
+        },
+    )
+    assert filled_preview.json() == {"text": None, "matched": 0}
+
+    # Событие: снятая галка — «не заполнено», поставленная — «заполнено».
+    edit_cell(client, dorm, table_key, row["id"], columns, "ФИО", "Иванов Иван")
+    assert [(item.rule_id, item.title) for item in deliveries(db_session)] == [
+        (unfilled["id"], "Отметка не заполнено")
+    ]
+
+    edit_cell(client, dorm, table_key, row["id"], columns, "Отметка", True)
+    assert [(item.rule_id, item.title) for item in deliveries(db_session)] == [
+        (unfilled["id"], "Отметка не заполнено"),
+        (filled["id"], "Отметка заполнено"),
+    ]
+
+
 # --- Предпросмотр -------------------------------------------------------------
 
 
@@ -512,6 +575,53 @@ def test_archived_column_makes_the_saved_rule_silent_on_later_writes(
     assert client.get(rules_url(dorm)).json()[0]["broken"] is True
 
     edit_cell(client, dorm, table_key, row["id"], columns, "Дата", "2026-10-09")
+    assert deliveries(db_session) == []
+
+
+# --- Страховка хука записи ----------------------------------------------------
+
+
+def test_queue_failure_keeps_the_saved_cell_and_hides_the_error(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Замечание Б2 ревью: обещание «200 вместо 500» проверяется прогоном.
+
+    Очередь доставки может упасть на живой базе (например, гонка двух правок
+    одной строки упирается в `UNIQUE (user_id, event_key)` на коммите). Хук
+    обязан погасить это исключение: правка ячейки уже подтверждена, доставки
+    нет, ответ ручки остаётся `200`.
+    """
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    base, table_key, columns = custom_table(client, dorm)
+    assert (
+        create_rule(
+            client,
+            dorm,
+            name="Есть ФИО",
+            table_key=table_key,
+            conditions=[{"column_id": columns["ФИО"]["id"], "operator": "not_empty"}],
+        ).status_code
+        == 201
+    )
+    row = client.post(base + "/rows").json()
+
+    def boom(*_args: Any, **_kwargs: Any) -> int:
+        raise RuntimeError("очередь доставки упала")
+
+    monkeypatch.setattr(notification_rules, "queue_rule_events", boom)
+
+    response = client.put(
+        f"/api/dormitories/{dorm}/tables/{table_key}/rows/{row['id']}/cells/{columns['ФИО']['id']}",
+        json={"value": "Иванов Иван"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"value": "Иванов Иван"}
+    # Падение рассылки не откатывает подтверждённую запись.
+    rows = client.get(base + "/rows").json()
+    assert rows[0]["custom_values"][str(columns["ФИО"]["id"])] == "Иванов Иван"
     assert deliveries(db_session) == []
 
 

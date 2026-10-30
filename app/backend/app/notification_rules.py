@@ -172,14 +172,32 @@ def _custom_tab(db: Session, dormitory_id: int, tab_id: int) -> CustomTab | None
     return tab
 
 
-def _custom_title(db: Session, dormitory: Dormitory, tab: CustomTab) -> str:
-    """Заголовок пользовательской таблицы цепочкой вкладок, как в дашборде."""
-    tabs = list(
-        db.scalars(
-            select(CustomTab).where(CustomTab.dormitory_id == dormitory.id).order_by(CustomTab.id)
-        )
+def tabs_index(db: Session, dormitory: Dormitory) -> dict[int, CustomTab]:
+    """Все вкладки общежития одним запросом, по номеру.
+
+    Список правил и каталог передают этот словарь в `_custom_title`: иначе
+    каждое правило с пользовательской вкладкой тянуло бы все вкладки общежития
+    отдельным запросом (N правил — N одинаковых запросов).
+    """
+    tabs = db.scalars(
+        select(CustomTab).where(CustomTab.dormitory_id == dormitory.id).order_by(CustomTab.id)
     )
-    by_id = {item.id: item for item in tabs}
+    return {tab.id: tab for tab in tabs}
+
+
+def _custom_title(
+    db: Session,
+    dormitory: Dormitory,
+    tab: CustomTab,
+    *,
+    tabs_by_id: dict[int, CustomTab] | None = None,
+) -> str:
+    """Заголовок пользовательской таблицы цепочкой вкладок, как в дашборде.
+
+    `tabs_by_id` — уже прочитанные вкладки общежития (`tabs_index`); без него
+    читаются здесь, и это годится только для ответа про одно правило.
+    """
+    by_id = tabs_by_id if tabs_by_id is not None else tabs_index(db, dormitory)
     chain = [tab]
     while chain[0].parent_id in by_id:
         chain.insert(0, by_id[chain[0].parent_id])
@@ -199,7 +217,13 @@ def _available_columns(columns: list[TableColumn]) -> list[TableColumn]:
     ]
 
 
-def table_title(db: Session, dormitory: Dormitory, table_key: str) -> str:
+def table_title(
+    db: Session,
+    dormitory: Dormitory,
+    table_key: str,
+    *,
+    tabs_by_id: dict[int, CustomTab] | None = None,
+) -> str:
     """Заголовок таблицы для ответа: по нему человек узнаёт, что восстанавливать.
 
     Удалённая таблица оставляет правило в списке «сломанным», и ответ обязан
@@ -208,6 +232,9 @@ def table_title(db: Session, dormitory: Dormitory, table_key: str) -> str:
     `SECTIONS` — раздел восстановим, поэтому имя берётся оттуда; у удалённой
     вкладки имени не осталось, и ответ говорит прямо «Таблица удалена».
     Совсем незнакомый ключ (правило, записанное другой версией) отдаётся как есть.
+
+    `tabs_by_id` — общий для всего ответа список вкладок: список правил читает
+    его один раз, а не по разу на строку.
     """
     if table_key in DEFAULT_COLUMNS:
         if _section_exists(dormitory, table_key):
@@ -216,7 +243,7 @@ def table_title(db: Session, dormitory: Dormitory, table_key: str) -> str:
     tab_id = _tab_id(table_key)
     tab = _custom_tab(db, dormitory.id, tab_id) if tab_id is not None else None
     if tab is not None:
-        return _custom_title(db, dormitory, tab)
+        return _custom_title(db, dormitory, tab, tabs_by_id=tabs_by_id)
     return DELETED_TABLE_TITLE if tab_id is not None else table_key
 
 
@@ -241,16 +268,20 @@ def catalog(db: Session, dormitory: Dormitory) -> list[CatalogTable]:
                 key=key, title=_section_title(dormitory, key), columns=_catalog_columns(columns)
             )
         )
-    for tab in db.scalars(
-        select(CustomTab).where(CustomTab.dormitory_id == dormitory.id).order_by(CustomTab.id)
-    ):
+    tabs = list(
+        db.scalars(
+            select(CustomTab).where(CustomTab.dormitory_id == dormitory.id).order_by(CustomTab.id)
+        )
+    )
+    by_id = {tab.id: tab for tab in tabs}
+    for tab in tabs:
         if not tab.table_created or tab.is_group:
             continue
         columns = _available_columns(ensure_columns(db, dormitory.id, tab.table_key))
         tables.append(
             CatalogTable(
                 key=tab.table_key,
-                title=_custom_title(db, dormitory, tab),
+                title=_custom_title(db, dormitory, tab, tabs_by_id=by_id),
                 columns=_catalog_columns(columns),
             )
         )
@@ -472,7 +503,16 @@ def _greater(column: TableColumn, actual: Any, expected: Any) -> bool:
 
 
 def matches(column: TableColumn, condition: RuleCondition, actual: Any) -> bool:
-    """Выполнено ли одно условие на значении столбца этой строки."""
+    """Выполнено ли одно условие на значении столбца этой строки.
+
+    У чекбокса «пусто» — это снятая галка, а не отсутствие значения:
+    `record_value` отдаёт для незаполненного чекбокса `False`, поэтому `_filled`
+    считал бы его заполненным и `is_empty` не выполнялся бы никогда, а
+    `not_empty` — всегда. Каталог предлагает чекбоксу оба оператора, поэтому
+    смысл у них ровно один: галка стоит или её нет.
+    """
+    if column.kind == "checkbox" and condition.operator in NO_VALUE_OPERATORS:
+        return bool(actual) == (condition.operator == "not_empty")
     if condition.operator == "not_empty":
         return _filled(actual)
     if condition.operator == "is_empty":

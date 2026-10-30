@@ -99,6 +99,17 @@ const BROKEN_RULE = {
 
 const NOT_FOUND: MockResponse = { status: 404, body: { detail: 'Правило не найдено' } };
 
+/** Правило, чья таблица удалена: в каталоге такого ключа уже нет. */
+const DELETED_TABLE_RULE = {
+  id: 15,
+  name: 'Вкладка удалена',
+  table_key: 'custom_7',
+  table_title: 'Таблица удалена',
+  is_enabled: true,
+  conditions: [{ column_id: 99, operator: 'not_empty', value: null }],
+  broken: true,
+};
+
 interface MountOptions {
   dormitories?: MockResponse;
   rules?: MockResponse;
@@ -338,6 +349,28 @@ describe('блок «Правила уведомлений»', () => {
     await user.click(screen.getByTestId('telegram-rule-condition-add'));
     expect(screen.queryByTestId('telegram-rule-condition-4-column')).not.toBeInTheDocument();
     expect(screen.getByTestId('telegram-rule-conditions')).toHaveTextContent('4 из 4');
+  });
+
+  it('правка правила с удалённой таблицей называет её в селекторе и сохраняет ключ', async () => {
+    const user = userEvent.setup();
+    const fetchMock = mount({ rules: { status: 200, body: [DELETED_TABLE_RULE] } });
+
+    await user.click(await screen.findByTestId('telegram-rule-edit-15'));
+
+    // Каталог удалённую вкладку не отдаёт, поэтому у селектора нет своего
+    // `option`: без него контрол выглядел бы пустым, а человек пришёл починить
+    // ровно это правило.
+    const selector = await screen.findByTestId('telegram-rule-table');
+    expect(selector).toHaveValue('custom_7');
+    expect(selector).toHaveTextContent('Таблица удалена');
+
+    await user.click(screen.getByTestId('telegram-rule-save'));
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
+    const call = fetchMock.mock.calls.find(
+      (item) => String(item[0]).endsWith('/telegram-rules/15') && item[1]?.method === 'PUT',
+    );
+    expect(call).toBeDefined();
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ table_key: 'custom_7' });
   });
 
   it('условие по чекбоксу — список «Да/Нет», в теле запроса значение false', async () => {
