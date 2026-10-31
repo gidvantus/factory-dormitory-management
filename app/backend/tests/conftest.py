@@ -19,6 +19,10 @@ os.environ["SMTP_PASSWORD"] = ""
 # не должны ходить в настоящий suggestions.dadata.ru. Подменённый HTTP-клиент
 # для разбора ответа живёт в tests/test_dadata.py.
 os.environ["DADATA_API_KEY"] = ""
+# Жёстко, а не setdefault: по умолчанию предела сотрудников на пробном периоде
+# нет, и тесты проверяют именно это состояние. Стенд приносит свою настройку
+# через compose, и без этой строки кейс молча проверял бы чужой предел.
+os.environ.pop("TRIAL_MEMBER_LIMIT", None)
 
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta

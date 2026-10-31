@@ -16,7 +16,10 @@ const USER = {
 
 const SESSION: MockResponse = { status: 200, body: USER };
 
-/** Идущий пробный период: на нём в организации не больше трёх сотрудников. */
+/**
+ * Идущий пробный период с заданным пределом: сервер вернул число мест, и экран
+ * обязан напечатать именно его.
+ */
 const TRIAL_ACTIVE: MockResponse = {
   status: 200,
   body: {
@@ -25,6 +28,21 @@ const TRIAL_ACTIVE: MockResponse = {
     is_active: true,
     locked: false,
     member_limit: 3,
+  },
+};
+
+/**
+ * Идущий пробный период без предела (`TRIAL_MEMBER_LIMIT` на сервере не задан):
+ * `member_limit: null` — подсказки о пределе на экране быть не должно.
+ */
+const TRIAL_NO_LIMIT: MockResponse = {
+  status: 200,
+  body: {
+    ends_at: '2026-11-01T00:00:00Z',
+    days_left: 12,
+    is_active: true,
+    locked: false,
+    member_limit: null,
   },
 };
 
@@ -335,7 +353,7 @@ describe('экран сотрудников', () => {
 });
 
 describe('предел мест в организации', () => {
-  it('показывает подсказку о лимите рядом с формой приглашения', async () => {
+  it('печатает число мест из ответа /api/trial', async () => {
     mountMembers({ status: 200, body: [OWNER] });
     renderApp('/cabinet/organization/members');
 
@@ -343,7 +361,52 @@ describe('предел мест в организации', () => {
     expect(hint).toHaveTextContent('На пробном периоде — не больше 3 сотрудников');
   });
 
-  it('не показывает подсказку, когда лимита нет', async () => {
+  it('берёт пробный предел из ответа, а не из своей константы', async () => {
+    mountMembers({ status: 200, body: [OWNER] }, undefined, {
+      status: 200,
+      body: {
+        ends_at: '2026-11-01T00:00:00Z',
+        days_left: 12,
+        is_active: true,
+        locked: false,
+        member_limit: 7,
+      },
+    });
+    renderApp('/cabinet/organization/members');
+
+    const hint = await screen.findByTestId('members-seat-limit');
+    expect(hint).toHaveTextContent('не больше 7 сотрудников');
+    expect(hint).not.toHaveTextContent('не больше 3 сотрудников');
+  });
+
+  it('без предела не рисует подсказку и не мешает приглашать', async () => {
+    const fetchMock = mountMembers({ status: 200, body: [OWNER] }, undefined, TRIAL_NO_LIMIT);
+    const user = userEvent.setup();
+    renderApp('/cabinet/organization/members');
+
+    expect(await screen.findByTestId('members-table')).toBeInTheDocument();
+    // `member_limit: null` — предела нет: элемента подсказки не существует вовсе.
+    expect(screen.queryByTestId('members-seat-limit')).not.toBeInTheDocument();
+
+    const submit = screen.getByTestId('invite-submit');
+    expect(submit).toBeEnabled();
+    await user.type(screen.getByTestId('invite-email'), 'chetvertyi@example.com');
+    await user.type(screen.getByTestId('invite-full-name'), 'Петров Пётр');
+    await user.click(submit);
+
+    // Четвёртое приглашение на пробном периоде проходит: отказ приходит только
+    // с заданного предела, а здесь он не задан.
+    expect(await screen.findByTestId('invite-success')).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith('/api/organization/invitations') && init?.method === 'POST',
+      ),
+    ).toBeDefined();
+    expect(screen.queryByTestId('invite-error')).not.toBeInTheDocument();
+  });
+
+  it('не показывает подсказку, когда пробный период не идёт', async () => {
     mountMembers({ status: 200, body: [OWNER] }, undefined, {
       status: 200,
       body: { ends_at: null, days_left: 0, is_active: false, locked: false, member_limit: 3 },
