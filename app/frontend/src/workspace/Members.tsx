@@ -74,8 +74,9 @@ export function Members(): JSX.Element {
   const focusAfterSend = useRef<'email' | 'full_name' | null>(null);
 
   /**
-   * Предел мест: `max_members` действующего тарифа, `null` — без ограничения; без
-   * тарифа — пробные три. Считает его сервер и отказывает он тоже сам — здесь
+   * Предел мест: `max_members` действующего тарифа либо пробный предел из
+   * `/api/trial`; `null` — предела нет (и на тарифе, и на пробном периоде он
+   * может быть не задан). Считает его сервер и отказывает он тоже сам — здесь
    * число нужно только для подсказки и счётчика, а не для проверки.
    */
   const tariff = subscription?.tariff ?? null;
@@ -246,9 +247,12 @@ export function Members(): JSX.Element {
                   Мы отправим письмо со ссылкой: по ней сотрудник задаст пароль и войдёт в вашу
                   организацию.
                 </p>
-                {trial?.is_active && !tariff && (
+                {trial?.is_active && !tariff && memberLimit !== null && (
+                  // Предел пробного периода задаётся настройкой сервера и может
+                  // отсутствовать (`null`): тогда подсказки нет и форма работает
+                  // как обычно — своего числа мест фронт не подставляет.
                   <p className={styles['organization-hint']} data-testid="members-seat-limit">
-                    На пробном периоде — не больше {trial.member_limit} сотрудников.
+                    На пробном периоде — не больше {memberLimit} сотрудников.
                   </p>
                 )}
                 {tariff && memberLimit !== null && (

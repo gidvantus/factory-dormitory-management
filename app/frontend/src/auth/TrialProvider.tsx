@@ -22,7 +22,9 @@ const LOCKED_FALLBACK: TrialState = {
   days_left: 0,
   is_active: false,
   locked: true,
-  member_limit: 0,
+  // Закрытый кабинет приглашать не даёт вовсе, поэтому подсказка о пределе не
+  // нужна: `null` — «предела нет», а не выдуманное число мест.
+  member_limit: null,
 };
 
 const TrialContext = createContext<TrialValue>({ state: null, locked: false });

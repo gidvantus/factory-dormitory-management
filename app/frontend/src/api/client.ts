@@ -55,13 +55,17 @@ export interface UserProfile {
  * `locked` — кабинет закрыт: рабочие разделы недоступны. `is_active` — доступ
  * определяет именно пробный период, поэтому только тогда действует
  * `member_limit`.
+ *
+ * `member_limit: null` — предела нет: пробный период не ограничивает число
+ * сотрудников (`TRIAL_MEMBER_LIMIT` на сервере не задан). Число мест экран не
+ * придумывает и не держит константой — печатает то, что ответил сервер.
  */
 export interface TrialState {
   ends_at: string | null;
   days_left: number;
   is_active: boolean;
   locked: boolean;
-  member_limit: number;
+  member_limit: number | null;
 }
 
 export interface RegisterResult {
