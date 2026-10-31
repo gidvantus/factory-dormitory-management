@@ -29,6 +29,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import dadata
+from app.config import get_settings
 from app.db import get_db
 from app.mail import send_invitation_email_task
 from app.models.activation import ActivationToken
@@ -57,7 +58,7 @@ from app.subscription import (
     MEMBER_LIMIT_HEADER_VALUE,
     subscription_state,
 )
-from app.trial import TRIAL_MEMBER_LIMIT, trial_state
+from app.trial import trial_state
 
 router = APIRouter(
     prefix="/organization",
@@ -90,7 +91,7 @@ OWNER_ROLE = "owner"
 
 # Описание заголовка отказа по местам для опубликованной схемы.
 MEMBER_LIMIT_HEADER_DESCRIPTION = (
-    f"Отказ по пределу мест тарифа (значение: {MEMBER_LIMIT_HEADER_VALUE})"
+    f"Отказ по пределу мест: тариф или пробный период (значение: {MEMBER_LIMIT_HEADER_VALUE})"
 )
 
 NOT_FOUND_RESPONSES: dict[int | str, dict[str, object]] = {
@@ -270,15 +271,16 @@ def _suggested_tariff_name(db: Session, limit: int) -> str | None:
 def _member_limit(db: Session, user: User, organization_id: int) -> tuple[int | None, str | None]:
     """Предел мест организации и тариф, на который стоит перейти.
 
-    `None` в пределе — без ограничения: так продаётся безлимитный ярус, а на
-    закрытом кабинете без тарифа и пробного периода ограничивать нечего. Без
-    тарифа предел даёт пробный период — прежние три места.
+    `None` в пределе — без ограничения: так продаётся безлимитный ярус, так
+    работает закрытый кабинет без тарифа и пробного периода, и так же выглядит
+    пробный период с незаданной настройкой `trial_member_limit`. Без тарифа
+    предел даёт только заданная настройка пробного периода.
     """
     state = subscription_state(db, organization_id)
     if state.tariff is not None:
         limit = state.member_limit
     elif trial_state(db, user).is_active:
-        limit = TRIAL_MEMBER_LIMIT
+        limit = get_settings().trial_member_limit
     else:
         limit = None
     if limit is None:
@@ -300,9 +302,11 @@ def _member_limit_detail(limit: int, tariff_name: str | None) -> str:
 def _ensure_member_limit(db: Session, user: User, organization_id: int) -> None:
     """Отказать, когда приглашение упирается в предел мест.
 
-    Предел — это `max_members` действующего тарифа, а без тарифа — три места
-    пробного периода. Понижение предела никогда не выгоняет людей: проверка
-    стоит только на приглашении, поэтому уже приглашённые продолжают работать.
+    Предел — это `max_members` действующего тарифа, а без тарифа — настройка
+    пробного периода `trial_member_limit`; незаданная настройка предела не
+    даёт, и приглашения не ограничены. Понижение предела никогда не выгоняет
+    людей: проверка стоит только на приглашении, поэтому уже приглашённые
+    продолжают работать.
 
     Блокировка организации нужна и здесь: два одновременных приглашения иначе
     посчитали бы сотрудников по одному и тому же состоянию и вместе проскочили
@@ -497,7 +501,9 @@ def read_members(membership: Membership, db: DbSession) -> list[OrganizationMemb
         },
         status.HTTP_409_CONFLICT: {
             "model": ErrorResponse,
-            "description": f"{EMAIL_TAKEN_DETAIL} или отказ по пределу мест тарифа",
+            "description": (
+                f"{EMAIL_TAKEN_DETAIL} или отказ по пределу мест (тариф или пробный период)"
+            ),
             "headers": {
                 MEMBER_LIMIT_HEADER: {
                     "description": MEMBER_LIMIT_HEADER_DESCRIPTION,
@@ -528,9 +534,10 @@ def invite_member(
     ней в этой задаче нет, она хранится и показывается.
 
     Предел мест берётся у действующего тарифа (`max_members`), а без тарифа —
-    у пробного периода (три сотрудника). Отказ приходит как `409` с заголовком
-    `X-Member-Limit`: по нему фронт отличает предел мест от конфликта по
-    занятому email, а текст отказа показывает дословно.
+    у настройки пробного периода (`trial_member_limit`); незаданная настройка
+    значит «предела нет» и приглашения не ограничивает. Отказ приходит как `409`
+    с заголовком `X-Member-Limit`: по нему фронт отличает предел мест от
+    конфликта по занятому email, а текст отказа показывает дословно.
     """
     email = normalize_email(payload.email)
 
