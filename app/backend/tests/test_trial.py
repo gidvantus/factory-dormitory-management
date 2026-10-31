@@ -532,13 +532,30 @@ def test_email_conflict_has_no_member_limit_header(client: TestClient, db_sessio
     assert MEMBER_LIMIT_HEADER not in response.headers
 
 
-def test_tariff_removes_the_trial_member_limit(client: TestClient, db_session: Session) -> None:
-    _, organization = owner_ready(client, db_session)
-    set_tariff(db_session, organization)
+def test_tariff_takes_priority_over_the_trial_member_limit(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Действующий тариф главнее пробной настройки: у тарифа свой `max_members`.
 
-    for index in range(6):
-        invited = invite(client, f"worker{index}@example.com")
-        assert invited.status_code == 201, invited.text
+    Без заданного `TRIAL_MEMBER_LIMIT` кейс неотличим от безлимитного яруса
+    (`test_unlimited_tier_removes_the_member_limit`), поэтому настройка здесь
+    выставлена: только так видно, что `_member_limit` берёт предел у тарифа, а
+    не у пробного периода. Иначе настройка на стенде тихо обрезала бы места
+    платящему клиенту.
+    """
+    monkeypatch.setenv("TRIAL_MEMBER_LIMIT", str(SETTING_LIMIT))
+    # `get_settings()` кеширован: сброс до и после подмены окружения.
+    get_settings.cache_clear()
+    try:
+        _, organization = owner_ready(client, db_session)
+        # Тариф без явного предела мест: пробная настройка не должна его подменить.
+        set_tariff(db_session, organization)
+
+        for index in range(6):
+            invited = invite(client, f"worker{index}@example.com")
+            assert invited.status_code == 201, invited.text
+    finally:
+        get_settings.cache_clear()
 
 
 def test_locked_cabinet_still_lets_the_owner_invite(
