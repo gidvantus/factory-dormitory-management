@@ -308,24 +308,17 @@ export interface Document extends DocumentSummary {
   updated_at: string;
 }
 
-/** Вид уведомления и состояние подписки на него. `kind` — код, `title` — подпись. */
-export interface TelegramSubscription {
-  kind: string;
-  title: string;
-  is_enabled: boolean;
-}
-
 /**
  * Состояние подключения Telegram.
  *
  * `bot_username` приходит с сервера: фронт имени бота не знает и в ссылку его
- * не подставляет.
+ * не подставляет. Подписки на события карточка не читает: единственный механизм
+ * подписки — конструктор персональных правил.
  */
 export interface TelegramStatus {
   connected: boolean;
   username: string | null;
   bot_username: string;
-  subscriptions: TelegramSubscription[];
 }
 
 /** Код привязки и готовая ссылка на бота. Код одноразовый и живёт 15 минут. */
@@ -1444,7 +1437,7 @@ export const api = {
     return request<Document>(`/documents/${encodeURIComponent(code)}`, { signal });
   },
 
-  /** Состояние подключения Telegram и подписки. */
+  /** Состояние подключения Telegram. */
   telegramStatus(signal?: AbortSignal): Promise<TelegramStatus> {
     return request<TelegramStatus>('/telegram/status', { signal });
   },
@@ -1457,14 +1450,6 @@ export const api = {
   /** Отвязка чата: сообщения человеку больше не уходят. */
   disconnectTelegram(): Promise<{ connected: boolean }> {
     return request<{ connected: boolean }>('/telegram/disconnect', { method: 'POST' });
-  },
-
-  /** Переключить подписку. Возвращается обновлённый список целиком. */
-  setTelegramSubscription(kind: string, isEnabled: boolean): Promise<TelegramSubscription[]> {
-    return request<TelegramSubscription[]>('/telegram/subscriptions', {
-      method: 'PATCH',
-      body: JSON.stringify({ kind, is_enabled: isEnabled }),
-    });
   },
 
   /** Тестовое уведомление: проверка всей цепочки до Telegram. */

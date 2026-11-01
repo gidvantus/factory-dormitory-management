@@ -26,7 +26,6 @@ const TELEGRAM_STATUS: MockResponse = {
     connected: false,
     username: null,
     bot_username: 'DormitoryNotifyBot',
-    subscriptions: [],
   },
 };
 

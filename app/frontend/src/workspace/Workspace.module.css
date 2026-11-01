@@ -694,21 +694,6 @@
   color: var(--color-text-muted);
   max-width: 62ch;
 }
-.shell .telegram-subscriptions {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.shell .telegram-subscriptions label {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--color-text-body);
-  font-size: 13px;
-}
 .shell .mobile-backdrop {
   display: none;
 }
