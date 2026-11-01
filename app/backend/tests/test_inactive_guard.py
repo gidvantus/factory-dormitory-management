@@ -26,7 +26,7 @@ EXEMPT_PATHS = frozenset(
         # `X-Bot-Token` (401 на неверный токен), — поэтому cookie и guard
         # неактивного кабинета к ним неприменимы. Ручки кабинета того же
         # префикса (`/api/telegram/status`, `/connect`, `/disconnect`,
-        # `/subscriptions`, `/test-message`) остаются под guard и проверяются.
+        # `/test-message`) остаются под guard и проверяются.
         "/api/telegram/chat",
         "/api/telegram/chats",
         "/api/telegram/feed",

@@ -41,7 +41,6 @@ from app.models.tariff import Tariff
 from app.models.telegram import (
     NotificationDelivery,
     NotificationRule,
-    NotificationSubscription,
     TelegramLink,
 )
 from app.models.uploaded_file import UploadedFile
@@ -75,7 +74,6 @@ __all__ = [
     "MailTemplate",
     "NotificationDelivery",
     "NotificationRule",
-    "NotificationSubscription",
     "Organization",
     "OrganizationMember",
     "OrganizationSolution",

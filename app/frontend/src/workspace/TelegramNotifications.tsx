@@ -68,9 +68,6 @@ export function TelegramNotifications(): JSX.Element {
   const [now, setNow] = useState(() => Date.now());
 
   const connected = status?.connected === true;
-  // Список подписок сервер присылает всегда; проверка на массив стоит на случай
-  // неожиданного ответа — из-за одного поля карточка не должна ронять страницу.
-  const subscriptions = Array.isArray(status?.subscriptions) ? status.subscriptions : [];
   // Пробелы и ведущую «@» сервер не присылает, но чип должен читаться одинаково
   // при любом ответе: лишняя «@» дала бы «@@бот».
   const botUsername = (status?.bot_username ?? '').trim().replace(/^@/, '');
@@ -155,16 +152,6 @@ export function TelegramNotifications(): JSX.Element {
       setError(TELEGRAM_DISCONNECT_ERROR_TEXT);
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function toggleSubscription(kind: string, isEnabled: boolean): Promise<void> {
-    setError('');
-    try {
-      const subscriptions = await api.setTelegramSubscription(kind, isEnabled);
-      setStatus((current) => (current ? { ...current, subscriptions } : current));
-    } catch {
-      setError(TELEGRAM_ERROR_TEXT);
     }
   }
 
@@ -373,26 +360,6 @@ export function TelegramNotifications(): JSX.Element {
                   Прислать тестовое уведомление
                 </button>
               </div>
-            )}
-
-            {subscriptions.length > 0 && (
-              <ul className={styles['telegram-subscriptions']}>
-                {subscriptions.map((subscription) => (
-                  <li key={subscription.kind}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        data-testid={`telegram-subscription-${subscription.kind}`}
-                        checked={subscription.is_enabled}
-                        onChange={(event) =>
-                          void toggleSubscription(subscription.kind, event.target.checked)
-                        }
-                      />
-                      {subscription.title}
-                    </label>
-                  </li>
-                ))}
-              </ul>
             )}
 
             {error && (

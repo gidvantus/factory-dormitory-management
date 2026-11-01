@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,12 +10,16 @@ import {
   TelegramNotifications,
 } from './TelegramNotifications';
 
-/** Ответ статуса в неподключённом состоянии: подписка включена по умолчанию. */
+/**
+ * Ответ статуса в неподключённом состоянии.
+ *
+ * Ровно три ключа: подписок на события у карточки больше нет, единственный
+ * механизм подписки — конструктор персональных правил.
+ */
 const DISCONNECTED = {
   connected: false,
   username: null,
   bot_username: 'DormitoryNotifyBot',
-  subscriptions: [{ kind: 'resident_outflow', title: 'Выселение проживающего', is_enabled: true }],
 };
 
 const CONNECTED = { ...DISCONNECTED, connected: true, username: 'ivan' };
@@ -94,12 +98,6 @@ function mountTelegram(options: MountOptions = {}): ReturnType<typeof mockFetch>
     }
     if (url.endsWith('/api/telegram/disconnect'))
       return { status: 200, body: { connected: false } };
-    if (url.endsWith('/api/telegram/subscriptions')) {
-      return {
-        status: 200,
-        body: [{ kind: 'resident_outflow', title: 'Выселение проживающего', is_enabled: false }],
-      };
-    }
     if (url.endsWith('/api/telegram/test-message')) return { status: 200, body: { queued: true } };
     return { status: 404, body: { detail: 'нет такого маршрута' } };
   });
@@ -120,7 +118,7 @@ afterEach(() => {
 });
 
 describe('карточка уведомлений в Telegram', () => {
-  it('в неподключённом состоянии показывает кнопку и подписку', async () => {
+  it('в неподключённом состоянии показывает кнопку и ни одного чекбокса подписки', async () => {
     mountTelegram();
 
     expect(await screen.findByTestId('telegram-card')).toBeInTheDocument();
@@ -128,7 +126,10 @@ describe('карточка уведомлений в Telegram', () => {
     expect(screen.getByTestId('telegram-connect-button')).toBeInTheDocument();
     expect(screen.queryByTestId('telegram-code')).not.toBeInTheDocument();
     expect(screen.queryByTestId('telegram-steps')).not.toBeInTheDocument();
-    expect(screen.getByTestId('telegram-subscription-resident_outflow')).toBeChecked();
+    // Блока подписок нет ни в одном состоянии: единственный способ подписаться —
+    // конструктор персональных правил, и карточка его не дублирует.
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(screen.queryByTestId(/^telegram-subscription-/)).not.toBeInTheDocument();
     expect(screen.queryByTestId('telegram-disconnect-button')).not.toBeInTheDocument();
   });
 
@@ -269,26 +270,6 @@ describe('карточка уведомлений в Telegram', () => {
     expect(await screen.findByTestId('telegram-test-sent')).toHaveTextContent(
       TELEGRAM_TEST_SENT_TEXT,
     );
-  });
-
-  it('переключатель подписки уходит на сервер с кодом вида события', async () => {
-    const user = userEvent.setup();
-    const fetchMock = mountTelegram({ status: [{ status: 200, body: CONNECTED }] });
-
-    const toggle = await screen.findByTestId('telegram-subscription-resident_outflow');
-    await user.click(toggle);
-
-    await waitFor(() =>
-      expect(screen.getByTestId('telegram-subscription-resident_outflow')).not.toBeChecked(),
-    );
-    const call = fetchMock.mock.calls.find((item) =>
-      String(item[0]).endsWith('/api/telegram/subscriptions'),
-    );
-    expect(call).toBeDefined();
-    expect(JSON.parse(String(call?.[1]?.body))).toEqual({
-      kind: 'resident_outflow',
-      is_enabled: false,
-    });
   });
 
   it('отключение возвращает карточку в неподключённое состояние', async () => {

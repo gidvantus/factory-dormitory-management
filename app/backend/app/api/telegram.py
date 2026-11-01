@@ -4,8 +4,8 @@
 
 * роуты бота (`/chat`, `/feed`, `/feed/{id}/failed`) закрыты сервисным токеном в
   заголовке `X-Bot-Token`: бот не человек, cookie сессии у него нет;
-* роуты кабинета (`/status`, `/connect`, `/disconnect`, `/subscriptions`,
-  `/test-message`) закрыты cookie сессии и **правом организации на решение
+* роуты кабинета (`/status`, `/connect`, `/disconnect`, `/test-message`) закрыты
+  cookie сессии и **правом организации на решение
   `telegram_notifications`** (`app/solutions.py::require_solution`).
 
 Право проверяется после активации кабинета, а не вместо неё: неактивированный
@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from app import notifications
 from app.config import get_settings
 from app.db import get_db
-from app.models.telegram import NotificationDelivery, kind_title
+from app.models.telegram import NotificationDelivery
 from app.models.user import User
 from app.schemas.telegram import (
     INVALID_LINK_CODE_REASON,
@@ -42,12 +42,10 @@ from app.schemas.telegram import (
     DeliveryFailedRequest,
     FeedItemResponse,
     FeedResponse,
-    SubscriptionResponse,
     TelegramConnectResponse,
     TelegramDisconnectResponse,
     TelegramStatusResponse,
     TestMessageResponse,
-    UpdateSubscriptionRequest,
 )
 from app.schemas.user import ErrorResponse
 from app.security import ServiceBot
@@ -107,14 +105,6 @@ BAD_REQUEST_RESPONSES: dict[int | str, dict[str, object]] = {
         "description": "Тело запроса не разбирается как JSON",
     },
 }
-
-
-def _subscription_list(db: Session, user: User) -> list[SubscriptionResponse]:
-    """Список подписок каталога в том виде, в каком его отдаёт кабинет."""
-    return [
-        SubscriptionResponse(kind=kind, title=kind_title(kind), is_enabled=is_enabled)
-        for kind, is_enabled in notifications.subscriptions(db, user)
-    ]
 
 
 @router.post(
@@ -211,13 +201,12 @@ def mark_delivery_failed(
     responses={**SOLUTION_REQUIRED_RESPONSES},
 )
 def read_status(user: SolutionUser, db: DbSession) -> TelegramStatusResponse:
-    """Подключение, имя бота и подписки — всё, что нужно карточке кабинета."""
+    """Подключение и имя бота — всё, что нужно карточке кабинета."""
     connected, username = notifications.link_status(db, user)
     return TelegramStatusResponse(
         connected=connected,
         username=username,
         bot_username=get_settings().telegram_bot_username,
-        subscriptions=_subscription_list(db, user),
     )
 
 
@@ -260,23 +249,6 @@ def disconnect(user: SolutionUser, db: DbSession) -> TelegramDisconnectResponse:
     return TelegramDisconnectResponse(connected=False)
 
 
-@router.patch(
-    "/subscriptions",
-    response_model=list[SubscriptionResponse],
-    summary="Включить или выключить вид уведомлений",
-    responses={**SOLUTION_REQUIRED_RESPONSES, **BAD_REQUEST_RESPONSES},
-)
-def update_subscription(
-    payload: UpdateSubscriptionRequest,
-    user: SolutionUser,
-    db: DbSession,
-) -> list[SubscriptionResponse]:
-    """Вернуть обновлённый список подписок: кабинету не нужен второй запрос."""
-    notifications.set_subscription(db, user, kind=payload.kind, is_enabled=payload.is_enabled)
-    db.commit()
-    return _subscription_list(db, user)
-
-
 @router.post(
     "/test-message",
     response_model=TestMessageResponse,
@@ -284,7 +256,7 @@ def update_subscription(
     responses={**SOLUTION_REQUIRED_RESPONSES, **NOT_CONNECTED_RESPONSES},
 )
 def send_test_message(user: SolutionUser, db: DbSession) -> TestMessageResponse:
-    """Проверить всю цепочку, никого не выселяя: очередь → бот → Telegram."""
+    """Проверить всю цепочку: очередь → бот → Telegram."""
     if not notifications.queue_test_message(db, user):
         raise HTTPException(status.HTTP_409_CONFLICT, TELEGRAM_NOT_CONNECTED_DETAIL)
     db.commit()

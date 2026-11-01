@@ -1,27 +1,20 @@
-"""Уведомления: код привязки, получатели и очередь доставки — без HTTP и без сети.
+"""Уведомления: код привязки и очередь доставки — без HTTP и без сети.
 
-Проверяется предметная логика `app/notifications.py`: одноразовость кода, выбор
-получателей, идемпотентность события и переходы состояний очереди. Роуты и
-клиент Bot API живут в `tests/test_telegram.py`, хук выселения — в
-`tests/test_resident_outflow_notifications.py`.
+Проверяется предметная логика `app/notifications.py`: одноразовость кода,
+переходы состояний очереди и список чатов для бота. Роуты и клиент Bot API живут
+в `tests/test_telegram.py`.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import notifications
 from app.models.activation import ActivationToken
-from app.models.organization import OrganizationMember
-from app.models.telegram import (
-    DELIVERY_PENDING,
-    RESIDENT_OUTFLOW_KIND,
-    NotificationDelivery,
-    TelegramLink,
-)
+from app.models.telegram import TELEGRAM_TEST_KIND, NotificationDelivery, TelegramLink
 from app.models.user import User
-from tests.conftest import create_user, give_solution, organizations_for
+from tests.conftest import create_user
 
 
 def connect(
@@ -107,163 +100,6 @@ def test_unlink_keeps_the_row_and_does_not_move_the_mark(db_session: Session) ->
     assert row.revoked_at == first_mark
 
 
-def test_subscriptions_default_to_enabled_and_can_be_switched(db_session: Session) -> None:
-    user = create_user(db_session)
-    assert notifications.subscriptions(db_session, user) == [(RESIDENT_OUTFLOW_KIND, True)]
-
-    notifications.set_subscription(db_session, user, kind=RESIDENT_OUTFLOW_KIND, is_enabled=False)
-    db_session.commit()
-    assert notifications.subscriptions(db_session, user) == [(RESIDENT_OUTFLOW_KIND, False)]
-
-    notifications.set_subscription(db_session, user, kind=RESIDENT_OUTFLOW_KIND, is_enabled=True)
-    db_session.commit()
-    assert notifications.subscriptions(db_session, user) == [(RESIDENT_OUTFLOW_KIND, True)]
-
-
-def test_recipients_are_colleagues_with_a_live_chat(db_session: Session) -> None:
-    actor = create_user(db_session, email="actor@example.com")
-    organization, _ = organizations_for(db_session, actor)
-
-    colleague = create_user(db_session, email="colleague@example.com")
-    silent = create_user(db_session, email="silent@example.com")
-    inactive = create_user(db_session, email="inactive@example.com", is_active=False)
-    stranger = create_user(db_session, email="stranger@example.com")
-    for user in (colleague, silent, inactive):
-        db_session.add(
-            OrganizationMember(organization_id=organization.id, user_id=user.id, role="manager")
-        )
-    db_session.commit()
-
-    connect(db_session, actor, chat_id="1")
-    connect(db_session, colleague, chat_id="2")
-    connect(db_session, inactive, chat_id="3")
-    connect(db_session, stranger, chat_id="4")
-    # Без права организации на решение уведомления не уходят никому.
-    assert notifications.recipients(db_session, actor.id) == []
-
-    give_solution(db_session, organization)
-
-    assert [user.id for user, _ in notifications.recipients(db_session, actor.id)] == [colleague.id]
-
-    # Отключённая подписка убирает коллегу из получателей.
-    notifications.set_subscription(
-        db_session, colleague, kind=RESIDENT_OUTFLOW_KIND, is_enabled=False
-    )
-    db_session.commit()
-    assert notifications.recipients(db_session, actor.id) == []
-
-    # Отвязка чата действует так же.
-    notifications.set_subscription(
-        db_session, colleague, kind=RESIDENT_OUTFLOW_KIND, is_enabled=True
-    )
-    notifications.unlink(db_session, colleague)
-    db_session.commit()
-    assert notifications.recipients(db_session, actor.id) == []
-
-
-def test_expired_right_stops_the_deliveries(db_session: Session) -> None:
-    """Просроченное право убирает получателей так же, как отсутствующее."""
-    actor = create_user(db_session, email="actor@example.com")
-    organization, _ = organizations_for(db_session, actor)
-    colleague = create_user(db_session, email="colleague@example.com")
-    db_session.add(
-        OrganizationMember(organization_id=organization.id, user_id=colleague.id, role="manager")
-    )
-    db_session.commit()
-    connect(db_session, actor, chat_id="1")
-    connect(db_session, colleague, chat_id="2")
-    give_solution(db_session, organization, expires_at=datetime.now(UTC) - timedelta(minutes=1))
-
-    assert notifications.recipients(db_session, actor.id) == []
-
-    event = notifications.ResidentOutflowEvent(
-        resident_id=9,
-        full_name="Иванов Иван",
-        personnel_number=None,
-        dormitory_name=None,
-        hostel_name=None,
-        shift_start=None,
-        shift_end=None,
-        departure_date=date(2026, 10, 9),
-    )
-    assert notifications.queue_resident_outflow(db_session, resident=event, actor_id=actor.id) == 0
-    assert list(db_session.scalars(select(NotificationDelivery))) == []
-
-
-def test_perpetual_right_keeps_the_deliveries(db_session: Session) -> None:
-    """Право без срока (`once`) действует бесконечно: получатели остаются."""
-    actor = create_user(db_session, email="actor@example.com")
-    organization, _ = organizations_for(db_session, actor)
-    colleague = create_user(db_session, email="colleague@example.com")
-    db_session.add(
-        OrganizationMember(organization_id=organization.id, user_id=colleague.id, role="manager")
-    )
-    db_session.commit()
-    connect(db_session, actor, chat_id="1")
-    connect(db_session, colleague, chat_id="2")
-    give_solution(db_session, organization, period="once")
-
-    assert [user.id for user, _ in notifications.recipients(db_session, actor.id)] == [colleague.id]
-
-
-def test_outflow_queue_is_idempotent_and_skips_the_actor(db_session: Session) -> None:
-    actor = create_user(db_session, email="actor@example.com")
-    organization, _ = organizations_for(db_session, actor)
-    colleague = create_user(db_session, email="colleague@example.com")
-    db_session.add(
-        OrganizationMember(organization_id=organization.id, user_id=colleague.id, role="admin")
-    )
-    db_session.commit()
-    connect(db_session, actor, chat_id="1")
-    connect(db_session, colleague, chat_id="2", username=None)
-    # Очередь доставок стоит на праве организации: без него не создаётся ничего.
-    give_solution(db_session, organization)
-
-    event = notifications.ResidentOutflowEvent(
-        resident_id=7,
-        full_name="Иванов Иван",
-        personnel_number="123",
-        dormitory_name="Северное",
-        hostel_name="Хостел 1",
-        shift_start=date(2026, 10, 1),
-        shift_end=None,
-        departure_date=date(2026, 10, 9),
-    )
-
-    assert notifications.queue_resident_outflow(db_session, resident=event, actor_id=actor.id) == 1
-    # Повтор того же события не создаёт вторую доставку.
-    assert notifications.queue_resident_outflow(db_session, resident=event, actor_id=actor.id) == 0
-
-    rows = list(db_session.scalars(select(NotificationDelivery)))
-    assert len(rows) == 1
-    assert rows[0].user_id == colleague.id
-    assert rows[0].chat_id == "2"
-    assert rows[0].event_key == "resident_outflow:7"
-    assert rows[0].status == DELIVERY_PENDING
-    assert rows[0].title == "Выселение проживающего"
-    assert "Иванов Иван" in rows[0].body
-    assert "123" in rows[0].body
-    assert "Северное" in rows[0].body
-    assert "2026-10-09" in rows[0].body
-
-
-def test_render_falls_back_to_the_shift_end_and_unknown_names(db_session: Session) -> None:
-    event = notifications.ResidentOutflowEvent(
-        resident_id=1,
-        full_name=None,
-        personnel_number=None,
-        dormitory_name=None,
-        hostel_name=None,
-        shift_start=None,
-        shift_end=date(2026, 11, 1),
-        departure_date=None,
-    )
-    title, body = notifications.render_resident_outflow(event)
-    assert title == "Выселение проживающего"
-    assert "без ФИО" in body
-    assert "2026-11-01" in body
-
-
 def test_connected_chats_lists_only_live_links(db_session: Session) -> None:
     """Боту нужны чаты всех живых привязок: иначе доставки ждут сообщения человека."""
     first = create_user(db_session, email="first@example.com")
@@ -283,8 +119,8 @@ def test_pending_feed_transitions_between_states(db_session: Session) -> None:
     delivery = NotificationDelivery(
         user_id=user.id,
         chat_id="77",
-        kind=RESIDENT_OUTFLOW_KIND,
-        event_key="resident_outflow:1",
+        kind=TELEGRAM_TEST_KIND,
+        event_key="telegram_test:1",
         title="Заголовок",
         body="Текст",
     )
@@ -302,8 +138,8 @@ def test_pending_feed_transitions_between_states(db_session: Session) -> None:
     failed = NotificationDelivery(
         user_id=user.id,
         chat_id="77",
-        kind=RESIDENT_OUTFLOW_KIND,
-        event_key="resident_outflow:2",
+        kind=TELEGRAM_TEST_KIND,
+        event_key="telegram_test:2",
         title="Заголовок",
         body="Текст",
     )
