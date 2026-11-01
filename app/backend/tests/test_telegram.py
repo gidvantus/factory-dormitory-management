@@ -7,8 +7,8 @@
 
 Ручки кабинета закрыты правом организации на решение `telegram_notifications`
 (issue #61), поэтому пользователь кабинета в тестах заводится помощником
-`cabinet_user`: он заводит организацию и выдаёт ей право. Без права все пять
-ручек отвечают 403, и это проверяется отдельным блоком.
+`cabinet_user`: он заводит организацию и выдаёт ей право. Без права все четыре
+ручки отвечают 403, и это проверяется отдельным блоком.
 """
 
 import logging
@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app import notifications, telegram
 from app.config import Settings, get_settings
 from app.models.activation import ActivationToken
-from app.models.telegram import RESIDENT_OUTFLOW_KIND, NotificationDelivery, TelegramLink
+from app.models.telegram import TELEGRAM_TEST_KIND, NotificationDelivery, TelegramLink
 from app.models.user import User
 from app.solutions import SOLUTION_REQUIRED_DETAIL
 from tests.conftest import give_solution, organizations_for, sign_in
@@ -207,13 +207,13 @@ def test_render_message_joins_title_and_body_without_markup() -> None:
     delivery = NotificationDelivery(
         user_id=1,
         chat_id=CHAT_ID,
-        kind=RESIDENT_OUTFLOW_KIND,
-        event_key="resident_outflow:1",
-        title="Выселение проживающего",
+        kind=TELEGRAM_TEST_KIND,
+        event_key="telegram_test:1",
+        title="Тестовое уведомление",
         body="  Иванов Иван *тест* <b>  ",
         status="pending",
     )
-    assert telegram.render_message(delivery) == "Выселение проживающего\n\nИванов Иван *тест* <b>"
+    assert telegram.render_message(delivery) == "Тестовое уведомление\n\nИванов Иван *тест* <b>"
 
     delivery.title = ""
     assert telegram.render_message(delivery) == "Иванов Иван *тест* <b>"
@@ -300,14 +300,9 @@ def test_connect_link_and_status_share_one_contract(
         "connected": True,
         "username": "ivan",
         "bot_username": BOT_USERNAME,
-        "subscriptions": [
-            {
-                "kind": RESIDENT_OUTFLOW_KIND,
-                "title": "Выселение проживающего",
-                "is_enabled": True,
-            }
-        ],
     }
+    # Каталога подписок больше нет: ключа `subscriptions` в ответе быть не должно.
+    assert "subscriptions" not in status.json()
 
 
 def test_second_link_of_the_same_user_keeps_a_single_row(
@@ -368,13 +363,13 @@ def test_unreadable_body_answers_400_as_declared(client: TestClient, telegram_en
     assert response.json() == {"detail": "There was an error parsing the body"}
 
 
-def add_delivery(db_session: Session, user: User, *, event_key: str = "resident_outflow:1") -> int:
+def add_delivery(db_session: Session, user: User, *, event_key: str = "telegram_test:1") -> int:
     delivery = NotificationDelivery(
         user_id=user.id,
         chat_id=CHAT_ID,
-        kind=RESIDENT_OUTFLOW_KIND,
+        kind=TELEGRAM_TEST_KIND,
         event_key=event_key,
-        title="Выселение проживающего",
+        title="Тестовое уведомление",
         body="Иванов Иван",
         status="pending",
     )
@@ -393,7 +388,7 @@ def test_feed_gives_items_once_and_marks_them_sent(
     first = client.get("/api/telegram/feed", params={"chat_id": CHAT_ID}, headers=BOT_HEADERS)
     assert first.status_code == 200
     assert first.json() == {
-        "items": [{"id": delivery_id, "text": "Выселение проживающего\n\nИванов Иван"}]
+        "items": [{"id": delivery_id, "text": "Тестовое уведомление\n\nИванов Иван"}]
     }
 
     second = client.get("/api/telegram/feed", params={"chat_id": CHAT_ID}, headers=BOT_HEADERS)
@@ -429,30 +424,18 @@ def test_failed_marks_the_delivery_and_truncates_the_error(
     assert missing.status_code == 404
 
 
-def test_subscriptions_can_be_switched_and_unknown_kinds_are_rejected(
+def test_removed_subscriptions_route_answers_404(
     client: TestClient, db_session: Session, telegram_env: None
 ) -> None:
+    """Каталог подписок снят вместе с ручкой: маршрута больше нет."""
     cabinet_user(client, db_session)
 
-    assert (
-        client.patch(
-            "/api/telegram/subscriptions", json={"kind": "неизвестный", "is_enabled": False}
-        ).status_code
-        == 422
+    response = client.patch(
+        "/api/telegram/subscriptions", json={"kind": TELEGRAM_TEST_KIND, "is_enabled": False}
     )
 
-    off = client.patch(
-        "/api/telegram/subscriptions", json={"kind": RESIDENT_OUTFLOW_KIND, "is_enabled": False}
-    )
-    assert off.status_code == 200
-    assert off.json() == [
-        {"kind": RESIDENT_OUTFLOW_KIND, "title": "Выселение проживающего", "is_enabled": False}
-    ]
-
-    on = client.patch(
-        "/api/telegram/subscriptions", json={"kind": RESIDENT_OUTFLOW_KIND, "is_enabled": True}
-    )
-    assert on.json()[0]["is_enabled"] is True
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
 
 
 def test_disconnect_revokes_the_link(
@@ -513,18 +496,13 @@ def test_test_message_reaches_the_feed(
 
 # --- Гейт решения `telegram_notifications` (issue #61) -------------------------
 
-# Пять ручек кабинета: без права организации все они отвечают 403, и ни одна не
+# Четыре ручки кабинета: без права организации все они отвечают 403, и ни одна не
 # делает того, что делает с правом. Метод, путь и тело запроса — как у рабочего
 # вызова, иначе отказ пришёл бы от валидатора, а не от гейта.
 CABINET_ROUTES = (
     ("GET", "/api/telegram/status", None),
     ("POST", "/api/telegram/connect", None),
     ("POST", "/api/telegram/disconnect", None),
-    (
-        "PATCH",
-        "/api/telegram/subscriptions",
-        {"kind": RESIDENT_OUTFLOW_KIND, "is_enabled": False},
-    ),
     ("POST", "/api/telegram/test-message", None),
 )
 
@@ -532,7 +510,7 @@ CABINET_ROUTES = (
 def test_every_cabinet_route_requires_the_solution(
     client: TestClient, db_session: Session, telegram_env: None
 ) -> None:
-    """Организация без права: все пять ручек отвечают 403 про магазин."""
+    """Организация без права: все четыре ручки отвечают 403 про магазин."""
     cabinet_user(client, db_session, with_solution=False)
 
     for method, path, body in CABINET_ROUTES:

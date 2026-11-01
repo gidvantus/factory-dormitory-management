@@ -1,4 +1,4 @@
-"""Telegram: привязка чата, подписки и очередь доставки.
+"""Telegram: привязка чата и очередь доставки.
 
 Состояние живёт целиком в CRM: бот — тонкий воркер, который ходит в Bot API и
 забирает из этих таблиц готовые сообщения. Публичного вебхука нет.
@@ -29,24 +29,19 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
 
-# Вид события «выселение проживающего»: единственный в каталоге этой задачи.
-# Каталог расширяется одной строкой константы, а проверка `kind` — по коду.
-RESIDENT_OUTFLOW_KIND = "resident_outflow"
-
-# Вид доставки персонального правила (`notification_rules`). Подписки у него
-# нет: правило адресовано своему владельцу, а не всем коллегам по организации.
+# Вид доставки персонального правила (`notification_rules`). Адресован своему
+# владельцу, а не всем коллегам по организации.
 NOTIFICATION_RULE_KIND = "notification_rule"
 
-# Служебный вид тестового сообщения: подписки у него нет, оно всегда адресное.
-# Отдельный код нужен, чтобы тестовая доставка не путалась с настоящим событием.
+# Служебный вид тестового сообщения: оно всегда адресное, и отдельный код нужен,
+# чтобы тестовая доставка не путалась с настоящим событием.
 TELEGRAM_TEST_KIND = "telegram_test"
 
-# Виды событий, о которых можно подписаться. Заголовки — для кабинета.
-# У тестового сообщения подписки нет, но заголовок нужен: из него собирается
-# первая строка сообщения, и человек не должен видеть там код `telegram_test`.
-NOTIFICATION_KINDS = (RESIDENT_OUTFLOW_KIND,)
+# Заголовки видов событий. Каталога подписок нет: единственный механизм —
+# персональные правила. Заголовок тестового сообщения нужен, потому что из него
+# собирается первая строка сообщения, и человек не должен видеть там код
+# `telegram_test`.
 NOTIFICATION_KIND_TITLES = {
-    RESIDENT_OUTFLOW_KIND: "Выселение проживающего",
     TELEGRAM_TEST_KIND: "Тестовое уведомление",
 }
 
@@ -90,35 +85,6 @@ class TelegramLink(Base):
     )
     # Момент отвязки. `NULL` — привязка живая.
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-
-class NotificationSubscription(Base):
-    """Подписка пользователя на вид события.
-
-    Строки может не быть вовсе: это значит «подписка по умолчанию», а по
-    умолчанию новый кабинет подписан на выселение. Тогда отписка — это строка с
-    `is_enabled = false`, а не отсутствие строки.
-    """
-
-    __tablename__ = "notification_subscriptions"
-    __table_args__ = (
-        UniqueConstraint("user_id", "kind", name="uq_notification_subscriptions_user_kind"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    kind: Mapped[str] = mapped_column(String(40), nullable=False)
-    is_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=true()
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
 
 
 class NotificationRule(Base):
@@ -205,8 +171,8 @@ class NotificationDelivery(Base):
     chat_id: Mapped[str] = mapped_column(String(32), nullable=False)
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
     # Правило, событие которого породило доставку. `NULL` у событий без правила
-    # (выселение, тестовое сообщение) и после удаления правила: `SET NULL`
-    # сохраняет историю доставок, а не уносит её вместе с правилом.
+    # (тестовое сообщение) и после удаления правила: `SET NULL` сохраняет
+    # историю доставок, а не уносит её вместе с правилом.
     rule_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("notification_rules.id", ondelete="SET NULL"),
