@@ -90,6 +90,19 @@ body {
   color: var(--n-ink);
 }
 
+/* Подпись для скринридера: колонка действия в реестре и `caption` таблицы. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ============================================================================
    Каркас: шапка кабинета и тело экрана.
    ========================================================================== */
@@ -349,12 +362,301 @@ body {
 }
 
 /* ============================================================================
-   После входа: пустая страница и строка проверки сессии.
+   После входа: страница кабинета, реестр организаций, карточка и правка.
    ========================================================================== */
 
 .screen__main {
   flex: 1;
   padding: 32px 40px 48px;
+}
+
+/* Страница: реестр шире (1120px), карточка — документ (880px). */
+.page {
+  display: grid;
+  gap: 20px;
+  width: 100%;
+  max-width: 1120px;
+}
+
+.page--card {
+  max-width: 880px;
+}
+
+.page__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page__head--card {
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.page__head-main {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.page__title {
+  margin: 0;
+  font: 600 26px/1.25 var(--font-display);
+  letter-spacing: -0.4px;
+  color: var(--n-ink);
+  overflow-wrap: anywhere;
+}
+
+.page__meta {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.page__back {
+  margin: 0;
+}
+
+.link {
+  color: var(--color-text-body);
+  font-size: 13.5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--color-border-strong);
+}
+
+.link:hover {
+  color: var(--n-ink);
+  text-decoration-color: var(--n-grey);
+}
+
+/* Реестр: таблица в белой поверхности с волосяными линиями. */
+.list {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.list__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.list__table th {
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font: 600 12.5px/1.4 var(--font-body);
+  letter-spacing: 0.01em;
+  text-align: start;
+}
+
+.list__table td {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+  color: var(--color-text-body);
+}
+
+.list__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.list__id {
+  width: 64px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.list__name {
+  color: var(--n-ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Организация без названия: «Без названия» серым, без жирности. */
+.list__name--empty {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.list__inn,
+.list__date {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.list__inn {
+  letter-spacing: 0.01em;
+}
+
+.list__action {
+  width: 1%;
+  text-align: end;
+}
+
+/* Подписи «ИНН» и «создана» показываются только в узком окне, где таблица
+   перестаёт быть таблицей. */
+.cell__label {
+  display: none;
+}
+
+.list__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.list__shown {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Загрузка: строка состояния в той же рамке, что и таблица. */
+.state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 30px 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 1.5px solid var(--color-border-strong);
+  border-top-color: var(--n-sage);
+  border-radius: 50%;
+  animation: btn-spin 800ms linear infinite;
+}
+
+/* Карточка: реквизиты выпиской, счётчики — подвал. */
+.panel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.panel__title {
+  margin: 0;
+  font: 600 15px/1.3 var(--font-display);
+  letter-spacing: -0.1px;
+  color: var(--n-ink);
+}
+
+.req {
+  margin: 0;
+  padding: 2px 24px;
+}
+
+.req__row {
+  display: grid;
+  grid-template-columns: 172px minmax(0, 1fr);
+  gap: 16px;
+  align-items: baseline;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.req__row:last-child {
+  border-bottom: 0;
+}
+
+.req__key {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+}
+
+.req__val {
+  margin: 0;
+  color: var(--n-ink);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.counts {
+  display: flex;
+  gap: 56px;
+  padding: 16px 24px 18px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-page);
+}
+
+.counts__item {
+  display: grid;
+  gap: 1px;
+}
+
+.counts__value {
+  font: 600 22px/1.2 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--n-ink);
+}
+
+.counts__label {
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+/* Правка внутри карточки: те же поля, что на входе, но в поверхности панели. */
+.form--panel {
+  padding: 22px 24px 24px;
+  margin: 0;
+}
+
+.form__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 18px;
+}
+
+.field--wide {
+  grid-column: 1 / -1;
+}
+
+.form__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Многострочный адрес: та же рамка поля, но растягивается по вертикали. */
+.field__input--area {
+  min-height: calc(var(--control-h) * 1.4);
+  resize: vertical;
+}
+
+.empty .link {
+  margin-top: 10px;
 }
 
 .empty {
@@ -450,6 +752,143 @@ body {
     padding: 24px 20px 32px;
   }
 
+  .page {
+    gap: 16px;
+  }
+
+  .page__title {
+    font-size: 21px;
+  }
+
+  .page__head--card {
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .page__head--card .btn {
+    width: 100%;
+  }
+
+  /* Таблица перестаёт быть таблицей: строка — блок с подписями. */
+  .list__table thead {
+    display: none;
+  }
+
+  .list__table,
+  .list__table tbody,
+  .list__table tr,
+  .list__table td {
+    display: block;
+  }
+
+  .list__table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 12px;
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .list__table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .list__table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .list__id {
+    grid-column: 1;
+    grid-row: 1;
+    width: auto;
+    font-size: 12.5px;
+  }
+
+  .list__action {
+    grid-column: 2;
+    grid-row: 1;
+    width: auto;
+    align-self: start;
+  }
+
+  .list__name {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin: 3px 0 0;
+    font-size: 15px;
+  }
+
+  .list__inn {
+    grid-column: 1;
+    grid-row: 3;
+    margin-top: 2px;
+  }
+
+  .list__date {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  .cell__label {
+    display: inline;
+    margin-right: 5px;
+    color: var(--color-text-muted);
+    font-size: 12.5px;
+  }
+
+  .list__foot {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 14px 20px 16px;
+  }
+
+  .list__foot .btn {
+    width: 100%;
+  }
+
+  .list__shown {
+    order: 2;
+    text-align: center;
+  }
+
+  .state {
+    padding: 24px 20px;
+  }
+
+  .req {
+    padding: 2px 20px;
+  }
+
+  .req__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    padding: 12px 0;
+  }
+
+  .req__key {
+    font-size: 12.5px;
+  }
+
+  .counts {
+    gap: 36px;
+    padding: 15px 20px 17px;
+  }
+
+  .form--panel {
+    padding: 20px;
+  }
+
+  .form__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .form__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .empty {
     padding: 28px 20px;
   }
@@ -463,6 +902,10 @@ body {
   }
 
   .btn[aria-busy='true']::after {
+    display: none;
+  }
+
+  .spinner {
     display: none;
   }
 }

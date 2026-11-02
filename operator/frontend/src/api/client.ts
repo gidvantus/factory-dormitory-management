@@ -1,9 +1,11 @@
 /**
  * Клиент API кабинета оператора.
  *
- * Ручки ровно те, что отдаёт `operator-api` (`operator/backend/app/api/auth.py`):
- * вход, «кто вошёл» и выход. Токен не хранится в JS: сессия живёт в httpOnly
- * cookie `operator_session`, поэтому каждый запрос идёт с `credentials: 'include'`.
+ * Ручки ровно те, что отдаёт `operator-api`: вход, «кто вошёл», выход
+ * (`operator/backend/app/api/auth.py`) и организации платформы
+ * (`operator/backend/app/api/organizations.py`). Токен не хранится в JS: сессия
+ * живёт в httpOnly cookie `operator_session`, поэтому каждый запрос идёт с
+ * `credentials: 'include'`.
  *
  * Путь относительный (`/api`) — так же, как у основного кабинета: nginx кабинета
  * проксирует `/api/` в `operator-api`, и cookie остаётся first-party.
@@ -67,18 +69,39 @@ function errorText(status: number, body: unknown): string {
     if (typeof detail === 'string') {
       return detail;
     }
-    if (Array.isArray(detail)) {
-      for (const item of detail) {
-        if (item && typeof item === 'object') {
-          const message = (item as { msg?: unknown }).msg;
-          if (typeof message === 'string') {
-            return message;
-          }
-        }
-      }
+    const validation = validationErrorsText(detail);
+    if (validation !== '') {
+      return validation;
     }
   }
   return `Запрос не удался (${status})`;
+}
+
+/**
+ * Тексты ошибок валидации FastAPI — через `; `, без служебной приставки.
+ *
+ * pydantic предваряет текст валидатора: «Value error, Название не может быть
+ * пустым». Кабинет показывает отказ дословно и по контракту ровно «Название не
+ * может быть пустым», поэтому приставка снимается, а `loc` не печатается: текст
+ * уже называет поле словами, а «body.inn:» в лицо оператору не нужно.
+ */
+function validationErrorsText(detail: unknown): string {
+  if (!Array.isArray(detail)) {
+    return '';
+  }
+  return detail
+    .map((item) => {
+      if (item === null || typeof item !== 'object') {
+        return '';
+      }
+      const message = (item as { msg?: unknown }).msg;
+      if (typeof message !== 'string') {
+        return '';
+      }
+      return message.replace(/^Value error,\s*/i, '').trim();
+    })
+    .filter((message) => message !== '')
+    .join('; ');
 }
 
 /** Вход по паре из конфига. Неверная пара — `ApiError` со статусом 401. */
@@ -97,4 +120,75 @@ export function me(): Promise<Operator> {
 /** Выход: сервер гасит cookie и отвечает `204`, в том числе без сессии. */
 export function logout(): Promise<void> {
   return request<void>('/auth/logout', { method: 'POST' });
+}
+
+// --- Организации платформы --------------------------------------------------
+// Форма ответа — та же, что у основного API: кабинет-API её не переписывает
+// (`operator/backend/app/schemas.py`). Название и ИНН бывают `null` у пустой
+// заготовки организации — это нормальное состояние, а не отсутствие данных.
+
+/** Строка списка организаций. */
+export interface OrganizationListItem {
+  id: number;
+  name: string | null;
+  inn: string | null;
+  /** ISO-8601 из API; показывается как дата без времени. */
+  created_at: string;
+}
+
+/** Карточка организации: реквизиты и счётчики. */
+export interface OrganizationDetails {
+  id: number;
+  name: string | null;
+  inn: string | null;
+  kpp: string | null;
+  ogrn: string | null;
+  address: string | null;
+  created_at: string;
+  /** Участники организации, владелец считается. */
+  members_count: number;
+  /** Общежития организации, архивные считаются. */
+  dormitories_count: number;
+}
+
+/** Страница списка: элементы и общее число организаций. */
+export interface OrganizationPage {
+  items: OrganizationListItem[];
+  total: number;
+}
+
+/**
+ * Тело правки. Кабинет отправляет все пять полей всегда (`Контракт половин`),
+ * а `null` в реквизите означает очистку поля. Пустое название отправляется как
+ * есть: правило «название не пустое» живёт в основном API, и его отказ
+ * показывается дословно.
+ */
+export interface OrganizationUpdate {
+  name: string;
+  inn: string | null;
+  kpp: string | null;
+  ogrn: string | null;
+  address: string | null;
+}
+
+/** Страница организаций: свежие сверху. `limit` 1..100, `offset` ≥ 0. */
+export function listOrganizations(limit: number, offset: number): Promise<OrganizationPage> {
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return request<OrganizationPage>(`/organizations?${query.toString()}`);
+}
+
+/** Карточка организации. Неизвестный `id` — `ApiError` со статусом 404. */
+export function getOrganization(id: number): Promise<OrganizationDetails> {
+  return request<OrganizationDetails>(`/organizations/${id}`);
+}
+
+/** Правка организации: ответ — то, что сохранил основной API. */
+export function updateOrganization(
+  id: number,
+  payload: OrganizationUpdate,
+): Promise<OrganizationDetails> {
+  return request<OrganizationDetails>(`/organizations/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
 }

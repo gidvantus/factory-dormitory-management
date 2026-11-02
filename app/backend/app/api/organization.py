@@ -206,7 +206,7 @@ EditableMembership = Annotated[OrganizationMember, Depends(require_organization_
 OwnerMembership = Annotated[OrganizationMember, Depends(require_organization_owner)]
 
 
-def _load_organization(db: Session, organization_id: int) -> Organization:
+def load_organization(db: Session, organization_id: int) -> Organization:
     organization = db.get(Organization, organization_id)
     if organization is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, ORGANIZATION_NOT_FOUND_DETAIL)
@@ -332,7 +332,7 @@ def _ensure_member_limit(db: Session, user: User, organization_id: int) -> None:
 )
 def read_organization(membership: Membership, db: DbSession) -> OrganizationResponse:
     """Любой участник организации, роль не важна: это чтение своих данных."""
-    return OrganizationResponse.model_validate(_load_organization(db, membership.organization_id))
+    return OrganizationResponse.model_validate(load_organization(db, membership.organization_id))
 
 
 @router.get(
@@ -370,7 +370,7 @@ def lookup_organization(
     # Занятый ИНН проверяется до похода в DaData: реквизиты чужой организации
     # пользователю не нужны, а ИНН в базе уникален — сохранить его всё равно
     # нельзя. Так о конфликте видно сразу при вводе, а не только после правки.
-    if _inn_taken(db, normalized, membership.organization_id):
+    if inn_taken(db, normalized, membership.organization_id):
         return OrganizationLookupResponse(found=False, reason="inn_taken", details=None)
 
     try:
@@ -422,9 +422,9 @@ def update_organization(
     membership: EditableMembership,
     db: DbSession,
 ) -> OrganizationResponse:
-    organization = _load_organization(db, membership.organization_id)
+    organization = load_organization(db, membership.organization_id)
 
-    if payload.inn is not None and _inn_taken(db, payload.inn, organization.id):
+    if payload.inn is not None and inn_taken(db, payload.inn, organization.id):
         raise HTTPException(status.HTTP_409_CONFLICT, INN_CONFLICT_DETAIL)
 
     organization.name = payload.name
@@ -442,7 +442,7 @@ def update_organization(
     return OrganizationResponse.model_validate(organization)
 
 
-def _inn_taken(db: Session, inn: str, organization_id: int) -> bool:
+def inn_taken(db: Session, inn: str, organization_id: int) -> bool:
     """Занят ли ИНН другой организацией. Своя собственная — не конфликт."""
     return (
         db.scalar(
