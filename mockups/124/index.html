@@ -3,14 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Макет #124 — тариф организации в левой панели</title>
+    <title>Макет #124 — карточка тарифа в левой панели</title>
     <style>
       /* ======================================================================
-         Макет постановки #124. Токены скопированы из app/frontend/src/index.css
-         (блок :root), компоненты панели — из src/workspace/Workspace.module.css,
-         кнопки — из index.css. Ни сборки, ни внешних файлов: один HTML.
-         Шрифты продукта — Nunito / Nunito Sans; по сети они не грузятся, при
-         отсутствии в системе работают запасные из стека продукта.
+         Макет постановки #124, вид B («спокойная карточка») — выбран человеком.
+         Токены скопированы из app/frontend/src/index.css (блок :root), компоненты
+         панели — из src/workspace/Workspace.module.css, кнопки — из index.css.
+         Ни сборки, ни внешних файлов: один HTML. Шрифты продукта — Nunito /
+         Nunito Sans; по сети макет их не грузит, при отсутствии работают
+         запасные из стека продукта.
          ====================================================================== */
 
       :root {
@@ -23,7 +24,6 @@
         --ink-900: #27313d;
         --ink-700: #3f4c5c;
         --ink-500: #4a5a6b;
-        --ink-300: #7b8794;
 
         --mint-100: #dceee4;
         --mint-200: #a9d6c1;
@@ -38,21 +38,15 @@
 
         --blue-600: #34679e;
 
-        --lilac-100: #e6e1f5;
-        --lilac-200: #c6bce8;
-        --violet-600: #5b4b9e;
-
         /* семантика */
         --color-bg-page: var(--cream-50);
         --color-bg-alt: var(--cream-100);
         --color-bg-surface: #ffffff;
-        --color-bg-tint: var(--cream-200);
         --color-border: var(--cream-200);
         --color-border-strong: var(--cream-300);
         --color-text: var(--ink-900);
         --color-text-body: var(--ink-500);
         --color-text-muted: #5c6a78;
-        --color-text-subtle: #9ba3a9;
         --color-accent: var(--mint-600);
         --color-accent-hover: var(--mint-700);
         --color-on-accent: #ffffff;
@@ -62,9 +56,7 @@
         --font-body: 'Nunito Sans', 'Nunito', 'Segoe UI', system-ui, sans-serif;
         --font-mono: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
 
-        --text-body: 1rem;
         --text-xs: 0.8125rem;
-        --leading-snug: 1.25;
 
         --radius-3xs: 8px;
         --radius-4xs: 9px;
@@ -91,8 +83,6 @@
         --gap-20: 20px;
         --gap-24: 24px;
         --gap-28: 28px;
-
-        --cookie-consent-height: 0px;
       }
 
       * {
@@ -151,7 +141,7 @@
 
       .doc h1 {
         margin-top: var(--gap-10);
-        max-width: 22ch;
+        max-width: 24ch;
         font: 900 34px/1.1 var(--font-display);
         letter-spacing: -0.5px;
       }
@@ -167,7 +157,6 @@
       .facts {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 0;
         margin-top: var(--gap-28);
         border-top: 1px solid var(--color-border-strong);
         border-bottom: 1px solid var(--color-border-strong);
@@ -226,7 +215,7 @@
         display: flex;
         flex-direction: column;
         width: 248px;
-        height: 900px;
+        height: 820px;
         padding: 28px 18px 18px;
         background: var(--color-bg-alt);
         border: 1px solid var(--color-border);
@@ -275,14 +264,10 @@
       .panel--narrow .brand-name {
         font-size: 22px;
       }
-      .brand-note {
-        margin: 12px 12px 34px;
-        color: var(--color-text-muted);
-        font-size: 12px;
-      }
-
+      /* Подписи «Учёт проживающих в общежитиях» больше нет: отступ между
+         логотипом и заголовком меню держит сам заголовок. */
       .nav-label {
-        margin: 0 12px 12px;
+        margin: 26px 12px 12px;
         color: var(--color-text-muted);
         font-size: 11px;
         letter-spacing: 0.07em;
@@ -321,13 +306,19 @@
       .nav-link[aria-current='page'] .icon {
         color: var(--mint-700);
       }
-      .nav-link--disabled {
-        color: var(--color-text-body);
-      }
 
       .sidebar-bottom {
         margin-top: auto;
         padding-top: 32px;
+      }
+      /* Список разделов — единственная гибкая часть панели: он забирает
+         свободную высоту, поэтому нижний блок всегда стоит под меню, а не
+         висит в пустоте. То же правило есть в продукте
+         (`.shell .sidebar > nav`). */
+      .panel > nav {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
       }
       .account-nav {
         padding-top: 17px;
@@ -435,210 +426,148 @@
         outline-offset: 3px;
       }
 
-      /* ---------- карточка тарифа: два вида ---------- */
+      /* ---------- карточка тарифа: спокойная, уплотнённая ---------- */
 
       .st-card {
         display: flex;
         flex-direction: column;
-        /* Высота одна на все состояния: загрузка не должна дёргать панель. */
-        min-height: 234px;
-        padding: 14px;
-        border: 1px solid transparent;
+        padding: 12px;
+        border: 1px solid var(--color-border-strong);
         border-radius: var(--radius-sm);
-        font: 13px/1.45 var(--font-body);
+        background: var(--color-bg-surface);
         color: var(--color-text);
+        font: 13px/1.4 var(--font-body);
         min-width: 0;
       }
-      .st-card[data-variant='a'] {
-        background: var(--lilac-100);
-        border-color: var(--lilac-200);
-      }
-      .st-card[data-variant='b'] {
-        background: var(--color-bg-surface);
-        border-color: var(--color-border-strong);
-      }
-      .st-card[data-state='locked'][data-variant='a'] {
-        background: var(--butter-100);
+      .st-card[data-state='locked'] {
         border-color: var(--butter-200);
-      }
-      .st-card[data-state='locked'][data-variant='b'] {
-        background: var(--color-bg-surface);
-        border-color: var(--butter-200);
-      }
-
-      .st-card__top {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        min-height: 30px;
-      }
-      .tile {
-        display: grid;
-        place-items: center;
-        flex: none;
-        width: 30px;
-        height: 30px;
-        border-radius: var(--radius-3xs);
-        background: var(--lilac-200);
-        color: var(--violet-600);
-      }
-      .tile .icon {
-        width: 17px;
-        height: 17px;
-      }
-      .st-card[data-state='locked'] .tile {
-        background: var(--butter-200);
-        color: var(--clay-700);
       }
 
       .st-card__overline {
-        font: 700 11px/1.25 var(--font-body);
-        color: var(--ink-500);
-      }
-      .st-card[data-variant='b'] .st-card__overline {
+        font: 700 11px/1.2 var(--font-body);
         color: var(--color-text-muted);
       }
-
       .st-card__name {
-        margin-top: 10px;
+        margin-top: 5px;
         min-width: 0;
         font: 900 16px/1.2 var(--font-display);
         color: var(--color-text);
         overflow-wrap: anywhere;
       }
       .st-card__desc {
-        margin-top: 4px;
+        margin-top: 3px;
         min-width: 0;
         font-size: 12px;
-        line-height: 1.45;
-        color: var(--ink-500);
+        line-height: 1.4;
+        color: var(--color-text-muted);
         overflow-wrap: anywhere;
       }
-      .st-card[data-variant='b'] .st-card__desc {
-        color: var(--color-text-muted);
-      }
       .st-card__note {
-        margin-top: 4px;
+        margin-top: 3px;
         font-size: 12px;
         line-height: 1.45;
-        color: var(--ink-500);
-      }
-      .st-card[data-variant='b'] .st-card__note {
         color: var(--color-text-muted);
       }
 
-      /* Срок: у вида A — плашка на lilac-200, у вида B — строка под волосяной
-         линией. Внутри лиловой плашки текст только --ink-900/--ink-700:
-         --violet-600 на --lilac-200 даёт 3,98:1, для текста этого мало. */
+      /* Срок: строка под волосяной линией, между строками 2 px. */
       .st-card__term {
-        margin-top: 12px;
+        margin-top: 10px;
+        padding-top: 8px;
+        border-top: 1px solid var(--color-border);
         display: grid;
         gap: 2px;
         min-width: 0;
       }
-      .st-card[data-variant='a'] .st-card__term {
-        padding: 8px 10px;
-        border-radius: var(--radius-3xs);
-        background: var(--lilac-200);
-      }
-      .st-card[data-variant='b'] .st-card__term {
-        padding-top: 10px;
-        border-top: 1px solid var(--color-border);
-      }
       .st-card__date {
         min-width: 0;
-        font: 800 13px/1.35 var(--font-display);
-        color: var(--color-text);
-        overflow-wrap: anywhere;
-      }
-      .st-card[data-variant='b'] .st-card__date {
-        font-weight: 900;
+        font: 900 13px/1.3 var(--font-display);
         color: var(--mint-700);
+        overflow-wrap: anywhere;
       }
       .st-card__rest {
         min-width: 0;
         font-size: 11px;
-        line-height: 1.35;
-        color: var(--ink-700);
+        line-height: 1.3;
+        color: var(--color-text-muted);
         overflow-wrap: anywhere;
       }
-      .st-card[data-variant='b'] .st-card__rest {
-        color: var(--color-text-muted);
-      }
-      /* «Осталось 5 дней»: срок поджимает. Отличается весом и словом кнопки,
-         не цветом: цветом состояние не кодируется. */
+      /* «Осталось 5 дней»: отличается весом и словом кнопки, не цветом. */
       .st-card[data-state='expiring'] .st-card__rest {
         color: var(--color-text);
         font-weight: 700;
         font-size: 12px;
       }
-
       .st-card__price {
         min-width: 0;
-        font: 900 14px/1.3 var(--font-display);
-        color: var(--color-text);
-        overflow-wrap: anywhere;
-      }
-      .st-card[data-variant='b'] .st-card__price {
+        font: 900 14px/1.25 var(--font-display);
         color: var(--mint-700);
+        overflow-wrap: anywhere;
       }
 
       .st-card__flag {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        font: 700 11px/1.25 var(--font-body);
+        gap: 5px;
+        font: 700 11px/1.2 var(--font-body);
         color: var(--clay-700);
       }
       .st-card__flag .icon {
         width: 14px;
         height: 14px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
 
+      /* Кнопка идёт сразу за сроком: пустого места в карточке нет. */
       .st-card__action {
-        margin-top: auto;
-        padding-top: 12px;
+        padding-top: 10px;
+      }
+
+      /* Высоту держит только загрузка — чтобы при появлении данных панель
+         не прыгала. min-height равен высоте карточки с тарифом (≈200 px). */
+      .st-card[data-state='loading'] {
+        min-height: 200px;
       }
 
       .skeleton {
         display: grid;
-        gap: 8px;
-        margin-top: 14px;
+        gap: 7px;
+        margin-top: 10px;
       }
       .skeleton span {
         display: block;
-        height: 10px;
+        height: 9px;
         border-radius: 3px;
         background: color-mix(in srgb, var(--ink-900) 9%, transparent);
       }
       .skeleton span:nth-child(1) {
-        width: 62%;
-        height: 15px;
+        width: 44%;
+        height: 14px;
       }
       .skeleton span:nth-child(2) {
-        width: 88%;
+        width: 82%;
       }
       .skeleton span:nth-child(3) {
-        width: 74%;
-      }
-      .skeleton--a span {
-        background: color-mix(in srgb, var(--violet-600) 16%, transparent);
+        width: 66%;
       }
 
-      /* ---------- показ панелей ---------- */
+      /* ---------- показ панели ---------- */
 
-      .variants {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 40px 56px;
-        margin-top: var(--gap-24);
-        align-items: flex-start;
+      .frame {
+        position: relative;
+        width: fit-content;
       }
-      .variant {
-        display: flex;
-        flex-direction: column;
-        gap: var(--gap-12);
-        max-width: 372px;
+      .frame__note {
+        max-width: 40ch;
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--color-text-body);
+      }
+      .frame__note b {
+        color: var(--color-text);
       }
       .variant__head {
         display: flex;
@@ -652,47 +581,15 @@
         font-size: 12px;
         color: var(--color-text-muted);
       }
-      .variant__note {
-        max-width: 40ch;
-        font-size: 12px;
-        line-height: 1.6;
-        color: var(--color-text-body);
-      }
-      .variant__note b {
-        color: var(--color-text);
-      }
-
-      /* заголовок панели в макете — не часть продукта */
-      .frame {
-        position: relative;
-        width: fit-content;
-      }
 
       /* ---------- сетка состояний ---------- */
 
-      .states-group + .states-group {
-        margin-top: var(--gap-28);
-      }
-      .states-group__head {
-        display: flex;
-        align-items: baseline;
-        flex-wrap: wrap;
-        gap: var(--gap-8);
-        margin-top: var(--gap-24);
-        font-size: 13px;
-      }
-      .states-group__head b {
-        font-family: var(--font-display);
-        font-weight: 800;
-      }
-      .states-group__head span {
-        color: var(--color-text-muted);
-      }
       .states {
         display: grid;
-        grid-template-columns: repeat(4, 240px);
+        grid-template-columns: repeat(4, 236px);
         gap: 22px 24px;
-        margin-top: var(--gap-16);
+        margin-top: var(--gap-20);
+        align-items: start;
       }
       .state__label {
         margin-bottom: var(--gap-8);
@@ -700,8 +597,8 @@
         color: var(--color-text);
       }
       .state__slot {
-        width: 240px;
-        padding: 14px;
+        width: 236px;
+        padding: 12px;
         background: var(--color-bg-alt);
         border: 1px solid var(--color-border);
       }
@@ -756,7 +653,7 @@
         padding: var(--gap-20);
         background: var(--color-bg-surface);
         border: 1px solid var(--color-border-strong);
-        border-radius: var(--radius-md, 18px);
+        border-radius: var(--radius-md);
         font-size: var(--text-xs);
       }
       .ribbon .iconTile {
@@ -914,7 +811,7 @@
       .phone {
         position: relative;
         width: 375px;
-        height: 900px;
+        height: 820px;
         overflow: hidden;
         background: var(--color-bg-page);
         border: 1px solid var(--color-border-strong);
@@ -1015,7 +912,7 @@
           padding-right: 0;
         }
         .states {
-          grid-template-columns: repeat(2, 240px);
+          grid-template-columns: repeat(2, 236px);
         }
       }
 
@@ -1040,15 +937,8 @@
         .facts > div:last-child {
           border-bottom: 0;
         }
-        .variants {
-          gap: 32px;
-        }
-        .variant,
-        .variant__note {
-          max-width: 100%;
-        }
         .states {
-          grid-template-columns: 240px;
+          grid-template-columns: 236px;
         }
         .compare__row {
           grid-template-columns: 1fr;
@@ -1079,7 +969,6 @@
 
       @media (prefers-reduced-motion: reduce) {
         .btn,
-        .st-card,
         .panel {
           transition: none !important;
         }
@@ -1093,13 +982,14 @@
           <span>Домовой · макет постановки</span>
           <code>issue #124</code>
           <span>·</span>
-          <span>не реализация: продуктовый код не меняется</span>
+          <span>вид B выбран, карточка уплотнена</span>
         </p>
         <h1>Тариф организации в левой панели</h1>
         <p class="doc__lede">
-          Карточка «Текущий тариф» встаёт первым блоком нижней части панели и становится единственным
-          местом, где тариф назван в кабинете. Лента «Ваш тариф» с обзора удаляется. Дата действия
-          обязательна и стоит в карточке так, чтобы её было видно при беглом взгляде на меню.
+          Выбран спокойный вид: белая карточка с волосяной рамкой и мятным сроком. В этом проходе она
+          стала компактнее — шаг между строками 3–10 px вместо 12–30, отступы карточки 12 px вместо
+          14, кнопка идёт сразу за сроком. Подпись «Учёт проживающих в общежитиях» под логотипом
+          снята.
         </p>
 
         <dl class="facts">
@@ -1112,8 +1002,8 @@
             <dd>Панель 248 px, карточка 212 px. До 1100 px — панель 220, карточка 196</dd>
           </div>
           <div>
-            <dt>Вид</dt>
-            <dd>Два варианта, выбор по картинке. Внедряется один, после согласования</dd>
+            <dt>Высота</dt>
+            <dd>По содержимому, ≈200 px с тарифом; фиксированная — только у загрузки</dd>
           </div>
           <div>
             <dt>Срок</dt>
@@ -1123,302 +1013,148 @@
       </header>
 
       <!-- ==================================================================
-           Два вида карточки
+           Карточка на своём месте
            ================================================================== -->
-      <section class="section" aria-labelledby="variants-title">
+      <section class="section" aria-labelledby="placement-title">
         <div class="section__head">
-          <h2 id="variants-title">Два вида карточки на своём месте</h2>
-          <p class="section__note">панель 248 × 900 px, состояние «куплен, срок известен»</p>
+          <h2 id="placement-title">Карточка на своём месте</h2>
+          <p class="section__note">панель 248 × 820 px, состояние «куплен, срок известен»</p>
         </div>
         <p class="section__intro">
-          Обе панели собраны из стилей продукта: бренд, меню разделов, нижний блок и аккаунт — как в
-          кабинете. Меняется только карточка, поэтому разницу видно на одном экране.
+          Панель собрана из стилей продукта: бренд, меню разделов, нижний блок и аккаунт. Логотип
+          теперь стоит без подписи — меню начинается через 26 px, поэтому верх панели короче на 46 px.
+          Карточка — первый блок нижней части, между списком разделов и «Учётной записью».
         </p>
 
-        <div class="variants">
-          <article class="variant">
-            <div class="variant__head">
-              <p class="variant__name">Вид A · План-карточка</p>
-              <p class="variant__kind">лиловая подложка, плитка-иконка</p>
-            </div>
-            <div class="frame">
-              <aside class="panel" aria-label="Боковая панель, вид A">
-                <a class="brand" href="#variants-title" aria-label="Домовой — главная">
-                  <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
-                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
-                    <g
-                      fill="none"
-                      stroke="#27313D"
-                      stroke-width="3"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
-                    </g>
-                  </svg>
-                  <span class="brand-name">Домовой</span>
-                </a>
-                <p class="brand-note">Учёт проживающих в общежитиях</p>
-                <nav aria-label="Основные разделы">
-                  <p class="nav-label">Рабочее пространство</p>
-                  <ul class="nav-list">
-                    <li>
-                      <a class="nav-link" href="#variants-title" aria-current="page">
-                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                          <rect x="3" y="3" width="8" height="8" rx="2" />
-                          <rect x="13" y="3" width="8" height="5" rx="2" />
-                          <rect x="13" y="10" width="8" height="11" rx="2" />
-                          <rect x="3" y="13" width="8" height="8" rx="2" />
-                        </svg>
-                        Обзор
-                      </a>
-                    </li>
-                    <li>
-                      <a class="nav-link" href="#variants-title">
-                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M3 21h18M5 21V8l7-5 7 5v13M10 21v-5h4v5M9 11h.01M15 11h.01" />
-                        </svg>
-                        Общежития
-                      </a>
-                    </li>
-                    <li>
-                      <a class="nav-link" href="#variants-title">
-                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
-                          <path d="M14 3v5h5M9 13h6M9 17h6" />
-                        </svg>
-                        Документы
-                      </a>
-                    </li>
-                    <li>
-                      <a class="nav-link" href="#variants-title">
-                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                          <circle cx="9" cy="7" r="4" />
-                          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                        </svg>
-                        Персонал
-                      </a>
-                    </li>
-                    <li>
-                      <a class="nav-link" href="#variants-title">
-                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                          <circle cx="12" cy="12" r="9" />
-                          <path d="M12 11v6M12 7h.01" />
-                        </svg>
-                        Магазин улучшений
-                      </a>
-                    </li>
-                  </ul>
-                </nav>
-
-                <div class="sidebar-bottom">
-                  <!-- Карточка тарифа -->
-                  <section class="st-card" data-variant="a" data-state="paid" aria-labelledby="a-paid-name">
-                    <div class="st-card__top">
-                      <span class="tile" aria-hidden="true">
-                        <svg class="icon" viewBox="0 0 24 24">
-                          <path d="M3 3v18h18" />
-                          <rect x="6" y="12" width="3.2" height="6" rx="1" />
-                          <rect x="11" y="8" width="3.2" height="10" rx="1" />
-                          <rect x="16" y="14" width="3.2" height="4" rx="1" />
-                        </svg>
-                      </span>
-                      <p class="st-card__overline">Текущий тариф</p>
-                    </div>
-                    <h3 class="st-card__name" id="a-paid-name">Рост</h3>
-                    <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
-                    <p class="st-card__term">
-                      <strong class="st-card__date">Оплачен до 02.12.2026</strong>
-                      <span class="st-card__rest">осталось 12 дней</span>
-                    </p>
-                    <div class="st-card__action">
-                      <a class="btn btn--primary btn--compact btn--block" href="#pricing">О тарифе</a>
-                    </div>
-                  </section>
-
-                  <nav class="account-nav" aria-label="Учётная запись">
-                    <a class="nav-link" href="#variants-title">
+        <div class="variant">
+          <div class="frame">
+            <aside class="panel" aria-label="Боковая панель кабинета">
+              <a class="brand" href="#placement-title" aria-label="Домовой — главная">
+                <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+                  <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                  <g
+                    fill="none"
+                    stroke="#27313D"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                  </g>
+                </svg>
+                <span class="brand-name">Домовой</span>
+              </a>
+              <nav aria-label="Основные разделы">
+                <p class="nav-label">Рабочее пространство</p>
+                <ul class="nav-list">
+                  <li>
+                    <a class="nav-link" href="#placement-title" aria-current="page">
                       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h3a1 1 0 0 1 1 1v11M2 21h20" />
-                        <path d="M8 7h1M8 11h1M8 15h1M12 7h1M12 11h1M12 15h1" />
+                        <rect x="3" y="3" width="8" height="8" rx="2" />
+                        <rect x="13" y="3" width="8" height="5" rx="2" />
+                        <rect x="13" y="10" width="8" height="11" rx="2" />
+                        <rect x="3" y="13" width="8" height="8" rx="2" />
                       </svg>
-                      Организация
+                      Обзор
                     </a>
-                    <a class="nav-link" href="#variants-title">
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#placement-title">
+                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M3 21h18M5 21V8l7-5 7 5v13M10 21v-5h4v5M9 11h.01M15 11h.01" />
+                      </svg>
+                      Общежития
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#placement-title">
+                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
+                        <path d="M14 3v5h5M9 13h6M9 17h6" />
+                      </svg>
+                      Документы
+                    </a>
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#placement-title">
                       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
                         <circle cx="9" cy="7" r="4" />
                         <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
                       </svg>
-                      Сотрудники
+                      Персонал
                     </a>
-                    <a class="nav-link" href="#variants-title">
+                  </li>
+                  <li>
+                    <a class="nav-link" href="#placement-title">
                       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <circle cx="12" cy="8" r="4" />
-                        <path d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2" />
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M12 11v6M12 7h.01" />
                       </svg>
-                      Личные данные
+                      Магазин улучшений
                     </a>
-                  </nav>
-                  <div class="account">
-                    <span class="account-avatar" aria-hidden="true">ИИ</span>
-                    <div class="account-info">
-                      <p class="account-name">Иванов Иван Иванович</p>
-                      <p class="account-email">ivanov@zavod-ural.ru</p>
-                    </div>
-                    <button class="logout" type="button" title="Выйти" aria-label="Выйти">
-                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </aside>
-            </div>
-            <p class="variant__note">
-              <b>Что подчёркивает:</b> тариф — отдельный предмет в панели, а не ещё одна строка меню.
-              Лиловая подложка держит взгляд на сроке, мятная кнопка остаётся единственным действием.
-            </p>
-          </article>
+                  </li>
+                </ul>
+              </nav>
 
-          <article class="variant">
-            <div class="variant__head">
-              <p class="variant__name">Вид B · Спокойная карточка</p>
-              <p class="variant__kind">белая, волосяная рамка, мятный срок</p>
-            </div>
-            <div class="frame">
-              <aside class="panel" aria-label="Боковая панель, вид B">
-                <a class="brand" href="#variants-title" aria-label="Домовой — главная">
-                  <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
-                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
-                    <g
-                      fill="none"
-                      stroke="#27313D"
-                      stroke-width="3"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
-                    </g>
-                  </svg>
-                  <span class="brand-name">Домовой</span>
-                </a>
-                <p class="brand-note">Учёт проживающих в общежитиях</p>
-                <nav aria-label="Основные разделы">
-                  <p class="nav-label">Рабочее пространство</p>
-                  <ul class="nav-list">
-                    <li>
-                      <a class="nav-link" href="#variants-title" aria-current="page">
-                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                          <rect x="3" y="3" width="8" height="8" rx="2" />
-                          <rect x="13" y="3" width="8" height="5" rx="2" />
-                          <rect x="13" y="10" width="8" height="11" rx="2" />
-                          <rect x="3" y="13" width="8" height="8" rx="2" />
-                        </svg>
-                        Обзор
-                      </a>
-                    </li>
-                    <li>
-                      <a class="nav-link" href="#variants-title">
-                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M3 21h18M5 21V8l7-5 7 5v13M10 21v-5h4v5M9 11h.01M15 11h.01" />
-                        </svg>
-                        Общежития
-                      </a>
-                    </li>
-                    <li>
-                      <a class="nav-link" href="#variants-title">
-                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M6 3h8l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" />
-                          <path d="M14 3v5h5M9 13h6M9 17h6" />
-                        </svg>
-                        Документы
-                      </a>
-                    </li>
-                    <li>
-                      <a class="nav-link" href="#variants-title">
-                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                          <circle cx="9" cy="7" r="4" />
-                          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                        </svg>
-                        Персонал
-                      </a>
-                    </li>
-                    <li>
-                      <a class="nav-link" href="#variants-title">
-                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                          <circle cx="12" cy="12" r="9" />
-                          <path d="M12 11v6M12 7h.01" />
-                        </svg>
-                        Магазин улучшений
-                      </a>
-                    </li>
-                  </ul>
+              <div class="sidebar-bottom">
+                <section class="st-card" data-state="paid">
+                  <p class="st-card__overline">Текущий тариф</p>
+                  <h3 class="st-card__name">Рост</h3>
+                  <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
+                  <p class="st-card__term">
+                    <strong class="st-card__date">Оплачен до 02.12.2026</strong>
+                    <span class="st-card__rest">осталось 12 дней</span>
+                  </p>
+                  <div class="st-card__action">
+                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">О тарифе</a>
+                  </div>
+                </section>
+
+                <nav class="account-nav" aria-label="Учётная запись">
+                  <a class="nav-link" href="#placement-title">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h3a1 1 0 0 1 1 1v11M2 21h20" />
+                      <path d="M8 7h1M8 11h1M8 15h1M12 7h1M12 11h1M12 15h1" />
+                    </svg>
+                    Организация
+                  </a>
+                  <a class="nav-link" href="#placement-title">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                    </svg>
+                    Сотрудники
+                  </a>
+                  <a class="nav-link" href="#placement-title">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <circle cx="12" cy="8" r="4" />
+                      <path d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2" />
+                    </svg>
+                    Личные данные
+                  </a>
                 </nav>
-
-                <div class="sidebar-bottom">
-                  <section class="st-card" data-variant="b" data-state="paid" aria-labelledby="b-paid-name">
-                    <div class="st-card__top">
-                      <p class="st-card__overline">Текущий тариф</p>
-                    </div>
-                    <h3 class="st-card__name" id="b-paid-name">Рост</h3>
-                    <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
-                    <p class="st-card__term">
-                      <strong class="st-card__date">Оплачен до 02.12.2026</strong>
-                      <span class="st-card__rest">осталось 12 дней</span>
-                    </p>
-                    <div class="st-card__action">
-                      <a class="btn btn--primary btn--compact btn--block" href="#pricing">О тарифе</a>
-                    </div>
-                  </section>
-
-                  <nav class="account-nav" aria-label="Учётная запись">
-                    <a class="nav-link" href="#variants-title">
-                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h3a1 1 0 0 1 1 1v11M2 21h20" />
-                        <path d="M8 7h1M8 11h1M8 15h1M12 7h1M12 11h1M12 15h1" />
-                      </svg>
-                      Организация
-                    </a>
-                    <a class="nav-link" href="#variants-title">
-                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                        <circle cx="9" cy="7" r="4" />
-                        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                      </svg>
-                      Сотрудники
-                    </a>
-                    <a class="nav-link" href="#variants-title">
-                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <circle cx="12" cy="8" r="4" />
-                        <path d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2" />
-                      </svg>
-                      Личные данные
-                    </a>
-                  </nav>
-                  <div class="account">
-                    <span class="account-avatar" aria-hidden="true">ИИ</span>
-                    <div class="account-info">
-                      <p class="account-name">Иванов Иван Иванович</p>
-                      <p class="account-email">ivanov@zavod-ural.ru</p>
-                    </div>
-                    <button class="logout" type="button" title="Выйти" aria-label="Выйти">
-                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" />
-                      </svg>
-                    </button>
+                <div class="account">
+                  <span class="account-avatar" aria-hidden="true">ИИ</span>
+                  <div class="account-info">
+                    <p class="account-name">Иванов Иван Иванович</p>
+                    <p class="account-email">ivanov@zavod-ural.ru</p>
                   </div>
+                  <button class="logout" type="button" title="Выйти" aria-label="Выйти">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" />
+                    </svg>
+                  </button>
                 </div>
-              </aside>
-            </div>
-            <p class="variant__note">
-              <b>Что подчёркивает:</b> тариф не спорит с меню: панель остаётся светлой, цветным
-              остаётся только срок. Заметность ниже — в обмен на то, что панель не дробится на
-              цветные блоки.
-            </p>
-          </article>
+              </div>
+            </aside>
+          </div>
+          <p class="frame__note">
+            <b>Что стало компактнее:</b> подпись сверху больше не занимает резервные 30 px, срок
+            отделён линией с шагом 8 px, кнопка стоит сразу за сроком — между текстами нет пустых
+            карманов. Осталось 12 px отступа карточки и 10 px до кнопки.
+          </p>
         </div>
       </section>
 
@@ -1428,375 +1164,165 @@
       <section class="section" aria-labelledby="states-title">
         <div class="section__head">
           <h2 id="states-title">Состояния карточки</h2>
-          <p class="section__note">карточка 212 px, 8 состояний × 2 вида</p>
+          <p class="section__note">карточка 212 px, 8 состояний</p>
         </div>
         <p class="section__intro">
-          Состояние задаётся данными, а не оформлением: цвет не единственный признак — у «закрыто» и
-          «ошибка» всегда есть свой текст. Высота карточки одна, поэтому загрузка не дёргает панель.
+          Карточка тянется по содержимому, поэтому «пробный» ниже «купленного», а «закрытый кабинет»
+          выше. Фиксированную высоту держит только загрузка — при появлении данных панель не прыгает.
+          Состояние не кодируется цветом: у «закрыто» и «ошибка» есть свой текст, у «осталось 5 дней»
+          — вес строки остатка и слово кнопки.
         </p>
 
-        <div class="states-group">
-          <p class="states-group__head"><b>Вид A · План-карточка</b> <span>лиловая подложка</span></p>
-          <div class="states">
-            <div class="state">
-              <p class="state__label">Пробный идёт</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="a" data-state="trial">
-                  <div class="st-card__top">
-                    <span class="tile" aria-hidden="true">
-                      <svg class="icon" viewBox="0 0 24 24">
-                        <path d="M3 21h18M5 21V8l7-5 7 5v13M10 21v-5h4v5M9 11h.01M15 11h.01" />
-                      </svg>
-                    </span>
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Пробный период</h3>
-                  <p class="st-card__term">
-                    <strong class="st-card__date">осталось 29 дней, до 01.12.2026</strong>
-                  </p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">Выбрать тариф</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="trial"</code>
+        <div class="states">
+          <div class="state">
+            <p class="state__label">Пробный идёт</p>
+            <div class="state__slot">
+              <section class="st-card" data-state="trial">
+                <p class="st-card__overline">Текущий тариф</p>
+                <h3 class="st-card__name">Пробный период</h3>
+                <p class="st-card__term">
+                  <strong class="st-card__date">осталось 29 дней, до 01.12.2026</strong>
+                </p>
+                <div class="st-card__action">
+                  <a class="btn btn--primary btn--compact btn--block" href="#pricing">Выбрать тариф</a>
+                </div>
+              </section>
             </div>
-
-            <div class="state">
-              <p class="state__label">Куплен, срок известен</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="a" data-state="paid">
-                  <div class="st-card__top">
-                    <span class="tile" aria-hidden="true">
-                      <svg class="icon" viewBox="0 0 24 24">
-                        <path d="M3 3v18h18" />
-                        <rect x="6" y="12" width="3.2" height="6" rx="1" />
-                        <rect x="11" y="8" width="3.2" height="10" rx="1" />
-                        <rect x="16" y="14" width="3.2" height="4" rx="1" />
-                      </svg>
-                    </span>
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Рост</h3>
-                  <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
-                  <p class="st-card__term">
-                    <strong class="st-card__date">Оплачен до 02.12.2026</strong>
-                    <span class="st-card__rest">осталось 12 дней</span>
-                  </p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">О тарифе</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="paid"</code>
-            </div>
-
-            <div class="state">
-              <p class="state__label">Осталось 5 дней</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="a" data-state="expiring">
-                  <div class="st-card__top">
-                    <span class="tile" aria-hidden="true">
-                      <svg class="icon" viewBox="0 0 24 24">
-                        <path d="M3 3v18h18" />
-                        <rect x="6" y="12" width="3.2" height="6" rx="1" />
-                        <rect x="11" y="8" width="3.2" height="10" rx="1" />
-                        <rect x="16" y="14" width="3.2" height="4" rx="1" />
-                      </svg>
-                    </span>
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Рост</h3>
-                  <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
-                  <p class="st-card__term">
-                    <strong class="st-card__date">Оплачен до 12.11.2026</strong>
-                    <span class="st-card__rest">осталось 5 дней</span>
-                  </p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">Продлить тариф</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="paid" · is_expiring</code>
-            </div>
-
-            <div class="state">
-              <p class="state__label">Бессрочный тариф</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="a" data-state="paid">
-                  <div class="st-card__top">
-                    <span class="tile" aria-hidden="true">
-                      <svg class="icon" viewBox="0 0 24 24">
-                        <path d="M3 3v18h18" />
-                        <rect x="6" y="12" width="3.2" height="6" rx="1" />
-                        <rect x="11" y="8" width="3.2" height="10" rx="1" />
-                        <rect x="16" y="14" width="3.2" height="4" rx="1" />
-                      </svg>
-                    </span>
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Годовой без ограничения срока</h3>
-                  <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
-                  <p class="st-card__term">
-                    <strong class="st-card__price">9 900 ₽ в месяц</strong>
-                  </p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">О тарифе</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="paid" · ends_at = null</code>
-            </div>
-
-            <div class="state">
-              <p class="state__label">Кабинет закрыт</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="a" data-state="locked">
-                  <div class="st-card__top">
-                    <span class="tile" aria-hidden="true">
-                      <svg class="icon" viewBox="0 0 24 24">
-                        <rect x="4" y="10" width="16" height="11" rx="3" />
-                        <path d="M8 10V7a4 4 0 0 1 8 0v3M12 15v2" />
-                      </svg>
-                    </span>
-                    <p class="st-card__overline">Доступ закрыт</p>
-                  </div>
-                  <h3 class="st-card__name">Кабинет закрыт</h3>
-                  <p class="st-card__note">
-                    Срок тарифа или пробного периода закончился. Данные и сотрудники сохранены.
-                  </p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">Выбрать тариф</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="locked"</code>
-            </div>
-
-            <div class="state">
-              <p class="state__label">Загрузка</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="a" data-state="loading">
-                  <div class="st-card__top">
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <p class="st-card__note" role="status">Загружаем тариф…</p>
-                  <div class="skeleton skeleton--a" aria-hidden="true">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="none" · загрузка</code>
-            </div>
-
-            <div class="state">
-              <p class="state__label">Ошибка загрузки</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="a" data-state="error">
-                  <div class="st-card__top">
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Не удалось загрузить тариф</h3>
-                  <p class="st-card__note">Сервер не ответил. Проверьте соединение и повторите.</p>
-                  <div class="st-card__action">
-                    <button class="btn btn--ghost btn--compact btn--block" type="button">Повторить</button>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="none" · error</code>
-            </div>
-
-            <div class="state">
-              <p class="state__label">Тарифа нет</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="a" data-state="none">
-                  <div class="st-card__top">
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Тариф не выбран</h3>
-                  <p class="st-card__note">Его условия появятся здесь после покупки.</p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">Выбрать тариф</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="none"</code>
-            </div>
+            <code class="state__code">data-access="trial"</code>
           </div>
-        </div>
 
-        <div class="states-group">
-          <p class="states-group__head"><b>Вид B · Спокойная карточка</b> <span>белая, мятный срок</span></p>
-          <div class="states">
-            <div class="state">
-              <p class="state__label">Пробный идёт</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="b" data-state="trial">
-                  <div class="st-card__top">
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Пробный период</h3>
-                  <p class="st-card__term">
-                    <strong class="st-card__date">осталось 29 дней, до 01.12.2026</strong>
-                  </p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">Выбрать тариф</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="trial"</code>
+          <div class="state">
+            <p class="state__label">Куплен, срок известен</p>
+            <div class="state__slot">
+              <section class="st-card" data-state="paid">
+                <p class="st-card__overline">Текущий тариф</p>
+                <h3 class="st-card__name">Рост</h3>
+                <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
+                <p class="st-card__term">
+                  <strong class="st-card__date">Оплачен до 02.12.2026</strong>
+                  <span class="st-card__rest">осталось 12 дней</span>
+                </p>
+                <div class="st-card__action">
+                  <a class="btn btn--primary btn--compact btn--block" href="#pricing">О тарифе</a>
+                </div>
+              </section>
             </div>
+            <code class="state__code">data-access="paid"</code>
+          </div>
 
-            <div class="state">
-              <p class="state__label">Куплен, срок известен</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="b" data-state="paid">
-                  <div class="st-card__top">
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Рост</h3>
-                  <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
-                  <p class="st-card__term">
-                    <strong class="st-card__date">Оплачен до 02.12.2026</strong>
-                    <span class="st-card__rest">осталось 12 дней</span>
-                  </p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">О тарифе</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="paid"</code>
+          <div class="state">
+            <p class="state__label">Осталось 5 дней</p>
+            <div class="state__slot">
+              <section class="st-card" data-state="expiring">
+                <p class="st-card__overline">Текущий тариф</p>
+                <h3 class="st-card__name">Рост</h3>
+                <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
+                <p class="st-card__term">
+                  <strong class="st-card__date">Оплачен до 12.11.2026</strong>
+                  <span class="st-card__rest">осталось 5 дней</span>
+                </p>
+                <div class="st-card__action">
+                  <a class="btn btn--primary btn--compact btn--block" href="#pricing">Продлить тариф</a>
+                </div>
+              </section>
             </div>
+            <code class="state__code">data-access="paid" · is_expiring</code>
+          </div>
 
-            <div class="state">
-              <p class="state__label">Осталось 5 дней</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="b" data-state="expiring">
-                  <div class="st-card__top">
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Рост</h3>
-                  <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
-                  <p class="st-card__term">
-                    <strong class="st-card__date">Оплачен до 12.11.2026</strong>
-                    <span class="st-card__rest">осталось 5 дней</span>
-                  </p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">Продлить тариф</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="paid" · is_expiring</code>
+          <div class="state">
+            <p class="state__label">Бессрочный тариф</p>
+            <div class="state__slot">
+              <section class="st-card" data-state="paid">
+                <p class="st-card__overline">Текущий тариф</p>
+                <h3 class="st-card__name">Годовой без ограничения срока</h3>
+                <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
+                <p class="st-card__term">
+                  <strong class="st-card__price">9 900 ₽ в месяц</strong>
+                </p>
+                <div class="st-card__action">
+                  <a class="btn btn--primary btn--compact btn--block" href="#pricing">О тарифе</a>
+                </div>
+              </section>
             </div>
+            <code class="state__code">data-access="paid" · ends_at = null</code>
+          </div>
 
-            <div class="state">
-              <p class="state__label">Бессрочный тариф</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="b" data-state="paid">
-                  <div class="st-card__top">
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Годовой без ограничения срока</h3>
-                  <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
-                  <p class="st-card__term">
-                    <strong class="st-card__price">9 900 ₽ в месяц</strong>
-                  </p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">О тарифе</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="paid" · ends_at = null</code>
+          <div class="state">
+            <p class="state__label">Кабинет закрыт</p>
+            <div class="state__slot">
+              <section class="st-card" data-state="locked">
+                <p class="st-card__flag">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="4" y="10" width="16" height="11" rx="3" />
+                    <path d="M8 10V7a4 4 0 0 1 8 0v3M12 15v2" />
+                  </svg>
+                  Доступ закрыт
+                </p>
+                <h3 class="st-card__name">Кабинет закрыт</h3>
+                <p class="st-card__note">
+                  Срок тарифа или пробного периода закончился. Данные и сотрудники сохранены.
+                </p>
+                <div class="st-card__action">
+                  <a class="btn btn--primary btn--compact btn--block" href="#pricing">Выбрать тариф</a>
+                </div>
+              </section>
             </div>
+            <code class="state__code">data-access="locked"</code>
+          </div>
 
-            <div class="state">
-              <p class="state__label">Кабинет закрыт</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="b" data-state="locked">
-                  <div class="st-card__top">
-                    <p class="st-card__flag">
-                      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                        <rect x="4" y="10" width="16" height="11" rx="3" />
-                        <path d="M8 10V7a4 4 0 0 1 8 0v3M12 15v2" />
-                      </svg>
-                      Доступ закрыт
-                    </p>
-                  </div>
-                  <h3 class="st-card__name">Кабинет закрыт</h3>
-                  <p class="st-card__note">
-                    Срок тарифа или пробного периода закончился. Данные и сотрудники сохранены.
-                  </p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">Выбрать тариф</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="locked"</code>
+          <div class="state">
+            <p class="state__label">Загрузка</p>
+            <div class="state__slot">
+              <section class="st-card" data-state="loading">
+                <p class="st-card__overline">Текущий тариф</p>
+                <p class="st-card__note" role="status">Загружаем тариф…</p>
+                <div class="skeleton" aria-hidden="true">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </section>
             </div>
+            <code class="state__code">data-access="none" · загрузка</code>
+          </div>
 
-            <div class="state">
-              <p class="state__label">Загрузка</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="b" data-state="loading">
-                  <div class="st-card__top">
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <p class="st-card__note" role="status">Загружаем тариф…</p>
-                  <div class="skeleton" aria-hidden="true">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="none" · загрузка</code>
+          <div class="state">
+            <p class="state__label">Ошибка загрузки</p>
+            <div class="state__slot">
+              <section class="st-card" data-state="error">
+                <p class="st-card__overline">Текущий тариф</p>
+                <h3 class="st-card__name">Не удалось загрузить тариф</h3>
+                <p class="st-card__note">Сервер не ответил. Проверьте соединение и повторите.</p>
+                <div class="st-card__action">
+                  <button class="btn btn--ghost btn--compact btn--block" type="button">Повторить</button>
+                </div>
+              </section>
             </div>
+            <code class="state__code">data-access="none" · error</code>
+          </div>
 
-            <div class="state">
-              <p class="state__label">Ошибка загрузки</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="b" data-state="error">
-                  <div class="st-card__top">
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Не удалось загрузить тариф</h3>
-                  <p class="st-card__note">Сервер не ответил. Проверьте соединение и повторите.</p>
-                  <div class="st-card__action">
-                    <button class="btn btn--ghost btn--compact btn--block" type="button">Повторить</button>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="none" · error</code>
+          <div class="state">
+            <p class="state__label">Тарифа нет</p>
+            <div class="state__slot">
+              <section class="st-card" data-state="none">
+                <p class="st-card__overline">Текущий тариф</p>
+                <h3 class="st-card__name">Тариф не выбран</h3>
+                <p class="st-card__note">Его условия появятся здесь после покупки.</p>
+                <div class="st-card__action">
+                  <a class="btn btn--primary btn--compact btn--block" href="#pricing">Выбрать тариф</a>
+                </div>
+              </section>
             </div>
-
-            <div class="state">
-              <p class="state__label">Тарифа нет</p>
-              <div class="state__slot">
-                <section class="st-card" data-variant="b" data-state="none">
-                  <div class="st-card__top">
-                    <p class="st-card__overline">Текущий тариф</p>
-                  </div>
-                  <h3 class="st-card__name">Тариф не выбран</h3>
-                  <p class="st-card__note">Его условия появятся здесь после покупки.</p>
-                  <div class="st-card__action">
-                    <a class="btn btn--primary btn--compact btn--block" href="#pricing">Выбрать тариф</a>
-                  </div>
-                </section>
-              </div>
-              <code class="state__code">data-access="none"</code>
-            </div>
+            <code class="state__code">data-access="none"</code>
           </div>
         </div>
 
         <p class="states-note">
-          У вида A лиловая подложка остаётся у состояний с данными; «загрузка», «ошибка» и «тарифа
-          нет» — нейтральные, чтобы ошибка не читалась как согласованный тариф. «Кабинет закрыт» в
-          обоих видах говорит на butter-плашке продукта (<code>--butter-100/--butter-200</code>),
-          как <code>TrialNotice</code>. Подпись «текущий тариф» в лиловой карточке набрана
-          <code>--ink-500</code>, а не <code>--color-text-muted</code>: на <code>--lilac-100</code>
-          приглушённый даёт 4,29:1, а нужно не ниже 4,5:1.
+          Кнопка везде одна и того же размера, поэтому высота меняется только от текста. «Загружаем
+          тариф…» держит <code>min-height: 200px</code> — столько карточка занимает с тарифом; строки
+          скелета стоят на местах заголовка, описания и срока. Подпись «Текущий тариф» набрана
+          <code>--color-text-muted</code> (5,47:1 на белом), дата — <code>--mint-700</code> (6,78:1),
+          рамка — <code>--color-border-strong</code>.
         </p>
       </section>
 
@@ -1926,7 +1452,6 @@
                   </svg>
                   <span class="brand-name">Домовой</span>
                 </a>
-                <p class="brand-note">Учёт проживающих в общежитиях</p>
                 <nav aria-label="Основные разделы">
                   <p class="nav-label">Рабочее пространство</p>
                   <ul class="nav-list">
@@ -1971,18 +1496,8 @@
                 </nav>
 
                 <div class="sidebar-bottom">
-                  <section class="st-card" data-variant="a" data-state="expiring">
-                    <div class="st-card__top">
-                      <span class="tile" aria-hidden="true">
-                        <svg class="icon" viewBox="0 0 24 24">
-                          <path d="M3 3v18h18" />
-                          <rect x="6" y="12" width="3.2" height="6" rx="1" />
-                          <rect x="11" y="8" width="3.2" height="10" rx="1" />
-                          <rect x="16" y="14" width="3.2" height="4" rx="1" />
-                        </svg>
-                      </span>
-                      <p class="st-card__overline">Текущий тариф</p>
-                    </div>
+                  <section class="st-card" data-state="expiring">
+                    <p class="st-card__overline">Текущий тариф</p>
                     <h3 class="st-card__name">Расширенный</h3>
                     <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
                     <p class="st-card__term">
@@ -2062,7 +1577,6 @@
                     </svg>
                     <span class="brand-name">Домовой</span>
                   </a>
-                  <p class="brand-note">Учёт проживающих в общежитиях</p>
                   <nav aria-label="Основные разделы">
                     <p class="nav-label">Рабочее пространство</p>
                     <ul class="nav-list">
@@ -2117,18 +1631,8 @@
                   </nav>
 
                   <div class="sidebar-bottom">
-                    <section class="st-card" data-variant="a" data-state="paid">
-                      <div class="st-card__top">
-                        <span class="tile" aria-hidden="true">
-                          <svg class="icon" viewBox="0 0 24 24">
-                            <path d="M3 3v18h18" />
-                            <rect x="6" y="12" width="3.2" height="6" rx="1" />
-                            <rect x="11" y="8" width="3.2" height="10" rx="1" />
-                            <rect x="16" y="14" width="3.2" height="4" rx="1" />
-                          </svg>
-                        </span>
-                        <p class="st-card__overline">Текущий тариф</p>
-                      </div>
+                    <section class="st-card" data-state="paid">
+                      <p class="st-card__overline">Текущий тариф</p>
                       <h3 class="st-card__name">Рост</h3>
                       <p class="st-card__desc">Все разделы, расширенная отчётность и статистика</p>
                       <p class="st-card__term">
@@ -2192,8 +1696,8 @@
           зависимостей нет. Шрифты продукта — Nunito и Nunito Sans, по сети макет их не грузит.
         </p>
         <p>
-          Что в макет не входит, откуда берутся цифры и подписи к состояниям —
-          <code>mockups/124/notes.md</code>. Реализация — следующий шаг, после выбора вида и метки
+          Что в макет не входит, точные значения отступов и подписи к состояниям —
+          <code>mockups/124/notes.md</code>. Реализация — следующий шаг, после метки
           <code>ready-for-dev</code>.
         </p>
       </footer>
