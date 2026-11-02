@@ -1,0 +1,1282 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Макет #126 — кабинет оператора: вход и пустая страница</title>
+    <style>
+      /* ======================================================================
+         Макет постановки #126 — отдельное приложение «Кабинет оператора».
+
+         Токены скопированы из app/frontend/src/index.css (блок :root), шапка —
+         из src/workspace/Workspace.module.css (.shell .topbar, .brand), карточка
+         экрана — оттуда же (.shell .empty-state) и из .activate__card / .form /
+         .field / .btn / .alert в index.css. Ничего нового: ни палитры, ни
+         радиусов, ни шрифтов.
+
+         Шрифты продукта — Nunito / Nunito Sans; по сети макет их не грузит,
+         при отсутствии работает запасной стек продукта (Segoe UI). Сборки нет:
+         один HTML, открывается двойным щелчком.
+
+         Лист-обвязка (.sheet, .shot, .cap) — это рамка макета, а не продукт.
+         Продуктовое — всё внутри .screen.
+         ====================================================================== */
+
+      :root {
+        /* --- Слой 1: примитивы --- */
+        --cream-50: #fffdf9;
+        --cream-100: #fbf6ec;
+        --cream-200: #f4ebdc;
+        --cream-300: #e8dcc7;
+
+        --ink-900: #27313d;
+        --ink-700: #3f4c5c;
+        --ink-500: #4a5a6b;
+
+        --mint-100: #dceee4;
+        --mint-600: #2f7d62;
+        --mint-700: #26654f;
+
+        --peach-100: #fbe0d2;
+        --butter-100: #fcefc7;
+
+        --clay-700: #97431f;
+        --blue-600: #34679e;
+
+        /* --- Слой 2: семантика --- */
+        --color-bg-page: var(--cream-50);
+        --color-bg-alt: var(--cream-100);
+        --color-bg-surface: #ffffff;
+        --color-border: var(--cream-200);
+        --color-border-strong: var(--cream-300);
+
+        --color-text: var(--ink-900);
+        --color-text-body: var(--ink-500);
+        --color-text-muted: #5c6a78;
+        --color-text-placeholder: #7b8794;
+
+        --color-accent: var(--mint-600);
+        --color-accent-hover: var(--mint-700);
+        --color-on-accent: #ffffff;
+        --color-focus: var(--blue-600);
+        --focus-outline-width: 1px;
+        --color-danger: #9c3d24;
+
+        /* --- Типографика --- */
+        --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        --font-body: 'Nunito Sans', 'Nunito', 'Segoe UI', system-ui, sans-serif;
+
+        --text-sm: 0.9375rem;
+        --text-xs: 0.8125rem;
+        --leading-tight: 1.1;
+        --leading-snug: 1.25;
+
+        /* --- Форма и ритм --- */
+        --radius-4xs: 9px;
+        --radius-sm: 12px;
+        --radius-md: 18px;
+        --radius-pill: 999px;
+
+        --control-h-md: 39px;
+        --control-px-md: 15px;
+
+        --shadow-sm: 0 1px 2px rgba(39, 49, 61, 0.05);
+        --shadow-md: 0 10px 24px -14px rgba(39, 49, 61, 0.22);
+
+        --space-1: 0.25rem;
+        --space-2: 0.5rem;
+        --space-3: 0.75rem;
+        --space-4: 1rem;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--color-bg-alt);
+        color: var(--color-text);
+        font-family: var(--font-body);
+        font-size: 16px;
+        line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      :focus-visible {
+        outline: var(--focus-outline-width) solid var(--color-focus);
+        outline-offset: 3px;
+        border-radius: var(--radius-sm);
+      }
+
+      ::selection {
+        background: var(--butter-100);
+        color: var(--ink-900);
+      }
+
+      /* ======================================================================
+         Лист макета: заголовок, секции, подписи кадров. Это не продукт.
+         ====================================================================== */
+
+      .sheet {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding-bottom: 72px;
+      }
+
+      .sheet-head {
+        padding: 44px 40px 0;
+      }
+
+      .sheet-head h1 {
+        margin: 0;
+        font: 900 28px/1.2 var(--font-display);
+        letter-spacing: -0.7px;
+      }
+
+      .sheet-lead {
+        max-width: 62ch;
+        margin: 14px 0 0;
+        color: var(--color-text-body);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .sheet-meta {
+        max-width: 68ch;
+        margin: 12px 0 0;
+        color: var(--color-text-muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .sheet-meta code,
+      .sheet-lead code {
+        padding: 1px 5px;
+        border: 1px solid var(--color-border);
+        border-radius: 5px;
+        background: var(--color-bg-surface);
+        color: var(--color-text-body);
+        font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
+        font-size: 12px;
+      }
+
+      .block {
+        margin-top: 44px;
+      }
+
+      .block-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 14px;
+        padding: 0 40px;
+      }
+
+      .block-head h2 {
+        margin: 0;
+        font: 800 20px/1.3 var(--font-display);
+      }
+
+      .block-head p {
+        margin: 0;
+        max-width: 70ch;
+        color: var(--color-text-muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .shot {
+        margin-top: 18px;
+      }
+
+      .shot-label {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 2px 12px;
+        padding: 0 40px 10px;
+      }
+
+      .shot-name {
+        font: 800 14px/1.35 var(--font-display);
+      }
+
+      .shot-name span {
+        color: var(--color-text-muted);
+        font-weight: 700;
+      }
+
+      .shot-hint {
+        max-width: 76ch;
+        margin: 0;
+        color: var(--color-text-body);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .frame {
+        border-top: 1px solid var(--color-border-strong);
+        border-bottom: 1px solid var(--color-border-strong);
+        background: var(--color-bg-page);
+        overflow: hidden;
+      }
+
+      .phones {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 24px 28px;
+        padding: 0 40px;
+      }
+
+      .phone {
+        width: 375px;
+        max-width: 100%;
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-page);
+        box-shadow: var(--shadow-sm);
+        overflow: hidden;
+      }
+
+      /* Кадры 375 стоят в ряд: подпись у них без бокового отступа, верхний
+         отступ секции не нужен — ряд уже отбит от заголовка блока. */
+      .shot--phone {
+        margin-top: 0;
+      }
+
+      .shot--phone .shot-label {
+        padding: 0 0 10px;
+      }
+
+      .sheet-foot {
+        margin: 40px 40px 0;
+        padding-top: 16px;
+        border-top: 1px solid var(--color-border-strong);
+        color: var(--color-text-muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      /* ======================================================================
+         Продукт: каркас кабинета оператора.
+         Шапка — .shell .topbar / .brand из Workspace.module.css, значения те же.
+         ====================================================================== */
+
+      .screen {
+        display: flex;
+        flex-direction: column;
+        height: var(--screen-h, 600px);
+        background: var(--color-bg-page);
+        color: var(--color-text);
+        font-family: var(--font-body);
+        overflow: hidden;
+      }
+
+      .topbar {
+        display: flex;
+        flex: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        height: 76px;
+        padding: 0 40px;
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-bg-page);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        width: fit-content;
+        color: var(--color-text);
+        text-decoration: none;
+      }
+
+      .brand__mark {
+        display: block;
+        width: 42px;
+        height: 42px;
+        flex: none;
+      }
+
+      .brand__name {
+        font: 900 24px/1.15 var(--font-display);
+        letter-spacing: -0.6px;
+      }
+
+      .topbar__note {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13px;
+      }
+
+      .topbar__right {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      /* Логин, под которым открыт кабинет: сервер отдаёт только его. */
+      .account {
+        color: var(--color-text-muted);
+        font-size: 13px;
+      }
+
+      /* ======================================================================
+         Вход: .activate__card + .form / .field / .alert / .btn из index.css
+         ====================================================================== */
+
+      .login {
+        display: grid;
+        flex: 1;
+        place-items: center;
+        min-height: 0;
+        padding: 40px 40px 56px;
+      }
+
+      .card {
+        display: grid;
+        gap: 22px;
+        width: min(100%, 26rem);
+        padding: 34px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .card__head {
+        display: grid;
+        gap: 10px;
+      }
+
+      .card__title {
+        margin: 0;
+        font: 800 24px/1.25 var(--font-display);
+        letter-spacing: -0.5px;
+      }
+
+      .lead {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .form {
+        display: grid;
+        gap: var(--space-4);
+      }
+
+      .field {
+        display: grid;
+        gap: var(--space-2);
+      }
+
+      .field__label {
+        font-weight: 700;
+        font-size: var(--text-sm);
+      }
+
+      .field__input {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border: 2px solid var(--color-border-strong);
+        border-radius: var(--radius-sm);
+        background: var(--color-bg-surface);
+        color: var(--color-text);
+        font: inherit;
+        font-size: var(--text-sm);
+      }
+
+      .field__input::placeholder {
+        color: var(--color-text-placeholder);
+      }
+
+      .field__input[aria-invalid='true'] {
+        border-color: var(--color-danger);
+      }
+
+      .alert {
+        margin: 0;
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-sm);
+        font-size: var(--text-sm);
+        font-weight: 700;
+      }
+
+      .alert--error {
+        background: var(--peach-100);
+        color: var(--color-danger);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 48px;
+        padding: 0.75rem 1.5rem;
+        border: 2px solid transparent;
+        border-radius: var(--radius-pill);
+        background: none;
+        white-space: nowrap;
+        flex: none;
+        font-family: var(--font-display);
+        font-weight: 800;
+        font-size: var(--text-sm);
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          background-color 180ms ease,
+          color 180ms ease,
+          border-color 180ms ease,
+          transform 180ms ease,
+          box-shadow 180ms ease;
+      }
+
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .btn--primary {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+        box-shadow: var(--shadow-md);
+      }
+
+      .btn--primary:hover:not(:disabled) {
+        background: var(--color-accent-hover);
+        color: var(--color-on-accent);
+        transform: translateY(-2px);
+      }
+
+      .btn--ghost {
+        background: var(--color-bg-surface);
+        border-color: var(--color-border-strong);
+        color: var(--color-text);
+      }
+
+      .btn--ghost:hover:not(:disabled) {
+        background: var(--color-bg-alt);
+        border-color: var(--ink-900);
+        color: var(--color-text);
+      }
+
+      .btn--compact {
+        min-height: var(--control-h-md);
+        padding: 8px var(--control-px-md);
+        border-radius: var(--radius-4xs);
+        font-size: var(--text-xs);
+      }
+
+      .btn--block {
+        width: 100%;
+      }
+
+      /* «Идёт запрос»: кнопка неактивна, текст «Вход…», индикатор из index.css. */
+      .btn[aria-busy='true'] {
+        cursor: progress;
+      }
+
+      .btn[aria-busy='true']::after {
+        content: '';
+        width: 1em;
+        height: 1em;
+        border: 2px solid currentcolor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: btn-spin 700ms linear infinite;
+      }
+
+      @keyframes btn-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ======================================================================
+         После входа: пустая страница и строка проверки сессии.
+         ====================================================================== */
+
+      .screen__main {
+        flex: 1;
+        padding: 36px 40px 48px;
+      }
+
+      .empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        min-height: 260px;
+        padding: 32px 24px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-page);
+        text-align: center;
+      }
+
+      .empty__icon {
+        display: grid;
+        place-items: center;
+        width: 48px;
+        height: 48px;
+        margin-bottom: 6px;
+        border-radius: 14px;
+        background: var(--mint-100);
+        color: var(--mint-700);
+      }
+
+      .empty h2 {
+        margin: 0;
+        font: 800 18px/1.3 var(--font-display);
+      }
+
+      .empty p {
+        max-width: 44ch;
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .status {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: var(--text-sm);
+      }
+
+      /* ======================================================================
+         Кадры 375: те же экраны в узком окне.
+         Значения — из точек перелома кабинета (760px и ниже) в DESIGN.md:
+         топбар 68px, отступы 20px, внутренние отступы контента 26px.
+         ====================================================================== */
+
+      .screen--narrow .topbar {
+        height: 68px;
+        padding: 0 20px;
+      }
+
+      .screen--narrow .brand__mark {
+        width: 36px;
+        height: 36px;
+      }
+
+      .screen--narrow .brand__name {
+        font-size: 20px;
+      }
+
+      .screen--narrow .topbar__note {
+        display: none;
+      }
+
+      .screen--narrow .topbar__right {
+        gap: 10px;
+      }
+
+      .screen--narrow .login {
+        padding: 26px 20px 36px;
+      }
+
+      .screen--narrow .card {
+        gap: 18px;
+        padding: 26px;
+      }
+
+      .screen--narrow .card__title {
+        font-size: 21px;
+        letter-spacing: -0.3px;
+      }
+
+      .screen--narrow .screen__main {
+        padding: 26px 20px 36px;
+      }
+
+      .screen--narrow .empty {
+        padding: 28px 20px;
+      }
+
+      /* ======================================================================
+         Узкое окно самого листа макета. Кадры 1440 сжимать нельзя: 1440-px
+         вёрстка на 375 px — это не проверка ширины 375, а её подделка. Поэтому
+         лист показывает только то, что эта ширина и проверяет: кадры 375.
+         ====================================================================== */
+
+      @media (max-width: 900px) {
+        .sheet-head,
+        .block-head,
+        .sheet-foot {
+          padding-inline: 16px;
+          margin-inline: 0;
+        }
+
+        .sheet-head {
+          padding-top: 28px;
+        }
+
+        .sheet-head h1 {
+          font-size: 23px;
+        }
+
+        /* Кадры 1440 в узком окне: подписи состояний остаются текстом,
+           сами кадры не показываются. */
+        .shot--wide,
+        .block--wide {
+          display: none;
+        }
+
+        .phones {
+          padding-inline: 0;
+          gap: 20px;
+        }
+
+        .phone .screen {
+          width: 100%;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+
+        .btn[aria-busy='true']::after {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <header class="sheet-head">
+        <h1>Кабинет оператора: вход и пустая страница</h1>
+        <p class="sheet-lead">
+          Отдельное приложение рядом с основным кабинетом — на его токенах, шрифтах и кнопках.
+          Из продукта взято готовое: кремовая бумага, мята, Nunito, шапка кабинета
+          (<code>.shell .topbar</code>), карточка экрана и поля входа
+          (<code>.form</code>, <code>.field</code>, <code>.btn</code>, <code>.alert</code>).
+          Нового визуального языка нет: у кабинета нет своей дизайн-системы, а шапка и форма
+          должны читаться как та же «Домовой», что и основной кабинет.
+        </p>
+        <p class="sheet-meta">
+          Кадры: 1440px — вход в трёх состояниях, проверка сессии и пустая страница после входа;
+          375px — те же экраны в узком окне. В узком окне лист показывает только кадры 375: они и
+          есть проверка этой ширины, а сжимать 1440-px вёрстку в 375 px — не проверка.
+          Тексты для вёрстки, брейкпоинты и то, что в макет не входит, — в <code>notes.md</code>
+          рядом. Шрифты продукта по сети не грузятся: где Nunito не установлен, работает запасной
+          стек продукта.
+        </p>
+      </header>
+
+      <section class="block block--wide">
+        <div class="block-head">
+          <h2>Вход</h2>
+          <p>
+            Один экран, три состояния. Кадр 1440×600: видимая часть кабинета в окне ноутбука,
+            без прокрутки.
+          </p>
+        </div>
+
+        <article class="shot shot--wide">
+          <div class="shot-label">
+            <p class="shot-name">Пусто <span>· 1440px</span></p>
+            <p class="shot-hint">
+              Поля пустые, кнопка «Войти» активна. Форма отправляется клавишей Enter; логин
+              подставляется в placeholder, потому что он один и тот же на стенде.
+            </p>
+          </div>
+          <div class="frame">
+            <div class="screen" style="--screen-h: 600px">
+              <header class="topbar">
+                <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
+                  <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <g
+                      fill="none"
+                      stroke="#27313D"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                    </g>
+                  </svg>
+                  <span class="brand__name">Домовой</span>
+                </a>
+                <p class="topbar__note">Кабинет оператора</p>
+              </header>
+
+              <main class="login">
+                <div class="card">
+                  <div class="card__head">
+                    <h1 class="card__title">Вход в кабинет оператора</h1>
+                    <p class="lead">
+                      Логин и пароль выдаёт администратор. Восстановления пароля здесь нет.
+                    </p>
+                  </div>
+
+                  <form class="form" novalidate>
+                    <div class="field">
+                      <label class="field__label" for="login-username-1">Логин</label>
+                      <input
+                        class="field__input"
+                        id="login-username-1"
+                        name="username"
+                        type="text"
+                        autocomplete="username"
+                        placeholder="operator"
+                        data-testid="operator-login-username"
+                      />
+                    </div>
+
+                    <div class="field">
+                      <label class="field__label" for="login-password-1">Пароль</label>
+                      <input
+                        class="field__input"
+                        id="login-password-1"
+                        name="password"
+                        type="password"
+                        autocomplete="current-password"
+                        data-testid="operator-login-password"
+                      />
+                    </div>
+
+                    <button
+                      class="btn btn--primary btn--block"
+                      type="submit"
+                      data-testid="operator-login-submit"
+                    >
+                      Войти
+                    </button>
+                  </form>
+                </div>
+              </main>
+            </div>
+          </div>
+        </article>
+
+        <article class="shot shot--wide">
+          <div class="shot-label">
+            <p class="shot-name">Вход выполняется <span>· 1440px</span></p>
+            <p class="shot-hint">
+              Кнопка неактивна и говорит «Вход…», рядом вращается индикатор. Введённые значения
+              остаются в полях; поля не блокируются.
+            </p>
+          </div>
+          <div class="frame">
+            <div class="screen" style="--screen-h: 600px">
+              <header class="topbar">
+                <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
+                  <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <g
+                      fill="none"
+                      stroke="#27313D"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                    </g>
+                  </svg>
+                  <span class="brand__name">Домовой</span>
+                </a>
+                <p class="topbar__note">Кабинет оператора</p>
+              </header>
+
+              <main class="login">
+                <div class="card">
+                  <div class="card__head">
+                    <h1 class="card__title">Вход в кабинет оператора</h1>
+                    <p class="lead">
+                      Логин и пароль выдаёт администратор. Восстановления пароля здесь нет.
+                    </p>
+                  </div>
+
+                  <form class="form" novalidate>
+                    <div class="field">
+                      <label class="field__label" for="login-username-2">Логин</label>
+                      <input
+                        class="field__input"
+                        id="login-username-2"
+                        name="username"
+                        type="text"
+                        autocomplete="username"
+                        value="operator"
+                        data-testid="operator-login-username"
+                      />
+                    </div>
+
+                    <div class="field">
+                      <label class="field__label" for="login-password-2">Пароль</label>
+                      <input
+                        class="field__input"
+                        id="login-password-2"
+                        name="password"
+                        type="password"
+                        autocomplete="current-password"
+                        value="change-me"
+                        data-testid="operator-login-password"
+                      />
+                    </div>
+
+                    <button
+                      class="btn btn--primary btn--block"
+                      type="submit"
+                      disabled
+                      aria-busy="true"
+                      data-testid="operator-login-submit"
+                    >
+                      Вход…
+                    </button>
+                  </form>
+                </div>
+              </main>
+            </div>
+          </div>
+        </article>
+
+        <article class="shot shot--wide">
+          <div class="shot-label">
+            <p class="shot-name">Неверный логин или пароль <span>· 1440px</span></p>
+            <p class="shot-hint">
+              Текст ошибки — дословно <code>detail</code> из ответа сервера, отдельной строкой над
+              кнопкой, в <code>role="alert"</code>. Поля помечены <code>aria-invalid</code>,
+              введённые значения не стираются. Тот же текст сервер отдаёт и на неверный логин.
+            </p>
+          </div>
+          <div class="frame">
+            <div class="screen" style="--screen-h: 600px">
+              <header class="topbar">
+                <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
+                  <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <g
+                      fill="none"
+                      stroke="#27313D"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                    </g>
+                  </svg>
+                  <span class="brand__name">Домовой</span>
+                </a>
+                <p class="topbar__note">Кабинет оператора</p>
+              </header>
+
+              <main class="login">
+                <div class="card">
+                  <div class="card__head">
+                    <h1 class="card__title">Вход в кабинет оператора</h1>
+                    <p class="lead">
+                      Логин и пароль выдаёт администратор. Восстановления пароля здесь нет.
+                    </p>
+                  </div>
+
+                  <form class="form" novalidate>
+                    <div class="field">
+                      <label class="field__label" for="login-username-3">Логин</label>
+                      <input
+                        class="field__input"
+                        id="login-username-3"
+                        name="username"
+                        type="text"
+                        autocomplete="username"
+                        value="operator"
+                        aria-invalid="true"
+                        data-testid="operator-login-username"
+                      />
+                    </div>
+
+                    <div class="field">
+                      <label class="field__label" for="login-password-3">Пароль</label>
+                      <input
+                        class="field__input"
+                        id="login-password-3"
+                        name="password"
+                        type="password"
+                        autocomplete="current-password"
+                        value="change-me"
+                        aria-invalid="true"
+                        data-testid="operator-login-password"
+                      />
+                    </div>
+
+                    <p class="alert alert--error" role="alert" data-testid="operator-login-error">
+                      Неверный логин или пароль
+                    </p>
+
+                    <button
+                      class="btn btn--primary btn--block"
+                      type="submit"
+                      data-testid="operator-login-submit"
+                    >
+                      Войти
+                    </button>
+                  </form>
+                </div>
+              </main>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="block block--wide">
+        <div class="block-head">
+          <h2>После входа</h2>
+          <p>
+            Разделов, меню и данных в этой задаче нет: в шапке — бренд, логин оператора и «Выйти».
+            Пустота объяснена словами, чтобы экран не читался как недоделанный.
+          </p>
+        </div>
+
+        <article class="shot shot--wide">
+          <div class="shot-label">
+            <p class="shot-name">Пустая страница <span>· 1440px</span></p>
+            <p class="shot-hint">
+              Логин подписан рядом с «Выйти»: сервер отдаёт только его, других данных у кабинета
+              нет. «Выйти» — второстепенная кнопка компактного размера кабинета.
+            </p>
+          </div>
+          <div class="frame">
+            <div class="screen" style="--screen-h: 600px">
+              <header class="topbar">
+                <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
+                  <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <g
+                      fill="none"
+                      stroke="#27313D"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                    </g>
+                  </svg>
+                  <span class="brand__name">Домовой</span>
+                </a>
+                <div class="topbar__right">
+                  <span class="account" title="Логин, под которым открыт кабинет">operator</span>
+                  <button
+                    class="btn btn--ghost btn--compact"
+                    type="button"
+                    data-testid="operator-logout"
+                  >
+                    Выйти
+                  </button>
+                </div>
+              </header>
+
+              <main class="screen__main" data-testid="operator-home">
+                <div class="empty">
+                  <span class="empty__icon" aria-hidden="true">
+                    <svg
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <circle cx="7.5" cy="7.5" r="4" />
+                      <path d="M10.4 10.4 20 20M17.5 17.5l2-2M14.5 14.5l2-2" />
+                    </svg>
+                  </span>
+                  <h2>Данных пока нет</h2>
+                  <p>
+                    Обмен с основным кабинетом ещё не подключён — кабинет оператора пока умеет
+                    только вход. Разделы появятся, когда обмен включат.
+                  </p>
+                </div>
+              </main>
+            </div>
+          </div>
+        </article>
+
+        <article class="shot shot--wide">
+          <div class="shot-label">
+            <p class="shot-name">Проверяем сессию… <span>· 1440px</span></p>
+            <p class="shot-hint">
+              Пока идёт <code>GET /api/auth/me</code>, на странице только строка статуса — ни
+              формы, ни пустого блока. Ответ 401 уводит на <code>/login</code>, и это видно как
+              обычный экран входа.
+            </p>
+          </div>
+          <div class="frame">
+            <div class="screen" style="--screen-h: 340px">
+              <header class="topbar">
+                <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
+                  <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <g
+                      fill="none"
+                      stroke="#27313D"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                    </g>
+                  </svg>
+                  <span class="brand__name">Домовой</span>
+                </a>
+                <p class="topbar__note">Кабинет оператора</p>
+              </header>
+
+              <main class="login">
+                <p class="status" role="status">Проверяем сессию…</p>
+              </main>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="block">
+        <div class="block-head">
+          <h2>375px</h2>
+          <p>
+            Те же экраны в узком окне: карточка на всю ширину, поля и кнопка не выходят за
+            экран, длинный текст ошибки переносится. В шапке остаются бренд, логин и «Выйти»,
+            подпись «Кабинет оператора» скрывается — она повторяется в заголовке карточки.
+          </p>
+        </div>
+
+        <div class="phones">
+          <article class="shot shot--phone">
+            <div class="shot-label">
+              <p class="shot-name">Вход <span>· 375px</span></p>
+            </div>
+            <div class="phone">
+              <div class="screen screen--narrow" style="--screen-h: 620px">
+                <header class="topbar">
+                  <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
+                    <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+                      <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                      <g
+                        fill="none"
+                        stroke="#27313D"
+                        stroke-width="3"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                      </g>
+                    </svg>
+                    <span class="brand__name">Домовой</span>
+                  </a>
+                </header>
+
+                <main class="login">
+                  <div class="card">
+                    <div class="card__head">
+                      <h1 class="card__title">Вход в кабинет оператора</h1>
+                      <p class="lead">
+                        Логин и пароль выдаёт администратор. Восстановления пароля здесь нет.
+                      </p>
+                    </div>
+
+                    <form class="form" novalidate>
+                      <div class="field">
+                        <label class="field__label" for="login-username-m1">Логин</label>
+                        <input
+                          class="field__input"
+                          id="login-username-m1"
+                          name="username"
+                          type="text"
+                          autocomplete="username"
+                          placeholder="operator"
+                          data-testid="operator-login-username"
+                        />
+                      </div>
+
+                      <div class="field">
+                        <label class="field__label" for="login-password-m1">Пароль</label>
+                        <input
+                          class="field__input"
+                          id="login-password-m1"
+                          name="password"
+                          type="password"
+                          autocomplete="current-password"
+                          data-testid="operator-login-password"
+                        />
+                      </div>
+
+                      <button
+                        class="btn btn--primary btn--block"
+                        type="submit"
+                        data-testid="operator-login-submit"
+                      >
+                        Войти
+                      </button>
+                    </form>
+                  </div>
+                </main>
+              </div>
+            </div>
+          </article>
+
+          <article class="shot shot--phone">
+            <div class="shot-label">
+              <p class="shot-name">Ошибка входа <span>· 375px</span></p>
+            </div>
+            <div class="phone">
+              <div class="screen screen--narrow" style="--screen-h: 620px">
+                <header class="topbar">
+                  <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
+                    <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+                      <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                      <g
+                        fill="none"
+                        stroke="#27313D"
+                        stroke-width="3"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                      </g>
+                    </svg>
+                    <span class="brand__name">Домовой</span>
+                  </a>
+                </header>
+
+                <main class="login">
+                  <div class="card">
+                    <div class="card__head">
+                      <h1 class="card__title">Вход в кабинет оператора</h1>
+                      <p class="lead">
+                        Логин и пароль выдаёт администратор. Восстановления пароля здесь нет.
+                      </p>
+                    </div>
+
+                    <form class="form" novalidate>
+                      <div class="field">
+                        <label class="field__label" for="login-username-m2">Логин</label>
+                        <input
+                          class="field__input"
+                          id="login-username-m2"
+                          name="username"
+                          type="text"
+                          autocomplete="username"
+                          value="operator"
+                          aria-invalid="true"
+                          data-testid="operator-login-username"
+                        />
+                      </div>
+
+                      <div class="field">
+                        <label class="field__label" for="login-password-m2">Пароль</label>
+                        <input
+                          class="field__input"
+                          id="login-password-m2"
+                          name="password"
+                          type="password"
+                          autocomplete="current-password"
+                          value="change-me"
+                          aria-invalid="true"
+                          data-testid="operator-login-password"
+                        />
+                      </div>
+
+                      <p
+                        class="alert alert--error"
+                        role="alert"
+                        data-testid="operator-login-error"
+                      >
+                        Неверный логин или пароль
+                      </p>
+
+                      <button
+                        class="btn btn--primary btn--block"
+                        type="submit"
+                        data-testid="operator-login-submit"
+                      >
+                        Войти
+                      </button>
+                    </form>
+                  </div>
+                </main>
+              </div>
+            </div>
+          </article>
+
+          <article class="shot shot--phone">
+            <div class="shot-label">
+              <p class="shot-name">После входа <span>· 375px</span></p>
+            </div>
+            <div class="phone">
+              <div class="screen screen--narrow" style="--screen-h: 620px">
+                <header class="topbar">
+                  <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
+                    <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+                      <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                      <g
+                        fill="none"
+                        stroke="#27313D"
+                        stroke-width="3"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                      </g>
+                    </svg>
+                    <span class="brand__name">Домовой</span>
+                  </a>
+                  <div class="topbar__right">
+                    <span class="account">operator</span>
+                    <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+                  </div>
+                </header>
+
+                <main class="screen__main">
+                  <div class="empty">
+                    <span class="empty__icon" aria-hidden="true">
+                      <svg
+                        width="22"
+                        height="22"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <circle cx="7.5" cy="7.5" r="4" />
+                        <path d="M10.4 10.4 20 20M17.5 17.5l2-2M14.5 14.5l2-2" />
+                      </svg>
+                    </span>
+                    <h2>Данных пока нет</h2>
+                    <p>
+                      Обмен с основным кабинетом ещё не подключён — кабинет оператора пока умеет
+                      только вход. Разделы появятся, когда обмен включат.
+                    </p>
+                  </div>
+                </main>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <p class="sheet-foot">
+        Это кадры, а не приложение: обработчиков, запросов и роутера в файле нет. Продуктовый код
+        (<code>app/**</code>) не менялся. Что в макет не входит и какие тексты брать дословно —
+        в <code>mockups/126/notes.md</code>.
+      </p>
+    </div>
+  </body>
+</html>
