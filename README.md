@@ -494,6 +494,8 @@ no-store`.
 
 - **Backend** — FastAPI (Python).
 - **Frontend** — React + TypeScript.
+- **Кабинет оператора** — отдельное приложение `operator/`: FastAPI без базы и
+  React + TypeScript, вход по логину и паролю из конфига.
 - **База данных** — PostgreSQL, запуск через Docker Compose.
 
 ## Структура
@@ -503,11 +505,18 @@ no-store`.
 ├── app/
 │   ├── backend/          — FastAPI: app/, alembic/, tests/, Dockerfile
 │   └── frontend/         — React + TypeScript: src/, Dockerfile, nginx.conf
+├── operator/
+│   ├── backend/          — FastAPI кабинета оператора: без базы, вход по логину
+│   └── frontend/         — React + TypeScript: форма входа, Dockerfile, nginx.conf
 ├── caddy/                — Caddyfile: домен и сертификат (профиль tls)
-├── docker-compose.yml    — стенд: db + api + web + bot (+ caddy по профилю tls)
+├── docker-compose.yml    — стенд: db + api + web + bot + operator-api + operator-web
+│                           (+ caddy по профилю tls)
 ├── .env.example          — значения стенда по умолчанию (.env переопределяет)
 └── README.md
 ```
+
+Кабинет оператора описан отдельно — `docs/operator.md`: переменные, контракт API,
+экраны и проверки.
 
 ## Запуск стенда
 
@@ -519,6 +528,8 @@ docker compose up -d --build
 
 - Frontend — http://localhost:8080
 - API — http://localhost:8001
+- Кабинет оператора — http://localhost:8081
+- API кабинета оператора — http://localhost:8002
 
 Если на машине несколько стендов проекта, запускайте свой под отдельным именем,
 чтобы не задеть контейнеры и том базы соседнего стенда:
@@ -582,6 +593,20 @@ eslint .
 prettier --check .
 vitest run
 ```
+
+Кабинет оператора — из `operator/frontend`:
+
+```bash
+npm ci
+npm run build
+npm run lint
+npx prettier --check .
+npm run test
+```
+
+Тесты и статический анализ кабинета оператора (`pytest`, `ruff`, `mypy`) гоняются
+внутри сервиса: `docker compose exec operator-api ...` — полный список в
+`docs/operator.md`.
 
 ## Процесс работы
 
