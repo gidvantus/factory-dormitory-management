@@ -6,24 +6,21 @@ nginx кабинета проксировал один путь `/api/` и фр�
 кабинетом у него нет.
 """
 
-import logging
-
 from fastapi import FastAPI
 
 from app.api import auth, health
+from app.config import get_settings
 
 API_PREFIX = "/api"
-
-# Логи приложения видны в контейнере `operator-api`. Uvicorn поднимает только
-# свои логгеры, а корневой оставляет на WARNING — поэтому INFO самого проекта
-# (и всё, что пишет FastAPI) в лог не попадало бы вовсе. `basicConfig` ничего не
-# делает, если корневой логгер уже настроен, поэтому чужая конфигурация не
-# ломается.
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 def create_app() -> FastAPI:
     """Собрать приложение: роуты под общим префиксом `/api`."""
+    # Настройки проверяются здесь, а не при первом запросе: незаполненный
+    # `OPERATOR_PASSWORD` или короткий `OPERATOR_TOKEN_SECRET` должны ронять старт
+    # сервиса с внятным отказом, а не отдавать `500` на первом входе. Поэтому
+    # `get_settings()` вызывается на сборке приложения, а не откладывается.
+    get_settings()
     application = FastAPI(
         title="Кабинет оператора",
         version="0.1.0",

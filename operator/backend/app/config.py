@@ -20,11 +20,17 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # Логин единственного оператора. Не секрет: имя по умолчанию допустимо в коде.
-    operator_username: str = "operator"
+    # Пустая строка — не имя: `OPERATOR_USERNAME=` в `.env` роняет старт, а не
+    # пускает в кабинет безымянного оператора.
+    operator_username: str = Field(default="operator", min_length=1)
     # Пароль оператора. Дефолта нет: пароль не хранится в репозитории, его кладут
     # только в `.env`. Без `OPERATOR_PASSWORD` приложение не стартует — это
     # намеренно: иначе стенд поднялся бы с пустым или подставным паролем.
-    operator_password: str
+    # `min_length=1` закрывает второй случай того же: строку в `.env` забыли
+    # заполнить (`OPERATOR_PASSWORD=`). Без этого проверка `compare_digest`
+    # сравнила бы пустое с пустым, и кабинет пускал бы по пустому паролю в обход
+    # клиентской проверки полей.
+    operator_password: str = Field(min_length=1)
     # Свой секрет подписи сессии кабинета. Обязателен и НЕ равен `JWT_SECRET`
     # основного приложения: иначе сессии двух приложений стали бы
     # взаимозаменяемыми и кабинет принимал бы cookie основного кабинета.
