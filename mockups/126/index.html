@@ -5,85 +5,93 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Макет #126 — кабинет оператора: вход и пустая страница</title>
     <style>
+
       /* ======================================================================
          Макет постановки #126 — отдельное приложение «Кабинет оператора».
 
-         Токены скопированы из app/frontend/src/index.css (блок :root), шапка —
-         из src/workspace/Workspace.module.css (.shell .topbar, .brand), карточка
-         экрана — оттуда же (.shell .empty-state) и из .activate__card / .form /
-         .field / .btn / .alert в index.css. Ничего нового: ни палитры, ни
-         радиусов, ни шрифтов.
+         ОФОРМЛЕНИЕ: стили взяты из референса dis/1.jpg — «natural neutral»:
+         мягкий беж, лён, шалфей, тёплый серый, тонкие линии 1px, малые
+         радиусы и нейтральный гротеск вместо Nunito. Цвета в референсе подписаны
+         неверно (#FBD6C8 / #37A999 / #644872 не совпадают со свотчами), поэтому
+         значения сняты с пикселей картинки:
+           soft beige #E2D9CA · linen #E8E1D7 · sage #9CA590 · warm grey #79726A
+         Тёплый чёрный для текста и тонких обводок — #262420 / #3A362F.
 
-         Шрифты продукта — Nunito / Nunito Sans; по сети макет их не грузит,
-         при отсутствии работает запасной стек продукта (Segoe UI). Сборки нет:
-         один HTML, открывается двойным щелчком.
+         ВАЖНО: это расхождение с основным кабинетом осознанное — у операторского
+         приложения свои токены. Продуктовые :root / .btn / .field из
+         app/frontend/src/index.css сюда больше не копируются; при вёрстке
+         operator/frontend эти значения кладутся в его собственном index.css.
 
-         Лист-обвязка (.sheet, .shot, .cap) — это рамка макета, а не продукт.
+         Чего в референсе нет и что пришлось решить самому: цвет ошибки
+         (приглушённый кирпич #8A4B33 на #F3E6DF — AA проходит), фокус
+         клавиатуры (2px шалфея с отступом 2px) и состояния кнопки.
+
+         Шрифты — нейтральный гротеск из системного стека, по сети ничего не
+         грузится. Шрифты продукта (Nunito) здесь намеренно не используются.
+
+         Лист-обвязка (.sheet, .shot, .shot-hint) — рамка макета, а не продукт.
          Продуктовое — всё внутри .screen.
          ====================================================================== */
 
       :root {
-        /* --- Слой 1: примитивы --- */
-        --cream-50: #fffdf9;
-        --cream-100: #fbf6ec;
-        --cream-200: #f4ebdc;
-        --cream-300: #e8dcc7;
+        /* --- Примитивы: сняты с референса --- */
+        --n-beige: #e2d9ca;
+        --n-linen: #e8e1d7;
+        --n-sage: #9ca590;
+        --n-sage-dark: #8c9581;
+        --n-grey: #79726a;
+        --n-grey-deep: #3a362f;
+        --n-ink: #262420;
+        --n-white: #ffffff;
+        /* Три уровня фона как в референсе: тёмный лист, средняя бумага
+           приложения, белая поверхность. Иначе белые карточки не отделяются. */
+        --n-canvas: #e7e5de;
+        --n-page: #f0eee8;
 
-        --ink-900: #27313d;
-        --ink-700: #3f4c5c;
-        --ink-500: #4a5a6b;
+        /* Ошибки в референсе нет: приглушённый кирпич в той же температуре. */
+        --n-brick: #8a4b33;
+        --n-brick-tint: #f3e6df;
+        --n-brick-line: #e2cdc1;
 
-        --mint-100: #dceee4;
-        --mint-600: #2f7d62;
-        --mint-700: #26654f;
+        /* --- Семантика --- */
+        --color-bg-page: var(--n-page);
+        --color-bg-alt: #efede7;
+        --color-bg-surface: var(--n-white);
+        --color-bg-tint: var(--n-linen);
 
-        --peach-100: #fbe0d2;
-        --butter-100: #fcefc7;
+        --color-border: #dedbd3;
+        --color-border-strong: #c9c4b9;
 
-        --clay-700: #97431f;
-        --blue-600: #34679e;
+        --color-text: var(--n-ink);
+        --color-text-body: #55534d;
+        --color-text-muted: #6d6960;
+        --color-text-placeholder: #9a958b;
 
-        /* --- Слой 2: семантика --- */
-        --color-bg-page: var(--cream-50);
-        --color-bg-alt: var(--cream-100);
-        --color-bg-surface: #ffffff;
-        --color-border: var(--cream-200);
-        --color-border-strong: var(--cream-300);
+        --color-accent: var(--n-sage);
+        --color-accent-hover: var(--n-sage-dark);
+        --color-on-accent: #fbf9f4;
+        --color-focus: var(--n-sage);
 
-        --color-text: var(--ink-900);
-        --color-text-body: var(--ink-500);
-        --color-text-muted: #5c6a78;
-        --color-text-placeholder: #7b8794;
+        --color-danger: var(--n-brick);
 
-        --color-accent: var(--mint-600);
-        --color-accent-hover: var(--mint-700);
-        --color-on-accent: #ffffff;
-        --color-focus: var(--blue-600);
-        --focus-outline-width: 1px;
-        --color-danger: #9c3d24;
-
-        /* --- Типографика --- */
-        --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
-        --font-body: 'Nunito Sans', 'Nunito', 'Segoe UI', system-ui, sans-serif;
+        /* --- Типографика: нейтральный гротеск, без засечек и закруглений --- */
+        --font-display: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        --font-body: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
 
         --text-sm: 0.9375rem;
         --text-xs: 0.8125rem;
-        --leading-tight: 1.1;
-        --leading-snug: 1.25;
 
-        /* --- Форма и ритм --- */
-        --radius-4xs: 9px;
-        --radius-sm: 12px;
-        --radius-md: 18px;
-        --radius-pill: 999px;
+        /* --- Форма: тонкие линии, малые радиусы --- */
+        --radius-xs: 6px;
+        --radius-sm: 10px;
+        --radius-md: 14px;
 
-        --control-h-md: 39px;
-        --control-px-md: 15px;
+        --control-h: 44px;
+        --control-h-sm: 36px;
 
-        --shadow-sm: 0 1px 2px rgba(39, 49, 61, 0.05);
-        --shadow-md: 0 10px 24px -14px rgba(39, 49, 61, 0.22);
+        --shadow-card: 0 1px 2px rgba(58, 54, 47, 0.04);
+        --shadow-soft: 0 8px 24px -20px rgba(58, 54, 47, 0.5);
 
-        --space-1: 0.25rem;
         --space-2: 0.5rem;
         --space-3: 0.75rem;
         --space-4: 1rem;
@@ -97,23 +105,33 @@
 
       body {
         margin: 0;
-        background: var(--color-bg-alt);
+        background: var(--n-canvas);
         color: var(--color-text);
         font-family: var(--font-body);
         font-size: 16px;
-        line-height: 1.65;
+        line-height: 1.6;
         -webkit-font-smoothing: antialiased;
       }
 
       :focus-visible {
-        outline: var(--focus-outline-width) solid var(--color-focus);
-        outline-offset: 3px;
-        border-radius: var(--radius-sm);
+        outline: 2px solid var(--color-focus);
+        outline-offset: 2px;
+        border-radius: var(--radius-xs);
       }
 
       ::selection {
-        background: var(--butter-100);
-        color: var(--ink-900);
+        background: var(--n-beige);
+        color: var(--n-ink);
+      }
+
+      code {
+        padding: 1px 5px;
+        border: 1px solid var(--color-border);
+        border-radius: 5px;
+        background: var(--color-bg-surface);
+        color: var(--color-text-body);
+        font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
+        font-size: 12px;
       }
 
       /* ======================================================================
@@ -132,8 +150,9 @@
 
       .sheet-head h1 {
         margin: 0;
-        font: 900 28px/1.2 var(--font-display);
-        letter-spacing: -0.7px;
+        font: 600 27px/1.25 var(--font-display);
+        letter-spacing: -0.2px;
+        color: var(--n-ink);
       }
 
       .sheet-lead {
@@ -141,7 +160,7 @@
         margin: 14px 0 0;
         color: var(--color-text-body);
         font-size: 14px;
-        line-height: 1.6;
+        line-height: 1.65;
       }
 
       .sheet-meta {
@@ -149,18 +168,7 @@
         margin: 12px 0 0;
         color: var(--color-text-muted);
         font-size: 13px;
-        line-height: 1.6;
-      }
-
-      .sheet-meta code,
-      .sheet-lead code {
-        padding: 1px 5px;
-        border: 1px solid var(--color-border);
-        border-radius: 5px;
-        background: var(--color-bg-surface);
-        color: var(--color-text-body);
-        font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
-        font-size: 12px;
+        line-height: 1.65;
       }
 
       .block {
@@ -177,7 +185,8 @@
 
       .block-head h2 {
         margin: 0;
-        font: 800 20px/1.3 var(--font-display);
+        font: 600 18px/1.3 var(--font-display);
+        color: var(--n-ink);
       }
 
       .block-head p {
@@ -201,25 +210,26 @@
       }
 
       .shot-name {
-        font: 800 14px/1.35 var(--font-display);
+        font: 600 14px/1.35 var(--font-display);
+        color: var(--n-ink);
       }
 
       .shot-name span {
         color: var(--color-text-muted);
-        font-weight: 700;
+        font-weight: 400;
       }
 
       .shot-hint {
         max-width: 76ch;
         margin: 0;
-        color: var(--color-text-body);
+        color: var(--color-text-muted);
         font-size: 13px;
-        line-height: 1.5;
+        line-height: 1.55;
       }
 
       .frame {
-        border-top: 1px solid var(--color-border-strong);
-        border-bottom: 1px solid var(--color-border-strong);
+        border-top: 1px solid var(--color-border);
+        border-bottom: 1px solid var(--color-border);
         background: var(--color-bg-page);
         overflow: hidden;
       }
@@ -235,10 +245,10 @@
       .phone {
         width: 375px;
         max-width: 100%;
-        border: 1px solid var(--color-border-strong);
+        border: 1px solid var(--color-border);
         border-radius: var(--radius-md);
         background: var(--color-bg-page);
-        box-shadow: var(--shadow-sm);
+        box-shadow: var(--shadow-soft);
         overflow: hidden;
       }
 
@@ -252,18 +262,61 @@
         padding: 0 0 10px;
       }
 
+      /* Палитра: четыре значения, снятые с референса пипеткой. Печатные hex
+         в самой картинке не совпадают со свотчами, поэтому они названы здесь. */
+      .palette {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 26px;
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .palette li {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+
+      .palette span:first-child {
+        width: 26px;
+        height: 26px;
+        border: 1px solid rgba(58, 54, 47, 0.12);
+        border-radius: var(--radius-xs);
+        flex: none;
+      }
+
+      .palette b {
+        font-weight: 600;
+        color: var(--color-text-body);
+      }
+
       .sheet-foot {
         margin: 40px 40px 0;
         padding-top: 16px;
-        border-top: 1px solid var(--color-border-strong);
+        border-top: 1px solid var(--color-border);
         color: var(--color-text-muted);
         font-size: 13px;
         line-height: 1.6;
       }
 
+      /* Текст листа лежит на сером холсте, где --color-text-muted (#6D6960)
+         даёт ~4.3:1 и AA не проходит. Внутри экранов он на белом и в норме —
+         поэтому темнее только подписи листа. */
+      .sheet-meta,
+      .sheet-foot,
+      .shot-hint,
+      .shot-name span,
+      .block-head p,
+      .palette li {
+        color: #5b574f;
+      }
+
       /* ======================================================================
          Продукт: каркас кабинета оператора.
-         Шапка — .shell .topbar / .brand из Workspace.module.css, значения те же.
          ====================================================================== */
 
       .screen {
@@ -282,10 +335,10 @@
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        height: 76px;
+        height: 68px;
         padding: 0 40px;
         border-bottom: 1px solid var(--color-border);
-        background: var(--color-bg-page);
+        background: var(--color-bg-surface);
       }
 
       .brand {
@@ -299,14 +352,14 @@
 
       .brand__mark {
         display: block;
-        width: 42px;
-        height: 42px;
+        width: 34px;
+        height: 34px;
         flex: none;
       }
 
       .brand__name {
-        font: 900 24px/1.15 var(--font-display);
-        letter-spacing: -0.6px;
+        font: 600 19px/1.15 var(--font-display);
+        letter-spacing: -0.2px;
       }
 
       .topbar__note {
@@ -328,7 +381,7 @@
       }
 
       /* ======================================================================
-         Вход: .activate__card + .form / .field / .alert / .btn из index.css
+         Вход: карточка, поля, кнопки. Геометрия — из референса.
          ====================================================================== */
 
       .login {
@@ -341,57 +394,68 @@
 
       .card {
         display: grid;
-        gap: 22px;
-        width: min(100%, 26rem);
-        padding: 34px;
+        gap: 24px;
+        width: min(100%, 25rem);
+        padding: 32px;
         border: 1px solid var(--color-border);
         border-radius: var(--radius-md);
         background: var(--color-bg-surface);
-        box-shadow: var(--shadow-sm);
+        box-shadow: var(--shadow-card);
       }
 
       .card__head {
         display: grid;
-        gap: 10px;
+        gap: 8px;
       }
 
       .card__title {
         margin: 0;
-        font: 800 24px/1.25 var(--font-display);
-        letter-spacing: -0.5px;
+        font: 600 22px/1.3 var(--font-display);
+        letter-spacing: -0.2px;
+        color: var(--n-ink);
       }
 
       .lead {
         margin: 0;
         color: var(--color-text-muted);
-        font-size: 14px;
-        line-height: 1.55;
+        font-size: 13.5px;
+        line-height: 1.6;
       }
 
       .form {
         display: grid;
-        gap: var(--space-4);
+        gap: 18px;
       }
 
       .field {
         display: grid;
-        gap: var(--space-2);
+        gap: 7px;
       }
 
       .field__label {
-        font-weight: 700;
-        font-size: var(--text-sm);
+        font-weight: 600;
+        font-size: 12.5px;
+        letter-spacing: 0.01em;
+        color: var(--color-text-body);
       }
 
       .field__input {
         width: 100%;
-        padding: 0.75rem 1rem;
-        border: 2px solid var(--color-border-strong);
+        min-height: var(--control-h);
+        padding: 11px 14px;
+        border: 1px solid var(--color-border-strong);
         border-radius: var(--radius-sm);
         background: var(--color-bg-surface);
         color: var(--color-text);
         font: inherit;
         font-size: var(--text-sm);
+        transition:
+          border-color 160ms ease,
+          background-color 160ms ease;
+      }
+
+      .field__input:hover {
+        border-color: var(--n-grey);
       }
 
       .field__input::placeholder {
@@ -400,18 +464,22 @@
 
       .field__input[aria-invalid='true'] {
         border-color: var(--color-danger);
+        background: #fdf9f7;
       }
 
       .alert {
         margin: 0;
-        padding: var(--space-3) var(--space-4);
+        padding: 11px 14px;
+        border: 1px solid transparent;
         border-radius: var(--radius-sm);
-        font-size: var(--text-sm);
-        font-weight: 700;
+        font-size: 13.5px;
+        font-weight: 500;
+        line-height: 1.45;
       }
 
       .alert--error {
-        background: var(--peach-100);
+        border-color: var(--n-brick-line);
+        background: var(--n-brick-tint);
         color: var(--color-danger);
       }
 
@@ -420,76 +488,73 @@
         align-items: center;
         justify-content: center;
         gap: 0.5rem;
-        min-height: 48px;
-        padding: 0.75rem 1.5rem;
-        border: 2px solid transparent;
-        border-radius: var(--radius-pill);
+        min-height: var(--control-h);
+        padding: 10px 18px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
         background: none;
         white-space: nowrap;
         flex: none;
         font-family: var(--font-display);
-        font-weight: 800;
-        font-size: var(--text-sm);
+        font-weight: 600;
+        font-size: 14.5px;
+        letter-spacing: 0.01em;
         text-decoration: none;
         cursor: pointer;
         transition:
-          background-color 180ms ease,
-          color 180ms ease,
-          border-color 180ms ease,
-          transform 180ms ease,
-          box-shadow 180ms ease;
+          background-color 160ms ease,
+          border-color 160ms ease,
+          color 160ms ease;
       }
 
       .btn:disabled {
-        opacity: 0.6;
+        opacity: 0.55;
         cursor: not-allowed;
       }
 
       .btn--primary {
         background: var(--color-accent);
         color: var(--color-on-accent);
-        box-shadow: var(--shadow-md);
       }
 
       .btn--primary:hover:not(:disabled) {
         background: var(--color-accent-hover);
         color: var(--color-on-accent);
-        transform: translateY(-2px);
       }
 
       .btn--ghost {
-        background: var(--color-bg-surface);
+        background: transparent;
         border-color: var(--color-border-strong);
-        color: var(--color-text);
+        color: var(--n-grey-deep);
       }
 
       .btn--ghost:hover:not(:disabled) {
-        background: var(--color-bg-alt);
-        border-color: var(--ink-900);
-        color: var(--color-text);
+        background: #efede7;
+        border-color: var(--n-grey);
+        color: var(--n-ink);
       }
 
       .btn--compact {
-        min-height: var(--control-h-md);
-        padding: 8px var(--control-px-md);
-        border-radius: var(--radius-4xs);
-        font-size: var(--text-xs);
+        min-height: var(--control-h-sm);
+        padding: 7px 13px;
+        border-radius: var(--radius-xs);
+        font-size: 13px;
       }
 
       .btn--block {
         width: 100%;
       }
 
-      /* «Идёт запрос»: кнопка неактивна, текст «Вход…», индикатор из index.css. */
+      /* «Идёт запрос»: кнопка неактивна, текст «Вход…», тонкий индикатор. */
       .btn[aria-busy='true'] {
         cursor: progress;
       }
 
       .btn[aria-busy='true']::after {
         content: '';
-        width: 1em;
-        height: 1em;
-        border: 2px solid currentcolor;
+        width: 0.85em;
+        height: 0.85em;
+        border: 1.5px solid currentcolor;
         border-top-color: transparent;
         border-radius: 50%;
         animation: btn-spin 700ms linear infinite;
@@ -507,7 +572,7 @@
 
       .screen__main {
         flex: 1;
-        padding: 36px 40px 48px;
+        padding: 32px 40px 48px;
       }
 
       .empty {
@@ -515,63 +580,65 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 10px;
-        min-height: 260px;
-        padding: 32px 24px;
+        gap: 8px;
+        min-height: 252px;
+        padding: 36px 24px;
         border: 1px solid var(--color-border);
         border-radius: var(--radius-md);
-        background: var(--color-bg-page);
+        background: var(--color-bg-surface);
         text-align: center;
       }
 
+      /* Иконка как в референсе: тонкая линия тёплого серого, без плашки. */
       .empty__icon {
         display: grid;
         place-items: center;
-        width: 48px;
-        height: 48px;
-        margin-bottom: 6px;
-        border-radius: 14px;
-        background: var(--mint-100);
-        color: var(--mint-700);
+        margin-bottom: 8px;
+        color: var(--n-grey);
+      }
+
+      .empty__icon svg {
+        width: 26px;
+        height: 26px;
+        stroke-width: 1.4;
       }
 
       .empty h2 {
         margin: 0;
-        font: 800 18px/1.3 var(--font-display);
+        font: 600 17px/1.3 var(--font-display);
+        color: var(--n-ink);
       }
 
       .empty p {
-        max-width: 44ch;
+        max-width: 42ch;
         margin: 0;
         color: var(--color-text-muted);
         font-size: 13px;
-        line-height: 1.55;
+        line-height: 1.6;
       }
 
       .status {
         margin: 0;
         color: var(--color-text-muted);
-        font-size: var(--text-sm);
+        font-size: 14px;
       }
 
       /* ======================================================================
          Кадры 375: те же экраны в узком окне.
-         Значения — из точек перелома кабинета (760px и ниже) в DESIGN.md:
-         топбар 68px, отступы 20px, внутренние отступы контента 26px.
          ====================================================================== */
 
       .screen--narrow .topbar {
-        height: 68px;
+        height: 60px;
         padding: 0 20px;
       }
 
       .screen--narrow .brand__mark {
-        width: 36px;
-        height: 36px;
+        width: 30px;
+        height: 30px;
       }
 
       .screen--narrow .brand__name {
-        font-size: 20px;
+        font-size: 17px;
       }
 
       .screen--narrow .topbar__note {
@@ -583,21 +650,20 @@
       }
 
       .screen--narrow .login {
-        padding: 26px 20px 36px;
+        padding: 24px 20px 32px;
       }
 
       .screen--narrow .card {
-        gap: 18px;
-        padding: 26px;
+        gap: 20px;
+        padding: 22px;
       }
 
       .screen--narrow .card__title {
-        font-size: 21px;
-        letter-spacing: -0.3px;
+        font-size: 19px;
       }
 
       .screen--narrow .screen__main {
-        padding: 26px 20px 36px;
+        padding: 24px 20px 32px;
       }
 
       .screen--narrow .empty {
@@ -606,8 +672,7 @@
 
       /* ======================================================================
          Узкое окно самого листа макета. Кадры 1440 сжимать нельзя: 1440-px
-         вёрстка на 375 px — это не проверка ширины 375, а её подделка. Поэтому
-         лист показывает только то, что эта ширина и проверяет: кадры 375.
+         вёрстка на 375 px — это не проверка ширины 375. Лист показывает кадры 375.
          ====================================================================== */
 
       @media (max-width: 900px) {
@@ -623,11 +688,9 @@
         }
 
         .sheet-head h1 {
-          font-size: 23px;
+          font-size: 22px;
         }
 
-        /* Кадры 1440 в узком окне: подписи состояний остаются текстом,
-           сами кадры не показываются. */
         .shot--wide,
         .block--wide {
           display: none;
@@ -661,20 +724,26 @@
       <header class="sheet-head">
         <h1>Кабинет оператора: вход и пустая страница</h1>
         <p class="sheet-lead">
-          Отдельное приложение рядом с основным кабинетом — на его токенах, шрифтах и кнопках.
-          Из продукта взято готовое: кремовая бумага, мята, Nunito, шапка кабинета
-          (<code>.shell .topbar</code>), карточка экрана и поля входа
-          (<code>.form</code>, <code>.field</code>, <code>.btn</code>, <code>.alert</code>).
-          Нового визуального языка нет: у кабинета нет своей дизайн-системы, а шапка и форма
-          должны читаться как та же «Домовой», что и основной кабинет.
+          Оформление взято из референса <code>dis/1.jpg</code> — «natural neutral»: мягкий беж, лён,
+          шалфей, тёплый серый, тонкие линии 1px, малые радиусы и нейтральный гротеск вместо Nunito.
+          Это осознанное расхождение с основным кабинетом: у операторского приложения свои токены.
+          Структура экрана при этом продуктовая — шапка кабинета, карточка и поля входа взяты из его
+          компонентов (<code>.shell .topbar</code>, <code>.activate__card</code>, <code>.field</code>),
+          поэтому экран читается как «Домовой», а не как чужая страница.
         </p>
+        <ul class="palette">
+          <li><span style="background: #e2d9ca"></span><b>soft beige</b> #E2D9CA</li>
+          <li><span style="background: #e8e1d7"></span><b>linen</b> #E8E1D7</li>
+          <li><span style="background: #9ca590"></span><b>sage green</b> #9CA590</li>
+          <li><span style="background: #79726a"></span><b>warm grey</b> #79726A</li>
+          <li><span style="background: #f0eee8"></span><b>paper</b> #F0EEE8</li>
+        </ul>
         <p class="sheet-meta">
           Кадры: 1440px — вход в трёх состояниях, проверка сессии и пустая страница после входа;
           375px — те же экраны в узком окне. В узком окне лист показывает только кадры 375: они и
           есть проверка этой ширины, а сжимать 1440-px вёрстку в 375 px — не проверка.
           Тексты для вёрстки, брейкпоинты и то, что в макет не входит, — в <code>notes.md</code>
-          рядом. Шрифты продукта по сети не грузятся: где Nunito не установлен, работает запасной
-          стек продукта.
+          рядом. Печатные hex в референсе не совпадают со свотчами, значения выше сняты пипеткой.
         </p>
       </header>
 
@@ -700,11 +769,11 @@
               <header class="topbar">
                 <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
                   <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
-                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <rect width="40" height="40" rx="12" fill="#E8E1D7" />
                     <g
                       fill="none"
-                      stroke="#27313D"
-                      stroke-width="3"
+                      stroke="#3A362F"
+                      stroke-width="2.4"
                       stroke-linecap="round"
                       stroke-linejoin="round"
                     >
@@ -778,11 +847,11 @@
               <header class="topbar">
                 <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
                   <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
-                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <rect width="40" height="40" rx="12" fill="#E8E1D7" />
                     <g
                       fill="none"
-                      stroke="#27313D"
-                      stroke-width="3"
+                      stroke="#3A362F"
+                      stroke-width="2.4"
                       stroke-linecap="round"
                       stroke-linejoin="round"
                     >
@@ -860,11 +929,11 @@
               <header class="topbar">
                 <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
                   <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
-                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <rect width="40" height="40" rx="12" fill="#E8E1D7" />
                     <g
                       fill="none"
-                      stroke="#27313D"
-                      stroke-width="3"
+                      stroke="#3A362F"
+                      stroke-width="2.4"
                       stroke-linecap="round"
                       stroke-linejoin="round"
                     >
@@ -955,11 +1024,11 @@
               <header class="topbar">
                 <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
                   <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
-                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <rect width="40" height="40" rx="12" fill="#E8E1D7" />
                     <g
                       fill="none"
-                      stroke="#27313D"
-                      stroke-width="3"
+                      stroke="#3A362F"
+                      stroke-width="2.4"
                       stroke-linecap="round"
                       stroke-linejoin="round"
                     >
@@ -1022,11 +1091,11 @@
               <header class="topbar">
                 <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
                   <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
-                    <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                    <rect width="40" height="40" rx="12" fill="#E8E1D7" />
                     <g
                       fill="none"
-                      stroke="#27313D"
-                      stroke-width="3"
+                      stroke="#3A362F"
+                      stroke-width="2.4"
                       stroke-linecap="round"
                       stroke-linejoin="round"
                     >
@@ -1066,11 +1135,11 @@
                 <header class="topbar">
                   <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
                     <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
-                      <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                      <rect width="40" height="40" rx="12" fill="#E8E1D7" />
                       <g
                         fill="none"
-                        stroke="#27313D"
-                        stroke-width="3"
+                        stroke="#3A362F"
+                        stroke-width="2.4"
                         stroke-linecap="round"
                         stroke-linejoin="round"
                       >
@@ -1139,11 +1208,11 @@
                 <header class="topbar">
                   <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
                     <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
-                      <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                      <rect width="40" height="40" rx="12" fill="#E8E1D7" />
                       <g
                         fill="none"
-                        stroke="#27313D"
-                        stroke-width="3"
+                        stroke="#3A362F"
+                        stroke-width="2.4"
                         stroke-linecap="round"
                         stroke-linejoin="round"
                       >
@@ -1223,11 +1292,11 @@
                 <header class="topbar">
                   <a class="brand" href="#" aria-label="Домовой — кабинет оператора">
                     <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
-                      <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+                      <rect width="40" height="40" rx="12" fill="#E8E1D7" />
                       <g
                         fill="none"
-                        stroke="#27313D"
-                        stroke-width="3"
+                        stroke="#3A362F"
+                        stroke-width="2.4"
                         stroke-linecap="round"
                         stroke-linejoin="round"
                       >
