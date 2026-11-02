@@ -240,7 +240,7 @@ export function OrganizationCard(): JSX.Element {
   const data = state.data;
 
   return (
-    <Screen right={<OperatorTopBar />}>
+    <Screen nav={<OperatorNav />} right={<OperatorTopBar />}>
       <main className="screen__main">
         <div className="page page--card" data-testid="operator-organization-card">
           <p className="page__back">

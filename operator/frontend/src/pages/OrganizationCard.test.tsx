@@ -67,6 +67,19 @@ describe('карточка организации кабинета операт�
     expect(network.calls[0].init.credentials).toBe('include');
   });
 
+  it('в шапке загруженной карточки остаётся навигация разделов', async () => {
+    await renderLoaded([{ status: 200, body: DETAILS }]);
+
+    // Шапка одна на все состояния экрана: после загрузки переключатель
+    // разделов не должен пропадать — иначе из карточки не уйти в «Пользователи».
+    expect(screen.getByTestId('operator-nav-organizations')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByTestId('operator-nav-users')).toBeInTheDocument();
+    expect(screen.getByTestId('operator-logout')).toBeInTheDocument();
+  });
+
   it('прямой заход на несуществующий номер показывает «Организация не найдена» и «К списку»', async () => {
     renderCard([{ status: 404, body: { detail: 'Организация не найдена' } }], '999999');
     const user = userEvent.setup();

@@ -71,11 +71,17 @@ export function Users(): JSX.Element {
   const [loadingMore, setLoadingMore] = useState(false);
   // Номер запроса: ответ на устаревший поиск не должен затирать свежий.
   const requestId = useRef(0);
+  // Первая загрузка идёт сразу: пауза нужна поиску, а не открытию раздела.
+  const firstLoad = useRef(true);
+  // Запрос зависит от того, что реально уйдёт на сервер, а не от набранного:
+  // пробел в конце значения подстроку не меняет, и повторять запрос не за чем.
+  const query = search.trim();
 
   useEffect(() => {
-    const query = search.trim();
     const id = ++requestId.current;
     setState({ status: 'loading' });
+    const delay = firstLoad.current ? 0 : SEARCH_DELAY_MS;
+    firstLoad.current = false;
     const timer = setTimeout(() => {
       listUsers({ limit: PAGE_SIZE, offset: 0, search: query }).then(
         (page) => {
@@ -87,11 +93,11 @@ export function Users(): JSX.Element {
           setState({ status: 'error', text: errorMessage(error) });
         },
       );
-    }, SEARCH_DELAY_MS);
+    }, delay);
     return () => {
       clearTimeout(timer);
     };
-  }, [search]);
+  }, [query]);
 
   async function handleMore(): Promise<void> {
     if (state.status !== 'ready' || loadingMore) return;
@@ -122,8 +128,6 @@ export function Users(): JSX.Element {
   function handleOpen(id: number): void {
     navigate(`/users/${id}`);
   }
-
-  const query = search.trim();
 
   return (
     <Screen nav={<OperatorNav />} right={<OperatorTopBar />}>

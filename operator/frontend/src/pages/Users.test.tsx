@@ -133,6 +133,27 @@ describe('список пользователей кабинета операт�
     expect(decodeURIComponent(search.url)).toBe('/api/users?limit=50&offset=0&search=щукин');
   });
 
+  it('пробел в конце поиска не повторяет запрос', async () => {
+    const network = renderList([
+      { status: 200, body: FIRST_PAGE },
+      { status: 200, body: { items: [FIRST_PAGE.items[0]], total: 1 } },
+    ]);
+    const user = userEvent.setup();
+
+    await screen.findByTestId('operator-users');
+    await user.type(screen.getByTestId('operator-users-search'), 'иван');
+
+    expect(await screen.findByText('Показано 1 из 1')).toBeInTheDocument();
+    expect(network.calls).toHaveLength(2);
+
+    // Подстрока не изменилась — на сервер ушёл бы тот же `search`, повтор не нужен.
+    await user.type(screen.getByTestId('operator-users-search'), ' ');
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    expect(network.calls).toHaveLength(2);
+    expect(screen.getByText('Показано 1 из 1')).toBeInTheDocument();
+  });
+
   it('отказ загрузки показывает текст detail дословно', async () => {
     renderList([{ status: 502, body: { detail: 'Основной API недоступен' } }]);
 
