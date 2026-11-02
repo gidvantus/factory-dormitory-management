@@ -1,6 +1,8 @@
-# Стенд CRM Dormitory: db + api + web + bot.
+# Стенд CRM Dormitory: db + api + web + bot, плюс operator-api — API кабинета
+# оператора (operator/backend).
 #
-# Исходники лежат в app/: app/backend — FastAPI, app/frontend — React + nginx.
+# Исходники лежат в app/: app/backend — FastAPI, app/frontend — React + nginx;
+# кабинет оператора — отдельное приложение в operator/.
 #
 # Стенд этой рабочей копии (клон человека) — имя проекта `crm-dormitory`,
 # рабочая ветка `develop-m`. У отдела разработки свой стенд по этому же
@@ -119,6 +121,30 @@ services:
     depends_on:
       - api
     command: ["python", "-m", "app.bot"]
+
+  # ---------- Кабинет оператора: отдельное приложение operator/ -------------
+  # Свой сервис входа и своя сессия (`operator_session`, секрет
+  # `OPERATOR_TOKEN_SECRET`). Своей базы у кабинета нет, поэтому `db` в
+  # `depends_on` не нужен и нет `alembic`: сервис поднимается сам.
+  # Имя `operator-api` не совпадает с `api`: внутренний адрес `api:8000` основного
+  # кабинета остаётся на месте.
+  operator-api:
+    build: ./operator/backend
+    restart: unless-stopped
+    env_file: *env-files
+    ports:
+      - "${OPERATOR_API_PORT:-8002}:8000"
+    healthcheck:
+      # curl в slim-образе нет: проверяем тем же Python, которым запущен сервис.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   pgdata:
