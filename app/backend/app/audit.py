@@ -86,7 +86,9 @@ ACTION_LIMIT = 64
 
 # Разделы API, которые меняют доступ, деньги или состав кабинета. Строки этих
 # действий хранятся два года: по ним разбираются спорные входы и оплаты.
-SECURITY_SECTIONS = frozenset({"auth", "organization", "billing", "tariffs", "users"})
+# `platform` — платформенный контур кабинета оператора: действия оператора над
+# организациями тоже меняют состав и права кабинета, пусть и чужого.
+SECURITY_SECTIONS = frozenset({"auth", "organization", "billing", "tariffs", "users", "platform"})
 # Настройки общежития (`/api/dormitories/{...}/settings`) меняют права и тарифы
 # этого общежития, поэтому тоже считаются действием безопасности.
 DORMITORIES_SECTION = "dormitories"

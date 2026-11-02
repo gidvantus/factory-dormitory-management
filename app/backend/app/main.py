@@ -36,6 +36,7 @@ from app.api import (
     outflow,
     payments,
     personnel,
+    platform_organizations,
     recovery,
     report_readiness,
     report_templates,
@@ -323,6 +324,9 @@ def create_app() -> FastAPI:
     application.include_router(recovery.router, prefix=API_PREFIX)
     application.include_router(users.router, prefix=API_PREFIX)
     application.include_router(organization.router, prefix=API_PREFIX)
+    # Платформенный контур кабинета оператора: отдельный префикс и отдельный
+    # сервисный токен, cookie основного кабинета его не открывает.
+    application.include_router(platform_organizations.router, prefix=API_PREFIX)
     application.include_router(journal_router, prefix=API_PREFIX)
     application.include_router(dashboard.router, prefix=API_PREFIX)
     application.include_router(dashboard_blocks.router, prefix=API_PREFIX)
