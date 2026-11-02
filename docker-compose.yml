@@ -1,5 +1,5 @@
-# Стенд CRM Dormitory: db + api + web + bot, плюс operator-api — API кабинета
-# оператора (operator/backend).
+# Стенд CRM Dormitory: db + api + web + bot, плюс кабинет оператора —
+# operator-api (operator/backend) и operator-web (operator/frontend).
 #
 # Исходники лежат в app/: app/backend — FastAPI, app/frontend — React + nginx;
 # кабинет оператора — отдельное приложение в operator/.
@@ -145,6 +145,27 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  # Фронтенд кабинета: nginx со статикой SPA и прокси `/api/` в `operator-api`.
+  # Ждёт именно готовности API (`service_healthy`), а не старта контейнера:
+  # иначе первая же загрузка страницы получила бы 502 на `/api/auth/me`.
+  # Имя `operator-web` не совпадает с `web` — внутренние адреса основного
+  # кабинета (`api:8000`, `web:80`) остаются на месте.
+  operator-web:
+    build: ./operator/frontend
+    restart: unless-stopped
+    depends_on:
+      operator-api:
+        condition: service_healthy
+    ports:
+      - "${OPERATOR_FRONTEND_PORT:-8081}:80"
+    healthcheck:
+      # /healthz отдаёт сам nginx кабинета — без прокси и без записей в лог.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
 volumes:
   pgdata:
