@@ -12,7 +12,7 @@
  *
  * Пустая строка вместо мусора: битую дату лучше не показать вовсе, чем
  * показать «Invalid Date». Часовой пояс Москвы — тот же, в котором работает
- * кабинет (`DashboardTariff` показывал так конец пробного периода).
+ * кабинет (`SidebarTariff` показывает так срок тарифа и конец пробного периода).
  */
 export function formatTariffDate(value: string): string {
   const date = new Date(value);
