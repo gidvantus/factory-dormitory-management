@@ -1,0 +1,2320 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Макет #132 — кабинет оператора: пользователи</title>
+    <style>
+      /* ==========================================================================
+         Макет постановки #132. Токены ниже сняты с operator/frontend/src/index.css
+         («natural neutral»): палитра, радиусы, высоты контролов, шрифт, плотность.
+         Каркас экрана, кнопки, поля, алерт и блок «пусто» перенесены как есть из
+         index.css и макета #131. Новое — навигация из двух пунктов, строка поиска
+         над реестром, колонки списка пользователей и карточка с единственной
+         правкой. Сборки, внешних файлов и сети нет.
+         ========================================================================== */
+
+      :root {
+        /* Примитивы из operator/frontend/src/index.css */
+        --n-beige: #e2d9ca;
+        --n-linen: #e8e1d7;
+        --n-sage: #9ca590;
+        --n-sage-dark: #8c9581;
+        --n-grey: #79726a;
+        --n-grey-deep: #3a362f;
+        --n-ink: #262420;
+
+        --n-brick: #8a4b33;
+        --n-brick-tint: #f3e6df;
+        --n-brick-line: #e2cdc1;
+
+        /* Семантика из того же файла */
+        --color-bg-page: #f0eee8;
+        --color-bg-surface: #ffffff;
+        --color-border: #dedbd3;
+        --color-border-strong: #c9c4b9;
+        --color-text: var(--n-ink);
+        --color-text-body: #55534d;
+        --color-text-muted: #6d6960;
+        --color-text-placeholder: #9a958b;
+        --color-accent: var(--n-sage);
+        --color-accent-hover: var(--n-sage-dark);
+        /* Тёплый чёрный на шалфее — 6.0:1. */
+        --color-on-accent: var(--n-ink);
+        --color-focus: var(--n-sage);
+        --color-danger: var(--n-brick);
+
+        --font-display: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        --font-body: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        --text-sm: 0.9375rem;
+
+        --radius-xs: 6px;
+        --radius-sm: 10px;
+        --radius-md: 14px;
+        --control-h: 44px;
+        --control-h-sm: 36px;
+        --shadow-card: 0 1px 2px rgba(58, 54, 47, 0.04);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #e6e1d6;
+        color: var(--color-text);
+        font-family: var(--font-body);
+        font-size: 16px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: 2px;
+        border-radius: var(--radius-xs);
+      }
+
+      :where(a, button, input, textarea) {
+        font: inherit;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* --- Оправа галереи: не часть интерфейса продукта ---------------------- */
+
+      .gallery__head {
+        display: grid;
+        gap: 6px;
+        padding: 28px 40px 24px;
+        border-bottom: 1px solid #d5cec0;
+      }
+
+      .gallery__title {
+        margin: 0;
+        font: 600 18px/1.3 var(--font-display);
+        letter-spacing: -0.2px;
+        color: #2f2b26;
+      }
+
+      .gallery__note {
+        max-width: 80ch;
+        margin: 0;
+        color: #5f5a52;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .gallery__note code {
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: #ddd6c8;
+        font-size: 12.5px;
+      }
+
+      .frame {
+        border-bottom: 1px solid #d5cec0;
+      }
+
+      .frame__caption {
+        margin: 0;
+        padding: 12px 40px;
+        background: #e9e4da;
+        color: #55504a;
+        font-size: 12.5px;
+        line-height: 1.5;
+        border-bottom: 1px solid #d9d3c6;
+      }
+
+      .frame__caption b {
+        font-weight: 600;
+        color: #3d3934;
+      }
+
+      /* --- Продукт: каркас (перенос из index.css) ---------------------------- */
+
+      .screen {
+        display: flex;
+        flex-direction: column;
+        min-height: 380px;
+        background: var(--color-bg-page);
+        color: var(--color-text);
+        font-family: var(--font-body);
+      }
+
+      .topbar {
+        display: flex;
+        flex: none;
+        align-items: stretch;
+        height: 68px;
+        padding: 0 40px;
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-bg-surface);
+      }
+
+      .brand {
+        display: flex;
+        align-self: center;
+        align-items: center;
+        gap: 11px;
+        width: fit-content;
+        color: var(--color-text);
+        text-decoration: none;
+      }
+
+      .brand__mark {
+        display: block;
+        width: 34px;
+        height: 34px;
+        flex: none;
+      }
+
+      .brand__name {
+        font: 600 19px/1.15 var(--font-display);
+        letter-spacing: -0.2px;
+      }
+
+      /* Новое для #132: два раздела кабинета. Подчёркивание активного лежит на
+         линии шапки — это и есть метка «где я», цвет в ней не участвует. */
+      .nav {
+        display: flex;
+        align-items: stretch;
+        gap: 2px;
+        margin-left: 32px;
+        margin-right: auto;
+        /* Подчёркивание активного ложится на линию шапки, а не висит над ней. */
+        margin-bottom: -1px;
+      }
+
+      .nav__link {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 12px;
+        border-bottom: 2px solid transparent;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        text-decoration: none;
+        white-space: nowrap;
+        transition:
+          color 160ms ease,
+          border-color 160ms ease;
+      }
+
+      .nav__link:first-child {
+        padding-left: 0;
+      }
+
+      .nav__link:hover {
+        color: var(--n-ink);
+      }
+
+      .nav__link[aria-current='page'] {
+        border-bottom-color: var(--color-accent);
+        color: var(--n-ink);
+      }
+
+      .topbar__right {
+        display: flex;
+        align-self: center;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .account {
+        color: var(--color-text-muted);
+        font-size: 13px;
+      }
+
+      .screen__main {
+        flex: 1;
+        padding: 32px 40px 48px;
+      }
+
+      /* --- Продукт: страница ------------------------------------------------ */
+
+      .page {
+        display: grid;
+        gap: 20px;
+        width: 100%;
+        max-width: 1120px;
+      }
+
+      /* Реестр пользователей шире реестра организаций: колонок больше. */
+      .page--list {
+        max-width: 1240px;
+      }
+
+      /* Карточка — документ, а не растянутая таблица. */
+      .page--card {
+        max-width: 880px;
+      }
+
+      .page__head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .page__head--card {
+        align-items: flex-start;
+        gap: 24px;
+      }
+
+      .page__head-main {
+        display: grid;
+        gap: 5px;
+        min-width: 0;
+      }
+
+      .page__title {
+        margin: 0;
+        font: 600 26px/1.25 var(--font-display);
+        letter-spacing: -0.4px;
+        color: var(--n-ink);
+        overflow-wrap: anywhere;
+      }
+
+      .page__meta {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .page__back {
+        margin: 0;
+      }
+
+      .link {
+        color: var(--color-text-body);
+        font-size: 13.5px;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        text-decoration-color: var(--color-border-strong);
+      }
+
+      .link:hover {
+        color: var(--n-ink);
+        text-decoration-color: var(--n-grey);
+      }
+
+      /* --- Продукт: кнопки и поля (перенос из index.css) -------------------- */
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: var(--control-h);
+        padding: 10px 18px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        background: none;
+        white-space: nowrap;
+        flex: none;
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 14.5px;
+        letter-spacing: 0.01em;
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          background-color 160ms ease,
+          border-color 160ms ease,
+          color 160ms ease;
+      }
+
+      .btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .btn--primary {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+      }
+
+      .btn--primary:hover:not(:disabled) {
+        background: var(--color-accent-hover);
+        color: var(--color-on-accent);
+      }
+
+      .btn--ghost {
+        background: transparent;
+        border-color: var(--color-border-strong);
+        color: var(--n-grey-deep);
+      }
+
+      .btn--ghost:hover:not(:disabled) {
+        background: #efede7;
+        border-color: var(--n-grey);
+        color: var(--n-ink);
+      }
+
+      .btn--compact {
+        min-height: var(--control-h-sm);
+        padding: 7px 13px;
+        border-radius: var(--radius-xs);
+        font-size: 13px;
+      }
+
+      .btn[aria-busy='true'] {
+        cursor: progress;
+      }
+
+      .btn[aria-busy='true']::after {
+        content: '';
+        width: 0.85em;
+        height: 0.85em;
+        border: 1.5px solid currentcolor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: btn-spin 700ms linear infinite;
+      }
+
+      @keyframes btn-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .field {
+        display: grid;
+        gap: 7px;
+        min-width: 0;
+      }
+
+      .field__label {
+        font-weight: 600;
+        font-size: 12.5px;
+        letter-spacing: 0.01em;
+        color: var(--color-text-body);
+      }
+
+      .field__input {
+        width: 100%;
+        min-height: var(--control-h);
+        padding: 11px 14px;
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-sm);
+        background: var(--color-bg-surface);
+        color: var(--color-text);
+        font: inherit;
+        font-size: var(--text-sm);
+        transition:
+          border-color 160ms ease,
+          background-color 160ms ease;
+      }
+
+      .field__input:hover {
+        border-color: var(--n-grey);
+      }
+
+      .field__input::placeholder {
+        color: var(--color-text-placeholder);
+      }
+
+      .field__input[aria-invalid='true'] {
+        border-color: var(--color-danger);
+        background: #fdf9f7;
+      }
+
+      .field__hint {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+
+      .alert {
+        margin: 0;
+        padding: 11px 14px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        font-size: 13.5px;
+        font-weight: 500;
+        line-height: 1.45;
+      }
+
+      .alert--error {
+        border-color: var(--n-brick-line);
+        background: var(--n-brick-tint);
+        color: var(--color-danger);
+      }
+
+      /* --- Продукт: блок «пусто» (перенос из index.css) --------------------- */
+
+      .empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 252px;
+        padding: 36px 24px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        text-align: center;
+      }
+
+      .empty__icon {
+        display: grid;
+        place-items: center;
+        margin-bottom: 8px;
+        color: var(--n-grey);
+      }
+
+      .empty__icon svg {
+        width: 26px;
+        height: 26px;
+        stroke-width: 1.4;
+      }
+
+      .empty h2 {
+        margin: 0;
+        font: 600 17px/1.3 var(--font-display);
+        color: var(--n-ink);
+      }
+
+      .empty p {
+        max-width: 44ch;
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .empty .link {
+        margin-top: 10px;
+      }
+
+      /* Пустой результат поиска — тот же блок, но ниже: пустая база бывает
+         один раз, а поиск промахивается постоянно. */
+      .empty--compact {
+        min-height: 196px;
+        padding: 28px 24px;
+      }
+
+      /* ==========================================================================
+         Новое для #132: поиск над реестром, колонки пользователей, флаг активации,
+         карточка учётной записи с единственной правкой.
+         ========================================================================== */
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .search {
+        position: relative;
+        width: min(100%, 380px);
+      }
+
+      .search__icon {
+        position: absolute;
+        top: 50%;
+        left: 13px;
+        width: 16px;
+        height: 16px;
+        transform: translateY(-50%);
+        color: var(--color-text-placeholder);
+        pointer-events: none;
+      }
+
+      .search .field__input {
+        padding-left: 39px;
+      }
+
+      .list {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        box-shadow: var(--shadow-card);
+        overflow: hidden;
+      }
+
+      .list__table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      .list__table th {
+        padding: 11px 20px;
+        border-bottom: 1px solid var(--color-border);
+        color: var(--color-text-muted);
+        font: 600 12.5px/1.4 var(--font-body);
+        letter-spacing: 0.01em;
+        text-align: start;
+      }
+
+      /* Ширины подобраны под содержимое: ФИО и email — самые длинные поля,
+         роль и состояние — самые короткие. */
+      .list__table th:nth-child(1) {
+        width: 26%;
+      }
+
+      .list__table th:nth-child(2) {
+        width: 24%;
+      }
+
+      .list__table th:nth-child(3) {
+        width: 24%;
+      }
+
+      .list__table th:nth-child(4) {
+        width: 10%;
+      }
+
+      .list__table th:nth-child(5) {
+        width: 12%;
+      }
+
+      .list__table td {
+        padding: 13px 20px;
+        border-bottom: 1px solid var(--color-border);
+        vertical-align: middle;
+        color: var(--color-text-body);
+        font-size: 13.5px;
+      }
+
+      .list__table tbody tr:last-child td {
+        border-bottom: 0;
+      }
+
+      /* Номер учётной записи — не колонка, а тихая строка над ФИО: он нужен для
+         поиска и сверки, но решает ли ФИО строку. */
+      .user__id {
+        display: block;
+        margin-bottom: 1px;
+        color: var(--color-text-muted);
+        font-size: 11.5px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
+      }
+
+      .user__name {
+        display: block;
+        color: var(--n-ink);
+        font-size: 14.5px;
+        font-weight: 600;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+      }
+
+      .user__email,
+      .user__org {
+        overflow-wrap: anywhere;
+      }
+
+      .user__role {
+        white-space: nowrap;
+      }
+
+      /* Пустое значение в данных: тире, а не выдуманное слово. */
+      .none {
+        color: var(--color-text-placeholder);
+      }
+
+      /* Флаг активации: точка и слово. Залитая — активирован, контурная — нет;
+         цвет только поддерживает слово, а не заменяет его. */
+      .flag {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--color-text-body);
+        font-size: 13.5px;
+        white-space: nowrap;
+      }
+
+      .flag__dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--color-accent);
+      }
+
+      .flag--off {
+        color: var(--color-text-muted);
+      }
+
+      .flag--off .flag__dot {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--color-border-strong);
+      }
+
+      .list__action {
+        width: 1%;
+        text-align: end;
+      }
+
+      .cell__label {
+        display: none;
+      }
+
+      .list__foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 20px;
+        border-top: 1px solid var(--color-border);
+        background: var(--color-bg-surface);
+      }
+
+      .list__shown {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Загрузка: строка состояния внутри той же рамки, что и таблица. */
+      .state {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 30px 24px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        color: var(--color-text-muted);
+        font-size: 14px;
+      }
+
+      .spinner {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        border: 1.5px solid var(--color-border-strong);
+        border-top-color: var(--n-sage);
+        border-radius: 50%;
+        animation: btn-spin 800ms linear infinite;
+      }
+
+      /* Карточка: белая поверхность с волосяными линиями, без плиток. */
+      .panel {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        box-shadow: var(--shadow-card);
+        overflow: hidden;
+      }
+
+      .panel__head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      .panel__title {
+        margin: 0;
+        font: 600 15px/1.3 var(--font-display);
+        letter-spacing: -0.1px;
+        color: var(--n-ink);
+      }
+
+      .req {
+        margin: 0;
+        padding: 2px 24px;
+      }
+
+      .req__row {
+        display: grid;
+        grid-template-columns: 172px minmax(0, 1fr);
+        gap: 16px;
+        align-items: baseline;
+        padding: 13px 0;
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      .req__row:last-child {
+        border-bottom: 0;
+      }
+
+      .req__key {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+      }
+
+      .req__val {
+        margin: 0;
+        color: var(--n-ink);
+        font-size: 15px;
+        overflow-wrap: anywhere;
+      }
+
+      /* Подвал выписки: что здесь правится и что нет. Одна строка, не абзац. */
+      .panel__note {
+        margin: 0;
+        padding: 12px 24px 14px;
+        border-top: 1px solid var(--color-border);
+        background: var(--color-bg-page);
+        color: var(--color-text-muted);
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+
+      /* Правка: та же поверхность и те же поля, что на входе. */
+      .form {
+        display: grid;
+        gap: 18px;
+        padding: 22px 24px 24px;
+        margin: 0;
+      }
+
+      .form__actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      /* В правке те же строки стоят внутри формы: одна карточка вместо двух —
+         поле ФИО сверху, только-чтение следом, кнопки внизу. */
+      .form--edit {
+        gap: 0;
+        padding: 0;
+      }
+
+      .form--edit .field {
+        gap: 6px;
+        padding: 20px 24px 0;
+      }
+
+      .form--edit .req--flush {
+        margin-top: 18px;
+        padding: 2px 24px;
+      }
+
+      .form--edit .alert {
+        margin: 16px 24px 0;
+      }
+
+      .form--edit .form__actions {
+        padding: 16px 24px 22px;
+      }
+
+      /* Деталь: только строка кнопок, без целого экрана. */
+      .detail {
+        padding: 24px 40px 28px;
+        background: var(--color-bg-page);
+      }
+
+      .detail__box {
+        display: grid;
+        gap: 12px;
+        max-width: 640px;
+        padding: 20px 24px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        box-shadow: var(--shadow-card);
+      }
+
+      .detail__caption {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 12.5px;
+      }
+
+      /* --- Узкое окно -------------------------------------------------------- */
+
+      @media (max-width: 760px) {
+        .gallery__head {
+          padding: 20px 20px 18px;
+        }
+
+        .frame__caption {
+          padding: 11px 20px;
+        }
+
+        /* Шапка в две строки: марка, логин и «Выйти» — сверху, разделы — под
+           линией на всю ширину. Логин не сжимается и не уезжает в меню. */
+        .topbar {
+          flex-wrap: wrap;
+          height: auto;
+          padding: 0;
+        }
+
+        .brand {
+          align-self: center;
+          height: 56px;
+          margin-left: 20px;
+        }
+
+        .brand__mark {
+          width: 30px;
+          height: 30px;
+        }
+
+        .brand__name {
+          font-size: 17px;
+        }
+
+        .topbar__right {
+          align-self: center;
+          height: 56px;
+          margin-left: auto;
+          padding-right: 20px;
+          gap: 10px;
+        }
+
+        .nav {
+          order: 3;
+          flex-basis: 100%;
+          height: 46px;
+          margin: 0;
+          padding: 0 20px;
+          border-top: 1px solid var(--color-border);
+        }
+
+        .nav__link {
+          flex: 1;
+          justify-content: center;
+          padding: 0 8px;
+        }
+
+        .nav__link:first-child {
+          padding-left: 8px;
+        }
+
+        .screen__main {
+          padding: 24px 20px 32px;
+        }
+
+        .page {
+          gap: 16px;
+        }
+
+        .page__title {
+          font-size: 21px;
+        }
+
+        .page__head--card {
+          flex-direction: column;
+          gap: 14px;
+        }
+
+        .page__head--card .btn {
+          width: 100%;
+        }
+
+        .search {
+          width: 100%;
+        }
+
+        /* Таблица перестаёт быть таблицей: строка — блок с подписями. */
+        .list__table thead {
+          display: none;
+        }
+
+        .list__table,
+        .list__table tbody,
+        .list__table tr,
+        .list__table td {
+          display: block;
+        }
+
+        .list__table tr {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 3px 12px;
+          padding: 15px 20px;
+          border-bottom: 1px solid var(--color-border);
+        }
+
+        .list__table tbody tr:last-child {
+          border-bottom: 0;
+        }
+
+        .list__table td {
+          padding: 0;
+          border: 0;
+        }
+
+        .list__name-cell {
+          grid-column: 1;
+          grid-row: 1 / span 2;
+        }
+
+        .user__id {
+          font-size: 11.5px;
+        }
+
+        .user__email {
+          grid-column: 1 / -1;
+          grid-row: 3;
+          margin-top: 4px;
+          color: var(--color-text-muted);
+          font-size: 13px;
+        }
+
+        .user__org {
+          grid-column: 1 / -1;
+          grid-row: 4;
+          margin-top: 6px;
+        }
+
+        .user__role {
+          grid-column: 1;
+          grid-row: 5;
+          margin-top: 4px;
+        }
+
+        .list__state {
+          grid-column: 1 / -1;
+          grid-row: 6;
+          margin-top: 6px;
+        }
+
+        .list__action {
+          grid-column: 2;
+          grid-row: 1;
+          width: auto;
+          align-self: start;
+        }
+
+        .cell__label {
+          display: inline;
+          margin-right: 5px;
+          color: var(--color-text-muted);
+          font-size: 12.5px;
+        }
+
+        .list__foot {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 10px;
+          padding: 14px 20px 16px;
+        }
+
+        .list__foot .btn {
+          width: 100%;
+        }
+
+        .list__shown {
+          order: 2;
+          text-align: center;
+        }
+
+        .empty {
+          padding: 28px 20px;
+        }
+
+        .req {
+          padding: 2px 20px;
+        }
+
+        .req__row {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 2px;
+          padding: 12px 0;
+        }
+
+        .req__key {
+          font-size: 12.5px;
+        }
+
+        .panel__note {
+          padding: 12px 20px 14px;
+        }
+
+        .form {
+          padding: 20px;
+        }
+
+        .form--edit {
+          padding: 0;
+        }
+
+        .form--edit .field {
+          padding: 18px 20px 0;
+        }
+
+        .form--edit .req--flush {
+          margin: 16px 0 0;
+          padding: 2px 20px;
+        }
+
+        .form--edit .alert {
+          margin: 14px 20px 0;
+        }
+
+        .form--edit .form__actions {
+          padding: 14px 20px 18px;
+        }
+
+        .form__actions {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .detail {
+          padding: 20px;
+        }
+
+        .detail__box {
+          padding: 18px 20px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+
+        .btn[aria-busy='true']::after,
+        .spinner {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="gallery__head">
+      <h1 class="gallery__title">Кабинет оператора: пользователи — макет постановки #132</h1>
+      <p class="gallery__note">
+        Статичный макет, без сборки и внешних файлов. Токены, шапка, кнопки, поля, алерт и блок
+        «пусто» перенесены из <code>operator/frontend/src/index.css</code> и макета
+        <code>mockups/131/</code>; новое — навигация из двух пунктов, поиск над реестром, колонки
+        пользователей и карточка с единственной правкой. Кадры идут по сценарию, ширина проверена
+        на 1440 и 375.
+      </p>
+    </header>
+
+    <!-- ================================================================
+         1. Список: загружен
+         ================================================================ -->
+    <section class="frame" id="frame-1">
+      <p class="frame__caption">
+        <b>Список · загружен.</b> «Пользователи» — текущий раздел, «Организации» ведёт на `/`.
+        Счётчик равен `total`; строка 133 — без организации и роли, 137 — не активирован.
+        «Показать ещё» видна, пока показано меньше `total`.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations">
+              Организации
+            </a>
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-users"
+            >
+              Пользователи
+            </a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account" title="Логин, под которым открыт кабинет">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button" data-testid="operator-logout">
+              Выйти
+            </button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--list">
+            <div class="page__head">
+              <h1 class="page__title">Пользователи</h1>
+              <p class="page__meta">61 пользователь</p>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="users-search">Поиск по ФИО или email</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="users-search"
+                  type="search"
+                  value=""
+                  placeholder="ФИО или email"
+                  data-testid="operator-users-search"
+                />
+              </div>
+            </div>
+
+            <div class="list" data-testid="operator-users">
+              <table class="list__table">
+                <caption class="visually-hidden">
+                  Учётные записи платформы: номер, ФИО, email, организация, роль, состояние
+                  активации
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">ФИО</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Организация</th>
+                    <th scope="col">Роль</th>
+                    <th scope="col">Состояние</th>
+                    <th scope="col"><span class="visually-hidden">Действие</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-testid="operator-user-row">
+                    <td class="list__name-cell">
+                      <span class="user__id">№ 142</span>
+                      <span class="user__name">Журавлёва Екатерина Сергеевна</span>
+                    </td>
+                    <td class="user__email">e.zhuravleva@vostok-stroy.ru</td>
+                    <td class="user__org"><span class="cell__label">Организация:</span>ООО «Восток-Строй»</td>
+                    <td class="user__role"><span class="cell__label">Роль:</span>Владелец</td>
+                    <td class="list__state">
+                      <span class="flag"><span class="flag__dot"></span>Активирован</span>
+                    </td>
+                    <td class="list__action">
+                      <a
+                        class="btn btn--ghost btn--compact"
+                        href="#frame-6"
+                        data-testid="operator-user-open"
+                      >
+                        Открыть
+                      </a>
+                    </td>
+                  </tr>
+                  <tr data-testid="operator-user-row">
+                    <td class="list__name-cell">
+                      <span class="user__id">№ 141</span>
+                      <span class="user__name">Соколов Иван Петрович</span>
+                    </td>
+                    <td class="user__email">i.sokolov@vostok-stroy.ru</td>
+                    <td class="user__org"><span class="cell__label">Организация:</span>ООО «Восток-Строй»</td>
+                    <td class="user__role"><span class="cell__label">Роль:</span>Администратор</td>
+                    <td class="list__state">
+                      <span class="flag"><span class="flag__dot"></span>Активирован</span>
+                    </td>
+                    <td class="list__action">
+                      <a
+                        class="btn btn--ghost btn--compact"
+                        href="#frame-6"
+                        data-testid="operator-user-open"
+                      >
+                        Открыть
+                      </a>
+                    </td>
+                  </tr>
+                  <tr data-testid="operator-user-row">
+                    <td class="list__name-cell">
+                      <span class="user__id">№ 139</span>
+                      <span class="user__name">Кузнецова Марина Александровна</span>
+                    </td>
+                    <td class="user__email">m.kuznetsova@severny-dom.ru</td>
+                    <td class="user__org"><span class="cell__label">Организация:</span>ООО «Северный дом»</td>
+                    <td class="user__role"><span class="cell__label">Роль:</span>Комендант</td>
+                    <td class="list__state">
+                      <span class="flag"><span class="flag__dot"></span>Активирован</span>
+                    </td>
+                    <td class="list__action">
+                      <a
+                        class="btn btn--ghost btn--compact"
+                        href="#frame-6"
+                        data-testid="operator-user-open"
+                      >
+                        Открыть
+                      </a>
+                    </td>
+                  </tr>
+                  <tr data-testid="operator-user-row">
+                    <td class="list__name-cell">
+                      <span class="user__id">№ 137</span>
+                      <span class="user__name">Лебедев Дмитрий Олегович</span>
+                    </td>
+                    <td class="user__email">d.lebedev@ural-byt.ru</td>
+                    <td class="user__org"><span class="cell__label">Организация:</span>ООО «Уральский быт»</td>
+                    <td class="user__role"><span class="cell__label">Роль:</span>Менеджер</td>
+                    <td class="list__state">
+                      <span class="flag flag--off"><span class="flag__dot"></span>Не активирован</span>
+                    </td>
+                    <td class="list__action">
+                      <a
+                        class="btn btn--ghost btn--compact"
+                        href="#frame-9"
+                        data-testid="operator-user-open"
+                      >
+                        Открыть
+                      </a>
+                    </td>
+                  </tr>
+                  <tr data-testid="operator-user-row">
+                    <td class="list__name-cell">
+                      <span class="user__id">№ 134</span>
+                      <span class="user__name">Морозова Ольга Владимировна</span>
+                    </td>
+                    <td class="user__email">o.morozova@kuzbass-obshch.ru</td>
+                    <td class="user__org"><span class="cell__label">Организация:</span>ООО «Кузбасс-Общежитие»</td>
+                    <td class="user__role"><span class="cell__label">Роль:</span>Участник</td>
+                    <td class="list__state">
+                      <span class="flag"><span class="flag__dot"></span>Активирован</span>
+                    </td>
+                    <td class="list__action">
+                      <a
+                        class="btn btn--ghost btn--compact"
+                        href="#frame-6"
+                        data-testid="operator-user-open"
+                      >
+                        Открыть
+                      </a>
+                    </td>
+                  </tr>
+                  <tr data-testid="operator-user-row">
+                    <td class="list__name-cell">
+                      <span class="user__id">№ 133</span>
+                      <span class="user__name">Прохоров Алексей Николаевич</span>
+                    </td>
+                    <td class="user__email">a.prokhorov.rabota@yandex.ru</td>
+                    <td class="user__org none"><span class="cell__label">Организация:</span>—</td>
+                    <td class="user__role none"><span class="cell__label">Роль:</span>—</td>
+                    <td class="list__state">
+                      <span class="flag"><span class="flag__dot"></span>Активирован</span>
+                    </td>
+                    <td class="list__action">
+                      <a
+                        class="btn btn--ghost btn--compact"
+                        href="#frame-6"
+                        data-testid="operator-user-open"
+                      >
+                        Открыть
+                      </a>
+                    </td>
+                  </tr>
+                  <tr data-testid="operator-user-row">
+                    <td class="list__name-cell">
+                      <span class="user__id">№ 131</span>
+                      <span class="user__name">Тимофеев Сергей Викторович</span>
+                    </td>
+                    <td class="user__email">s.timofeev@obshchezhitie-service.ru</td>
+                    <td class="user__org"><span class="cell__label">Организация:</span>АО «Общежитие-Сервис»</td>
+                    <td class="user__role"><span class="cell__label">Роль:</span>Администратор</td>
+                    <td class="list__state">
+                      <span class="flag flag--off"><span class="flag__dot"></span>Не активирован</span>
+                    </td>
+                    <td class="list__action">
+                      <a
+                        class="btn btn--ghost btn--compact"
+                        href="#frame-9"
+                        data-testid="operator-user-open"
+                      >
+                        Открыть
+                      </a>
+                    </td>
+                  </tr>
+                  <tr data-testid="operator-user-row">
+                    <td class="list__name-cell">
+                      <span class="user__id">№ 128</span>
+                      <span class="user__name">Аникина-Черкасова Виктория Андреевна</span>
+                    </td>
+                    <td class="user__email">
+                      v.anikina-cherkasova@zavodskaya-stroyektnaya-kompaniya.ru
+                    </td>
+                    <td class="user__org"><span class="cell__label">Организация:</span>
+                      ООО «Заводская строительно-эксплуатационная компания „Волга-Пром-Общежитие“»
+                    </td>
+                    <td class="user__role"><span class="cell__label">Роль:</span>Участник</td>
+                    <td class="list__state">
+                      <span class="flag"><span class="flag__dot"></span>Активирован</span>
+                    </td>
+                    <td class="list__action">
+                      <a
+                        class="btn btn--ghost btn--compact"
+                        href="#frame-6"
+                        data-testid="operator-user-open"
+                      >
+                        Открыть
+                      </a>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="list__foot">
+                <p class="list__shown">Показано 8 из 61</p>
+                <button class="btn btn--ghost" type="button" data-testid="operator-users-more">
+                  Показать ещё
+                </button>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         2. Список: загрузка
+         ================================================================ -->
+    <section class="frame">
+      <p class="frame__caption">
+        <b>Список · загрузка.</b> Поле поиска доступно, счётчик не показывается: `total` ещё
+        неизвестен.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations">
+              Организации
+            </a>
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-users"
+            >
+              Пользователи
+            </a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button" data-testid="operator-logout">
+              Выйти
+            </button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--list">
+            <div class="page__head">
+              <h1 class="page__title">Пользователи</h1>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="users-search-2">Поиск по ФИО или email</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="users-search-2"
+                  type="search"
+                  placeholder="ФИО или email"
+                  data-testid="operator-users-search"
+                />
+              </div>
+            </div>
+
+            <div class="state" role="status" aria-live="polite">
+              <span class="spinner" aria-hidden="true"></span>
+              Загружаем пользователей…
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         3. Список: пусто
+         ================================================================ -->
+    <section class="frame">
+      <p class="frame__caption">
+        <b>Список · пусто.</b> В базе нет ни одной учётной записи. Создания пользователей в
+        кабинете нет, поэтому экран говорит, откуда они появятся, и не предлагает кнопку.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations">
+              Организации
+            </a>
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-users"
+            >
+              Пользователи
+            </a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button" data-testid="operator-logout">
+              Выйти
+            </button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--list">
+            <div class="page__head">
+              <h1 class="page__title">Пользователи</h1>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="users-search-3">Поиск по ФИО или email</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="users-search-3"
+                  type="search"
+                  placeholder="ФИО или email"
+                  data-testid="operator-users-search"
+                />
+              </div>
+            </div>
+
+            <div class="empty" data-testid="operator-users-empty">
+              <span class="empty__icon" aria-hidden="true">
+                <svg
+                  width="26"
+                  height="26"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="9" cy="8" r="3.4" />
+                  <path d="M3.5 20c0-3.2 2.5-5.4 5.5-5.4s5.5 2.2 5.5 5.4M16.5 5.5h4M18.5 3.5v4" />
+                </svg>
+              </span>
+              <h2>Пользователей пока нет</h2>
+              <p>
+                Здесь появятся учётные записи людей, зарегистрированных на платформе, — вместе с
+                организацией и ролью.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         4. Список: ничего не найдено
+         ================================================================ -->
+    <section class="frame">
+      <p class="frame__caption">
+        <b>Список · ничего не найдено.</b> Отличается от пустой базы текстом, а не оформлением:
+        «Ничего не найдено» вместо «Пользователей пока нет». Запрос остаётся в поле.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations">
+              Организации
+            </a>
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-users"
+            >
+              Пользователи
+            </a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button" data-testid="operator-logout">
+              Выйти
+            </button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--list">
+            <div class="page__head">
+              <h1 class="page__title">Пользователи</h1>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="users-search-4">Поиск по ФИО или email</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="users-search-4"
+                  type="search"
+                  value="щукин"
+                  data-testid="operator-users-search"
+                />
+              </div>
+            </div>
+
+            <div class="empty empty--compact" data-testid="operator-users-empty">
+              <span class="empty__icon" aria-hidden="true">
+                <svg
+                  width="26"
+                  height="26"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+              </span>
+              <h2>Ничего не найдено</h2>
+              <p>
+                По запросу «щукин» никого нет. Поиск идёт по ФИО и email, регистр не важен.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         5. Список: ошибка
+         ================================================================ -->
+    <section class="frame">
+      <p class="frame__caption">
+        <b>Список · ошибка.</b> Текст отказа — дословно из `detail`. Так же выглядят 502 «Основной
+        API не принял сервисный токен» и 503 «Кабинет не настроен: не задан
+        OPERATOR_SERVICE_TOKEN». Сессия при этом не теряется.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations">
+              Организации
+            </a>
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-users"
+            >
+              Пользователи
+            </a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button" data-testid="operator-logout">
+              Выйти
+            </button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--list">
+            <div class="page__head">
+              <h1 class="page__title">Пользователи</h1>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="users-search-5">Поиск по ФИО или email</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="users-search-5"
+                  type="search"
+                  placeholder="ФИО или email"
+                  data-testid="operator-users-search"
+                />
+              </div>
+            </div>
+
+            <p class="alert alert--error" role="alert" data-testid="operator-users-error">
+              Основной API недоступен
+            </p>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         6. Карточка: просмотр
+         ================================================================ -->
+    <section class="frame" id="frame-6">
+      <p class="frame__caption">
+        <b>Карточка · просмотр.</b> ФИО — заголовок и единственное правимое значение; email,
+        организация, роль и состояние — текст без рамок полей. Подвал выписки говорит, что
+        правится только ФИО.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations">
+              Организации
+            </a>
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-users"
+            >
+              Пользователи
+            </a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button" data-testid="operator-logout">
+              Выйти
+            </button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--card" data-testid="operator-user-card">
+            <p class="page__back"><a class="link" href="#frame-1">К списку</a></p>
+
+            <div class="page__head page__head--card">
+              <div class="page__head-main">
+                <h1 class="page__title" data-testid="operator-user-full-name">
+                  Журавлёва Екатерина Сергеевна
+                </h1>
+                <p class="page__meta">Пользователь №142 · создан 12 февраля 2026</p>
+              </div>
+              <button class="btn btn--ghost" type="button" data-testid="operator-user-edit">
+                Редактировать
+              </button>
+            </div>
+
+            <div class="panel">
+              <div class="panel__head">
+                <h2 class="panel__title">Учётная запись</h2>
+              </div>
+              <dl class="req">
+                <div class="req__row">
+                  <dt class="req__key">Email</dt>
+                  <dd class="req__val" data-testid="operator-user-email">
+                    e.zhuravleva@vostok-stroy.ru
+                  </dd>
+                </div>
+                <div class="req__row">
+                  <dt class="req__key">Организация</dt>
+                  <dd class="req__val" data-testid="operator-user-organization">
+                    ООО «Восток-Строй»
+                  </dd>
+                </div>
+                <div class="req__row">
+                  <dt class="req__key">Роль</dt>
+                  <dd class="req__val" data-testid="operator-user-role">Владелец</dd>
+                </div>
+                <div class="req__row">
+                  <dt class="req__key">Состояние</dt>
+                  <dd class="req__val" data-testid="operator-user-active">
+                    <span class="flag"><span class="flag__dot"></span>Активирован</span>
+                  </dd>
+                </div>
+              </dl>
+              <p class="panel__note">
+                Правится только ФИО. Email — это логин учётной записи, организация и роль в кабинете
+                не меняются.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         7. Карточка: правка
+         ================================================================ -->
+    <section class="frame" id="frame-7">
+      <p class="frame__caption">
+        <b>Карточка · правка.</b> «Редактировать» открывает единственное поле ФИО. Остальные
+        реквизиты остаются на экране текстом и не превращаются в поля ввода.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations">
+              Организации
+            </a>
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-users"
+            >
+              Пользователи
+            </a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button" data-testid="operator-logout">
+              Выйти
+            </button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--card" data-testid="operator-user-card">
+            <p class="page__back"><a class="link" href="#frame-1">К списку</a></p>
+
+            <div class="page__head page__head--card">
+              <div class="page__head-main">
+                <h1 class="page__title">Журавлёва Екатерина Сергеевна</h1>
+                <p class="page__meta">Пользователь №142</p>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel__head">
+                <h2 class="panel__title">Учётная запись</h2>
+              </div>
+              <form class="form form--edit" novalidate>
+                <div class="field">
+                  <label class="field__label" for="user-full-name">ФИО</label>
+                  <input
+                    class="field__input"
+                    id="user-full-name"
+                    type="text"
+                    value="Журавлёва Екатерина Сергеевна"
+                    data-testid="operator-user-full-name"
+                  />
+                  <p class="field__hint">Email, организацию и роль изменить нельзя.</p>
+                </div>
+
+                <dl class="req req--flush">
+                  <div class="req__row">
+                    <dt class="req__key">Email</dt>
+                    <dd class="req__val" data-testid="operator-user-email">
+                      e.zhuravleva@vostok-stroy.ru
+                    </dd>
+                  </div>
+                  <div class="req__row">
+                    <dt class="req__key">Организация</dt>
+                    <dd class="req__val" data-testid="operator-user-organization">
+                      ООО «Восток-Строй»
+                    </dd>
+                  </div>
+                  <div class="req__row">
+                    <dt class="req__key">Роль</dt>
+                    <dd class="req__val" data-testid="operator-user-role">Владелец</dd>
+                  </div>
+                  <div class="req__row">
+                    <dt class="req__key">Состояние</dt>
+                    <dd class="req__val" data-testid="operator-user-active">
+                      <span class="flag"><span class="flag__dot"></span>Активирован</span>
+                    </dd>
+                  </div>
+                </dl>
+
+                <div class="form__actions">
+                  <button class="btn btn--primary" type="submit" data-testid="operator-user-save">
+                    Сохранить
+                  </button>
+                  <button class="btn btn--ghost" type="button" data-testid="operator-user-cancel">
+                    Отмена
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         8. Карточка: отказ 422
+         ================================================================ -->
+    <section class="frame">
+      <p class="frame__caption">
+        <b>Карточка · отказ 422.</b> Текст отказа дословно в `operator-user-error` над кнопками,
+        введённое значение не сбрасывается, поле помечено `aria-invalid`, фокус остаётся в форме.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations">
+              Организации
+            </a>
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-users"
+            >
+              Пользователи
+            </a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button" data-testid="operator-logout">
+              Выйти
+            </button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--card" data-testid="operator-user-card">
+            <p class="page__back"><a class="link" href="#frame-1">К списку</a></p>
+
+            <div class="page__head page__head--card">
+              <div class="page__head-main">
+                <h1 class="page__title">Журавлёва Екатерина Сергеевна</h1>
+                <p class="page__meta">Пользователь №142</p>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel__head">
+                <h2 class="panel__title">Учётная запись</h2>
+              </div>
+              <form class="form form--edit" novalidate>
+                <div class="field">
+                  <label class="field__label" for="user-full-name-err">ФИО</label>
+                  <input
+                    class="field__input"
+                    id="user-full-name-err"
+                    type="text"
+                    value=" "
+                    aria-invalid="true"
+                    aria-describedby="user-full-name-error"
+                    data-testid="operator-user-full-name"
+                  />
+                  <p class="field__hint">Email, организацию и роль изменить нельзя.</p>
+                </div>
+
+                <dl class="req req--flush">
+                  <div class="req__row">
+                    <dt class="req__key">Email</dt>
+                    <dd class="req__val" data-testid="operator-user-email">
+                      e.zhuravleva@vostok-stroy.ru
+                    </dd>
+                  </div>
+                  <div class="req__row">
+                    <dt class="req__key">Организация</dt>
+                    <dd class="req__val" data-testid="operator-user-organization">
+                      ООО «Восток-Строй»
+                    </dd>
+                  </div>
+                  <div class="req__row">
+                    <dt class="req__key">Роль</dt>
+                    <dd class="req__val" data-testid="operator-user-role">Владелец</dd>
+                  </div>
+                  <div class="req__row">
+                    <dt class="req__key">Состояние</dt>
+                    <dd class="req__val" data-testid="operator-user-active">
+                      <span class="flag"><span class="flag__dot"></span>Активирован</span>
+                    </dd>
+                  </div>
+                </dl>
+
+                <p
+                  class="alert alert--error"
+                  id="user-full-name-error"
+                  role="alert"
+                  tabindex="-1"
+                  data-testid="operator-user-error"
+                >
+                  ФИО не может быть пустым
+                </p>
+
+                <div class="form__actions">
+                  <button class="btn btn--primary" type="submit" data-testid="operator-user-save">
+                    Сохранить
+                  </button>
+                  <button class="btn btn--ghost" type="button" data-testid="operator-user-cancel">
+                    Отмена
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         9. Карточка: не активирован
+         ================================================================ -->
+    <section class="frame" id="frame-9">
+      <p class="frame__caption">
+        <b>Карточка · «Не активирован».</b> Тот же экран для учётной записи, которая ещё не
+        активирована. Подпись — только «Активирован / Не активирован»; пояснений про доступ и
+        блокировку в интерфейсе нет.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations">
+              Организации
+            </a>
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-users"
+            >
+              Пользователи
+            </a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button" data-testid="operator-logout">
+              Выйти
+            </button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--card" data-testid="operator-user-card">
+            <p class="page__back"><a class="link" href="#frame-1">К списку</a></p>
+
+            <div class="page__head page__head--card">
+              <div class="page__head-main">
+                <h1 class="page__title" data-testid="operator-user-full-name">
+                  Тимофеев Сергей Викторович
+                </h1>
+                <p class="page__meta">Пользователь №131 · создан 7 января 2026</p>
+              </div>
+              <button class="btn btn--ghost" type="button" data-testid="operator-user-edit">
+                Редактировать
+              </button>
+            </div>
+
+            <div class="panel">
+              <div class="panel__head">
+                <h2 class="panel__title">Учётная запись</h2>
+              </div>
+              <dl class="req">
+                <div class="req__row">
+                  <dt class="req__key">Email</dt>
+                  <dd class="req__val" data-testid="operator-user-email">
+                    s.timofeev@obshchezhitie-service.ru
+                  </dd>
+                </div>
+                <div class="req__row">
+                  <dt class="req__key">Организация</dt>
+                  <dd class="req__val" data-testid="operator-user-organization">
+                    АО «Общежитие-Сервис»
+                  </dd>
+                </div>
+                <div class="req__row">
+                  <dt class="req__key">Роль</dt>
+                  <dd class="req__val" data-testid="operator-user-role">Администратор</dd>
+                </div>
+                <div class="req__row">
+                  <dt class="req__key">Состояние</dt>
+                  <dd class="req__val" data-testid="operator-user-active">
+                    <span class="flag flag--off"
+                      ><span class="flag__dot"></span>Не активирован</span
+                    >
+                  </dd>
+                </div>
+              </dl>
+              <p class="panel__note">
+                Правится только ФИО. Email — это логин учётной записи, организация и роль в кабинете
+                не меняются.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         10. Карточка: 404
+         ================================================================ -->
+    <section class="frame">
+      <p class="frame__caption">
+        <b>Карточка · 404.</b> Прямой заход на несуществующий номер: заголовок с номером, текст
+        `detail` («Пользователь не найден») и одна ссылка назад.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations">
+              Организации
+            </a>
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-users"
+            >
+              Пользователи
+            </a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button" data-testid="operator-logout">
+              Выйти
+            </button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--card">
+            <div class="page__head">
+              <h1 class="page__title">Пользователь №999999</h1>
+            </div>
+            <div class="empty">
+              <span class="empty__icon" aria-hidden="true">
+                <svg
+                  width="26"
+                  height="26"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 8v5M12 16h.01" />
+                </svg>
+              </span>
+              <h2>Пользователь не найден</h2>
+              <p>В адресе неверный номер или учётная запись удалена.</p>
+              <a class="link" href="#frame-1">К списку</a>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         11. Деталь: кнопка на отправке
+         ================================================================ -->
+    <section class="frame">
+      <p class="frame__caption">
+        <b>Деталь · отправка правки.</b> «Сохранить» неактивна и говорит «Сохраняем…», «Отмена»
+        остаётся доступной.
+      </p>
+      <div class="detail">
+        <div class="detail__box">
+          <p class="detail__caption">Строка кнопок формы правки</p>
+          <div class="form__actions">
+            <button
+              class="btn btn--primary"
+              type="submit"
+              disabled
+              aria-busy="true"
+              data-testid="operator-user-save"
+            >
+              Сохраняем…
+            </button>
+            <button class="btn btn--ghost" type="button" data-testid="operator-user-cancel">
+              Отмена
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>
