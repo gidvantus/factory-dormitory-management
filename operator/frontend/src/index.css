@@ -167,6 +167,48 @@ body {
   font-size: 13px;
 }
 
+/* Навигация кабинета: два раздела в шапке (#132).
+   Подчёркивание активного лежит на линии шапки — это и есть метка «где я»,
+   цвет в ней не участвует. `margin-bottom: -1px` кладёт подчёркивание на линию
+   шапки, а не над ней. */
+.nav {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  margin-left: 32px;
+  margin-right: auto;
+  margin-bottom: -1px;
+}
+
+.nav__link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.nav__link:first-child {
+  padding-left: 0;
+}
+
+.nav__link:hover {
+  color: var(--n-ink);
+}
+
+.nav__link[aria-current='page'] {
+  border-bottom-color: var(--color-accent);
+  color: var(--n-ink);
+}
+
 /* ============================================================================
    Вход: карточка, поля, кнопка.
    ========================================================================== */
@@ -380,6 +422,11 @@ body {
 
 .page--card {
   max-width: 880px;
+}
+
+/* Реестр пользователей шире реестра организаций: колонок больше. */
+.page--list {
+  max-width: 1240px;
 }
 
 .page__head {
@@ -708,6 +755,178 @@ body {
 }
 
 /* ============================================================================
+   Пользователи платформы (#132): поиск над реестром, колонки учётной записи,
+   флаг активации и карточка с единственной правкой — ФИО.
+   ========================================================================== */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.search {
+  position: relative;
+  width: min(100%, 380px);
+}
+
+.search__icon {
+  position: absolute;
+  top: 50%;
+  left: 13px;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--color-text-placeholder);
+  pointer-events: none;
+}
+
+/* Место под иконку: иначе текст наезжает на лупу. */
+.search .field__input {
+  padding-left: 39px;
+}
+
+/* Ширины колонок заданы только у реестра пользователей: у реестра организаций
+   свои пять колонок, и общие правила сломали бы его. Подобраны под содержимое:
+   ФИО и email — самые длинные, роль и состояние — самые короткие. */
+.page--list .list__table th:nth-child(1) {
+  width: 26%;
+}
+
+.page--list .list__table th:nth-child(2) {
+  width: 24%;
+}
+
+.page--list .list__table th:nth-child(3) {
+  width: 24%;
+}
+
+.page--list .list__table th:nth-child(4) {
+  width: 10%;
+}
+
+.page--list .list__table th:nth-child(5) {
+  width: 12%;
+}
+
+.page--list .list__table td {
+  font-size: 13.5px;
+}
+
+/* Номер учётной записи — не колонка, а тихая строка над ФИО: он нужен для
+   сверки, но строку решает ФИО. */
+.user__id {
+  display: block;
+  margin-bottom: 1px;
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.user__name {
+  display: block;
+  color: var(--n-ink);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.user__email,
+.user__org {
+  overflow-wrap: anywhere;
+}
+
+.user__role {
+  white-space: nowrap;
+}
+
+/* Пустое значение в данных: тире, а не выдуманное слово. */
+.none {
+  color: var(--color-text-placeholder);
+}
+
+/* Флаг активации: точка и слово. Залитая — активирован, контурная — нет;
+   цвет поддерживает слово, а не заменяет его. */
+.flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-body);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.flag__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.flag--off {
+  color: var(--color-text-muted);
+}
+
+.flag--off .flag__dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--color-border-strong);
+}
+
+/* Пустой результат поиска — тот же блок, но ниже: пустая база бывает один раз,
+   а поиск промахивается постоянно. */
+.empty--compact {
+  min-height: 196px;
+  padding: 28px 24px;
+}
+
+/* Подсказка под полем правки: что здесь изменить нельзя. */
+.field__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* Подвал выписки: что здесь правится и что нет. Одна строка, не абзац. */
+.panel__note {
+  margin: 0;
+  padding: 12px 24px 14px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-page);
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* Правка ФИО: одна карточка вместо двух — поле сверху, строки только-чтения
+   следом, кнопки внизу. Отступы задаёт форма, а не её части. */
+.form--edit {
+  gap: 0;
+  padding: 0;
+}
+
+.form--edit .field {
+  gap: 6px;
+  padding: 20px 24px 0;
+}
+
+.form--edit .req--flush {
+  margin-top: 18px;
+  padding: 2px 24px;
+}
+
+.form--edit .alert {
+  margin: 16px 24px 0;
+}
+
+.form--edit .form__actions {
+  padding: 16px 24px 22px;
+}
+
+/* ============================================================================
    Узкое окно: карточка на всю ширину, подпись «Кабинет оператора» скрывается —
    она повторяется в заголовке карточки. Логин и «Выйти» остаются в шапке.
    ========================================================================== */
@@ -891,6 +1110,111 @@ body {
 
   .empty {
     padding: 28px 20px;
+  }
+
+  /* Шапка разделов в две строки: марка, логин и «Выйти» — сверху, навигация —
+     под линией на всю ширину. Форма входа остаётся в одну строку. */
+  .topbar--nav {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 0;
+  }
+
+  .topbar--nav .brand {
+    height: 56px;
+    margin-left: 20px;
+  }
+
+  .topbar--nav .topbar__right {
+    height: 56px;
+    margin-left: auto;
+    padding-right: 20px;
+  }
+
+  .topbar--nav .nav {
+    order: 3;
+    flex-basis: 100%;
+    height: 46px;
+    margin: 0;
+    padding: 0 20px;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .topbar--nav .nav__link {
+    flex: 1;
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  .topbar--nav .nav__link:first-child {
+    padding-left: 8px;
+  }
+
+  .search {
+    width: 100%;
+  }
+
+  /* Строка реестра пользователей: номер и «Открыть» сверху, ФИО на всю ширину,
+     ниже email, организация, роль и состояние — подписями из `cell__label`. */
+  .list__name-cell {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .user__id {
+    font-size: 11.5px;
+  }
+
+  .user__email {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin-top: 4px;
+    color: var(--color-text-muted);
+    font-size: 13px;
+  }
+
+  .user__org {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    margin-top: 6px;
+  }
+
+  .user__role {
+    grid-column: 1;
+    grid-row: 5;
+    margin-top: 4px;
+    white-space: normal;
+  }
+
+  .list__state {
+    grid-column: 1 / -1;
+    grid-row: 6;
+    margin-top: 6px;
+  }
+
+  .panel__note {
+    padding: 12px 20px 14px;
+  }
+
+  .form--edit {
+    padding: 0;
+  }
+
+  .form--edit .field {
+    padding: 18px 20px 0;
+  }
+
+  .form--edit .req--flush {
+    margin: 16px 0 0;
+    padding: 2px 20px;
+  }
+
+  .form--edit .alert {
+    margin: 14px 20px 0;
+  }
+
+  .form--edit .form__actions {
+    padding: 14px 20px 18px;
   }
 }
 

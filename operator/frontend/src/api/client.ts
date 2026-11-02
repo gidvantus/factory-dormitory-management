@@ -192,3 +192,74 @@ export function updateOrganization(
     body: JSON.stringify(payload),
   });
 }
+
+// --- Пользователи платформы -------------------------------------------------
+// Форма ответа — та же, что у основного API (`app/backend/app/schemas/platform_user.py`):
+// кабинет-API её не переписывает (`operator/backend/app/schemas.py`). `organization_id`,
+// `organization_name` и `role` бывают `null` вместе — у учётной записи без организации.
+// `is_active` значит «кабинет активирован», а не «заблокирован».
+
+/** Учётная запись платформы: строка списка, карточка и ответ правки. */
+export interface PlatformUser {
+  id: number;
+  /** Email — он же логин учётной записи; только чтение. */
+  email: string;
+  full_name: string;
+  is_active: boolean;
+  organization_id: number | null;
+  organization_name: string | null;
+  /** `owner` | `admin` | `manager` | `commandant` | `member`, без организации — `null`. */
+  role: string | null;
+  /** ISO-8601 из API; показывается как дата без времени. */
+  created_at: string;
+}
+
+/** Страница списка: элементы и общее число учётных записей. */
+export interface PlatformUserPage {
+  items: PlatformUser[];
+  total: number;
+}
+
+/** Параметры списка: `limit` 1..100, `offset` ≥ 0, `search` — подстрока до 100 символов. */
+export interface UserListQuery {
+  limit: number;
+  offset: number;
+  search?: string;
+}
+
+/**
+ * Тело правки: единственное поле — ФИО.
+ *
+ * Email, роль, организация и признак активности не отправляются: ручек для них
+ * нет, и лишнее поле основной API отвергнет.
+ */
+export interface PlatformUserUpdate {
+  full_name: string;
+}
+
+/**
+ * Страница пользователей: свежие сверху.
+ *
+ * `search` уходит только непустым: пустой параметр — лишний повод для отказа,
+ * а правило поиска живёт в основном API.
+ */
+export function listUsers({ limit, offset, search }: UserListQuery): Promise<PlatformUserPage> {
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (search !== undefined && search.trim() !== '') {
+    query.set('search', search.trim());
+  }
+  return request<PlatformUserPage>(`/users?${query.toString()}`);
+}
+
+/** Карточка пользователя. Неизвестный `id` — `ApiError` со статусом 404. */
+export function getUser(id: number): Promise<PlatformUser> {
+  return request<PlatformUser>(`/users/${id}`);
+}
+
+/** Правка ФИО: ответ — то, что сохранил основной API. */
+export function updateUser(id: number, payload: PlatformUserUpdate): Promise<PlatformUser> {
+  return request<PlatformUser>(`/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
