@@ -77,17 +77,34 @@ class OrganizationPage(BaseModel):
     total: int
 
 
-class UpdateOrganizationRequest(BaseModel):
-    """Тело правки организации — то, что кабинет передаёт основному API.
+class ForwardedBody(BaseModel):
+    """Тело правки, которое кабинет передаёт основному API как есть.
 
-    Поля необязательны, и уходят только те, что были в теле: отсутствующее поле
-    не обнуляется. Проверок значений здесь нет намеренно — правило ИНН и текст
-    отказа «Название не может быть пустым» живут в основном API, и второй их
-    экземпляр в кабинете разошёлся бы с оригиналом. Лишние поля разрешены и
-    тоже уходят наверх: отказ по ним приходит из основного API.
+    Лишние поля разрешены и тоже уходят наверх: их разбирает основной API и
+    отвечает на них своим `422`, а не кабинет — своих правил проверки значений
+    здесь нет намеренно. Второй экземпляр правил и текстов отказов разошёлся бы
+    с оригиналом на первой же правке.
     """
 
     model_config = ConfigDict(extra="allow")
+
+    def forwarded(self) -> dict[str, Any]:
+        """Только присланные поля: `{"address": ...}` остаётся одним полем.
+
+        Лишние поля (`extra="allow"`) добавляются явно: их разбирает основной API
+        и отвечает на них своим `422`, а не кабинет.
+        """
+        data = self.model_dump(exclude_unset=True)
+        data.update(self.__pydantic_extra__ or {})
+        return data
+
+
+class UpdateOrganizationRequest(ForwardedBody):
+    """Тело правки организации — то, что кабинет передаёт основному API.
+
+    Поля необязательны, и уходят только те, что были в теле: отсутствующее поле
+    не обнуляется.
+    """
 
     name: str | None = None
     inn: str | None = None
@@ -95,12 +112,45 @@ class UpdateOrganizationRequest(BaseModel):
     ogrn: str | None = None
     address: str | None = None
 
-    def forwarded(self) -> dict[str, Any]:
-        """Только присланные поля: `{"address": ...}` остаётся одним полем.
 
-        Лишние поля (`extra="allow"`) добавляются явно: их разбирает основной API
-        и отвечает на них своим `422`, а не кабинет — своих правил здесь нет.
-        """
-        data = self.model_dump(exclude_unset=True)
-        data.update(self.__pydantic_extra__ or {})
-        return data
+# --- Пользователи платформы --------------------------------------------------
+# Те же правила, что у организаций: модели повторяют форму ответа основного API
+# один в один, а тела правки проверяются там же, наверху.
+
+
+class PlatformUser(BaseModel):
+    """Строка реестра учётных записей платформы.
+
+    `organization_id`, `organization_name` и `role` бывают `null` вместе: у
+    пользователя без организации нет ни её названия, ни строки членства, а
+    значит и роли. `is_active` — «кабинет активирован», а не «заблокирован».
+    """
+
+    id: int
+    email: str
+    full_name: str
+    is_active: bool
+    organization_id: int | None
+    organization_name: str | None
+    role: str | None
+    created_at: datetime
+
+
+class PlatformUserPage(BaseModel):
+    """Страница списка: элементы и общее число пользователей.
+
+    Пока `len(items) < total`, у списка есть что догружать.
+    """
+
+    items: list[PlatformUser]
+    total: int
+
+
+class UpdatePlatformUserRequest(ForwardedBody):
+    """Тело правки пользователя: единственное поле — ФИО.
+
+    Проверок здесь нет: пустое ФИО отсекает основной API своим `422` с текстом
+    «ФИО не может быть пустым», и кабинет передаёт его дословно.
+    """
+
+    full_name: str | None = None

@@ -7,29 +7,21 @@
 """
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.organizations import (
+from app.main_api import (
     MAIN_API_REJECTED_TOKEN_DETAIL,
     MAIN_API_UNAVAILABLE_DETAIL,
     OPERATOR_SERVICE_TOKEN_MISSING_DETAIL,
     OPERATOR_TOKEN_HEADER,
-    main_api_client,
 )
-from app.config import get_settings
-from app.main import app
 from app.security import UNAUTHORIZED_DETAIL
-from tests.conftest import (
-    TEST_OPERATOR_PASSWORD,
-    TEST_OPERATOR_USERNAME,
-)
+from tests.conftest import SERVICE_TOKEN, MainApi, login, respond
 
-SERVICE_TOKEN = "unit-test-operator-service-token"
-BASE_URL = "http://api.test"
 API = "/api"
 ORGANIZATIONS = f"{API}/organizations"
 
@@ -57,82 +49,6 @@ PAGE = {
 }
 
 
-class MainApi:
-    """Подставной основной API: запоминает запросы и отвечает заданным."""
-
-    def __init__(self) -> None:
-        self.requests: list[httpx.Request] = []
-        self.handler: Callable[[httpx.Request], httpx.Response] = lambda request: httpx.Response(
-            200, json=PAGE
-        )
-
-    def handle(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        return self.handler(request)
-
-
-@pytest.fixture
-def main_api(monkeypatch: pytest.MonkeyPatch, settings_cache: None) -> Iterator[MainApi]:
-    """Основной API подменён транспортом, а секрет контура выставлен явно.
-
-    Клиент создаётся в зависимости (`main_api_client`), поэтому тест подменяет
-    саму зависимость: глобального клиента в модуле нет и подменять нечего.
-    """
-    monkeypatch.setenv("OPERATOR_SERVICE_TOKEN", SERVICE_TOKEN)
-    get_settings.cache_clear()
-    api = MainApi()
-
-    def _client() -> Iterator[httpx.Client]:
-        with httpx.Client(
-            transport=httpx.MockTransport(api.handle),
-            base_url=BASE_URL,
-        ) as client:
-            yield client
-
-    app.dependency_overrides[main_api_client] = _client
-    try:
-        yield api
-    finally:
-        app.dependency_overrides.pop(main_api_client, None)
-        get_settings.cache_clear()
-
-
-@pytest.fixture
-def empty_token(monkeypatch: pytest.MonkeyPatch, settings_cache: None) -> Iterator[MainApi]:
-    """Пустой секрет контура: кабинет отвечает 503 и в сеть не идёт."""
-    monkeypatch.setenv("OPERATOR_SERVICE_TOKEN", "")
-    get_settings.cache_clear()
-    api = MainApi()
-
-    def _client() -> Iterator[httpx.Client]:
-        with httpx.Client(
-            transport=httpx.MockTransport(api.handle),
-            base_url=BASE_URL,
-        ) as client:
-            yield client
-
-    app.dependency_overrides[main_api_client] = _client
-    try:
-        yield api
-    finally:
-        app.dependency_overrides.pop(main_api_client, None)
-        get_settings.cache_clear()
-
-
-def login(client: TestClient) -> None:
-    """Войти оператором: ручки организаций закрыты сессией кабинета."""
-    response = client.post(
-        f"{API}/auth/login",
-        json={"username": TEST_OPERATOR_USERNAME, "password": TEST_OPERATOR_PASSWORD},
-    )
-    assert response.status_code == 200, response.text
-
-
-def respond(detail: object, status_code: int) -> Callable[[httpx.Request], httpx.Response]:
-    """Обработчик, отвечающий заданным отказом основного API."""
-    return lambda request: httpx.Response(status_code, json={"detail": detail})
-
-
 # --- Сессия кабинета --------------------------------------------------------
 
 
@@ -153,6 +69,7 @@ def test_without_session_every_route_is_unauthorized(client: TestClient) -> None
 
 
 def test_list_is_proxied(client: TestClient, main_api: MainApi) -> None:
+    main_api.handler = lambda request: httpx.Response(200, json=PAGE)
     login(client)
 
     response = client.get(ORGANIZATIONS, params={"limit": 10, "offset": 20})
@@ -169,6 +86,7 @@ def test_list_is_proxied(client: TestClient, main_api: MainApi) -> None:
 
 
 def test_list_uses_the_default_page(client: TestClient, main_api: MainApi) -> None:
+    main_api.handler = lambda request: httpx.Response(200, json=PAGE)
     login(client)
 
     response = client.get(ORGANIZATIONS)
