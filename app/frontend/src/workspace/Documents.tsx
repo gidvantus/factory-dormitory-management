@@ -3,7 +3,6 @@ import { Link, useLocation } from 'react-router-dom';
 
 import { api, ApiError, invoiceActFileUrl, invoiceFileUrl } from '../api/client';
 import type { Invoice, InvoiceStatus, UpdatableInvoiceStatus } from '../api/client';
-import { useSolutions } from './SolutionsProvider';
 import { WorkspaceIcon } from './WorkspaceIcon';
 import styles from './Workspace.module.css';
 
@@ -14,6 +13,9 @@ const EMPTY_NOTICE = 'Счетов пока нет';
 const EMPTY_HINT = 'Счёт появится здесь после покупки тарифа на странице «Тарифы».';
 
 const PURCHASE_SUCCESS = 'Счёт выставлен. Он появился в списке документов.';
+
+/** Переходы статуса, доступные кабинету организации: оплата ушла оператору. */
+type CabinetInvoiceStatus = Extract<UpdatableInvoiceStatus, 'cancelled' | 'closed'>;
 
 /**
  * Модификатор бейджа по статусу счёта: оплаченный и закрытый — «хорошо», новый
@@ -61,19 +63,17 @@ function purchasedFlag(state: unknown): boolean {
  *
  * Раздел работает и на закрытом пробном периоде — поэтому он не перечислен в
  * `CLOSED_SECTIONS` кабинета: счёт выставляется именно тогда, когда кабинет
- * закрыт и его нужно открыть оплатой.
+ * закрыт.
  *
- * Оплата здесь же меняет права организации: счёт за решение при оплате выдаёт
- * или продлевает право (`app/solutions.py`). Признак владения держит оболочка
- * кабинета (`SolutionsProvider`), которая читает каталог один раз, — поэтому
- * успешная оплата обязана попросить её перечитать каталог. Иначе право уже
- * действует на сервере, а метка «Подключено» и пункт «Уведомления» не появятся
- * до перезагрузки: переход по меню — клиентский, оболочка не перемонтируется.
+ * Оплаты на этом экране нет: счёт оплачивает кабинет оператора, и только там
+ * переход в `paid` выдаёт или продлевает право организации (`app/solutions.py`).
+ * Здесь права организации не меняются, поэтому каталог решений не перечитывается.
  *
  * Скачивание идёт обычной ссылкой `href`, а не `fetch`: ответ — файл вложением,
  * и браузер открывает его сам. Управа на статус спрашивается у сервера
- * (`can_manage`): роль без права правки видит те же счета, но без кнопок — иначе
- * правило ролей пришлось бы держать второй копией на клиенте.
+ * (`can_manage`): роль без права правки видит те же счета, но без кнопок, а
+ * `can_manage` управляет только «Отменить» и «Закрыть» — иначе правило ролей
+ * пришлось бы держать второй копией на клиенте.
  */
 export function Documents(): JSX.Element {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -84,8 +84,6 @@ export function Documents(): JSX.Element {
   const [attempt, setAttempt] = useState(0);
   const location = useLocation();
   const purchased = purchasedFlag(location.state);
-  // Права организации: их перечитывают после оплаты — см. докстринг выше.
-  const { reload: reloadSolutions } = useSolutions();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -105,16 +103,13 @@ export function Documents(): JSX.Element {
     return () => controller.abort();
   }, [attempt]);
 
-  async function changeStatus(invoice: Invoice, next: UpdatableInvoiceStatus): Promise<void> {
+  async function changeStatus(invoice: Invoice, next: CabinetInvoiceStatus): Promise<void> {
     if (acting !== null) return;
     setActing(invoice.id);
     setActionError('');
     try {
       const updated = await api.setInvoiceStatus(invoice.id, next);
       setInvoices((list) => list.map((item) => (item.id === updated.id ? updated : item)));
-      // Переход в `paid` — единственная смена статуса, которая выдаёт право:
-      // закрытие и отмена счёта права не трогают, и лишний запрос им ни к чему.
-      if (next === 'paid') reloadSolutions();
     } catch (error) {
       setActionError(statusErrorMessage(error));
     } finally {
@@ -235,26 +230,15 @@ export function Documents(): JSX.Element {
                           </a>
                         )}
                         {invoice.can_manage && invoice.status === 'new' && (
-                          <>
-                            <button
-                              type="button"
-                              className="link-button"
-                              disabled={acting === invoice.id}
-                              data-testid="document-status-paid"
-                              onClick={() => void changeStatus(invoice, 'paid')}
-                            >
-                              Оплатить
-                            </button>
-                            <button
-                              type="button"
-                              className="link-button"
-                              disabled={acting === invoice.id}
-                              data-testid="document-status-cancel"
-                              onClick={() => void changeStatus(invoice, 'cancelled')}
-                            >
-                              Отменить
-                            </button>
-                          </>
+                          <button
+                            type="button"
+                            className="link-button"
+                            disabled={acting === invoice.id}
+                            data-testid="document-status-cancel"
+                            onClick={() => void changeStatus(invoice, 'cancelled')}
+                          >
+                            Отменить
+                          </button>
                         )}
                         {invoice.can_manage && invoice.status === 'paid' && (
                           <button
