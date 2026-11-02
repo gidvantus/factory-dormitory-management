@@ -198,6 +198,11 @@ describe('дашборд', () => {
   });
 
   it('переключает график на общежитие и обратно, сохраняя общие показатели', async () => {
+    // Фикстура DATA.daily лежит в сентябре–октябре 2026. Период по умолчанию — текущий
+    // месяц, поэтому без закреплённых часов график через месяц остаётся пустым и
+    // проверка серии падает по таймауту, хотя данные и загрузчик корректны.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-04T12:00:00Z'));
     const user = userEvent.setup();
     const loader = vi.fn<DashboardLoader>().mockImplementation(async (_range, _signal, id) => ({
       ...DATA,

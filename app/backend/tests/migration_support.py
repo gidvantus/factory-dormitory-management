@@ -1,10 +1,19 @@
-"""Общий обвязчик тестов ревизий: разбор DDL и сверка с моделью.
+"""Общий обвязчик тестов ревизий: разбор DDL, сверка с моделью и `documents`.
 
 Тесты миграций в проекте устроены одинаково: модуль ревизии читается по пути
 (каталог `alembic/versions` — не пакет, и импорт по имени разрешился бы в
 библиотеку из site-packages), из него достаются `ADD_COLUMNS_SQL` и
 `DROP_COLUMNS_SQL`, имена и типы колонок сверяются с моделью SQLAlchemy, а дерево
 ревизий проверяется на одну голову.
+
+Ревизии, которые меняют не схему, а данные таблицы `documents`, собирают эту
+таблицу сами: `build_documents()` прогоняет настоящие `0017_documents` и
+`0039_consent` на пустой SQLite-базе, а `rows()`, `documents_table()` и
+`move_all_to_old_moment()` дают тесту строки документов в одном и том же виде.
+Пока таких ревизий две (`0050` и `0056`), и обвязчик документов живёт здесь по
+той же причине, что и DDL-ный: правка `rows()` (новая колонка, разбор naive-дат
+SQLite) иначе попала бы в один файл, а второй молча проверял бы ревизию прежней
+обвязкой.
 
 Пока файлов было два, каждый держал свою копию обвязчика — и любая правка
 (новая форма DDL, ещё один тип колонки, другой способ проверки головы) должна
@@ -21,18 +30,24 @@ PostgreSQL, а не SQLite. Это делается на стенде коман
 """
 
 import re
+from datetime import datetime
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, NamedTuple
 
 import sqlalchemy as sa
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from alembic.script import ScriptDirectory
 
 from app.models.base import Base
 
 ADD_PATTERN = re.compile(r"ADD COLUMN IF NOT EXISTS (\w+) (.+)$")
 DROP_PATTERN = re.compile(r"DROP COLUMN IF EXISTS (\w+)$")
+
+# Каталог ревизий: `alembic/versions` рядом с каталогом `tests`, где лежит этот файл.
+VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
 
 
 def load_migration(path: Path) -> ModuleType:
@@ -137,3 +152,72 @@ def assert_nullable_without_default(migration: ModuleType, model: type[Base], pr
 def assert_downgrade_removes_only_added(migration: ModuleType) -> None:
     """Забытая в `downgrade` колонка делает ревизию необратимой."""
     assert sorted(dropped_columns(migration)) == sorted(added_columns(migration))
+
+
+# --- Ревизии данных таблицы `documents` --------------------------------------
+
+
+def with_operations(module: ModuleType, operations: Operations) -> ModuleType:
+    """Подставить ревизии рабочий `op` — так же, как это делает Alembic.
+
+    `setattr`, а не `module.op = operations`: у `ModuleType` объявленного атрибута
+    `op` нет, и присваивание добавило бы ошибку типизатора.
+    """
+    setattr(module, "op", operations)  # noqa: B010 - см. докстринг: так требует mypy
+    return module
+
+
+def revision_source(path: Path) -> str:
+    """Исходник ревизии: тесты ищут в нём слова, которых в запросе быть не должно."""
+    return path.read_text(encoding="utf-8")
+
+
+def build_documents(connection: sa.Connection) -> None:
+    """Схема публичных документов: настоящие `0017_documents` и `0039_consent`.
+
+    Таблица, четыре документа и колонки согласия заводятся теми же ревизиями, что
+    и в базе, поэтому тексты приходят к проверяемому шагу в том виде, в каком они
+    лежат на живой базе, а не в упрощённой копии, собранной руками.
+    """
+    metadata = sa.MetaData()
+    sa.Table("users", metadata, sa.Column("id", sa.Integer(), primary_key=True))
+    metadata.create_all(connection)
+
+    operations = Operations(MigrationContext.configure(connection))
+    for filename in ("0017_documents.py", "0039_consent.py"):
+        with_operations(load_migration(VERSIONS / filename), operations).upgrade()
+
+
+def documents_table(connection: sa.Connection) -> sa.Table:
+    """Таблица `documents` как она есть в базе после `build_documents()`."""
+    return sa.Table("documents", sa.MetaData(), autoload_with=connection)
+
+
+class DocumentRow(NamedTuple):
+    """Строка `documents` в том виде, в каком её проверяет тест."""
+
+    code: str
+    body: str
+    updated_at: datetime
+
+
+def rows(connection: sa.Connection) -> dict[str, DocumentRow]:
+    """Документы по коду: тело и редакция, без прочих колонок.
+
+    Кортеж, а не словарь: `updated_at` нужен типизированным `datetime`, иначе
+    сравнение редакций не проходит проверку типов.
+    """
+    documents = documents_table(connection)
+    result = connection.execute(sa.select(documents)).mappings()
+    return {
+        str(row["code"]): DocumentRow(
+            code=str(row["code"]), body=str(row["body"]), updated_at=row["updated_at"]
+        )
+        for row in result
+    }
+
+
+def move_all_to_old_moment(connection: sa.Connection, moment: datetime) -> None:
+    """Все строки получают давнюю редакцию: тогда сдвиг `updated_at` виден."""
+    documents = documents_table(connection)
+    connection.execute(documents.update().values(updated_at=moment))

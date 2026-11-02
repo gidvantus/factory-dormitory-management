@@ -96,13 +96,11 @@
   font: 900 24px/1.15 var(--font-display);
   letter-spacing: -0.6px;
 }
-.shell .brand-note {
-  margin: 12px 12px 34px;
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
+/* Подписи «Учёт проживающих в общежитиях» в панели больше нет (#124): верх
+   панели стал короче на её высоту, а отступ до меню держит `margin-top`
+   заголовка. */
 .shell .nav-label {
-  margin: 0 12px 12px;
+  margin: 34px 12px 16px;
   color: var(--color-text-muted);
   font-size: 11px;
   letter-spacing: 0.07em;
@@ -175,6 +173,138 @@
 .shell .sidebar-bottom {
   margin-top: auto;
   padding-top: 32px;
+}
+/*
+ * Карточка тарифа — первый блок нижней части панели (#124). Она показывает
+ * единственное место, где тариф организации назван, поэтому срок в ней
+ * обязателен: «до какого числа оплачено» и есть тот вопрос, за которым человек
+ * заходит в панель.
+ *
+ * Ширину карточка не задаёт: её определяет панель (248 px, 220 px на 1100 px),
+ * а все внутренние блоки сжимаются (`min-width: 0`) и переносят содержимое
+ * (`overflow-wrap: anywhere`). Иначе «Расширенный» и дата «02.12.2026» рисуются
+ * за краем на узкой панели — ровно та горизонтальная прокрутка, что ловили в
+ * ленте обзора до #124. Ширины проверяет `SidebarTariff.layout.test.ts`.
+ *
+ * Высоту держит только загрузка (`min-height`) — чтобы при появлении данных
+ * панель не прыгала. У остальных состояний высота по содержимому.
+ */
+.shell .sidebar-tariff {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+/* Закрытый кабинет говорит тем же цветом, что и предупреждение о сроке на
+   обзоре (`TrialNotice`): рамка становится мягко-жёлтой. */
+.shell .sidebar-tariff[data-state='locked'] {
+  border-color: var(--butter-200);
+}
+.shell .sidebar-tariff-overline {
+  font: 700 11px/1.2 var(--font-body);
+  color: var(--color-text-muted);
+}
+.shell .sidebar-tariff-name {
+  margin-top: 5px;
+  min-width: 0;
+  font: 900 16px/1.2 var(--font-display);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.shell .sidebar-tariff-note {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+/* Срок идёт сразу за названием: внутреннего разделителя в карточке нет. */
+.shell .sidebar-tariff-term {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin-top: 8px;
+}
+.shell .sidebar-tariff-date {
+  min-width: 0;
+  font: 900 13px/1.3 var(--font-display);
+  color: var(--mint-700);
+  overflow-wrap: anywhere;
+}
+.shell .sidebar-tariff-rest {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+/* «Осталось 5 дней» отличается весом и словом кнопки, а не цветом: цвет
+   остаётся у даты, и состояние читается без него. */
+.shell .sidebar-tariff[data-state='expiring'] .sidebar-tariff-rest {
+  color: var(--color-text);
+  font-weight: 700;
+  font-size: 12px;
+}
+.shell .sidebar-tariff-price {
+  color: var(--mint-700);
+}
+.shell .sidebar-tariff-price > strong {
+  font: 900 14px/1.25 var(--font-display);
+  color: var(--mint-700);
+}
+.shell .sidebar-tariff-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 700 11px/1.2 var(--font-body);
+  color: var(--clay-700);
+}
+.shell .sidebar-tariff-flag .icon {
+  width: 14px;
+  height: 14px;
+}
+/* Кнопка идёт сразу за сроком: пустого места в карточке нет. */
+.shell .sidebar-tariff-action {
+  padding-top: 10px;
+}
+/*
+ * Высоту держит только загрузка — ровно столько, сколько карточка занимает с
+ * тарифом: замер в браузере (1440 × 900, шрифты продукта) даёт 153,56 px у
+ * состояния `paid` и 154,16 px у `trial`. Прежние 142 px взяты из макета, где
+ * метрики шрифта другие, и панель прыгала на 11,56 px в момент прихода данных:
+ * карточка растёт вверх и отбирает высоту у списка разделов. 154 px держат
+ * разницу в пределах полупикселя — глазу не видно, а `min-height` больше не
+ * обещает несбыточного «столько же, сколько с тарифом».
+ */
+.shell .sidebar-tariff[data-state='loading'] {
+  min-height: 154px;
+}
+.shell .sidebar-tariff-skeleton {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+.shell .sidebar-tariff-skeleton span {
+  display: block;
+  height: 9px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ink-900) 9%, transparent);
+}
+.shell .sidebar-tariff-skeleton span:nth-child(1) {
+  width: 44%;
+  height: 14px;
+}
+.shell .sidebar-tariff-skeleton span:nth-child(2) {
+  width: 82%;
+}
+.shell .sidebar-tariff-skeleton span:nth-child(3) {
+  width: 66%;
 }
 .shell .account-nav {
   padding-top: 17px;
@@ -402,7 +532,7 @@
   background: var(--color-bg-page);
 }
 /* Действия строки счёта идут столбиком: в одну строку ссылки слипались и
-   читались как одна фраза («Скачать счётОплатитьОтменить»). */
+   читались как одна фраза («Скачать счётСкачать актОтменить»). */
 .shell .document-actions {
   display: inline-flex;
   flex-direction: column;
@@ -572,44 +702,127 @@
   font-weight: 700;
   font-size: 15px;
 }
-.shell .telegram-actions,
-.shell .telegram-link {
+.shell .telegram-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
-.shell .telegram-link p {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px;
-  color: var(--color-text-body);
-  font-size: 13px;
-}
-.shell .telegram-link code {
-  padding: 2px 7px;
-  border: 1px solid var(--color-border);
-  border-radius: 7px;
-  background: var(--color-bg-page);
-  font-weight: 700;
-  /* Длинный код не должен ломать вёрстку на узком экране. */
-  overflow-wrap: anywhere;
-}
-.shell .telegram-subscriptions {
+/* Состояние «код выдан»: инструкция в четыре шага, код полосой, срок действия.
+   Раскладка — из макета #111; токены и ритм те же, что у остальных карточек. */
+.shell .telegram-pending {
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  align-items: stretch;
+  gap: 16px;
+  width: 100%;
 }
-.shell .telegram-subscriptions label {
+.shell .telegram-steps {
+  counter-reset: step;
+  display: grid;
+  gap: 15px;
+  padding-left: 38px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-text-body);
+}
+.shell .telegram-steps > li {
+  counter-increment: step;
+  position: relative;
+}
+/* Номера шагов несёт CSS-счётчик: последовательность важна, маркер не ломается
+   на шаге в две строки. */
+.shell .telegram-steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: -38px;
+  top: -1px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--mint-100);
+  color: var(--mint-700);
+  font: 800 12px/26px var(--font-display);
+  text-align: center;
+}
+/* Чип «наберите это»: имя бота и команда `/start` — текст, который человек
+   вводит в другом приложении руками, поэтому моноширинный. */
+.shell .telegram-chip {
+  padding: 1px 7px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 7px;
+  background: var(--color-bg-page);
+  font-family: var(--font-mono);
+  font-size: 0.9375em;
+  font-weight: 700;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+/* Код — не абзац, а отдельный объект: его копируют. Пунктир взят у
+   «выданного пароля», фон — как у полей ввода. */
+.shell .telegram-code-strip {
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px;
+  border: 2px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-alt);
+}
+.shell .telegram-code-row {
   display: flex;
   align-items: center;
-  gap: 9px;
-  color: var(--color-text-body);
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.shell .telegram-code {
+  flex: 1 1 240px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  /* Длинный код ломается по символам, а не вылезает за карточку. */
+  word-break: break-all;
+  user-select: all;
+}
+.shell .telegram-code-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.shell .telegram-code-note::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--mint-600);
+}
+.shell .telegram-code-note strong {
+  color: var(--color-text);
+}
+/* Истёкший код: тон и статус меняются, геометрия — нет, чтобы карточка не
+   прыгала в момент истечения. */
+.shell .telegram-code-strip-expired {
+  border-color: var(--peach-200);
+  background: var(--color-bg-page);
+}
+.shell .telegram-code-strip-expired .telegram-code {
+  color: var(--color-text-muted);
+}
+.shell .telegram-code-strip-expired .telegram-code-note {
+  color: var(--color-danger);
+  font-weight: 700;
+}
+.shell .telegram-code-strip-expired .telegram-code-note::before {
+  background: var(--color-danger);
+}
+.shell .telegram-hint {
   font-size: 13px;
+  color: var(--color-text-muted);
+  max-width: 62ch;
 }
 .shell .mobile-backdrop {
   display: none;
@@ -748,6 +961,46 @@
   .shell .view-note .icon {
     margin-top: 2px;
   }
+  .shell .telegram-body {
+    padding: 20px 20px 24px;
+    gap: 15px;
+  }
+  .shell .telegram-steps {
+    padding-left: 34px;
+    font-size: 14.5px;
+    gap: 13px;
+  }
+  .shell .telegram-steps > li::before {
+    left: -34px;
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+    line-height: 24px;
+  }
+  .shell .telegram-code-strip {
+    padding: 15px 16px;
+  }
+  .shell .telegram-code-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .shell .telegram-code {
+    flex: none;
+    font-size: 14px;
+  }
+  .shell .telegram-code-row :global(.btn) {
+    width: 100%;
+  }
+  /* Три действия в столбик на всю ширину: на 360 px рядом они не читаются. */
+  .shell .telegram-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .shell .telegram-actions :global(.btn) {
+    width: 100%;
+    white-space: normal;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .shell *,
@@ -885,8 +1138,10 @@
   font: 800 22px/1.3 var(--font-display);
   letter-spacing: -0.2px;
 }
-/* Пробный период закончился: заметный блок на обзоре. Он сообщает не об
-   ошибке, а о состоянии кабинета, поэтому цвет — «внимание», а не «опасность». */
+/* Пробный период или срок тарифа закончился: заметный блок на обзоре. Он
+   сообщает не об ошибке, а о состоянии кабинета, поэтому цвет — «внимание», а не
+   «опасность». */
+.shell .tariff-expired,
 .shell .trial-expired {
   display: grid;
   gap: 10px;
@@ -898,12 +1153,71 @@
   background: var(--butter-100);
   color: var(--ink-900);
 }
+.shell .tariff-expired-title,
 .shell .trial-expired-title {
   font-size: 18px;
 }
+.shell .tariff-expired p,
 .shell .trial-expired p {
   margin: 0;
 }
+
+/* Предупреждение о скором конце тарифа (`days_left <= 14`): та же «внимание»-
+   плашка, но в строку — текст слева, кнопка справа. */
+.shell .tariff-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--gap-16);
+  padding: 18px 20px;
+  border: 1px solid var(--butter-200);
+  border-radius: 14px;
+  background: var(--butter-100);
+  color: var(--ink-900);
+}
+
+.shell .tariff-notice-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.shell .tariff-notice-title {
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.shell .tariff-notice-text {
+  max-width: 62ch;
+  font-size: 13px;
+  color: var(--ink-700);
+}
+
+.shell .tariff-notice-link {
+  flex: none;
+}
+
+/* Два периода подписки: действующий и оплаченный вперёд. */
+.shell .tariff-periods {
+  display: grid;
+  gap: 6px;
+  padding: 14px 20px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-page);
+}
+
+.shell .tariff-periods-line {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.shell .tariff-periods-line strong {
+  font-size: 13px;
+  color: var(--color-text);
+}
+
 /* Лента тарифа оформляется самостоятельно. Общая плашка нужна только
    закрытому кабинету, чтобы выделить сообщение об окончании пробного периода. */
 .shell .trial-card-block {
@@ -919,9 +1233,426 @@
 }
 /* Рамку внутри выделенного блока держит он сам: у сообщения об окончании
    остаются только текст и ссылка. */
+.shell .trial-card-block[data-locked='true'] .tariff-expired,
 .shell .trial-card-block[data-locked='true'] .trial-expired {
   margin-bottom: 0;
   padding: 0;
   border: 0;
   background: none;
+}
+
+/* ========================================================================
+   Правила уведомлений (#109)
+   ======================================================================== */
+
+/* Блок правил — вторая карточка раздела «Уведомления»: та же рамка, что у
+   карточки подключения, поэтому `.profile-card` переиспользуется. */
+.shell .rules-card {
+  margin-top: 18px;
+}
+.shell .rules-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 26px 28px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
+}
+.shell .rules-head h2 {
+  font-size: 19px;
+  font-weight: 800;
+}
+.shell .rules-head p {
+  max-width: 62ch;
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+.shell .rules-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+.shell .rules-head-actions .rule-control {
+  min-width: 232px;
+}
+.shell .rules-body {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  padding: 24px 28px;
+}
+.shell .rules-body .view-note {
+  margin: 0;
+}
+
+/* Строка правила — грид, а не <table>: на узком экране он перестраивается по
+   областям без второй вёрстки. */
+.shell .rule-row-head,
+.shell .rule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 120px 76px;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--color-border);
+}
+.shell .rule-row-head {
+  padding-block: 13px;
+  color: var(--color-text-body);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.065em;
+  text-transform: uppercase;
+}
+.shell .rule-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.shell .rule-list .rule-row:last-child {
+  border-bottom: 0;
+}
+.shell .rule-main {
+  min-width: 0;
+}
+.shell .rule-name {
+  font: 700 14px/1.4 var(--font-body);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.shell .rule-cond {
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.shell .rule-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--color-danger);
+  font-size: 12px;
+  font-weight: 700;
+}
+.shell .rule-warn .icon {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+}
+/* Подпись ячейки нужна только в мобильной раскладке: в строке её заменяет шапка
+   столбцов. */
+.shell .rule-cell-label {
+  display: none;
+}
+.shell .rule-table {
+  color: var(--color-text-body);
+  font-size: 13px;
+}
+.shell .rule-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--color-text-body);
+  font-size: 13px;
+}
+.shell .rule-check input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--mint-600);
+}
+/* Подсказка к погашенному переключателю: причина, а не только серый контрол. */
+.shell .rule-toggle {
+  display: grid;
+  gap: 4px;
+}
+.shell .rule-check-hint {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.shell .rule-action {
+  text-align: right;
+}
+.shell .rules-action-error {
+  margin: 0 28px 20px;
+}
+
+/* Поля формы правила: локальный контрол, потому что общей формы (`index.css`)
+   без рамки в кабинете нет. */
+.shell .rule-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-text);
+  font: 700 12px var(--font-body);
+}
+.shell .rule-field-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.shell .rule-control {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 9px;
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  font: 400 13px var(--font-body);
+}
+.shell .rule-control[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+.shell .rule-counter {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.shell .rule-hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.shell .rule-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.shell .rule-section-head h3 {
+  font: 800 14px/1.3 var(--font-display);
+}
+
+/* Условие — фраза: столбец, оператор и значение стоят в одном лотке. */
+.shell .rule-condition {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-page);
+}
+.shell .rule-condition-remove {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-3xs);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.shell .rule-condition-remove:hover {
+  background: var(--cream-200);
+  color: var(--color-danger);
+}
+.shell .rule-condition-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Диалог правила: две колонки — форма и превью; превью не уезжает под форму,
+   пока правило правится на широком экране. */
+.shell .rule-dialog-panel {
+  width: min(960px, 100%);
+  max-width: 100%;
+  max-height: 90vh;
+  overflow: auto;
+}
+.shell .rule-dialog {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.shell .rule-dialog-subtitle {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.shell .rule-dialog-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+  min-width: 0;
+}
+.shell .rule-dialog-form {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.shell .rule-dialog-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+.shell .rule-preview {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 2px;
+}
+.shell .rule-preview-message {
+  padding: 14px 16px;
+  border: 1px solid var(--mint-200);
+  border-radius: var(--radius-sm);
+  background: var(--cream-50);
+  font: 800 14px/1.4 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.shell .rule-preview-empty {
+  display: grid;
+  place-items: center;
+  min-height: 132px;
+  padding: 16px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+.shell .rule-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 1100px) {
+  .shell .rules-head {
+    padding-inline: 22px;
+  }
+  .shell .rule-row-head,
+  .shell .rule-row {
+    grid-template-columns: minmax(0, 1fr) 118px 108px 64px;
+    gap: 12px;
+    padding-inline: 22px;
+  }
+  .shell .rules-body {
+    padding-inline: 22px;
+  }
+}
+@media (max-width: 900px) {
+  .shell .rule-dialog-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .shell .rule-preview {
+    padding-top: 4px;
+    border-top: 1px solid var(--color-border);
+  }
+}
+@media (max-width: 760px) {
+  .shell .rules-head {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px;
+  }
+  .shell .rules-head-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .shell .rules-head-actions .rule-control {
+    min-width: 0;
+  }
+  .shell .rules-head-actions .btn {
+    width: 100%;
+  }
+  .shell .rule-row-head,
+  .shell .rule-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'main toggle'
+      'table toggle'
+      'action action';
+    gap: 6px 12px;
+    padding: 16px 20px;
+  }
+  .shell .rule-row-head {
+    display: none;
+  }
+  .shell .rule-row > .rule-main {
+    grid-area: main;
+  }
+  .shell .rule-row > .rule-table {
+    grid-area: table;
+  }
+  .shell .rule-row > .rule-toggle {
+    grid-area: toggle;
+    align-self: start;
+    padding-top: 2px;
+  }
+  .shell .rule-row > .rule-action {
+    grid-area: action;
+    margin-top: 8px;
+    text-align: left;
+  }
+  .shell .rule-cell-label {
+    display: inline;
+    margin-right: 4px;
+    color: var(--color-text-muted);
+    font-size: 11px;
+  }
+  .shell .rules-body {
+    padding: 20px;
+  }
+  .shell .rules-action-error {
+    margin: 0 20px 20px;
+  }
+}
+@media (max-width: 600px) {
+  .shell .rule-dialog-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell .rule-condition {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'col remove'
+      'op op'
+      'value value';
+    gap: 8px;
+  }
+  .shell .rule-condition > .rule-condition-column {
+    grid-area: col;
+  }
+  .shell .rule-condition > .rule-condition-operator {
+    grid-area: op;
+  }
+  .shell .rule-condition > .rule-condition-value {
+    grid-area: value;
+  }
+  .shell .rule-condition > .rule-condition-remove {
+    grid-area: remove;
+  }
+  .shell .rule-condition-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .shell .rule-dialog-actions {
+    flex-direction: column-reverse;
+  }
+  .shell .rule-dialog-actions .btn {
+    width: 100%;
+  }
 }

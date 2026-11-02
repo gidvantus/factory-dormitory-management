@@ -18,60 +18,105 @@ const PROFILE: MockResponse = {
   },
 };
 
-const TARIFF = {
-  id: 1,
-  name: 'Базовый',
-  description: 'Всё основное: реестр, комнаты и отчёты',
-  amount: '5000.00',
-  currency: 'RUB',
-  period: 'month',
-  unit_label: null,
-  position: 1,
-  is_visible: true,
-  price_label: '5 000 ₽ в месяц',
-};
+/** Разделитель разрядов у сервера неразрывный (`app/pricing.py`). */
+const NB = '\u00a0';
 
-const SECOND_TARIFF = {
-  ...TARIFF,
-  id: 2,
-  name: 'Годовой',
-  description: null,
-  amount: '60000.00',
-  period: 'year',
-  position: 2,
-  price_label: '60 000 ₽ в год',
-};
+function money(amount: number): string {
+  return String(amount).replace(/\B(?=(\d{3})+(?!\d))/g, NB);
+}
 
-/** Прайс владельца: месяц до 10 пользователей, полгода до 15 и год без лимита. */
-const PLANS = [
+const PERIOD_SUFFIX = {
+  month: 'в месяц',
+  quarter: 'за 3 месяца',
+  year: 'в год',
+} as const;
+
+type Period = keyof typeof PERIOD_SUFFIX;
+
+/** Сетка прайса из постановки: четыре яруса, три срока у каждого. */
+const TIER_GRID: {
+  group_code: string;
+  title: string;
+  max_members: number | null;
+  prices: Record<Period, number>;
+  tooltip: string | null;
+}[] = [
   {
-    ...TARIFF,
-    name: 'Старт',
-    description: 'До 10 пользователей. Реестр проживающих, комнаты и базовые отчёты.',
-    amount: '10000.00',
-    price_label: '10 000 ₽ в месяц',
+    group_code: 'start',
+    title: 'Старт',
+    max_members: 5,
+    prices: { month: 4900, quarter: 13200, year: 47000 },
+    tooltip: 'Место — сотрудник с доступом к кабинету. Проживающие не считаются.',
   },
   {
-    ...TARIFF,
-    id: 2,
-    name: 'Стандарт',
-    description: 'До 15 пользователей. Все разделы, расширенная отчётность и статистика.',
-    amount: '50000.00',
-    period: 'half_year',
-    position: 2,
-    price_label: '50 000 ₽ за 6 месяцев',
+    group_code: 'growth',
+    title: 'Рост',
+    max_members: 15,
+    prices: { month: 9900, quarter: 26700, year: 95000 },
+    tooltip: null,
   },
   {
-    ...TARIFF,
-    id: 3,
-    name: 'Максимум',
-    description: 'Без ограничений по пользователям. Все разделы и приоритетная поддержка.',
-    amount: '90000.00',
-    period: 'year',
-    position: 3,
-    price_label: '90 000 ₽ в год',
+    group_code: 'team',
+    title: 'Команда',
+    max_members: 30,
+    prices: { month: 14900, quarter: 40200, year: 143000 },
+    tooltip: 'Несколько общежитий и отчёты по каждому.',
+  },
+  {
+    group_code: 'unlimited',
+    title: 'Безлимит',
+    max_members: null,
+    prices: { month: 19900, quarter: 53700, year: 191000 },
+    tooltip: null,
   },
 ];
+
+const PERIODS: Period[] = ['month', 'quarter', 'year'];
+
+/** Суффикс имени строки прайса — как в сетке `0052`: «Старт · 12 месяцев». */
+const NAME_SUFFIX = {
+  month: '',
+  quarter: '3 месяца',
+  year: '12 месяцев',
+} as const;
+
+/** Имя строки прайса: месячная называется ярусом, остальные — со сроком. */
+function rowName(title: string, period: Period): string {
+  return period === 'month' ? title : `${title} · ${NAME_SUFFIX[period]}`;
+}
+
+const PLANS = TIER_GRID.flatMap((tier, tierIndex) =>
+  PERIODS.map((period, periodIndex) => ({
+    id: (tierIndex + 1) * 10 + periodIndex + 1,
+    name: rowName(tier.title, period),
+    description: `Все разделы для яруса «${tier.title}»`,
+    amount: `${tier.prices[period]}.00`,
+    currency: 'RUB',
+    period,
+    unit_label: null,
+    position: tierIndex * 10 + periodIndex + 1,
+    max_members: tier.max_members,
+    tooltip: tier.tooltip,
+    group_code: tier.group_code,
+    price_label: `${money(tier.prices[period])} ₽ ${PERIOD_SUFFIX[period]}`,
+  })),
+);
+
+/** Строка прайса по ярусу и сроку: её и покупает человек. */
+function plan(groupCode: string, period: Period = 'month') {
+  const found = PLANS.find((row) => row.group_code === groupCode && row.period === period);
+  if (!found) throw new Error(`нет строки ${groupCode}/${period}`);
+  return found;
+}
+
+/** Подписки нет: организация тарифа ещё не покупала. */
+const NO_SUBSCRIPTION = {
+  tariff: null,
+  ends_at: null,
+  days_left: 0,
+  is_expiring: false,
+  next: null,
+};
 
 /** Счёт, который сервер возвращает на покупку. */
 const INVOICE = {
@@ -79,9 +124,9 @@ const INVOICE = {
   number: 'СЧ-2026-1',
   status: 'new',
   status_label: 'Новый',
-  amount: '10000.00',
+  amount: '4900.00',
   currency: 'RUB',
-  amount_label: '10 000 ₽ в месяц',
+  amount_label: '4 900 ₽ в месяц',
   tariff_name: 'Старт',
   tariff_period: 'month',
   buyer_name: 'ООО «Домовой»',
@@ -105,12 +150,12 @@ function publicRoutes(tariffs: MockResponse): MockHandler {
 }
 
 /**
- * Та же страница с активной сессией: в шапке должен быть личный кабинет.
+ * Та же страница с активной сессией.
  *
  * `purchase` — ответ на покупку; без него POST отвечает успехом со счётом, а
  * чтение счетов отдаёт список с тем же счётом: после покупки страница уводит в
- * «Документы», и тем же маршрутом она их и читает. `current` — тариф
- * организации; без него организация тарифа не имеет.
+ * «Документы», и тем же маршрутом она их и читает. `current` — подписка
+ * организации; без неё организация тарифа не имеет.
  */
 function signedInRoutes(
   tariffs: MockResponse,
@@ -121,7 +166,7 @@ function signedInRoutes(
     if (url.endsWith('/api/tariffs')) return tariffs;
     if (url.endsWith('/api/me')) return PROFILE;
     if (url.endsWith('/api/tariffs/current')) {
-      return current ?? { status: 200, body: { tariff: null } };
+      return current ?? { status: 200, body: NO_SUBSCRIPTION };
     }
     if (url.endsWith('/api/billing/invoices')) {
       if (init?.method === 'POST') return purchase ?? { status: 201, body: INVOICE };
@@ -143,63 +188,147 @@ function callsWithMethod(
   );
 }
 
+/** Нажимает вариант срока в переключателе. */
+async function choosePeriod(
+  user: ReturnType<typeof userEvent.setup>,
+  label: string,
+): Promise<void> {
+  const option = await screen.findByRole('radio', { name: label });
+  await user.click(option);
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('публичная страница тарифов', () => {
   it('доступна без сессии и показывает карточки из базы', async () => {
-    mockFetch(publicRoutes({ status: 200, body: [TARIFF, SECOND_TARIFF] }));
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
     renderApp('/pricing');
 
     expect(await screen.findByTestId('pricing')).toBeInTheDocument();
-    expect(screen.getAllByTestId('tariff-card')).toHaveLength(2);
-    expect(screen.getAllByTestId('tariff-name')[0]).toHaveTextContent('Базовый');
+    // Четыре яруса по три срока: на экране — ярус, а не каждая строка прайса.
+    expect(screen.getAllByTestId('tariff-card')).toHaveLength(4);
+    expect(screen.getAllByTestId('tariff-name').map((node) => node.textContent)).toEqual([
+      'Старт',
+      'Рост',
+      'Команда',
+      'Безлимит',
+    ]);
     expect(screen.getAllByTestId('tariff-description')[0]).toHaveTextContent(
-      'Всё основное: реестр, комнаты и отчёты',
+      'Все разделы для яруса «Старт»',
     );
     // Цену собирает сервер: страница показывает `price_label` как есть.
-    expect(screen.getAllByTestId('tariff-price')[0]).toHaveTextContent('5 000 ₽ в месяц');
+    expect(screen.getAllByTestId('tariff-price')[0]).toHaveTextContent('4 900 ₽ в месяц');
     expect(screen.queryByTestId('pricing-empty')).not.toBeInTheDocument();
   });
 
   it('читает только публичный список и не запрашивает кабинетный', async () => {
-    const fetchMock = mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    const fetchMock = mockFetch(publicRoutes({ status: 200, body: PLANS }));
     renderApp('/pricing');
 
-    await screen.findByTestId('tariff-card');
+    await screen.findAllByTestId('tariff-card');
 
     expect(callsTo(fetchMock, '/api/tariffs')).toHaveLength(1);
     expect(callsTo(fetchMock, '/api/tariffs/manage')).toHaveLength(0);
   });
 
-  it('показывает плашки трёх тарифов с ценой и кнопкой «Купить»', async () => {
+  it('по умолчанию показывает месячный срок', async () => {
     mockFetch(publicRoutes({ status: 200, body: PLANS }));
     renderApp('/pricing');
 
-    expect(await screen.findAllByTestId('tariff-card')).toHaveLength(3);
-    expect(screen.getAllByTestId('tariff-name').map((node) => node.textContent)).toEqual([
-      'Стандарт',
-      'Старт',
-      'Максимум',
-    ]);
-    // Цену собирает сервер: страница показывает `price_label` как есть.
-    expect(screen.getAllByTestId('tariff-price').map((node) => node.textContent)).toEqual([
-      '50 000 ₽ за 6 месяцев',
-      '10 000 ₽ в месяц',
-      '90 000 ₽ в год',
-    ]);
-    // Ограничение по пользователям живое: оно есть в описании плашки.
-    expect(screen.getAllByTestId('tariff-description')[0]).toHaveTextContent('До 15 пользователей');
-    expect(screen.getAllByTestId('tariff-description')[1]).toHaveTextContent('До 10 пользователей');
+    await screen.findAllByTestId('tariff-card');
 
+    expect(screen.getByRole('radio', { name: '1 месяц' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: '3 месяца' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+    expect(screen.getAllByTestId('tariff-price').map((node) => node.textContent)).toEqual([
+      `${money(4900)} ₽ в месяц`,
+      `${money(9900)} ₽ в месяц`,
+      `${money(14900)} ₽ в месяц`,
+      `${money(19900)} ₽ в месяц`,
+    ]);
+  });
+
+  it('показывает в плашке предел мест и подсказку яруса', async () => {
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
+    renderApp('/pricing');
+
+    await screen.findAllByTestId('tariff-card');
+
+    expect(screen.getAllByTestId('tariff-seats').map((node) => node.textContent)).toEqual([
+      'до 5 сотрудников',
+      'до 15 сотрудников',
+      'до 30 сотрудников',
+      'без ограничения',
+    ]);
+    // Подсказка есть только у ярусов, где сервер её отдал.
+    expect(screen.getAllByTestId('tariff-tooltip')).toHaveLength(2);
+  });
+
+  it('раскрывает подсказку яруса по кнопке', async () => {
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await screen.findAllByTestId('tariff-card');
+    const tooltip = screen.getAllByTestId('tariff-tooltip')[0];
+    expect(tooltip).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    await user.click(tooltip);
+
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Место — сотрудник с доступом к кабинету',
+    );
+    expect(tooltip).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('переключатель срока меняет цену каждой плашки', async () => {
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await screen.findAllByTestId('tariff-card');
+    await choosePeriod(user, '3 месяца');
+
+    expect(screen.getByRole('radio', { name: '3 месяца' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getAllByTestId('tariff-price').map((node) => node.textContent)).toEqual([
+      `${money(13200)} ₽ за 3 месяца`,
+      `${money(26700)} ₽ за 3 месяца`,
+      `${money(40200)} ₽ за 3 месяца`,
+      `${money(53700)} ₽ за 3 месяца`,
+    ]);
+
+    await choosePeriod(user, '12 месяцев');
+
+    // Разделитель разрядов — неразрывный пробел сервера, поэтому сравнение
+    // дословное, а не через `toHaveTextContent` (он схлопывает пробелы).
+    expect(screen.getAllByTestId('tariff-price')[0].textContent).toBe(`${money(47000)} ₽ в год`);
+  });
+
+  it('переключателя нет, когда в прайсе один срок', async () => {
+    mockFetch(publicRoutes({ status: 200, body: [plan('start')] }));
+    renderApp('/pricing');
+
+    expect(await screen.findAllByTestId('tariff-card')).toHaveLength(1);
+    expect(screen.queryByTestId('tariff-period-switch')).not.toBeInTheDocument();
+  });
+
+  it('показывает плашки с ценой и кнопкой «Купить»', async () => {
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
+    renderApp('/pricing');
+
+    expect(await screen.findAllByTestId('tariff-card')).toHaveLength(4);
     const buy = screen.getAllByTestId('tariff-buy');
-    expect(buy).toHaveLength(3);
+    expect(buy).toHaveLength(4);
     expect(buy[0]).toHaveTextContent('Купить');
   });
 
   it('кнопка «Купить» открывает регистрацию на самой странице', async () => {
-    mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    mockFetch(publicRoutes({ status: 200, body: [plan('start')] }));
     const user = userEvent.setup();
     renderApp('/pricing');
 
@@ -237,7 +366,7 @@ describe('публичная страница тарифов', () => {
         attempts += 1;
         return attempts === 1
           ? { status: 503, body: { detail: 'Сервис временно недоступен' } }
-          : { status: 200, body: [TARIFF] };
+          : { status: 200, body: PLANS };
       }
       return ANONYMOUS;
     });
@@ -250,7 +379,7 @@ describe('публичная страница тарифов', () => {
 
     await user.click(screen.getByTestId('pricing-retry'));
 
-    expect(await screen.findByTestId('tariff-card')).toBeInTheDocument();
+    expect(await screen.findAllByTestId('tariff-card')).toHaveLength(4);
     expect(screen.queryByTestId('pricing-error')).not.toBeInTheDocument();
     expect(callsTo(fetchMock, '/api/tariffs')).toHaveLength(2);
   });
@@ -282,12 +411,12 @@ describe('публичная страница тарифов', () => {
   );
 
   it('не показывает тарифы без описания как сломанную карточку', async () => {
-    mockFetch(publicRoutes({ status: 200, body: [SECOND_TARIFF] }));
+    mockFetch(publicRoutes({ status: 200, body: [{ ...plan('start'), description: null }] }));
     renderApp('/pricing');
 
-    expect(await screen.findByTestId('tariff-name')).toHaveTextContent('Годовой');
+    expect(await screen.findByTestId('tariff-name')).toHaveTextContent('Старт');
     expect(screen.getByTestId('tariff-description')).toHaveTextContent('');
-    expect(screen.getByTestId('tariff-price')).toHaveTextContent('60 000 ₽ в год');
+    expect(screen.getByTestId('tariff-price')).toHaveTextContent('4 900 ₽ в месяц');
   });
 
   it('переживает сбой сети без текста от сервера', async () => {
@@ -314,7 +443,7 @@ describe('публичная страница тарифов', () => {
 
 describe('шапка и подвал страницы тарифов', () => {
   it('анониму показывает те же кнопки шапки, что на главной', async () => {
-    mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
     renderApp('/pricing');
 
     const header = within(await screen.findByTestId('site-header'));
@@ -325,7 +454,7 @@ describe('шапка и подвал страницы тарифов', () => {
   });
 
   it('вошедшему показывает личный кабинет вместо входа', async () => {
-    mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+    mockFetch(signedInRoutes({ status: 200, body: PLANS }));
     renderApp('/pricing');
 
     const header = within(await screen.findByTestId('site-header'));
@@ -336,7 +465,7 @@ describe('шапка и подвал страницы тарифов', () => {
   });
 
   it('ведёт в кабинет по кнопке «Личный кабинет»', async () => {
-    mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+    mockFetch(signedInRoutes({ status: 200, body: PLANS }));
     const user = userEvent.setup();
     renderApp('/pricing');
 
@@ -346,7 +475,7 @@ describe('шапка и подвал страницы тарифов', () => {
   });
 
   it('вошедшему «Купить» открывает окно подтверждения и только по отметке выставляет счёт', async () => {
-    const fetchMock = mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+    const fetchMock = mockFetch(signedInRoutes({ status: 200, body: PLANS }));
     const user = userEvent.setup();
     renderApp('/pricing');
 
@@ -354,14 +483,14 @@ describe('шапка и подвал страницы тарифов', () => {
     // успела бы открыть окно регистрации.
     await screen.findByTestId('nav-cabinet');
 
-    await user.click(await screen.findByTestId('tariff-buy'));
+    await user.click((await screen.findAllByTestId('tariff-buy'))[0]);
 
     const dialog = await screen.findByTestId('purchase-confirm');
     expect(within(dialog).getByTestId('purchase-confirm-title')).toHaveTextContent(
-      'Покупка тарифа «Базовый»',
+      'Покупка тарифа «Старт»',
     );
     // Сумма — из `price_label` карточки: клиент её не считает.
-    expect(screen.getByTestId('purchase-confirm-amount')).toHaveTextContent('5 000 ₽ в месяц');
+    expect(screen.getByTestId('purchase-confirm-amount')).toHaveTextContent('4 900 ₽ в месяц');
     // Согласие — явное действие: до отметки кнопка погашена, запроса ещё нет.
     expect(screen.getByTestId('purchase-confirm-submit')).toBeDisabled();
     expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(0);
@@ -379,18 +508,38 @@ describe('шапка и подвал страницы тарифов', () => {
     expect(post).toHaveLength(1);
     // Отметка уходит на сервер: без неё тарифный счёт получить нельзя.
     expect(JSON.parse((post[0][1] as RequestInit).body as string)).toEqual({
-      tariff_id: TARIFF.id,
+      tariff_id: plan('start').id,
+      offer_accepted: true,
+    });
+  });
+
+  it('покупает строку выбранного срока, а не месячную по умолчанию', async () => {
+    const fetchMock = mockFetch(signedInRoutes({ status: 200, body: PLANS }));
+    const user = userEvent.setup();
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await choosePeriod(user, '12 месяцев');
+    await user.click(screen.getAllByTestId('tariff-buy')[0]);
+    const dialog = await screen.findByTestId('purchase-confirm');
+    expect(screen.getByTestId('purchase-confirm-amount')).toHaveTextContent('47 000 ₽ в год');
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(screen.getByTestId('purchase-confirm-submit'));
+
+    const post = callsWithMethod(fetchMock, '/api/billing/invoices', 'POST');
+    expect(JSON.parse((post[0][1] as RequestInit).body as string)).toEqual({
+      tariff_id: plan('start', 'year').id,
       offer_accepted: true,
     });
   });
 
   it('ведёт ссылкой из окна на страницу оферты', async () => {
-    mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+    mockFetch(signedInRoutes({ status: 200, body: PLANS }));
     const user = userEvent.setup();
     renderApp('/pricing');
 
     await screen.findByTestId('nav-cabinet');
-    await user.click(await screen.findByTestId('tariff-buy'));
+    await user.click(screen.getAllByTestId('tariff-buy')[0]);
 
     const link = within(await screen.findByTestId('purchase-confirm')).getByRole('link', {
       name: 'условиями оферты',
@@ -402,12 +551,12 @@ describe('шапка и подвал страницы тарифов', () => {
   });
 
   it('закрывает окно по «Отмене» и не выставляет счёт', async () => {
-    const fetchMock = mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+    const fetchMock = mockFetch(signedInRoutes({ status: 200, body: PLANS }));
     const user = userEvent.setup();
     renderApp('/pricing');
 
     await screen.findByTestId('nav-cabinet');
-    await user.click(await screen.findByTestId('tariff-buy'));
+    await user.click(screen.getAllByTestId('tariff-buy')[0]);
 
     const dialog = await screen.findByTestId('purchase-confirm');
     await user.click(within(dialog).getByRole('checkbox'));
@@ -419,12 +568,12 @@ describe('шапка и подвал страницы тарифов', () => {
   });
 
   it('закрывает окно по Escape, не выставляя счёт', async () => {
-    const fetchMock = mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+    const fetchMock = mockFetch(signedInRoutes({ status: 200, body: PLANS }));
     const user = userEvent.setup();
     renderApp('/pricing');
 
     await screen.findByTestId('nav-cabinet');
-    await user.click(await screen.findByTestId('tariff-buy'));
+    await user.click(screen.getAllByTestId('tariff-buy')[0]);
     expect(await screen.findByTestId('purchase-confirm')).toBeInTheDocument();
 
     await user.keyboard('{Escape}');
@@ -436,10 +585,10 @@ describe('шапка и подвал страницы тарифов', () => {
   it('показывает отказ сервера алертом, не объявляя чекбокс оферты невалидным', async () => {
     const fetchMock = mockFetch(
       signedInRoutes(
-        { status: 200, body: [TARIFF] },
+        { status: 200, body: PLANS },
         {
           status: 409,
-          body: { detail: 'Тариф организации уже выбран' },
+          body: { detail: 'Тариф уже оплачен на будущий период' },
         },
       ),
     );
@@ -447,14 +596,14 @@ describe('шапка и подвал страницы тарифов', () => {
     renderApp('/pricing');
 
     await screen.findByTestId('nav-cabinet');
-    await user.click(await screen.findByTestId('tariff-buy'));
+    await user.click(screen.getAllByTestId('tariff-buy')[0]);
     const dialog = await screen.findByTestId('purchase-confirm');
     await user.click(within(dialog).getByRole('checkbox'));
     await user.click(screen.getByTestId('purchase-confirm-submit'));
 
     const error = await screen.findByTestId('purchase-confirm-request-error');
     // Текст показан как есть, а не заменён общим «что-то пошло не так».
-    expect(error).toHaveTextContent('Тариф организации уже выбран');
+    expect(error).toHaveTextContent('Тариф уже оплачен на будущий период');
     // Причина отказа не в галочке: повторная отметка его не исправит, поэтому
     // чекбокс остаётся валидным и не связан с текстом через aria-describedby.
     const checkbox = within(dialog).getByRole('checkbox');
@@ -463,15 +612,13 @@ describe('шапка и подвал страницы тарифов', () => {
     expect(within(dialog).queryByTestId('purchase-confirm-error')).not.toBeInTheDocument();
     // Окно не закрывается, счёт не создан, страница осталась на прайсе.
     expect(screen.getByTestId('pricing')).toBeInTheDocument();
-    expect(screen.queryByTestId('pricing-buy-tariff-link')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('pricing-buy-documents-link')).not.toBeInTheDocument();
     expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(1);
     // Повторить можно: кнопка снова доступна.
     expect(screen.getByTestId('purchase-confirm-submit')).toBeEnabled();
   });
 
   it('показывает сбой сети алертом, а не ошибкой чекбокса', async () => {
-    const handler = signedInRoutes({ status: 200, body: [TARIFF] });
+    const handler = signedInRoutes({ status: 200, body: PLANS });
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -489,7 +636,7 @@ describe('шапка и подвал страницы тарифов', () => {
     renderApp('/pricing');
 
     await screen.findByTestId('nav-cabinet');
-    await user.click(await screen.findByTestId('tariff-buy'));
+    await user.click(screen.getAllByTestId('tariff-buy')[0]);
     const dialog = await screen.findByTestId('purchase-confirm');
     await user.click(within(dialog).getByRole('checkbox'));
     await user.click(screen.getByTestId('purchase-confirm-submit'));
@@ -505,7 +652,7 @@ describe('шапка и подвал страницы тарифов', () => {
   it('показывает под чекбоксом текст отказа 422 без приставки валидатора', async () => {
     mockFetch(
       signedInRoutes(
-        { status: 200, body: [TARIFF] },
+        { status: 200, body: PLANS },
         {
           status: 422,
           body: {
@@ -524,7 +671,7 @@ describe('шапка и подвал страницы тарифов', () => {
     renderApp('/pricing');
 
     await screen.findByTestId('nav-cabinet');
-    await user.click(await screen.findByTestId('tariff-buy'));
+    await user.click(screen.getAllByTestId('tariff-buy')[0]);
     const dialog = await screen.findByTestId('purchase-confirm');
     await user.click(within(dialog).getByRole('checkbox'));
     await user.click(screen.getByTestId('purchase-confirm-submit'));
@@ -541,7 +688,7 @@ describe('шапка и подвал страницы тарифов', () => {
   });
 
   it('показывает отправку в окне и не даёт его закрыть до ответа', async () => {
-    const handler = signedInRoutes({ status: 200, body: [TARIFF] });
+    const handler = signedInRoutes({ status: 200, body: PLANS });
     // Незавершённый POST: состояние отправки видно до ответа сервера.
     vi.stubGlobal(
       'fetch',
@@ -560,7 +707,7 @@ describe('шапка и подвал страницы тарифов', () => {
     renderApp('/pricing');
 
     await screen.findByTestId('nav-cabinet');
-    await user.click(await screen.findByTestId('tariff-buy'));
+    await user.click(screen.getAllByTestId('tariff-buy')[0]);
     const dialog = await screen.findByTestId('purchase-confirm');
     await user.click(within(dialog).getByRole('checkbox'));
     await user.click(screen.getByTestId('purchase-confirm-submit'));
@@ -573,57 +720,121 @@ describe('шапка и подвал страницы тарифов', () => {
     expect(screen.getByTestId('purchase-confirm-close')).toBeDisabled();
   });
 
-  it('помечает купленный тариф в списке и гасит все кнопки «Купить»', async () => {
-    const fetchMock = mockFetch(
+  it('помечает купленный ярус, показывает срок и предлагает продление', async () => {
+    const owned = plan('growth', 'quarter');
+    mockFetch(
       signedInRoutes({ status: 200, body: PLANS }, undefined, {
         status: 200,
-        body: { tariff: PLANS[1] },
+        body: {
+          tariff: owned,
+          ends_at: '2026-11-02T12:00:00Z',
+          days_left: 5,
+          is_expiring: true,
+          next: null,
+        },
       }),
     );
-    const user = userEvent.setup();
     renderApp('/pricing');
 
     await screen.findByTestId('nav-cabinet');
     const cards = await screen.findAllByTestId('tariff-card');
 
-    // Пометка стоит на самой плашке купленного тарифа, а не отдельным блоком.
-    expect(within(cards[0]).getByTestId('tariff-owned')).toHaveTextContent('Куплен');
-    expect(within(cards[1]).queryByTestId('tariff-owned')).not.toBeInTheDocument();
+    // Пометка стоит на плашке купленного яруса, а не отдельным блоком. Ярус
+    // узнаётся по `group_code`: строк с разными сроками у него несколько.
+    const growth = cards.find(
+      (card) => within(card).queryByTestId('tariff-name')?.textContent === 'Рост',
+    );
+    if (!growth) throw new Error('нет плашки «Рост»');
+    expect(within(growth).getByTestId('tariff-owned')).toHaveTextContent('Куплен');
+    expect(within(growth).getByTestId('tariff-term')).toHaveTextContent('Оплачен до 02.11.2026');
+    expect(within(growth).getByTestId('tariff-next-start')).toHaveTextContent(
+      'На будущий период — с 02.11.2026',
+    );
+    expect(within(growth).getByTestId('tariff-buy')).toHaveTextContent('Продлить');
+
+    // Куплен только один ярус: остальные остаются с «Купить».
     expect(screen.getAllByTestId('tariff-owned')).toHaveLength(1);
-
-    // Тариф уже выбран: второй раз покупать нечего, кнопки неактивны у всех.
-    const buy = screen.getAllByTestId('tariff-buy');
-    expect(buy).toHaveLength(3);
-    for (const button of buy) {
-      expect(button).toBeDisabled();
+    const others = cards.filter((card) => card !== growth);
+    for (const card of others) {
+      expect(within(card).getByTestId('tariff-buy')).toHaveTextContent('Купить');
     }
-
-    await user.click(buy[0]);
-    expect(callsWithMethod(fetchMock, '/api/billing/invoices', 'POST')).toHaveLength(0);
   });
 
-  it('не гасит кнопки, пока тариф организации не выбран', async () => {
-    mockFetch(signedInRoutes({ status: 200, body: [TARIFF] }));
+  it('при оплаченном вперёд периоде говорит, что продление уже оплачено', async () => {
+    mockFetch(
+      signedInRoutes({ status: 200, body: PLANS }, undefined, {
+        status: 200,
+        body: {
+          tariff: plan('growth', 'quarter'),
+          ends_at: '2026-11-02T12:00:00Z',
+          days_left: 5,
+          is_expiring: true,
+          next: { tariff: plan('team', 'year'), starts_at: '2026-11-02T12:00:00Z' },
+        },
+      }),
+    );
     renderApp('/pricing');
 
     await screen.findByTestId('nav-cabinet');
-    await screen.findByTestId('tariff-card');
+    await screen.findAllByTestId('tariff-card');
+
+    const growth = screen
+      .getAllByTestId('tariff-card')
+      .find((card) => within(card).queryByTestId('tariff-name')?.textContent === 'Рост');
+    if (!growth) throw new Error('нет плашки «Рост»');
+
+    // Будущий слот занят: строка «На будущий период» больше не предлагает
+    // свободное место, а называет уже купленный период и день его начала.
+    expect(within(growth).queryByTestId('tariff-next-start')).not.toBeInTheDocument();
+    const paid = within(growth).getByTestId('tariff-next-paid');
+    expect(paid).toHaveTextContent('Продление оплачено: «Команда · 12 месяцев» с 02.11.2026');
+    // Остатки срока текущего периода остаются на месте.
+    expect(within(growth).getByTestId('tariff-term')).toHaveTextContent('Оплачен до 02.11.2026');
+  });
+
+  it('при свободном слоте продления ничего не называет оплаченным', async () => {
+    mockFetch(
+      signedInRoutes({ status: 200, body: PLANS }, undefined, {
+        status: 200,
+        body: {
+          tariff: plan('growth', 'quarter'),
+          ends_at: '2026-11-02T12:00:00Z',
+          days_left: 5,
+          is_expiring: true,
+          next: null,
+        },
+      }),
+    );
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await screen.findAllByTestId('tariff-card');
+
+    expect(screen.queryByTestId('tariff-next-paid')).not.toBeInTheDocument();
+  });
+
+  it('не гасит кнопки, пока тариф организации не выбран', async () => {
+    mockFetch(signedInRoutes({ status: 200, body: [plan('start')] }));
+    renderApp('/pricing');
+
+    await screen.findByTestId('nav-cabinet');
+    await screen.findAllByTestId('tariff-card');
 
     expect(screen.getByTestId('tariff-buy')).toBeEnabled();
     expect(screen.queryByTestId('tariff-owned')).not.toBeInTheDocument();
   });
 
   it('анониму не спрашивает тариф организации', async () => {
-    const fetchMock = mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    const fetchMock = mockFetch(publicRoutes({ status: 200, body: PLANS }));
     renderApp('/pricing');
 
-    await screen.findByTestId('tariff-card');
+    await screen.findAllByTestId('tariff-card');
 
     expect(callsTo(fetchMock, '/api/tariffs/current')).toHaveLength(0);
   });
 
   it('открывает вход окном на самой странице тарифов', async () => {
-    mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
     const user = userEvent.setup();
     renderApp('/pricing');
 
@@ -636,7 +847,7 @@ describe('шапка и подвал страницы тарифов', () => {
   });
 
   it('открывает регистрацию окном и закрывает его по Escape', async () => {
-    mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
     const user = userEvent.setup();
     renderApp('/pricing');
 
@@ -650,7 +861,7 @@ describe('шапка и подвал страницы тарифов', () => {
   });
 
   it('ведёт пунктами меню на разделы главной, а не по самой странице', async () => {
-    mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
     renderApp('/pricing');
 
     const header = within(await screen.findByTestId('site-header'));
@@ -665,7 +876,7 @@ describe('шапка и подвал страницы тарифов', () => {
   });
 
   it('ведёт ссылками подвала на главную', async () => {
-    mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
     renderApp('/pricing');
 
     await screen.findByTestId('pricing');
@@ -692,7 +903,7 @@ describe('шапка и подвал страницы тарифов', () => {
     const scrollIntoView = vi
       .spyOn(Element.prototype, 'scrollIntoView')
       .mockImplementation(() => undefined);
-    mockFetch(publicRoutes({ status: 200, body: [TARIFF] }));
+    mockFetch(publicRoutes({ status: 200, body: PLANS }));
     const user = userEvent.setup();
     renderApp('/pricing');
 

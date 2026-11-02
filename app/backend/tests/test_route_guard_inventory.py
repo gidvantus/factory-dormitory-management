@@ -83,7 +83,11 @@ def _walk(node: Any, prefix: str) -> Iterator[tuple[str, APIRoute]]:
             own_prefix = getattr(captured, "prefix", None) or prefix + inner.prefix
             yield from _walk(inner, own_prefix)
         elif isinstance(route, APIRoute):
-            yield prefix + route.path, route
+            # Схема называется по `path_format`: у маршрута с конвертером
+            # (`/uploads/{key:path}`) `route.path` хранит конвертер, а в
+            # `openapi.json` путь записан как `/uploads/{key}`. Без этого
+            # сверка путей падала бы на каждом таком маршруте.
+            yield prefix + (route.path_format or route.path), route
 
 
 def _gated(dependant: Any) -> bool:

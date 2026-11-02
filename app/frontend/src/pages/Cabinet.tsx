@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useSession } from '../auth/SessionProvider';
+import { SubscriptionProvider } from '../auth/SubscriptionProvider';
 import { TrialProvider, useTrial } from '../auth/TrialProvider';
 import { subscribeToTrialExpired } from '../auth/trial';
+import { SidebarTariff } from '../workspace/SidebarTariff';
 import { SolutionsProvider, useSolutions } from '../workspace/SolutionsProvider';
 import { JOURNAL_CODE, TELEGRAM_NOTIFICATIONS_CODE } from '../workspace/solutions';
 import { userInitials } from '../workspace/userInitials';
@@ -75,18 +77,22 @@ const SOLUTION_NAV_ITEMS: readonly SolutionNavItem[] = [
 ];
 
 /**
- * Оболочка кабинета вместе с состоянием пробного периода и правами на решения.
+ * Оболочка кабинета вместе с состоянием пробного периода, подпиской и правами
+ * на решения.
  *
- * `SolutionsProvider` стоит рядом с `TrialProvider` и оборачивает ту же оболочку:
- * пункт меню платной функции появляется по праву организации, а право читается
- * один раз на весь кабинет.
+ * `SubscriptionProvider` стоит рядом с `TrialProvider` и оборачивает ту же
+ * оболочку: срок тарифа нужен и ленте обзора, и предупреждению о скором конце,
+ * и пределу мест на странице сотрудников, а читается он один раз на весь
+ * кабинет. `SolutionsProvider` отвечает за права на платные решения.
  */
 export function Cabinet(): JSX.Element {
   return (
     <TrialProvider>
-      <SolutionsProvider>
-        <CabinetShell />
-      </SolutionsProvider>
+      <SubscriptionProvider>
+        <SolutionsProvider>
+          <CabinetShell />
+        </SolutionsProvider>
+      </SubscriptionProvider>
     </TrialProvider>
   );
 }
@@ -227,7 +233,9 @@ function CabinetShell(): JSX.Element {
           </svg>
           <span className={styles['brand-name']}>Домовой</span>
         </Link>
-        <p className={styles['brand-note']}>Учёт проживающих в общежитиях</p>
+        {/* Подписи «Учёт проживающих в общежитиях» здесь больше нет: место в
+            панели отдано карточке тарифа (#124), а отступ между логотипом и
+            заголовком меню держит сам заголовок — `margin-top` в `.nav-label`. */}
         <nav aria-label="Основные разделы">
           <p className={styles['nav-label']}>Рабочее пространство</p>
           <ul className={styles['nav-list']}>
@@ -356,6 +364,10 @@ function CabinetShell(): JSX.Element {
           </ul>
         </nav>
         <div className={styles['sidebar-bottom']}>
+          {/* Карточка тарифа — первый блок нижней части панели: она отвечает на
+              вопрос «до какого числа оплачено», и до неё же дотягивается взгляд
+              после меню. Читает ту же подписку, что обзор, — запроса не добавляет. */}
+          <SidebarTariff />
           <nav className={styles['account-nav']} aria-label="Учётная запись">
             <NavLink
               className={styles['nav-link']}

@@ -7,10 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app import notification_rules
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.models.outflow import PersonnelOutflow
-from app.notifications import capture_resident_outflow, queue_resident_outflow
 from app.outflow_eviction import prepare_eviction
 from app.outflow_fields import field_columns, outflow_fields, remember_reason
 from app.personnel import record_changed
@@ -84,6 +84,9 @@ def create_outflow(
     db.add(row)
     db.commit()
     db.refresh(row)
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="outflow", row_id=row.id, actor_id=_user.id
+    )
     return row
 
 
@@ -117,6 +120,9 @@ def update_outflow(
     record_changed(db, row, _user.id)
     db.commit()
     db.refresh(row)
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="outflow", row_id=row.id, actor_id=_user.id
+    )
     return row
 
 
@@ -163,13 +169,9 @@ def evict_employee(
     plan = prepare_eviction(db, dormitory_id, row_id)
     if payload.preview_token != plan.preview.preview_token:
         raise HTTPException(409, "Проживание или выплаты изменились. Повторно проверьте выселение")
-    notifications = []
     for resident in plan.residents:
         record_changed(
             db, resident, _user.id, kind="outflow", title="Проживание завершено · выселение"
-        )
-        notifications.append(
-            capture_resident_outflow(db, resident, departure_date=plan.row.departure_date)
         )
     for payment in plan.payments:
         db.delete(payment)
@@ -180,7 +182,5 @@ def evict_employee(
     plan.row.evicted_at = datetime.now(UTC)
     record_changed(db, plan.row, _user.id, kind="outflow", title="Сотрудник выселен")
     db.commit()
-    for notification in notifications:
-        queue_resident_outflow(db, resident=notification, actor_id=_user.id)
     db.refresh(plan.row)
     return plan.row

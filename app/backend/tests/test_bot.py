@@ -5,6 +5,7 @@
 шага не останавливает цикл.
 """
 
+import json
 import logging
 from collections.abc import Callable
 
@@ -248,6 +249,166 @@ def test_invalid_code_answers_with_the_same_short_text() -> None:
         if request.url.path.endswith("/sendMessage")
     ]
     assert any(bot.INVALID_CODE_TEXT in text for text in texts)
+
+
+def update_with(text: str, *, chat_type: str | None = None) -> dict[str, object]:
+    """Обновление Bot API с текстовым сообщением из `CHAT_ID`."""
+    chat: dict[str, object] = {"id": int(CHAT_ID)}
+    if chat_type is not None:
+        chat["type"] = chat_type
+    return {"update_id": 1, "message": {"chat": chat, "text": text}}
+
+
+def sent_message_texts(requests: list[httpx.Request]) -> list[str]:
+    """Тексты, которые бот отправил человеку: разбирается тело `sendMessage`."""
+    texts: list[str] = []
+    for request in requests:
+        if not request.url.path.endswith("/sendMessage"):
+            continue
+        body = json.loads(request.content)
+        text = body.get("text") if isinstance(body, dict) else None
+        if isinstance(text, str):
+            texts.append(text)
+    return texts
+
+
+def run_update(
+    update: dict[str, object],
+    *,
+    chat_response: Callable[[httpx.Request], httpx.Response],
+) -> list[str]:
+    """Один шаг бота по одному обновлению: тексты ответов человеку.
+
+    Лента в этих тестах пустая: проверяется только ответ на сообщение.
+    """
+    bot_calls: list[httpx.Request] = []
+
+    def crm_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/telegram/chat":
+            return chat_response(request)
+        return httpx.Response(200, json={"items": []})
+
+    def bot_handler(request: httpx.Request) -> httpx.Response:
+        bot_calls.append(request)
+        if request.url.path.endswith("/getUpdates"):
+            return httpx.Response(200, json={"ok": True, "result": [update]})
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    with (
+        client_with(crm_handler) as crm_client,
+        client_with(bot_handler) as bot_client,
+    ):
+        bot.poll_once(
+            offset=None,
+            bot_client=bot_client,
+            crm_client=crm_client,
+            settings=make_settings(),
+        )
+
+    return sent_message_texts(bot_calls)
+
+
+def respond_unauthorized(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(401, json={"detail": "нет"})
+
+
+def respond_server_error(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(500, json={"detail": "нет"})
+
+
+def respond_unreadable(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, content=b"<html>no json</html>")
+
+
+def respond_unavailable(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError("connection refused", request=request)
+
+
+def respond_not_linked(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, json={"linked": False, "reason": "invalid_code"})
+
+
+def respond_linked_without_name(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, json={"linked": True, "full_name": ""})
+
+
+@pytest.mark.parametrize(
+    "chat_response",
+    [
+        respond_unauthorized,
+        respond_server_error,
+        respond_unreadable,
+        respond_unavailable,
+        respond_not_linked,
+        respond_linked_without_name,
+    ],
+    ids=[
+        "401",
+        "500",
+        "unreadable-json",
+        "crm-unavailable",
+        "linked-false",
+        "linked-without-name",
+    ],
+)
+def test_broken_link_answers_with_the_failure_text(
+    chat_response: Callable[[httpx.Request], httpx.Response],
+) -> None:
+    """«Код не подошёл» — только на настоящий отказ кода (`410`).
+
+    `401`, `5xx`, недоступная CRM и `200` без `linked: true` — сбой, а не
+    непригодный код: совет «получите новый код» здесь не помогает.
+    """
+    texts = run_update(update_with("/start КОД"), chat_response=chat_response)
+
+    assert texts == [bot.FAILURE_TEXT]
+    assert bot.INVALID_CODE_TEXT not in texts[0]
+
+
+def test_expired_or_unknown_code_answers_that_the_code_is_invalid() -> None:
+    """`410` остаётся единственным ответом «код не подошёл»."""
+
+    def respond_gone(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(410, json={"linked": False, "reason": "invalid_code"})
+
+    texts = run_update(update_with("/start КОД"), chat_response=respond_gone)
+
+    assert texts == [bot.INVALID_CODE_TEXT]
+    assert bot.FAILURE_TEXT not in texts[0]
+
+
+def test_linked_chat_is_answered_with_the_name() -> None:
+    def respond_linked(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"linked": True, "full_name": "Иванов Иван"})
+
+    texts = run_update(update_with("/start КОД"), chat_response=respond_linked)
+
+    assert texts == [bot.LINKED_TEXT.format(full_name="Иванов Иван")]
+
+
+@pytest.mark.parametrize("chat_type", [None, "private"])
+def test_text_without_start_is_answered_with_help_in_a_private_chat(
+    chat_type: str | None,
+) -> None:
+    """Код, вставленный без `/start`, больше не остаётся без ответа."""
+    texts = run_update(
+        update_with("КОД-ИЗ-КАБИНЕТА", chat_type=chat_type),
+        # В CRM бот в этом случае не ходит: проверяется сам ответ.
+        chat_response=respond_server_error,
+    )
+
+    assert texts == [bot.HELP_TEXT]
+
+
+@pytest.mark.parametrize("chat_type", ["group", "supergroup"])
+def test_text_without_start_is_ignored_in_a_group_chat(chat_type: str) -> None:
+    """В группе бот молчит: там он ради уведомлений, а не ради подсказок."""
+    texts = run_update(
+        update_with("КОД-ИЗ-КАБИНЕТА", chat_type=chat_type),
+        chat_response=respond_server_error,
+    )
+
+    assert texts == []
 
 
 def test_plain_start_answers_with_help() -> None:

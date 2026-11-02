@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import notification_rules
 from app.access import (
     SUBSCRIBED_USER_RESPONSES,
     OwnDormitory,
@@ -195,6 +196,16 @@ def create_record(
         snapshot={"choice": payload.identity.mode},
     )
     db.commit()
+    # «Кадры» — второй писатель таблиц каталога: `create_record` создаёт строку
+    # «Архива», пользовательской вкладки, «Проживающих», «Притока» и «Оттока».
+    # Правило обязано срабатывать и здесь, а не только на кнопке «+».
+    notification_rules.notify_row_written(
+        db,
+        dormitory_id=row.dormitory_id,
+        table_key=payload.table_key,
+        row_id=row.id,
+        actor_id=user.id,
+    )
     return {"row_id": row.id, "employee_id": employee.id}
 
 

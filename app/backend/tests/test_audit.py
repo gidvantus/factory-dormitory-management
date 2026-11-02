@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -26,6 +27,7 @@ from sqlalchemy.orm import Session
 from app import audit
 from app import db as db_module
 from app.config import get_settings
+from app.main import IP_LIMIT, client_ip
 from app.models.audit import AuditEvent
 from app.models.dormitory import Dormitory
 from tests.conftest import TEST_PASSWORD, create_user, sign_in
@@ -326,7 +328,13 @@ def test_disabled_journal_writes_nothing(
 def test_ip_and_user_agent_are_taken_from_proxy_headers(
     client: TestClient, db_session: Session
 ) -> None:
-    """`X-Real-IP` важнее цепочки `X-Forwarded-For`, длинный `User-Agent` режется."""
+    """Длинный `User-Agent` режется, а подделанные клиентом заголовки IP не проходят.
+
+    `TestClient` приходит с соседом `testclient`, а это не доверенный прокси
+    (сети прокси — `TRUSTED_PROXY_NETWORKS`), поэтому заголовки не читаются вовсе:
+    адрес берётся из соединения. Иначе любой клиент подменил бы себе адрес в
+    журнале строкой `X-Real-IP`/`X-Forwarded-For` (#105).
+    """
     create_user(db_session)
     long_agent = "A" * 400
     response = client.post(
@@ -342,9 +350,91 @@ def test_ip_and_user_agent_are_taken_from_proxy_headers(
     assert with_real_ip.status_code == 204
 
     forwarded, real = events(db_session)
-    assert forwarded.ip == "198.51.100.5"
+    assert forwarded.ip == "testclient"
     assert forwarded.user_agent == long_agent[: get_settings().audit_user_agent_limit]
-    assert real.ip == "203.0.113.7"
+    assert real.ip == "testclient"
+
+
+def make_request(
+    headers: dict[str, str] | None = None,
+    client: tuple[str, int] | None = ("172.18.0.5", 50000),
+) -> Request:
+    """Запрос с заданным соседом и заголовками: `client_ip` проверяется без сети."""
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/api/health",
+        "headers": [
+            (name.lower().encode("latin-1"), value.encode("latin-1"))
+            for name, value in (headers or {}).items()
+        ],
+        "client": client,
+    }
+    return Request(scope)
+
+
+@pytest.fixture
+def trusted_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Доверенный прокси — сеть compose: у `make_request` сосед `172.18.0.5`."""
+    monkeypatch.setattr(get_settings(), "trusted_proxy_networks", "172.16.0.0/12")
+
+
+def test_client_ip_behind_trusted_proxies_is_the_nearest_untrusted_hop(
+    trusted_proxies: None,
+) -> None:
+    """Цепочка читается с конца: caddy дописал клиента, nginx — caddy."""
+    caddy_to_nginx = "203.0.113.7, 172.18.0.5"
+    assert client_ip(make_request({"X-Forwarded-For": caddy_to_nginx})) == "203.0.113.7"
+    # Клиент в локальной сети — тоже настоящий адрес, он просто доверенным не стал.
+    chain = "192.168.1.20, 172.18.0.5"
+    assert client_ip(make_request({"X-Forwarded-For": chain})) == "192.168.1.20"
+
+
+def test_client_ip_ignores_x_real_ip_from_any_hops(trusted_proxies: None) -> None:
+    """`X-Real-IP` не читается: после TLS-слоя его автором остаётся сам запрос."""
+    request = make_request({"X-Real-IP": "8.8.8.8", "X-Forwarded-For": "203.0.113.7, 172.18.0.5"})
+    assert client_ip(request) == "203.0.113.7"
+    # Только `X-Real-IP` без цепочки — сосед доверенный, прокси адреса не прислал.
+    only_real_ip = make_request({"X-Real-IP": "8.8.8.8"})
+    assert client_ip(only_real_ip) == "172.18.0.5"
+
+
+def test_client_ip_ignores_the_chain_the_client_wrote_itself(trusted_proxies: None) -> None:
+    """Левые элементы цепочки дописывает клиент: доверия им нет."""
+    spoofed = "8.8.8.8, 198.51.100.5, 203.0.113.7, 172.18.0.5"
+    assert client_ip(make_request({"X-Forwarded-For": spoofed})) == "203.0.113.7"
+    # Неразбираемое значение в цепочке — не адрес: оно пропускается.
+    garbage = "not-an-ip, 203.0.113.7, 172.18.0.5"
+    assert client_ip(make_request({"X-Forwarded-For": garbage})) == "203.0.113.7"
+
+
+def test_client_ip_from_untrusted_peer_comes_from_the_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Прямое подключение мимо прокси: заголовки игнорируются целиком."""
+    monkeypatch.setattr(get_settings(), "trusted_proxy_networks", "172.16.0.0/12")
+    request = make_request(
+        {"X-Real-IP": "8.8.8.8", "X-Forwarded-For": "198.51.100.5"},
+        client=("203.0.113.7", 50000),
+    )
+    assert client_ip(request) == "203.0.113.7"
+
+
+def test_client_ip_keeps_only_trusted_addresses_and_clips_the_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Вся цепочка из прокси — остаётся самый дальний; длинное значение режется."""
+    monkeypatch.setattr(get_settings(), "trusted_proxy_networks", "172.16.0.0/12")
+    both_proxies = make_request({"X-Forwarded-For": "172.18.0.2, 172.18.0.5"})
+    assert client_ip(both_proxies) == "172.18.0.2"
+    # Сеть не разбирается — она не считается доверенной, и ошибки в настройке нет.
+    monkeypatch.setattr(get_settings(), "trusted_proxy_networks", "bogus,172.16.0.0/12")
+    assert client_ip(both_proxies) == "172.18.0.2"
+    long_peer = make_request(client=("A" * 400, 50000))
+    assert client_ip(long_peer) == "A" * IP_LIMIT
+    assert client_ip(make_request(client=None, headers={"X-Forwarded-For": "172.18.0.2"})) == (
+        "172.18.0.2"
+    )
 
 
 def test_direct_connection_without_proxy_keeps_the_socket_address(
