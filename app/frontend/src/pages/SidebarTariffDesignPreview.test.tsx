@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -5,6 +8,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { mockFetch } from '../test/mockFetch';
 import { SidebarTariffDesignPreview } from './SidebarTariffDesignPreview';
+
+const CSS = readFileSync(
+  join(resolve(process.cwd(), 'src'), 'pages', 'SidebarTariffDesignPreview.module.css'),
+  'utf8',
+);
+
+/** Тело правила по точному селектору; пустая строка, если правила нет. */
+function ruleBody(css: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(?:^|[};])\\s*${escaped}\\s*\\{([^}]*)\\}`, 'gm');
+  return [...css.matchAll(re)][0]?.[1] ?? '';
+}
 
 function renderPreview(): ReturnType<typeof render> {
   return render(
@@ -86,5 +101,19 @@ describe('примерочная карточки тарифа в панели',
         .getByRole('complementary', { name: 'Боковая панель кабинета' })
         .closest('[data-width]'),
     ).toHaveAttribute('data-width', 'narrow');
+  });
+
+  it('держит кадр панели не ниже 800 px и не фиксирует высоту', () => {
+    // jsdom не считает геометрию, поэтому правило проверяется текстом — как в
+    // `SidebarTariff.layout.test.ts` (замечание тестировщика Ф1 по #124).
+    //
+    // Фиксированные 620 px сжимали список разделов до подписи (nav 20 px из
+    // 317 px): пять пунктов меню уезжали за край, и «панель в реальном каркасе»
+    // не показывала каркаса. 800 px — нижняя граница из макета, выше панель
+    // растёт по содержимому, поэтому меню и аккаунт видны целиком.
+    const frame = ruleBody(CSS, '.page .frame > aside');
+    expect(frame).toContain('min-height: 800px');
+    expect(frame).toContain('height: auto');
+    expect(frame).not.toMatch(/(?:^|\s)height:\s*\d+(?:\.\d+)?px/);
   });
 });
