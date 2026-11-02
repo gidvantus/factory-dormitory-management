@@ -106,6 +106,9 @@ describe('экран входа кабинета оператора', () => {
 
     const error = await screen.findByTestId('operator-login-error');
     expect(error).toHaveTextContent(/^Не удалось войти\. Попробуйте ещё раз$/);
+    // Введённые значения не виноваты: подсветка «неверная пара» — только у 401.
+    expect(screen.getByTestId('operator-login-username')).toHaveAttribute('aria-invalid', 'false');
+    expect(screen.getByTestId('operator-login-password')).toHaveAttribute('aria-invalid', 'false');
   });
 
   it('5xx — тоже общий текст, а не выдуманное «неверный пароль»', async () => {
@@ -115,5 +118,23 @@ describe('экран входа кабинета оператора', () => {
 
     const error = await screen.findByTestId('operator-login-error');
     expect(error).toHaveTextContent(/^Не удалось войти\. Попробуйте ещё раз$/);
+    expect(screen.getByTestId('operator-login-username')).toHaveAttribute('aria-invalid', 'false');
+    expect(screen.getByTestId('operator-login-password')).toHaveAttribute('aria-invalid', 'false');
+  });
+
+  it('после 401 сетевой сбой снимает подсветку пары', async () => {
+    renderLogin([{ status: 401, body: { detail: 'Неверный логин или пароль' } }, { reject: true }]);
+    const user = userEvent.setup();
+
+    await submitPair('operator', 'wrong');
+    expect(screen.getByTestId('operator-login-username')).toHaveAttribute('aria-invalid', 'true');
+
+    // Повторная отправка не дошла до сервера: держать подсветку «пара неверна»
+    // нельзя, иначе оператор меняет верный пароль из-за упавшей сети.
+    await user.click(screen.getByTestId('operator-login-submit'));
+    await screen.findByText(/^Не удалось войти\. Попробуйте ещё раз$/);
+
+    expect(screen.getByTestId('operator-login-username')).toHaveAttribute('aria-invalid', 'false');
+    expect(screen.getByTestId('operator-login-password')).toHaveAttribute('aria-invalid', 'false');
   });
 });

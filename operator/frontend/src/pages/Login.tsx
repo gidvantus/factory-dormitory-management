@@ -13,19 +13,31 @@ interface FieldErrors {
   password?: string;
 }
 
+/** Ошибка под формой: текст для оператора и признак «отказ именно по паре». */
+interface LoginError {
+  text: string;
+  /**
+   * Подсвечивать оба поля как неверные. true только у отказа по паре (`401`):
+   * при недоступном сервере введённые значения не виноваты, и красить их
+   * кирпичом — сигнал «ваш логин или пароль неверны» вместо «повторите».
+   */
+  pairRejected: boolean;
+}
+
 /**
- * Текст ошибки входа.
+ * Разбор отказа входа.
  *
  * `401` — это контракт: сервер прислал `detail`, и экран обязан показать его
- * дословно, без переписывания («Неверный логин или пароль»). Всё остальное —
- * сеть, `5xx`, неожиданный `422` — не текст для пользователя, поэтому одна
- * честная фраза вместо кода ответа.
+ * дословно, без переписывания («Неверный логин или пароль»). Такой отказ
+ * относится к паре целиком: сервер намеренно не говорит, что именно неверно.
+ * Всё остальное — сеть, `5xx`, неожиданный `422` — невиновность введённых
+ * данных: текст общий, поля остаются обычными.
  */
-function loginErrorText(error: unknown): string {
+function describeLoginError(error: unknown): LoginError {
   if (error instanceof ApiError && error.status === 401) {
-    return error.message;
+    return { text: error.message, pairRejected: true };
   }
-  return FAILED_TO_LOGIN;
+  return { text: FAILED_TO_LOGIN, pairRejected: false };
 }
 
 /**
@@ -40,12 +52,11 @@ export function Login(): JSX.Element {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LoginError | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Отказ сервера касается пары целиком: логин и пароль подсвечиваются оба,
-  // потому что сервер намеренно не говорит, что именно неверно.
-  const rejectedByServer = error !== null;
+  // Только отказ по паре (401) красит поля: сеть и 5xx оставляют их обычными.
+  const rejectedPair = error?.pairRejected === true;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -64,7 +75,7 @@ export function Login(): JSX.Element {
       await login(username, password);
       navigate('/', { replace: true });
     } catch (caught) {
-      setError(loginErrorText(caught));
+      setError(describeLoginError(caught));
     } finally {
       setSubmitting(false);
     }
@@ -95,7 +106,7 @@ export function Login(): JSX.Element {
                 placeholder="operator"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                aria-invalid={fieldErrors.username !== undefined || rejectedByServer}
+                aria-invalid={fieldErrors.username !== undefined || rejectedPair}
                 aria-describedby={
                   fieldErrors.username !== undefined ? 'operator-username-error' : undefined
                 }
@@ -120,7 +131,7 @@ export function Login(): JSX.Element {
                 autoComplete="current-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                aria-invalid={fieldErrors.password !== undefined || rejectedByServer}
+                aria-invalid={fieldErrors.password !== undefined || rejectedPair}
                 aria-describedby={
                   fieldErrors.password !== undefined ? 'operator-password-error' : undefined
                 }
@@ -135,7 +146,7 @@ export function Login(): JSX.Element {
 
             {error !== null && (
               <p className="alert alert--error" role="alert" data-testid="operator-login-error">
-                {error}
+                {error.text}
               </p>
             )}
 
