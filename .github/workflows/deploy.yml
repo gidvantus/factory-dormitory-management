@@ -205,10 +205,12 @@ jobs:
           # Тот же флаг у кабинета оператора. В .env.example стоит false, и
           # env_file с required: true подставляет его молча: operator-api выдал
           # бы Set-Cookie operator_session без Secure (operator/backend/app/
-          # security.py), хотя кабинет открывается по https. Проверяем здесь,
-          # чтобы падение назвало ключ, а не оставило дыру до первого входа.
+          # security.py). Кабинет живёт на loopback-портах и снаружи доступен
+          # только через SSH-туннель, поэтому «https» тут ни при чём: флаг
+          # обязателен, чтобы сессия не ходила открытым текстом при любом
+          # будущем проксировании. Проверяем здесь, чтобы падение назвало ключ.
           if [ "$(env_get OPERATOR_SESSION_COOKIE_SECURE)" != "true" ]; then
-            echo "::error::OPERATOR_SESSION_COOKIE_SECURE в $REMOTE_DIR/.env не равно true. Cookie operator_session отдавалась бы без флага Secure, хотя кабинет оператора открывается по https — чек-лист кабинета оператора в docs/deploy.md."
+            echo "::error::OPERATOR_SESSION_COOKIE_SECURE в $REMOTE_DIR/.env не равно true. Cookie operator_session отдавалась бы без флага Secure, и сессия кабинета оператора ходила бы открытым текстом при любом проксировании. Чек-лист кабинета оператора — docs/deploy.md."
             exit 1
           fi
           # Заглушки из .env.example. Файл подключён в docker-compose.yml как
@@ -316,9 +318,9 @@ jobs:
           # Миграции применяет сам api при старте (app/backend/entrypoint.sh:
           # alembic upgrade head, затем uvicorn), поэтому отдельного шага
           # миграций нет. Ошибка alembic роняет api и этот шаг.
-          # --wait проверяет только healthcheck'и, а они есть лишь у db и
-          # caddy: зелёный шаг ещё не доказывает, что api, web и bot живы.
-          # Настоящие проверки — шаги /healthz и /api/health ниже.
+          # --wait проверяет db, caddy, operator-api, operator-web; у api, web и
+          # bot healthcheck'ов нет, поэтому зелёный шаг ещё не доказывает, что
+          # они живы. Настоящие проверки — шаги /healthz и /api/health ниже.
           # shellcheck disable=SC2029
           ssh "$SSH_TARGET" \
               "cd $REMOTE_DIR && docker compose --profile tls up -d --no-build --remove-orphans --wait --wait-timeout 180"
