@@ -202,6 +202,15 @@ jobs:
             echo "::error::SESSION_COOKIE_SECURE в $REMOTE_DIR/.env не равно true. Cookie сессии crm_session уходила бы открытым текстом — docs/ssl.md."
             exit 1
           fi
+          # Тот же флаг у кабинета оператора. В .env.example стоит false, и
+          # env_file с required: true подставляет его молча: operator-api выдал
+          # бы Set-Cookie operator_session без Secure (operator/backend/app/
+          # security.py), хотя кабинет открывается по https. Проверяем здесь,
+          # чтобы падение назвало ключ, а не оставило дыру до первого входа.
+          if [ "$(env_get OPERATOR_SESSION_COOKIE_SECURE)" != "true" ]; then
+            echo "::error::OPERATOR_SESSION_COOKIE_SECURE в $REMOTE_DIR/.env не равно true. Cookie operator_session отдавалась бы без флага Secure, хотя кабинет оператора открывается по https — чек-лист кабинета оператора в docs/deploy.md."
+            exit 1
+          fi
           # Заглушки из .env.example. Файл подключён в docker-compose.yml как
           # env_file с required: true, поэтому незаданное в .env сервера
           # значение молча применилось бы как боевое: вход в кабинет оператора
