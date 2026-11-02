@@ -72,7 +72,7 @@ const SOLUTION_INVOICE = {
   amount_label: '500 ₽ в месяц',
 };
 
-/** Строка каталога решений: право появляется у организации только оплатой. */
+/** Строка каталога решений: право выдаётся оплатой, но не на этом экране. */
 const SOLUTION = {
   id: 7,
   code: 'telegram_notifications',
@@ -84,12 +84,6 @@ const SOLUTION = {
   price_label: '500 ₽ в месяц',
   is_owned: false,
   expires_at: null,
-};
-
-const OWNED_SOLUTION = {
-  ...SOLUTION,
-  is_owned: true,
-  expires_at: '2026-11-14T10:00:00Z',
 };
 
 /** Маршруты кабинета: сессия активна, счета приходят из `/api/billing/invoices`. */
@@ -154,7 +148,7 @@ describe('раздел «Документы» в кабинете', () => {
     await screen.findByTestId('documents-row');
 
     // Все действия строки — внутри одного блока: без него ссылки подряд
-    // читались одной фразой «Скачать счётСкачать актОплатить».
+    // читались одной фразой «Скачать счётСкачать актОтменить».
     const actions = screen.getByTestId('document-actions');
     expect(actions).toHaveClass(styles['document-actions']);
     expect(within(actions).getByTestId('document-download')).toBeInTheDocument();
@@ -225,25 +219,20 @@ describe('раздел «Документы» в кабинете', () => {
     expect(callsTo(fetchMock, '/api/billing/invoices')).toHaveLength(2);
   });
 
-  it('оплачивает счёт и показывает появившийся акт', async () => {
+  it('в строке неоплаченного счёта нет кнопки «Оплатить»', async () => {
+    // Оплату вносит кабинет оператора: из «Документов» организации `PATCH` не уходит.
     const fetchMock = mockFetch(routes({ status: 200, body: [NEW_INVOICE] }));
-    const user = userEvent.setup();
     renderApp('/cabinet/documents');
 
     await screen.findByTestId('documents-row');
-    await user.click(screen.getByTestId('document-status-paid'));
 
-    const patch = fetchMock.mock.calls.find(
-      (call) =>
-        String(call[0]).endsWith('/api/billing/invoices/1') &&
-        (call[1] as RequestInit | undefined)?.method === 'PATCH',
-    );
-    expect(patch).toBeDefined();
-    expect(JSON.parse(String((patch?.[1] as RequestInit).body))).toEqual({ status: 'paid' });
-
-    expect(screen.getByTestId('document-status')).toHaveTextContent('Оплачен');
-    expect(screen.getByTestId('document-status')).toHaveClass(styles['tag--ok']);
-    expect(screen.getByTestId('document-act')).toBeInTheDocument();
+    expect(screen.queryByTestId('document-status-paid')).not.toBeInTheDocument();
+    expect(screen.getByTestId('document-status-cancel')).toBeInTheDocument();
+    expect(
+      callsTo(fetchMock, '/api/billing/invoices/1').filter(
+        (call) => (call[1] as RequestInit | undefined)?.method === 'PATCH',
+      ),
+    ).toHaveLength(0);
   });
 
   it('отменяет неоплаченный счёт', async () => {
@@ -287,7 +276,7 @@ describe('раздел «Документы» в кабинете', () => {
     renderApp('/cabinet/documents');
 
     await screen.findByTestId('documents-row');
-    await user.click(screen.getByTestId('document-status-paid'));
+    await user.click(screen.getByTestId('document-status-cancel'));
 
     expect(await screen.findByTestId('documents-action-error')).toHaveTextContent(
       'Так нельзя изменить статус счёта',
@@ -302,56 +291,7 @@ describe('раздел «Документы» в кабинете', () => {
     await screen.findByTestId('documents-row');
 
     expect(screen.getByTestId('document-download')).toBeInTheDocument();
-    expect(screen.queryByTestId('document-status-paid')).not.toBeInTheDocument();
     expect(screen.queryByTestId('document-status-cancel')).not.toBeInTheDocument();
-  });
-
-  /**
-   * Регрессия приёмки: оплата счёта за решение выдаёт право, но оболочка кабинета
-   * держит признак владения у себя и читает каталог один раз. Без перечитывания
-   * каталога право на сервере уже действует, а метка «Подключено» и пункт
-   * «Уведомления» не появляются до перезагрузки: переход по меню — клиентский,
-   * оболочка не перемонтируется.
-   */
-  it('после оплаты перечитывает каталог решений: право видно без перезагрузки', async () => {
-    // Сервер отдаёт право сразу после оплаты — как настоящий: до неё права нет.
-    let ownsSolution = false;
-    const fetchMock = mockFetch((url, init) => {
-      if (url.endsWith('/api/me')) return PROFILE;
-      if (url.endsWith('/api/trial')) return TRIAL;
-      if (url.endsWith('/api/solutions')) {
-        return { status: 200, body: { items: [ownsSolution ? OWNED_SOLUTION : SOLUTION] } };
-      }
-      if (url.endsWith('/api/billing/invoices')) {
-        return { status: 200, body: [SOLUTION_INVOICE] };
-      }
-      if (url.includes('/api/billing/invoices/') && init?.method === 'PATCH') {
-        ownsSolution = true;
-        return {
-          status: 200,
-          body: { ...SOLUTION_INVOICE, status: 'paid', status_label: 'Оплачен' },
-        };
-      }
-      return NOT_FOUND;
-    });
-    const user = userEvent.setup();
-    renderApp('/cabinet/documents');
-
-    await screen.findByTestId('documents-row');
-    expect(callsTo(fetchMock, '/api/solutions')).toHaveLength(1);
-    expect(screen.queryByTestId('workspace-nav-notifications')).not.toBeInTheDocument();
-
-    await user.click(screen.getByTestId('document-status-paid'));
-
-    // Пункт меню появляется сразу после оплаты — значит каталог перечитан.
-    expect(await screen.findByTestId('workspace-nav-notifications')).toBeInTheDocument();
-    expect(callsTo(fetchMock, '/api/solutions')).toHaveLength(2);
-
-    // И карточка магазина показывает право — тем же состоянием, без перезагрузки.
-    await user.click(screen.getByTestId('workspace-nav-shop'));
-    const card = await screen.findByTestId('solution-card');
-    expect(within(card).getByTestId('solution-owned')).toHaveTextContent('Подключено');
-    expect(card).toHaveAttribute('data-owned', 'true');
   });
 
   it('закрытие и отмена счёта каталог решений не перечитывают', async () => {
