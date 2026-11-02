@@ -174,7 +174,11 @@ jobs:
           # operator-api уходит в рестарт, без OPERATOR_TOKEN_SECRET нечем
           # подписать сессию кабинета, и шаг запуска стека краснеет без имени
           # причины. Чек-лист кабинета оператора — docs/deploy.md.
-          for key in SITE_DOMAIN ACME_EMAIL CADDY_ACME_CA FRONTEND_PORT API_PORT FRONTEND_BASE_URL TELEGRAM_BOT_TOKEN TELEGRAM_SERVICE_TOKEN OPERATOR_USERNAME OPERATOR_PASSWORD OPERATOR_TOKEN_SECRET; do
+          # JWT_SECRET обязателен так же: без него api не стартует. Отдельно
+          # ниже он проверяется на заглушку: длина заглушки из .env.example
+          # проходит минимум кода (app/backend/app/config.py:19 — 16 символов),
+          # поэтому код её не отличит от боевого секрета.
+          for key in SITE_DOMAIN ACME_EMAIL CADDY_ACME_CA FRONTEND_PORT API_PORT FRONTEND_BASE_URL JWT_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_SERVICE_TOKEN OPERATOR_USERNAME OPERATOR_PASSWORD OPERATOR_TOKEN_SECRET; do
             if [ -z "$(env_get "$key")" ]; then
               missing="$missing $key"
             fi
@@ -207,12 +211,21 @@ jobs:
             echo "::error::OPERATOR_PASSWORD в $REMOTE_DIR/.env равно заглушке 'change-me' из .env.example. Пароль входа в кабинет оператора обязан быть боевым — чек-лист кабинета оператора в docs/deploy.md."
             exit 1
           fi
-          case "$(env_get OPERATOR_TOKEN_SECRET)" in
-            *local-stand-only*)
-              echo "::error::OPERATOR_TOKEN_SECRET в $REMOTE_DIR/.env содержит заглушку 'local-stand-only' из .env.example. Секрет подписи сессии кабинета оператора обязан быть боевым — чек-лист кабинета оператора в docs/deploy.md."
-              exit 1
-              ;;
-          esac
+          # Оба секрета подписи сессии проверяются одинаково: .env.example не
+          # содержит боевых секретов, поэтому 'local-stand-only…' или
+          # 'change-me' в значении — не боевой ключ. JWT_SECRET: заглушка
+          # local-stand-only-secret-change-me-32-chars длиннее минимума кода
+          # (app/backend/app/config.py:19 — 16 символов), значит api подпишет
+          # crm_session публично известным ключом и пустит в кабинет под любым
+          # пользователем. OPERATOR_TOKEN_SECRET — тот же класс дыры.
+          for key in JWT_SECRET OPERATOR_TOKEN_SECRET; do
+            case "$(env_get "$key")" in
+              *local-stand-only*|*change-me*)
+                echo "::error::$key в $REMOTE_DIR/.env содержит заглушку из .env.example ('local-stand-only…' или 'change-me'). Секрет подписи сессии обязан быть боевым — чек-лист переменных основного кабинета в docs/ssl.md, кабинета оператора — docs/deploy.md."
+                exit 1
+                ;;
+            esac
+          done
           echo "SITE_DOMAIN=$(env_get SITE_DOMAIN)" >> "$GITHUB_ENV"
           echo ".env сервера прошёл чек-лист TLS и чек-лист кабинета оператора."
 
