@@ -245,6 +245,21 @@ BOT_TOKEN_HEADER = "X-Bot-Token"
 INVALID_BOT_TOKEN_DETAIL = "Неверный сервисный токен"
 
 
+def _secret_matches(provided: str, expected: str) -> bool:
+    """Сверить значение заголовка с секретом в постоянном времени и без исключений.
+
+    `secrets.compare_digest` для двух `str` бросает `TypeError`, если в них есть
+    не-ASCII: заголовок с байтом вне ASCII (h11 пропускает obs-text) Starlette
+    отдаёт строкой в latin-1, и обычное сравнение превратило бы отказ в `500` с
+    traceback вместо `401`. Поэтому сравниваются байты UTF-8 — так же, как в
+    `credentials_match`, где от этого зависит вход оператора.
+
+    Сравнение побайтовое на обеих сторонах, поэтому значение секрета остаётся
+    секретом: время ответа не зависит от того, какая половина не сошлась.
+    """
+    return compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
+
+
 def require_service_bot(request: Request) -> None:
     """Пропустить только бота: заголовок `X-Bot-Token` сверяется с секретом.
 
@@ -252,12 +267,13 @@ def require_service_bot(request: Request) -> None:
     BotFather. Сравнение — в постоянном времени (`secrets.compare_digest`), а
     неверный токен не пишется в лог: иначе значение секрета попало бы в логи
     поддержки. Пустой настроенный секрет закрывает роуты целиком: без него
-    отличить бота от постороннего нельзя.
+    отличить бота от постороннего нельзя. Мусорный (не-ASCII) заголовок — это
+    просто неверный токен, а не `500`: сравнение идёт байтами (`_secret_matches`).
     """
     settings = get_settings()
     expected = settings.telegram_service_token
     provided = request.headers.get(BOT_TOKEN_HEADER, "")
-    if not expected or not provided or not compare_digest(provided, expected):
+    if not expected or not provided or not _secret_matches(provided, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=INVALID_BOT_TOKEN_DETAIL,
@@ -287,12 +303,14 @@ def require_operator_service(request: Request) -> None:
     постоянном времени (`secrets.compare_digest`), а неверный токен не пишется в
     лог: иначе значение секрета попало бы в логи поддержки. Пустой настроенный
     секрет закрывает ручки целиком: без него отличить кабинет от постороннего
-    нельзя.
+    нельзя. Мусорный (не-ASCII) заголовок — это просто неверный токен, а не
+    `500`: сравнение идёт байтами (`_secret_matches`), поэтому обещанное «три
+    отказа побайтово одинаковы» держится и для такого заголовка.
     """
     settings = get_settings()
     expected = settings.operator_service_token
     provided = request.headers.get(OPERATOR_TOKEN_HEADER, "")
-    if not expected or not provided or not compare_digest(provided, expected):
+    if not expected or not provided or not _secret_matches(provided, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=INVALID_OPERATOR_TOKEN_DETAIL,

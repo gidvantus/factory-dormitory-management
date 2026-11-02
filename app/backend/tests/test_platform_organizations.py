@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import audit
+from app.api import platform_organizations
 from app.config import get_settings
 from app.models.audit import AuditEvent
 from app.models.dormitory import Dormitory
@@ -278,6 +279,46 @@ def test_patch_reports_a_taken_inn(
 
     assert response.status_code == 409
     assert response.json() == {"detail": "Организация с таким ИНН уже есть"}
+
+
+def test_patch_rolls_back_when_the_inn_is_rejected_by_the_database(
+    client: TestClient,
+    db_session: Session,
+    operator_token: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Гонка на уникальном ИНН: предварительная проверка прошла, коммит — нет.
+
+    Два оператора одновременно правят две организации на один свободный ИНН:
+    `inn_taken` у обоих отвечает «свободен», вторая транзакция падает на
+    `uq_organizations_inn`. Здесь эта ветка воспроизводится подменой
+    `inn_taken` — иначе до `commit` не доходит ни один тест, и удаление
+    `db.rollback()` или замена `409` на `500` прошли бы зелёными.
+
+    Проверяется три вещи: клиент получает тот же `409` с тем же текстом, чужие
+    данные не перезаписаны, и сессия после отката жива — следующий запрос
+    отвечает `200`, а не `500`.
+    """
+    taken = make_organization(db_session, email="taken@example.com", inn=INN_A)
+    target = make_organization(db_session, email="target@example.com", name="ООО Цель")
+
+    monkeypatch.setattr(platform_organizations, "inn_taken", lambda *args, **kwargs: False)
+
+    response = client.patch(
+        f"{PLATFORM}/{target.id}", headers=OPERATOR_HEADERS, json={"inn": INN_A}
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Организация с таким ИНН уже есть"}
+
+    db_session.expire_all()
+    relieved = db_session.get(Organization, target.id)
+    holder = db_session.get(Organization, taken.id)
+    assert relieved is not None and relieved.inn is None
+    assert holder is not None and holder.inn == INN_A
+
+    # Откат не сломал сессию: тот же клиент продолжает работать.
+    assert client.get(PLATFORM, headers=OPERATOR_HEADERS).status_code == 200
 
 
 def test_patch_rejects_an_empty_name(
