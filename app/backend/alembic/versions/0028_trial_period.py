@@ -30,8 +30,11 @@ down_revision: str | None = "0027_import_jobs"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# Длительность пробного периода прямо в SQL: та же величина, что
-# `Settings.trial_days` по умолчанию, но у миграции нет доступа к настройкам.
+# Длительность пробного периода прямо в SQL: у миграции нет доступа к
+# настройкам. На момент ревизии дефолтом `Settings.trial_days` были 30 суток —
+# отсюда число в `interval` ниже; текущий дефолт настройки другой (14 суток).
+# Уже выданные сроки миграция не пересчитывает: новый кабинет получает конец
+# периода из `Settings.trial_days`, а этот бэкфилл — исторический.
 BACKFILL_TRIAL_SQL = """
     UPDATE users
     SET trial_ends_at = now() + interval '30 days'

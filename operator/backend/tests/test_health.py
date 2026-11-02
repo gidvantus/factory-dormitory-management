@@ -1,0 +1,44 @@
+"""Проверка живости и схема контракта.
+
+`/api/health` — единственная ручка кабинета, открытая анониму: по ней стенд
+понимает, что сервис поднялся. Схема OpenAPI проверяется здесь же: это контракт,
+который читает фронтенд, и пропажа ручки или описания отказа — регресс.
+"""
+
+from fastapi.testclient import TestClient
+
+from app.security import LOGIN_FAILED_DETAIL, UNAUTHORIZED_DETAIL
+
+
+def test_health_reports_ok(client: TestClient) -> None:
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_health_needs_no_session(client: TestClient) -> None:
+    """Healthcheck стенда не может ждать входа."""
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+
+
+def test_openapi_documents_the_contract(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+
+    assert set(schema["paths"]) == {
+        "/api/auth/login",
+        "/api/auth/me",
+        "/api/auth/logout",
+        "/api/health",
+    }
+    login = schema["paths"]["/api/auth/login"]["post"]
+    assert login["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "OperatorResponse"
+    )
+    assert login["responses"]["401"]["description"] == LOGIN_FAILED_DETAIL
+    assert schema["paths"]["/api/auth/me"]["get"]["responses"]["401"]["description"] == (
+        UNAUTHORIZED_DETAIL
+    )
+    assert schema["paths"]["/api/auth/logout"]["post"]["responses"]["204"] is not None

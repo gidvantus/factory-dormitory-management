@@ -179,8 +179,11 @@ describe('общежития', () => {
       .mockRejectedValueOnce(new Error('Offline'))
       .mockResolvedValueOnce([DORMITORY]);
     renderApp('/cabinet/dormitories');
-    expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось загрузить список');
-    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Не удалось загрузить список');
+    // Кнопка внутри блока ошибки: в панели кабинета с #124 есть своя «Повторить»
+    // для карточки тарифа, и поиск по всей странице нашёл бы обе.
+    fireEvent.click(within(alert).getByRole('button', { name: 'Повторить' }));
     expect(await screen.findByTestId('dormitory-card-7')).toBeInTheDocument();
   });
 

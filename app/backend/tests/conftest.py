@@ -19,10 +19,15 @@ os.environ["SMTP_PASSWORD"] = ""
 # не должны ходить в настоящий suggestions.dadata.ru. Подменённый HTTP-клиент
 # для разбора ответа живёт в tests/test_dadata.py.
 os.environ["DADATA_API_KEY"] = ""
+# Жёстко, а не setdefault: по умолчанию предела сотрудников на пробном периоде
+# нет, и тесты проверяют именно это состояние. Стенд приносит свою настройку
+# через compose, и без этой строки кейс молча проверял бы чужой предел.
+os.environ.pop("TRIAL_MEMBER_LIMIT", None)
 
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,7 +37,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import db as db_module
+from app import invoice_files as invoice_files_module
+from app import main as main_module
 from app import solutions
+from app.api import hostels as hostels_api
 from app.config import get_settings
 from app.db import get_db
 from app.main import app
@@ -42,6 +50,7 @@ from app.models.organization import Organization, OrganizationMember
 from app.models.solution import OrganizationSolution, Solution
 from app.models.user import User
 from app.security import hash_password
+from app.storage import LocalStorage
 
 # Пароль, которым тесты входят в кабинет. Сервер его не показывает, поэтому
 # пользователь с известным паролем создаётся прямо в базе (см. create_user).
@@ -82,6 +91,27 @@ def _attach_dormitory_organization(
             item.organization_id = latest.active_organization_id
             continue
         item.organization_id = _test_organization(session)
+
+
+@pytest.fixture(autouse=True)
+def upload_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> LocalStorage:
+    """Файлы тестов уходят во временный каталог, а не в настоящий `uploads`.
+
+    Юнит-прогон герметичен: без этой подмены импорт «Места» писал бы `.xlsx` в
+    `app/backend/uploads` рабочей копии, а счета и акты — PDF туда же, и тесты
+    делили бы файлы между собой. Подменяются три места, где хранилище взято при
+    импорте: раздача файлов (`app.main`), импорт (`app.api.hostels`) и печатные
+    формы (`app.invoice_files`). Все три обязаны смотреть в ОДИН каталог, иначе
+    скачанное не совпало бы с загруженным, а сохранённый счёт — с отданным.
+
+    Возвращается сам `LocalStorage`: тесту раздачи нужно положить файл по ключу
+    до запроса.
+    """
+    local = LocalStorage(tmp_path / "uploads")
+    monkeypatch.setattr(main_module, "storage", local)
+    monkeypatch.setattr(hostels_api, "storage", local)
+    monkeypatch.setattr(invoice_files_module, "storage", local)
+    return local
 
 
 @pytest.fixture
@@ -284,12 +314,23 @@ def add_colleague(
 # Код решения «уведомления в Telegram»: он же стоит в seed-строке каталога.
 TELEGRAM_NOTIFICATIONS_CODE = "telegram_notifications"
 
+# Код решения «журнал действий»: он же стоит в seed-строке каталога (`0049`).
+JOURNAL_CODE = "journal"
+
+# Имя строки каталога по её коду. На `solutions.name` стоит `UNIQUE`, поэтому тест,
+# в каталоге которого два решения, обязан назвать вторую строку явно: имя по
+# умолчанию подставилось бы одно и то же.
+SOLUTION_NAMES = {
+    TELEGRAM_NOTIFICATIONS_CODE: "Уведомления в Telegram",
+    JOURNAL_CODE: "Журнал действий",
+}
+
 
 def add_solution(
     db_session: Session,
     *,
     code: str = TELEGRAM_NOTIFICATIONS_CODE,
-    name: str = "Уведомления в Telegram",
+    name: str | None = None,
     description: str | None = "Сообщения о событиях, которые вас касаются",
     amount: str = "500.00",
     period: str = "month",
@@ -304,7 +345,7 @@ def add_solution(
     """
     solution = Solution(
         code=code,
-        name=name,
+        name=name if name is not None else SOLUTION_NAMES.get(code, f"Решение {code}"),
         description=description,
         amount=Decimal(amount),
         currency="RUB",
@@ -326,6 +367,7 @@ def give_solution(
     period: str = "month",
     expires_at: datetime | None = None,
     invoice_id: int | None = None,
+    name: str | None = None,
 ) -> Solution:
     """Выдать организации право на решение — как это делает оплата счёта.
 
@@ -333,7 +375,8 @@ def give_solution(
     `expires_at` нужен там, где проверяется просроченное право: подменить часы
     тест не может.
     """
-    solution = add_solution(db_session, code=code, period=period)
+    solution = add_solution(db_session, code=code, name=name, period=period)
+
     if expires_at is None:
         solutions.grant(db_session, organization.id, solution, invoice_id=invoice_id)
     else:

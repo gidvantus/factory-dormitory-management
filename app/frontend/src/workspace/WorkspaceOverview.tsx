@@ -1,15 +1,18 @@
 import { useTrial } from '../auth/TrialProvider';
 import { Dashboard } from './dashboard/Dashboard';
-import { DashboardTariff } from './dashboard/DashboardTariff';
+import { TariffPeriods } from './TariffPeriods';
 import { TrialNotice } from './TrialNotice';
 import styles from './Workspace.module.css';
 
 /**
  * Обзор: он остаётся открытым и на закрытом кабинете, поэтому состояние
- * пробного периода живёт здесь.
+ * подписки живёт здесь.
  *
- * Тариф и срок пробного периода — компактная лента. Дополнительное предупреждение
- * остаётся только у закрытого кабинета, чтобы объяснить недоступность разделов.
+ * Порядок блоков — от срочного к подробному: предупреждение о сроке, оплаченные
+ * периоды. Сам тариф с обзора убран (#124): его карточка стоит в левой панели
+ * кабинета (`SidebarTariff`), а здесь о сроке говорит только предупреждение.
+ * Предупреждение и периоды читают одну и ту же подписку
+ * (`SubscriptionProvider`), поэтому запрос за ней один.
  */
 export function WorkspaceOverview(): JSX.Element {
   const { state } = useTrial();
@@ -25,7 +28,7 @@ export function WorkspaceOverview(): JSX.Element {
           data-testid="trial-tariff-block"
         >
           <TrialNotice />
-          <DashboardTariff />
+          <TariffPeriods />
         </div>
       }
     />

@@ -42,6 +42,11 @@ const DashboardTariffDesignPreview = lazy(() =>
     default: module.DashboardTariffDesignPreview,
   })),
 );
+const SidebarTariffDesignPreview = lazy(() =>
+  import('./pages/SidebarTariffDesignPreview').then((module) => ({
+    default: module.SidebarTariffDesignPreview,
+  })),
+);
 const ShopDesignPreview = lazy(() =>
   import('./pages/ShopDesignPreview').then((module) => ({
     default: module.ShopDesignPreview,
@@ -204,6 +209,14 @@ export function App(): JSX.Element {
           element={
             <Suspense fallback={<p role="status">Загрузка вариантов блока тарифа…</p>}>
               <DashboardTariffDesignPreview />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/sidebar-tariff"
+          element={
+            <Suspense fallback={<p role="status">Загрузка макета панели…</p>}>
+              <SidebarTariffDesignPreview />
             </Suspense>
           }
         />

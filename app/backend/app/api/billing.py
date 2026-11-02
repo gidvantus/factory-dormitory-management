@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import billing_forms
+from app import billing_forms, invoice_files
 from app.api.organization import (
     EDIT_ROLES,
     ORGANIZATION_EDIT_FORBIDDEN_DETAIL,
@@ -41,7 +41,6 @@ from app.invoice_status import (
     ACT_KIND,
     INVOICE_NOT_FOUND_DETAIL,
     NEW_STATUS,
-    TARIFF_ALREADY_CHOSEN_DETAIL,
     change_status,
     status_label,
 )
@@ -67,6 +66,7 @@ from app.schemas.invoice import (
 )
 from app.schemas.user import ErrorResponse
 from app.security import ACTIVATION_REQUIRED_DETAIL, ActiveUser
+from app.subscription import TARIFF_ALREADY_BOUGHT_DETAIL, free_slot
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -76,8 +76,9 @@ SOLUTION_NOT_FOUND_DETAIL = "Решение не найдено"
 BUYER_REQUISITES_DETAIL = "Заполните название и ИНН организации на странице «Организация»"
 ACT_NOT_FOUND_DETAIL = "Акт по счёту ещё не сформирован"
 
-# Печатные формы счёта и акта отдаются PDF: файл собирается в памяти и уходит
-# вложением, на диск ничего не пишется и адреса ручек не меняются.
+# Печатные формы счёта и акта отдаются PDF-файлом: форма собирается один раз,
+# сохраняется в файловое хранилище (`app/invoice_files.py`) и дальше отдаётся
+# сохранённое. Адреса ручек, коды ответов и имена файлов не меняются.
 PDF_MEDIA_TYPE = "application/pdf"
 
 # 404 у этих роутов приходит с тремя разными текстами: нет организации у
@@ -120,7 +121,7 @@ BROKEN_JSON_RESPONSES: dict[int | str, dict[str, Any]] = {
 CONFLICT_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_409_CONFLICT: {
         "model": ErrorResponse,
-        "description": f"{TARIFF_ALREADY_CHOSEN_DETAIL}; {BUYER_REQUISITES_DETAIL}",
+        "description": f"{TARIFF_ALREADY_BOUGHT_DETAIL}; {BUYER_REQUISITES_DETAIL}",
     }
 }
 
@@ -234,10 +235,17 @@ def purchase_invoice(
 ) -> InvoiceResponse:
     """«Купить»: выставить организации счёт за тариф или за решение.
 
-    Проверки идут в порядке, который задаёт смысл отказа: сначала «тариф уже
-    куплен» (это условие касается только тарифов), потом «такого предмета нет»,
-    потом «некуда выставлять» (нет названия или ИНН) и лишь затем «счёт уже
-    выставлен».
+    Проверки идут в порядке, который задаёт смысл отказа: сначала «продлевать
+    некуда» (оба слота подписки заняты — это условие касается только тарифов),
+    потом «такого предмета нет», потом «некуда выставлять» (нет названия или ИНН)
+    и лишь затем «счёт уже выставлен».
+
+    **Продление — это второй слот.** Пока текущий оплаченный период жив, счёт за
+    второй тариф выставляется на будущий период, и он начнётся ровно в день
+    после последнего оплаченного (`app/subscription.py`). Третий тариф до
+    наступления будущего не продаётся: `409` с текстом
+    `TARIFF_ALREADY_BOUGHT_DETAIL`. Смены тарифа покупкой по-прежнему нет —
+    меняется только срок в том же слоте, когда период истёк.
 
     Повторное нажатие не плодит счета: живой неоплаченный счёт **за тот же
     предмет** возвращается как `200` с тем же телом, а новый не создаётся. Счёт
@@ -262,8 +270,9 @@ def purchase_invoice(
     item_kind: str
     if payload.tariff_id is not None:
         item_kind = TARIFF_ITEM_KIND
-        if organization.tariff_id is not None:
-            raise HTTPException(status.HTTP_409_CONFLICT, TARIFF_ALREADY_CHOSEN_DETAIL)
+        # Свободных слотов нет — продлевать некуда, и тариф в счёте неважен.
+        if free_slot(organization) is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, TARIFF_ALREADY_BOUGHT_DETAIL)
         tariff = db.get(Tariff, payload.tariff_id)
         if tariff is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, TARIFF_NOT_FOUND_DETAIL)
@@ -421,9 +430,15 @@ def update_invoice_status(
     },
 )
 def download_invoice(invoice_id: int, membership: Membership, db: DbSession) -> Response:
-    """Счёт на скачивание. Доступ как у чтения: любой участник организации."""
+    """Счёт на скачивание. Доступ как у чтения: любой участник организации.
+
+    Байты берутся из файлового хранилища (`app/invoice_files.py`): форма
+    собирается один раз, при первом скачивании, и дальше отдаётся сохранённая.
+    Контракт ручки не меняется — код, тип и имя файла прежние.
+    """
     invoice = _load_own_invoice(db, membership, invoice_id)
-    return _pdf_response(billing_forms.invoice_pdf(invoice), f"invoice-{invoice.number}.pdf")
+    content = invoice_files.read_or_store(db, invoice, invoice_files.INVOICE_PURPOSE)
+    return _pdf_response(content, f"invoice-{invoice.number}.pdf")
 
 
 @router.get(
@@ -445,8 +460,14 @@ def download_invoice(invoice_id: int, membership: Membership, db: DbSession) -> 
     },
 )
 def download_act(invoice_id: int, membership: Membership, db: DbSession) -> Response:
-    """Акт на скачивание. До оплаты акта нет — `404`."""
+    """Акт на скачивание. До оплаты акта нет — `404`.
+
+    Как и у счёта, байты приходят из хранилища: акт оплаты собирается один раз и
+    дальше отдаётся сохранённое. Проверка «акт уже есть» остаётся здесь и
+    отвечает `404` до первой оплаты — файл она не создаёт.
+    """
     invoice = _load_own_invoice(db, membership, invoice_id)
     if invoice.id not in _act_invoice_ids(db, [invoice.id]):
         raise HTTPException(status.HTTP_404_NOT_FOUND, ACT_NOT_FOUND_DETAIL)
-    return _pdf_response(billing_forms.act_pdf(invoice), f"act-{invoice.number}.pdf")
+    content = invoice_files.read_or_store(db, invoice, invoice_files.ACT_PURPOSE)
+    return _pdf_response(content, f"act-{invoice.number}.pdf")

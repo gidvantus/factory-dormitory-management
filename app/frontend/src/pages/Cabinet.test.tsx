@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionProvider } from '../auth/SessionProvider';
 import { mockFetch } from '../test/mockFetch';
+import type { MockResponse } from '../test/mockFetch';
 import { Notifications } from '../workspace/Notifications';
 import { Cabinet } from './Cabinet';
 
@@ -15,15 +16,40 @@ const INACTIVE = {
   is_active: false,
 };
 
+/** Тарифа нет: карточка в панели показывает состояние «Тариф не выбран». */
+const NO_TARIFF = { tariff: null, ends_at: null, days_left: 0, is_expiring: false, next: null };
+
+/** Пробного периода нет: он не перебивает состояние карточки. */
+const NO_TRIAL = {
+  ends_at: null,
+  days_left: 0,
+  is_active: false,
+  locked: false,
+  member_limit: null,
+};
+
+/**
+ * Оболочка кабинета читает пробный период и подписку организации. Без этих
+ * ответов карточка тарифа в панели (#124) всегда стоит в состоянии ошибки, и
+ * тесты оболочки проверяли бы не то, что задумано.
+ */
+function shellRoutes(url: string): MockResponse | undefined {
+  if (url.endsWith('/api/trial')) return { status: 200, body: NO_TRIAL };
+  if (url.endsWith('/api/tariffs/current')) return { status: 200, body: NO_TARIFF };
+  return undefined;
+}
+
 /**
  * Оболочка кабинета монтируется без `RequireAuth`: неактивного туда штатно
  * не пускают, а плашка — страховка на случай смены состояния сессии.
  */
 function renderCabinet(profile: typeof INACTIVE): ReturnType<typeof render> {
-  mockFetch((url) =>
-    url.includes('/api/me')
-      ? { status: 200, body: profile }
-      : { status: 404, body: { detail: 'Не найдено' } },
+  mockFetch(
+    (url) =>
+      shellRoutes(url) ??
+      (url.includes('/api/me')
+        ? { status: 200, body: profile }
+        : { status: 404, body: { detail: 'Не найдено' } }),
   );
   return render(
     <MemoryRouter initialEntries={['/cabinet']}>
@@ -63,10 +89,12 @@ describe('плашка активации в кабинете', () => {
 
 describe('пункты меню учётной записи', () => {
   function renderCabinetAt(route: string): ReturnType<typeof render> {
-    mockFetch((url) =>
-      url.includes('/api/me')
-        ? { status: 200, body: { ...INACTIVE, is_active: true } }
-        : { status: 404, body: { detail: 'Не найдено' } },
+    mockFetch(
+      (url) =>
+        shellRoutes(url) ??
+        (url.includes('/api/me')
+          ? { status: 200, body: { ...INACTIVE, is_active: true } }
+          : { status: 404, body: { detail: 'Не найдено' } }),
     );
     return render(
       <MemoryRouter initialEntries={[route]}>
@@ -166,6 +194,8 @@ describe('пункт меню «Уведомления»', () => {
 
   function renderWithSolutions(isOwned: boolean): ReturnType<typeof render> {
     mockFetch((url) => {
+      const shell = shellRoutes(url);
+      if (shell) return shell;
       if (url.endsWith('/api/me')) return { status: 200, body: ACTIVE };
       if (url.endsWith('/api/solutions')) {
         return { status: 200, body: { items: [solution(isOwned)] } };
@@ -248,6 +278,137 @@ describe('пункт меню «Уведомления»', () => {
   });
 });
 
+describe('пункт меню «Журнал»', () => {
+  const ACTIVE_OWNER = { ...INACTIVE, is_active: true, role: 'owner' };
+  const ACTIVE_MEMBER = { ...INACTIVE, is_active: true, role: 'member' };
+
+  const LOCKED_TRIAL = {
+    ends_at: '2026-10-01T00:00:00Z',
+    days_left: 0,
+    is_active: false,
+    locked: true,
+    member_limit: 3,
+  };
+
+  /** Строка каталога «Журнал действий»: право на неё и включает пункт меню. */
+  function journalSolution(isOwned: boolean): Record<string, unknown> {
+    return {
+      id: 8,
+      code: 'journal',
+      name: 'Журнал действий',
+      description: 'Кто, когда и что изменил в кабинете',
+      amount: '300.00',
+      currency: 'RUB',
+      period: 'month',
+      price_label: '300 ₽ в месяц',
+      is_owned: isOwned,
+      expires_at: isOwned ? '2026-11-14T10:00:00Z' : null,
+    };
+  }
+
+  function renderNav(options: {
+    owned: boolean;
+    locked?: boolean;
+    profile?: typeof ACTIVE_OWNER;
+  }): ReturnType<typeof render> {
+    mockFetch((url) => {
+      if (url.endsWith('/api/me')) return { status: 200, body: options.profile ?? ACTIVE_OWNER };
+      if (url.endsWith('/api/solutions')) {
+        return { status: 200, body: { items: [journalSolution(options.owned)] } };
+      }
+      if (url.endsWith('/api/trial')) {
+        return options.locked
+          ? { status: 200, body: LOCKED_TRIAL }
+          : {
+              status: 200,
+              body: {
+                ends_at: '2026-11-01T00:00:00Z',
+                days_left: 12,
+                is_active: true,
+                locked: false,
+                member_limit: 3,
+              },
+            };
+      }
+      if (url.endsWith('/api/tariffs/current')) return { status: 200, body: NO_TARIFF };
+      return { status: 404, body: { detail: 'Не найдено' } };
+    });
+    return render(
+      <MemoryRouter initialEntries={['/cabinet']}>
+        <SessionProvider>
+          <Routes>
+            <Route path="/cabinet" element={<Cabinet />}>
+              <Route index element={<p>Обзор кабинета</p>} />
+              <Route path="journal" element={<p>Страница журнала</p>} />
+              <Route path="shop" element={<p>Страница магазина</p>} />
+            </Route>
+          </Routes>
+        </SessionProvider>
+      </MemoryRouter>,
+    );
+  }
+  it('появляется у владельца с правом и ведёт на свой адрес', async () => {
+    const user = userEvent.setup();
+    renderNav({ owned: true });
+
+    const journal = await screen.findByTestId('workspace-nav-journal');
+    expect(journal).toHaveTextContent('Журнал');
+    expect(journal).toHaveAttribute('href', '/cabinet/journal');
+
+    await user.click(journal);
+    expect(await screen.findByText('Страница журнала')).toBeInTheDocument();
+  });
+
+  it('остаётся на прежнем месте — между «Статистикой» и магазином', async () => {
+    renderNav({ owned: true });
+
+    await screen.findByTestId('workspace-nav-journal');
+    const order = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-testid^="workspace-nav-"]'),
+    ).map((node) => node.dataset.testid);
+
+    expect(order.indexOf('workspace-nav-journal')).toBe(
+      order.indexOf('workspace-nav-statistics') + 1,
+    );
+    expect(order.indexOf('workspace-nav-shop')).toBe(order.indexOf('workspace-nav-journal') + 1);
+  });
+
+  it('отсутствует без права', async () => {
+    renderNav({ owned: false, locked: true });
+
+    // Признак того, что каталог уже прочитан, — замок у рабочих разделов:
+    // без него проверка «пункта нет» гонялась бы с загрузкой каталога.
+    await waitFor(() =>
+      expect(screen.getByTestId('workspace-nav-dormitories')).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      ),
+    );
+    expect(screen.queryByTestId('workspace-nav-journal')).not.toBeInTheDocument();
+  });
+
+  it('отсутствует у не-владельца даже при праве организации', async () => {
+    renderNav({ owned: true, profile: ACTIVE_MEMBER });
+
+    await waitFor(() => expect(screen.getByTestId('cabinet-page')).toBeInTheDocument());
+    expect(screen.queryByTestId('workspace-nav-journal')).not.toBeInTheDocument();
+  });
+
+  it('на закрытом пробном кабинете при праве пункт кликабелен и открывает раздел', async () => {
+    const user = userEvent.setup();
+    renderNav({ owned: true, locked: true });
+
+    const journal = await screen.findByTestId('workspace-nav-journal');
+    // Журнал ушёл из `CLOSED_SECTIONS`: право сильнее пробного периода.
+    expect(journal).not.toHaveAttribute('aria-disabled');
+    expect(journal).not.toHaveAttribute('tabindex');
+
+    await user.click(journal);
+    expect(await screen.findByText('Страница журнала')).toBeInTheDocument();
+    expect(screen.queryByText('Обзор кабинета')).not.toBeInTheDocument();
+  });
+});
+
 describe('закрытый кабинет и пробный период', () => {
   const ACTIVE = { ...INACTIVE, is_active: true };
 
@@ -264,6 +425,7 @@ describe('закрытый кабинет и пробный период', () =>
     mockFetch((url) => {
       if (url.endsWith('/api/me')) return { status: 200, body: ACTIVE };
       if (url.endsWith('/api/trial')) return { status: 200, body: LOCKED_TRIAL };
+      if (url.endsWith('/api/tariffs/current')) return { status: 200, body: NO_TARIFF };
       return { status: 404, body: { detail: 'Не найдено' } };
     });
     return render(

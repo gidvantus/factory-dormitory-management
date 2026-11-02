@@ -1,7 +1,9 @@
 """Помесячные хостелы и таблицы мест в общежитии."""
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any
+from uuid import uuid4
 
 from fastapi import (
     APIRouter,
@@ -17,9 +19,11 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
+from app.file_access import public_url, register_upload
 from app.models.hostel import Hostel, HostelCell
 from app.models.import_job import (
     IMPORT_STATUS_APPLIED,
@@ -55,6 +59,7 @@ from app.schemas.places_import import (
 )
 from app.schemas.user import ErrorResponse
 from app.section_state import require_section_writable
+from app.storage import StorageError, storage
 from app.table_data import lock_dormitory
 
 router = APIRouter(
@@ -82,6 +87,13 @@ IMPORT_FILE_TOO_BIG_DETAIL = "Файл больше 20 МБ — уменьшит
 IMPORT_NOT_FOUND_DETAIL = "Импорт не найден"
 IMPORT_NOT_READY_DETAIL = "Этот импорт уже применён или не готов"
 NOT_FIRST_DAY_DETAIL = "Укажите первый день месяца"
+# Файл не сохранён — импорта нет вовсе: задание без файла раздать было бы
+# нечем, а «сделать вид, что сохранили» нельзя.
+STORAGE_UNAVAILABLE_DETAIL = "Хранилище файлов недоступно, файл не сохранён"
+# Назначение загрузки в реестре `uploaded_file` (`app/file_access`).
+PLACES_IMPORT_PURPOSE = "places_import"
+
+log = logging.getLogger(__name__)
 
 NOT_FOUND_RESPONSE: dict[int | str, dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "Общежитие не найдено"},
@@ -287,6 +299,20 @@ def import_issue(issue: ImportIssue) -> PlacesImportIssue:
     return PlacesImportIssue(row=issue.row, column=issue.column, message=issue.message)
 
 
+def _discard_stored_file(key: str) -> None:
+    """Убрать объект, который остался без задания импорта.
+
+    Вызывается, когда коммит не прошёл: файл уже лежит в хранилище, а ссылки на
+    него в базе нет. Удаление best-effort — если и оно не удалось, ошибку
+    хранилища только логируем: настоящая причина отказа — сбой коммита, он и
+    уходит наверх.
+    """
+    try:
+        storage.delete(key)
+    except StorageError as error:
+        log.warning("Импорт «Места»: не удалось убрать файл %s: %s", key, error)
+
+
 def count_deleted_cells(db: Session, dormitory_id: int, parsed: ParsedImport) -> int:
     """Сколько сохранённых значений исчезнет после полной замены месяца.
 
@@ -387,6 +413,10 @@ def download_places_import_template(
             "model": PlacesImportResult,
             "description": "Ошибки разбора или файл не похож на шаблон",
         },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ErrorResponse,
+            "description": STORAGE_UNAVAILABLE_DETAIL,
+        },
     },
 )
 async def upload_places_import(
@@ -400,6 +430,20 @@ async def upload_places_import(
 
     Ответ 422 приходит с полным результатом разбора: по нему экран показывает
     ошибки и номер задания. Ячейки «Размещение персонала» при ошибках не меняются вовсе.
+
+    Исходный файл сохраняется в хранилище (`app/storage`) и остаётся доступным по
+    ссылке `file_url` — в том числе при ошибках разбора: человеку нужно увидеть
+    файл, который он загрузил, чтобы исправить ошибки.
+
+    **Атомарность здесь частичная, и это осознанно.** Хранилище — не база: объект
+    пишется ДО транзакции и в неё не входит. Одним коммитом уходят только
+    задание `import_jobs` и строка реестра `uploaded_file` — они и обязаны
+    появляться вместе. Обратный порядок (сначала коммит, потом файл) дал бы
+    задание со ссылкой на несуществующий объект — то есть неработающую ссылку у
+    человека. Поэтому при выбранном порядке файл пишется первым, а если коммит
+    не прошёл, объект удаляется ниже: иначе каждая повторная попытка оставляла бы
+    в бакете мусор, а уборки в проекте нет. Ошибка хранилища — это `503` и
+    импорта не создаётся.
     """
     require_section_writable(db, dormitory_id, "places")
     filename = file.filename or ""
@@ -413,6 +457,27 @@ async def upload_places_import(
     except TemplateError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(error)) from error
 
+    # Имя объекта — случайное: коллизий имён файлов не бывает, а имя из запроса
+    # (его задаёт клиент) в ключ хранилища не попадает. Подпапку дня добавляет
+    # сам `storage.save_bytes`.
+    #
+    # Запись идёт в threadpool: в режиме S3 это сетевой вызов (`connect_timeout`
+    # 10 с, `read_timeout` 60 с, две попытки), а процесс uvicorn один. Сделанный
+    # прямо в `async def`, он на десятки секунд остановил бы event loop — вместе
+    # с дашбордом, входом и `/api/health` у всех остальных. Синхронный
+    # `get_upload` уходит в threadpool по той же причине.
+    try:
+        file_key = await run_in_threadpool(
+            storage.save_bytes, content, f"{uuid4().hex}.xlsx", XLSX_MEDIA_TYPE
+        )
+    except StorageError as error:
+        # Подробность (адрес бакета, код S3) в ответ не попадает: клиенту она
+        # не нужна, а в лог уходит без ключей доступа.
+        log.warning("Импорт «Места»: файл не сохранён: %s", error)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, STORAGE_UNAVAILABLE_DETAIL
+        ) from error
+
     ready = not parsed.errors
     job = ImportJob(
         dormitory_id=dormitory_id,
@@ -420,14 +485,19 @@ async def upload_places_import(
         status=IMPORT_STATUS_READY if ready else IMPORT_STATUS_FAILED,
         filename=filename[:255],
         size_bytes=len(content),
+        file_key=file_key,
         created_by=user.id,
         result={},
     )
     db.add(job)
     db.flush()
+    # Реестр загрузок — часть той же транзакции (`commit=False`): строка учёта
+    # не должна появиться без задания и наоборот.
+    register_upload(db, file_key, user, purpose=PLACES_IMPORT_PURPOSE, commit=False)
     result = PlacesImportResult(
         import_id=job.id,
         status="ready" if ready else "failed",
+        file_url=public_url(file_key),
         months=[parsed.month],
         counts=PlacesImportCounts(
             hostels=len(parsed.hostels),
@@ -442,7 +512,18 @@ async def upload_places_import(
         warnings=[import_issue(issue) for issue in parsed.warnings],
     )
     job.result = result.model_dump(mode="json")
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        # Коммит не прошёл — задания и строки реестра нет, а объект в хранилище
+        # уже лежит. Без удаления он остался бы мусором, которого никто не
+        # уберёт: уборки в проекте нет, а ключ нигде не сохранён. Удаление —
+        # тоже в threadpool: в режиме S3 это такой же сетевой вызов, как запись,
+        # и делать его на event loop нельзя тем более, что происходит это в
+        # момент, когда система уже сбоит.
+        db.rollback()
+        await run_in_threadpool(_discard_stored_file, file_key)
+        raise
     return JSONResponse(
         content=result.model_dump(mode="json"),
         status_code=status.HTTP_200_OK if ready else status.HTTP_422_UNPROCESSABLE_ENTITY,

@@ -8,3 +8,13 @@
 
 /** Уведомления в Telegram: пункт меню и страница `/cabinet/notifications`. */
 export const TELEGRAM_NOTIFICATIONS_CODE = 'telegram_notifications';
+
+/**
+ * Журнал действий: пункт меню и страница `/cabinet/journal`.
+ *
+ * Журнал — обычное платное решение каталога (300 ₽ в месяц, seed
+ * `0049_solution_journal`), а не бесплатный раздел владельца: право организации
+ * открывает и пункт меню, и сам экран. Код решения тот же, что держит бэкенд
+ * (`app.solutions.JOURNAL`) и seed-строка каталога.
+ */
+export const JOURNAL_CODE = 'journal';

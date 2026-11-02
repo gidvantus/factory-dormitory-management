@@ -163,6 +163,13 @@ class Invoice(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Ключ печатной формы счёта в файловом хранилище (`app/storage.py`), без
+    # префикса `uploads/` — например `2026-10-29/invoices/invoice-7.pdf`.
+    # `NULL` означает «файла ещё нет»: форма собирается лениво, при первом
+    # скачивании (`app/invoice_files.py`), поэтому у исторических счетов колонка
+    # пуста до первого обращения. На раздачу это не влияет: имя файла строится
+    # из `number`, а не из ключа.
+    invoice_file_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class InvoiceDocument(Base):
@@ -185,3 +192,9 @@ class InvoiceDocument(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Ключ печатной формы акта в файловом хранилище, без префикса `uploads/`.
+    # `NULL` — «файла ещё нет»: акт появляется при оплате, а его PDF собирается
+    # при первом скачивании (`app/invoice_files.py`). Колонка на строке акта, а не
+    # на счёте, потому что видов печатных форм со временем может стать больше
+    # (`UNIQUE (invoice_id, kind)`).
+    file_key: Mapped[str | None] = mapped_column(String(500), nullable=True)

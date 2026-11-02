@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import notification_rules
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser, own_dormitory
 from app.api.organization import Membership
 from app.api.table_columns import prepare_options
@@ -398,6 +399,15 @@ def create_row(
     db.add(row)
     db.commit()
     db.refresh(row)
+    # Строка уже сохранена: правила уведомлений ставятся после коммита, поэтому
+    # их падение не откатывает добавление и не превращает 201 в 500.
+    notification_rules.notify_row_written(
+        db,
+        dormitory_id=dormitory_id,
+        table_key=tab.table_key,
+        row_id=row.id,
+        actor_id=_user.id,
+    )
     return row
 
 
