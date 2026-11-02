@@ -59,7 +59,7 @@ export function CustomDayCell({
       {error && (
         <small role="alert">
           {error}{' '}
-          <button type="button" onClick={() => void save()}>
+          <button className="link-button" type="button" onClick={() => void save()}>
             Повторить
           </button>
         </small>

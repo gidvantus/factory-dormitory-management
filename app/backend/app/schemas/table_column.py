@@ -29,6 +29,8 @@ class ColumnRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     kind: ColumnKind
     options: list[ColumnOption] = Field(default_factory=list, max_length=200)
+    client_id: int | None = Field(default=None, le=-1, ge=-2147483647)
+    fill: "CellFill | None" = None
 
     @field_validator("name")
     @classmethod
@@ -49,6 +51,31 @@ class ColumnResponse(BaseModel):
     position: int
     options: list[dict[str, Any]]
     archived: bool
+    fill: "CellFill | None" = None
+
+
+class CellFill(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["pick", "lookup"]
+    source: TableKey | Literal["personnel"]
+    field: str = Field(min_length=1, max_length=64)
+    match_column_id: int | None = Field(default=None, ge=-2147483647, le=2147483647)
+    update: Literal["live", "copy"] = "live"
+
+    @field_validator("field")
+    @classmethod
+    def canonical_field(cls, value: str) -> str:
+        if value.lstrip("-").isdecimal():
+            number = int(value)
+            if number == 0 or abs(number) > 2147483647:
+                raise ValueError("Некорректный идентификатор столбца")
+            return str(number)
+        return value
+
+
+class CellSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    record_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class CellRequest(BaseModel):

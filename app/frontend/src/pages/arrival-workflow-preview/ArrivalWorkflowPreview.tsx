@@ -17,22 +17,19 @@ import {
   initialWorkflow,
   markVisit,
   moveVisit,
-  settleVisit,
   TODAY,
-  undoMove,
   validDate,
   workflowSettings,
 } from './model';
-import type { PlannedArrival, PlannedPerson, VisitRef } from './model';
+import type { PlannedArrival, PlannedPerson } from './model';
 import { FilledFields, PersonRow } from './PersonRow';
 import type { OnPersonAction } from './PersonRow';
-import { MoveDialog, ResidenceDialog, SettlementDialog } from './WorkflowDialogs';
+import { MoveDialog } from './WorkflowDialogs';
 import s from './ArrivalWorkflowPreview.module.css';
 
 type Dialog =
-  | { kind: 'move' | 'settle'; arrivalId: string; personId: string }
+  | { kind: 'move'; arrivalId: string; personId: string }
   | { kind: 'details'; arrivalId: string }
-  | { kind: 'resident'; residentId: string }
   | { kind: 'settings'; tab: 'fields' | 'display' };
 const navigation: { icon: WorkspaceIconName; label: string }[] = [
   { icon: 'overview', label: 'Обзор' },
@@ -49,12 +46,10 @@ export function ArrivalWorkflowPreview(): JSX.Element {
   const [dorm, setDorm] = useState('Северное');
   const [start, setStart] = useState(TODAY);
   const [selectedDate, setSelectedDate] = useState(TODAY);
-  const [tab, setTab] = useState<'plan' | 'residents'>('plan');
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [highlight, setHighlight] = useState('');
-  const [residentSearch, setResidentSearch] = useState('');
   const days = Array.from({ length: 7 }, (_, index) => addDays(start, index));
   const activeDay = days.includes(selectedDate) ? selectedDate : start;
   const matching = state.arrivals.filter((arrival) => dorm === 'all' || arrival.dorm === dorm);
@@ -74,14 +69,6 @@ export function ArrivalWorkflowPreview(): JSX.Element {
   });
   const personalFields = visibleFields.filter((field) => field.scope === 'person');
   const commonFields = visibleFields.filter((field) => field.scope === 'arrival');
-  const residentList = state.residents.filter(
-    (resident) => dorm === 'all' || resident.dorm === dorm,
-  );
-  const searchedResidents = residentList.filter((resident) =>
-    `${resident.name} ${resident.number} ${resident.phone} ${resident.hostel}`
-      .toLocaleLowerCase('ru')
-      .includes(residentSearch.trim().toLocaleLowerCase('ru')),
-  );
   const currentArrival =
     dialog && 'arrivalId' in dialog
       ? state.arrivals.find((arrival) => arrival.id === dialog.arrivalId)
@@ -90,14 +77,10 @@ export function ArrivalWorkflowPreview(): JSX.Element {
     currentArrival && dialog && 'personId' in dialog
       ? currentArrival.people.find((person) => person.id === dialog.personId)
       : undefined;
-  const currentResident =
-    dialog?.kind === 'resident'
-      ? state.residents.find((resident) => resident.id === dialog.residentId)
-      : undefined;
 
   useEffect(() => {
     const old = document.title;
-    document.title = 'Заезд → проживание — тестовая страница — Домовой';
+    document.title = 'Отметки заезда — тестовая страница — Домовой';
     return () => {
       document.title = old;
     };
@@ -121,14 +104,6 @@ export function ArrivalWorkflowPreview(): JSX.Element {
     setNotice(message);
     setError('');
   }
-  function locate(ref: VisitRef, location: string): void {
-    setDorm(location);
-    setSelectedDate(ref.date);
-    if (!days.includes(ref.date)) setStart(ref.date);
-    setTab('plan');
-    setHighlight(ref.personId);
-    setDialog(null);
-  }
   const onAction: OnPersonAction = (action, arrival, person) => {
     setError('');
     try {
@@ -136,27 +111,8 @@ export function ArrivalWorkflowPreview(): JSX.Element {
         setDialog({ kind: 'details', arrivalId: arrival.id });
         return;
       }
-      if (action === 'move' || action === 'settle') {
+      if (action === 'move') {
         setDialog({ kind: action, arrivalId: arrival.id, personId: person.id });
-        return;
-      }
-      if (action === 'resident' && person.residentId) {
-        setDialog({ kind: 'resident', residentId: person.residentId });
-        return;
-      }
-      if (action === 'open_move' && person.to) {
-        locate(person.to, arrival.dorm);
-        tell(`${person.name} ожидается ${dateLabel(person.to.date, true)}.`);
-        return;
-      }
-      if (action === 'origin' && person.from) {
-        locate(person.from, arrival.dorm);
-        tell('Исходная запись сохранена вместе с отметкой о переносе.');
-        return;
-      }
-      if (action === 'undo_move') {
-        setState(undoMove(state, arrival.id, person.id));
-        tell(`${person.name}: перенос отменён, запись возвращена на ${dateLabel(arrival.date)}.`);
         return;
       }
       if (action === 'arrive' || action === 'no_show' || action === 'restore') {
@@ -165,7 +121,7 @@ export function ArrivalWorkflowPreview(): JSX.Element {
         setState(markVisit(state, arrival.id, person.id, status));
         tell(
           action === 'arrive'
-            ? `${person.name}: прибытие отмечено. Теперь можно оформить проживание.`
+            ? `${person.name}: прибытие отмечено.`
             : action === 'no_show'
               ? `${person.name}: не приехал. Можно вернуть в ожидаемые или перенести на другой день.`
               : `${person.name} снова ожидается.`,
@@ -191,10 +147,8 @@ export function ArrivalWorkflowPreview(): JSX.Element {
     setDorm('Северное');
     setStart(TODAY);
     setSelectedDate(TODAY);
-    setTab('plan');
     setDialog(null);
     setHighlight('');
-    setResidentSearch('');
     tell('Пример сброшен. Все люди снова ожидаются.');
   }
   function cardClick(event: MouseEvent<HTMLElement>, arrival: PlannedArrival): void {
@@ -222,8 +176,8 @@ export function ArrivalWorkflowPreview(): JSX.Element {
         <span>
           <strong>Тестовая страница · этап 2</strong>
           <span className={base.demoDetail}>
-            План заезда → прибытие → проживание. Данные учебные, изменения действуют до обновления
-            страницы.
+            Прибытие, неявка или перенос на другую дату. Данные учебные, изменения действуют до
+            обновления страницы.
           </span>
         </span>
         <button type="button" className="btn btn--ghost btn--compact" onClick={reset}>
@@ -273,45 +227,19 @@ export function ArrivalWorkflowPreview(): JSX.Element {
               </select>
             </label>
           </div>
-          <nav className={s.tabBar} aria-label="Разделы тестового примера">
-            <button
-              type="button"
-              className={`btn btn--compact ${tab === 'plan' ? 'btn--primary' : 'btn--ghost'}`}
-              aria-pressed={tab === 'plan'}
-              onClick={() => setTab('plan')}
-            >
-              План заездов
-            </button>
-            <span className={s.tabConnector}>→</span>
-            <button
-              type="button"
-              className={`btn btn--compact ${tab === 'residents' ? 'btn--primary' : 'btn--ghost'}`}
-              aria-pressed={tab === 'residents'}
-              onClick={() => setTab('residents')}
-            >
-              Проживающие <span className={s.tabCount}>{residentList.length}</span>
-            </button>
-            <span className={s.subtle}>Связанный процесс заселения</span>
-          </nav>
           <div className={base.sectionHeading}>
             <div>
-              <h2>{tab === 'plan' ? 'План заездов' : 'Проживающие'}</h2>
-              <p className={base.muted}>
-                {tab === 'plan'
-                  ? 'Отмечайте прибытие каждого человека и оформляйте проживание.'
-                  : 'Здесь появляются люди, оформленные из плана заездов.'}
-              </p>
+              <h2>План заездов</h2>
+              <p className={base.muted}>Отмечайте прибытие, неявку или перенос каждого человека.</p>
             </div>
-            {tab === 'plan' && (
-              <button
-                type="button"
-                className="btn btn--ghost btn--compact"
-                onClick={() => setDialog({ kind: 'settings', tab: 'fields' })}
-              >
-                <Icon name="settings" />
-                Поля заезда
-              </button>
-            )}
+            <button
+              type="button"
+              className="btn btn--ghost btn--compact"
+              onClick={() => setDialog({ kind: 'settings', tab: 'fields' })}
+            >
+              <Icon name="settings" />
+              Поля заезда
+            </button>
           </div>
           {notice && (
             <p className={base.notice} role="status" aria-live="polite">
@@ -323,319 +251,220 @@ export function ArrivalWorkflowPreview(): JSX.Element {
               {error}
             </p>
           )}
-          {tab === 'plan' ? (
-            <>
-              <div className={base.periodBar}>
-                <div className={base.actions}>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--compact"
-                    aria-label="Предыдущие 7 дней"
-                    onClick={() => setStart(addDays(start, -7))}
-                  >
-                    ←
-                  </button>
-                  <label className={base.dateFilter}>
-                    С даты
-                    <input
-                      type="date"
-                      aria-label="Начало периода"
-                      value={start}
-                      onChange={(event) => {
-                        if (validDate(event.target.value)) setStart(event.target.value);
-                      }}
-                    />
-                  </label>
-                  <span>по {dateLabel(days[6], true)}</span>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--compact"
-                    aria-label="Следующие 7 дней"
-                    onClick={() => setStart(addDays(start, 7))}
-                  >
-                    →
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--compact"
-                    onClick={() => {
-                      setStart(TODAY);
-                      setSelectedDate(TODAY);
-                    }}
-                  >
-                    Сегодня
-                  </button>
-                </div>
-                <span>
-                  Ожидаются за период <strong>{periodCounts.expected} чел.</strong>
-                </span>
-              </div>
-              <div className={s.board}>
-                <section className={`${base.days} ${s.calendar}`} aria-label="Даты заездов">
-                  {days.map((day) => {
-                    const items = periodPlans.filter((arrival) => arrival.date === day);
-                    const totals = counts(items);
-                    return (
-                      <button
-                        type="button"
-                        key={day}
-                        className={`btn btn--ghost btn--compact ${base.dayChoice}`}
-                        aria-pressed={day === activeDay}
-                        aria-label={`${dateLabel(day, true)}: ожидаются ${totals.expected}`}
-                        onClick={() => {
-                          setSelectedDate(day);
-                          setHighlight('');
-                        }}
-                      >
-                        <span className={base.dateTile}>
-                          <b>{Number(day.slice(-2))}</b>
-                          <small>
-                            {new Intl.DateTimeFormat('ru-RU', {
-                              month: 'short',
-                              timeZone: 'UTC',
-                            }).format(new Date(`${day}T00:00:00Z`))}
-                          </small>
-                        </span>
-                        <span className={base.dayText}>
-                          <strong>
-                            {new Intl.DateTimeFormat('ru-RU', {
-                              weekday: 'long',
-                              timeZone: 'UTC',
-                            }).format(new Date(`${day}T00:00:00Z`))}
-                            {day === TODAY && <small className={base.today}>Сегодня</small>}
-                          </strong>
-                          <small>
-                            {items.length
-                              ? `${items.map((item) => item.dorm).join(' · ')}${totals.arrived + totals.settled ? ` · прибыли ${totals.arrived + totals.settled}` : ''}`
-                              : 'Заезды не запланированы'}
-                          </small>
-                        </span>
-                        <span className={s.dayExpected}>
-                          <b>{totals.expected || '—'}</b>
-                          <small>ожидаются</small>
-                        </span>
-                      </button>
-                    );
-                  })}
-                  <p className={base.footnote}>
-                    В счётчике — только ожидаемые приезды. Перенесённый человек учитывается в новой
-                    дате.
-                  </p>
-                  <div className={s.guide}>
-                    <strong>Как попробовать</strong>
-                    <ol>
-                      <li>Отметьте «Прибыл» у любого человека.</li>
-                      <li>Нажмите «В проживающие» и выберите корпус.</li>
-                      <li>Другого человека перенесите на 29 октября — там уже есть заезд.</li>
-                    </ol>
-                  </div>
-                </section>
-                <aside className={base.dayPanel} aria-label="Заезды на выбранную дату">
-                  <div className={base.panelHeading}>
-                    <div>
-                      <span className={base.muted}>Выбранный день</span>
-                      <h3>{dateLabel(activeDay, true)}</h3>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--compact"
-                      onClick={() => setDialog({ kind: 'settings', tab: 'display' })}
-                    >
-                      <Icon name="settings" />
-                      Настроить вид
-                    </button>
-                  </div>
-                  {settings.display.summary && (
-                    <dl className={s.metrics}>
-                      <div>
-                        <dt>В плане</dt>
-                        <dd>
-                          {dayPlans.reduce((total, arrival) => total + arrival.people.length, 0)}
-                        </dd>
-                      </div>
-                      <div data-tone="expected">
-                        <dt>Ожидаются</dt>
-                        <dd>{dayCounts.expected}</dd>
-                      </div>
-                      <div data-tone="arrived">
-                        <dt>Прибыли</dt>
-                        <dd>{dayCounts.arrived + dayCounts.settled}</dd>
-                      </div>
-                      <div data-tone="settled">
-                        <dt>В проживающих</dt>
-                        <dd>{dayCounts.settled}</dd>
-                      </div>
-                    </dl>
-                  )}
-                  {dayPlans.length === 0 && (
-                    <div className={base.emptyArrival}>
-                      На этот день заездов нет. Перенесите сюда человека из другой даты.
-                    </div>
-                  )}
-                  {dayPlans.map((arrival) => (
-                    <article
-                      key={arrival.id}
-                      className={s.arrivalCard}
-                      data-compact={settings.display.compact}
-                      onClick={(event) => cardClick(event, arrival)}
-                    >
-                      <div className={s.cardHeading}>
-                        <h4>{arrival.dorm}</h4>
-                        <button
-                          type="button"
-                          className="link-button"
-                          onClick={() => setDialog({ kind: 'details', arrivalId: arrival.id })}
-                        >
-                          Полная информация ↗
-                        </button>
-                      </div>
-                      <FilledFields
-                        fields={commonFields}
-                        values={arrival.values}
-                        hideEmpty={settings.display.hideEmpty}
-                      />
-                      {settings.display.visible.includes('names') ? (
-                        <>
-                          <ul className={s.people} aria-label={`Люди: ${arrival.dorm}`}>
-                            {arrival.people
-                              .slice(0, settings.display.namesLimit)
-                              .map((person) => row(arrival, person))}
-                          </ul>
-                          {arrival.people.length > settings.display.namesLimit && (
-                            <button
-                              type="button"
-                              className={`btn btn--ghost btn--compact ${s.showAll}`}
-                              onClick={() => setDialog({ kind: 'details', arrivalId: arrival.id })}
-                            >
-                              Все люди и отметки · {arrival.people.length}
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        <p className={s.subtle}>
-                          ФИО скрыты в настройках. Откройте полную информацию, чтобы поставить
-                          отметки.
-                        </p>
-                      )}
-                    </article>
-                  ))}
-                  {(dayCounts.no_show > 0 || dayCounts.moved > 0) && (
-                    <p className={s.dayFootnote}>
-                      Не приехали: {dayCounts.no_show} · Перенесены на другую дату:{' '}
-                      {dayCounts.moved}
-                    </p>
-                  )}
-                </aside>
-              </div>
-            </>
-          ) : (
-            <section className={s.residentsPanel} aria-label="Список проживающих">
-              <div className={s.residentHeading}>
-                <div>
-                  <strong>{residentList.length} чел. проживают</strong>
-                  <p className={s.subtle}>
-                    Запись связана с исходным заездом и карточкой сотрудника.
-                  </p>
-                </div>
-                <label className={s.input}>
-                  Поиск
+          <>
+            <div className={base.periodBar}>
+              <div className={base.actions}>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--compact"
+                  aria-label="Предыдущие 7 дней"
+                  onClick={() => setStart(addDays(start, -7))}
+                >
+                  ←
+                </button>
+                <label className={base.dateFilter}>
+                  С даты
                   <input
-                    type="search"
-                    placeholder="ФИО, табельный номер, корпус"
-                    value={residentSearch}
-                    onChange={(event) => setResidentSearch(event.target.value)}
+                    type="date"
+                    aria-label="Начало периода"
+                    value={start}
+                    onChange={(event) => {
+                      if (validDate(event.target.value)) setStart(event.target.value);
+                    }}
                   />
                 </label>
+                <span>по {dateLabel(days[6], true)}</span>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--compact"
+                  aria-label="Следующие 7 дней"
+                  onClick={() => setStart(addDays(start, 7))}
+                >
+                  →
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--compact"
+                  onClick={() => {
+                    setStart(TODAY);
+                    setSelectedDate(TODAY);
+                  }}
+                >
+                  Сегодня
+                </button>
               </div>
-              <div className={s.tableScroll}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Сотрудник</th>
-                      <th>Проживание</th>
-                      <th>Заселение</th>
-                      <th>Вахта / смены</th>
-                      <th>Источник</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {searchedResidents.map((resident) => (
-                      <tr key={resident.id} data-testid={`resident-${resident.personKey}`}>
-                        <td>
+              <span>
+                Ожидаются за период <strong>{periodCounts.expected} чел.</strong>
+              </span>
+            </div>
+            <div className={s.board}>
+              <section className={`${base.days} ${s.calendar}`} aria-label="Даты заездов">
+                {days.map((day) => {
+                  const items = periodPlans.filter((arrival) => arrival.date === day);
+                  const totals = counts(items);
+                  return (
+                    <button
+                      type="button"
+                      key={day}
+                      className={`btn btn--ghost btn--compact ${base.dayChoice}`}
+                      aria-pressed={day === activeDay}
+                      aria-label={`${dateLabel(day, true)}: ожидаются ${totals.expected}`}
+                      onClick={() => {
+                        setSelectedDate(day);
+                        setHighlight('');
+                      }}
+                    >
+                      <span className={base.dateTile}>
+                        <b>{Number(day.slice(-2))}</b>
+                        <small>
+                          {new Intl.DateTimeFormat('ru-RU', {
+                            month: 'short',
+                            timeZone: 'UTC',
+                          }).format(new Date(`${day}T00:00:00Z`))}
+                        </small>
+                      </span>
+                      <span className={base.dayText}>
+                        <strong>
+                          {new Intl.DateTimeFormat('ru-RU', {
+                            weekday: 'long',
+                            timeZone: 'UTC',
+                          }).format(new Date(`${day}T00:00:00Z`))}
+                          {day === TODAY && <small className={base.today}>Сегодня</small>}
+                        </strong>
+                        <small>
+                          {items.length
+                            ? `${items.map((item) => item.dorm).join(' · ')}${totals.arrived ? ` · прибыли ${totals.arrived}` : ''}`
+                            : 'Заезды не запланированы'}
+                        </small>
+                      </span>
+                      <span className={s.dayExpected}>
+                        <b>{totals.expected || '—'}</b>
+                        <small>ожидаются</small>
+                      </span>
+                    </button>
+                  );
+                })}
+                <p className={base.footnote}>
+                  В счётчике — только ожидаемые приезды. Перенесённый человек учитывается в новой
+                  дате.
+                </p>
+                <div className={s.guide}>
+                  <strong>Как попробовать</strong>
+                  <ol>
+                    <li>Отметьте «Прибыл» у любого человека.</li>
+                    <li>Нажмите «Изменить статус», чтобы снова выбрать один из трёх вариантов.</li>
+                    <li>Другого человека перенесите на 29 октября — там уже есть заезд.</li>
+                  </ol>
+                </div>
+              </section>
+              <aside className={base.dayPanel} aria-label="Заезды на выбранную дату">
+                <div className={base.panelHeading}>
+                  <div>
+                    <span className={base.muted}>Выбранный день</span>
+                    <h3>{dateLabel(activeDay, true)}</h3>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--compact"
+                    onClick={() => setDialog({ kind: 'settings', tab: 'display' })}
+                  >
+                    <Icon name="settings" />
+                    Настроить вид
+                  </button>
+                </div>
+                {settings.display.summary && (
+                  <dl className={s.metrics}>
+                    <div>
+                      <dt>В плане</dt>
+                      <dd>
+                        {dayPlans.reduce((total, arrival) => total + arrival.people.length, 0)}
+                      </dd>
+                    </div>
+                    <div data-tone="expected">
+                      <dt>Ожидаются</dt>
+                      <dd>{dayCounts.expected}</dd>
+                    </div>
+                    <div data-tone="arrived">
+                      <dt>Прибыли</dt>
+                      <dd>{dayCounts.arrived}</dd>
+                    </div>
+                    <div>
+                      <dt>Не приехали</dt>
+                      <dd>{dayCounts.no_show}</dd>
+                    </div>
+                  </dl>
+                )}
+                {dayPlans.length === 0 && (
+                  <div className={base.emptyArrival}>
+                    На этот день заездов нет. Перенесите сюда человека из другой даты.
+                  </div>
+                )}
+                {dayPlans.map((arrival) => (
+                  <article
+                    key={arrival.id}
+                    className={s.arrivalCard}
+                    data-compact={settings.display.compact}
+                    onClick={(event) => cardClick(event, arrival)}
+                  >
+                    <div className={s.cardHeading}>
+                      <h4>{arrival.dorm}</h4>
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() => setDialog({ kind: 'details', arrivalId: arrival.id })}
+                      >
+                        Полная информация ↗
+                      </button>
+                    </div>
+                    <FilledFields
+                      fields={commonFields}
+                      values={arrival.values}
+                      hideEmpty={settings.display.hideEmpty}
+                    />
+                    {settings.display.visible.includes('names') ? (
+                      <>
+                        <ul className={s.people} aria-label={`Люди: ${arrival.dorm}`}>
+                          {arrival.people
+                            .slice(0, settings.display.namesLimit)
+                            .map((person) => row(arrival, person))}
+                        </ul>
+                        {arrival.people.length > settings.display.namesLimit && (
                           <button
                             type="button"
-                            className="link-button"
-                            onClick={() => setDialog({ kind: 'resident', residentId: resident.id })}
+                            className={`btn btn--ghost btn--compact ${s.showAll}`}
+                            onClick={() => setDialog({ kind: 'details', arrivalId: arrival.id })}
                           >
-                            {resident.name}
+                            Все люди и отметки · {arrival.people.length}
                           </button>
-                          <small>Т/н {resident.number || 'не указан'}</small>
-                        </td>
-                        <td>
-                          {resident.dorm}
-                          <small>{resident.hostel}</small>
-                        </td>
-                        <td>{dateLabel(resident.settlementDate, true)}</td>
-                        <td>
-                          {dateLabel(resident.start)}
-                          {resident.end ? ` — ${dateLabel(resident.end)}` : ' — открыта'}
-                          <small>{resident.shifts || '—'} смен</small>
-                        </td>
-                        <td>
-                          {resident.source ? (
-                            <button
-                              type="button"
-                              className="link-button"
-                              onClick={() => {
-                                locate(resident.source!, resident.dorm);
-                                tell('Открыт заезд, из которого оформлено проживание.');
-                              }}
-                            >
-                              Из плана · {dateLabel(resident.source.date)}
-                            </button>
-                          ) : (
-                            <span className={s.subtle}>Заселён ранее</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {searchedResidents.length === 0 && (
-                <p className={s.empty}>По выбранным условиям проживающих нет.</p>
-              )}
-            </section>
-          )}
+                        )}
+                      </>
+                    ) : (
+                      <p className={s.subtle}>
+                        ФИО скрыты в настройках. Откройте полную информацию, чтобы поставить
+                        отметки.
+                      </p>
+                    )}
+                  </article>
+                ))}
+                {dayCounts.no_show > 0 && (
+                  <p className={s.dayFootnote}>Не приехали: {dayCounts.no_show}</p>
+                )}
+              </aside>
+            </div>
+          </>
         </main>
       </div>
       {dialog?.kind === 'move' && currentArrival && currentPerson && (
         <MoveDialog
           arrival={currentArrival}
           person={currentPerson}
-          state={state}
           onClose={() => setDialog(null)}
           onSave={(date) => {
-            setState(moveVisit(state, currentArrival.id, currentPerson.id, date));
+            const next = moveVisit(state, currentArrival.id, currentPerson.id, date);
+            setState(next);
             setDialog(null);
-            tell(
-              `${currentPerson.name}: заезд перенесён на ${dateLabel(date, true)}. Откройте новую дату в записи человека.`,
-            );
-          }}
-        />
-      )}
-      {dialog?.kind === 'settle' && currentArrival && currentPerson && (
-        <SettlementDialog
-          arrival={currentArrival}
-          person={currentPerson}
-          fields={allFields}
-          onClose={() => setDialog(null)}
-          onSave={(input) => {
-            setState(settleVisit(state, currentArrival.id, currentPerson.id, input, allFields));
-            setDialog(null);
-            tell(
-              `${currentPerson.name} оформлен в проживающие · ${input.hostel}. Запись доступна во вкладке «Проживающие».`,
-            );
+            setHighlight('');
+            setNotice('');
           }}
         />
       )}
@@ -664,15 +493,6 @@ export function ArrivalWorkflowPreview(): JSX.Element {
             </ModalCancelButton>
           </div>
         </Modal>
-      )}
-      {dialog?.kind === 'resident' && currentResident && (
-        <ResidenceDialog
-          resident={currentResident}
-          onClose={() => setDialog(null)}
-          onSource={() => {
-            if (currentResident.source) locate(currentResident.source, currentResident.dorm);
-          }}
-        />
       )}
       {dialog?.kind === 'settings' && (
         <SettingsDialog

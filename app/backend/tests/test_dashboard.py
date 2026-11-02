@@ -1,4 +1,4 @@
-"""Дашборд считает обязательные итоговые строки всех общежитий."""
+"""Дашборд считает обязательные итоговые строки действующих общежитий."""
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -102,7 +102,7 @@ def test_dashboard_aggregates_dormitories_clients_and_daily_formulas(
     }
 
 
-def test_archived_dormitories_stay_in_all_dashboard_calculations(
+def test_archived_dormitories_leave_dashboard_and_return_after_restore(
     client: TestClient, db_session: Session
 ) -> None:
     sign_in(client, db_session, email=DASHBOARD_EMAIL)
@@ -112,17 +112,25 @@ def test_archived_dormitories_stay_in_all_dashboard_calculations(
         "Клиент А",
         {"Выход Итого": "4", "Проживает Итого": "10", "Текучка Итого": "1"},
     )
-    dormitory(client, "Южное", "Клиент А", {"Выход Итого": "6", "Проживает Итого": "20"})
+    second = dormitory(client, "Южное", "Клиент А", {"Выход Итого": "6", "Проживает Итого": "20"})
     url = "/api/dashboard?from=2025-09-01&to=2025-09-02"
     before = client.get(url).json()
     assert client.patch(f"/api/dormitories/{first}", json={"is_archived": True}).status_code == 200
     archived = client.get(url).json()
-    for key in ("totals", "clients", "daily"):
-        assert archived[key] == before[key]
-    archived_row = next(row for row in archived["dormitories"] if row["id"] == str(first))
-    assert archived_row["is_archived"] is True
-    assert archived_row["residents"] == 10
-    assert client.get(f"{url}&dormitory_id={first}").json()["daily"][1]["attendance"] == 4
+    assert [row["id"] for row in archived["dormitories"]] == [str(second)]
+    assert archived["totals"] == {"attendance": 6, "residents": 20}
+    assert archived["clients"] == [{"name": "Клиент А", "attendance": 6}]
+    assert archived["daily"] == [
+        {"date": "2025-09-01", "attendance": 0, "residents": 0, "turnover": 0},
+        {"date": "2025-09-02", "attendance": 6, "residents": 20, "turnover": 0},
+    ]
+    assert client.get(f"{url}&dormitory_id={first}").status_code == 404
+    # Архив остаётся в реестре, его таблицы и прежние значения доступны.
+    assert first in [item["id"] for item in client.get("/api/dormitories").json()]
+    report = client.get(f"/api/dormitories/{first}/report?from=2025-09-01&to=2025-09-02")
+    assert report.status_code == 200
+    resident_row = next(row for row in report.json()["rows"] if row["name"] == "Проживает Итого")
+    assert resident_row["values"]["2025-09-02"] == "10"
     assert (
         client.patch(
             f"/api/dormitories/{first}", json={"name": "Новое", "client_name": "Клиент Б"}
@@ -130,14 +138,31 @@ def test_archived_dormitories_stay_in_all_dashboard_calculations(
         == 200
     )
     renamed = client.get(url).json()
-    assert renamed["totals"] == before["totals"]
-    assert {row["name"]: row["attendance"] for row in renamed["clients"]} == {
+    for key in ("totals", "clients", "daily", "dormitories"):
+        assert renamed[key] == archived[key]
+    assert client.patch(f"/api/dormitories/{first}", json={"is_archived": False}).status_code == 200
+    restored = client.get(url).json()
+    assert restored["totals"] == before["totals"]
+    assert restored["daily"] == before["daily"]
+    assert {row["name"]: row["attendance"] for row in restored["clients"]} == {
         "Клиент А": 6,
         "Клиент Б": 4,
     }
-    assert next(row for row in renamed["dormitories"] if row["id"] == str(first))["name"] == "Новое"
-    assert client.patch(f"/api/dormitories/{first}", json={"is_archived": False}).status_code == 200
-    assert client.get(url).json()["totals"] == before["totals"]
+    assert (
+        next(row for row in restored["dormitories"] if row["id"] == str(first))["name"] == "Новое"
+    )
+    for dorm_id in (first, second):
+        assert (
+            client.patch(f"/api/dormitories/{dorm_id}", json={"is_archived": True}).status_code
+            == 200
+        )
+    empty = client.get(url).json()
+    assert empty["dormitories"] == []
+    assert empty["clients"] == []
+    assert empty["totals"] == {"attendance": None, "residents": None}
+    assert all(
+        day["attendance"] is day["residents"] is day["turnover"] is None for day in empty["daily"]
+    )
 
 
 def test_dashboard_rejects_invalid_period_and_future_dates_have_no_data(

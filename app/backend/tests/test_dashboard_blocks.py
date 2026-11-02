@@ -323,6 +323,64 @@ def test_chart_tables_daily_cumulative_filters_and_date_local_errors(
     )
 
 
+@pytest.mark.parametrize(
+    ("display", "chart_mode"),
+    [("number", "total"), ("list", "total"), ("chart", "total"), ("chart", "dormitories")],
+)
+def test_archived_sources_leave_widgets_and_catalog_without_losing_settings(
+    client: TestClient, db_session: Session, display: str, chart_mode: str
+) -> None:
+    sign_in(client, db_session)
+    sources = []
+    for name, cells in [("Северное", [(1, "3"), (2, "0")]), ("Южное", [(1, "7")])]:
+        dorm = Dormitory(name=name, client_name="Клиент")
+        db_session.add(dorm)
+        db_session.flush()
+        row = ReportRow(dormitory_id=dorm.id, name="Показатель", position=1)
+        db_session.add(row)
+        db_session.flush()
+        sources.append({"kind": "report", "dormitory_id": dorm.id, "row_id": row.id})
+        for day, value in cells:
+            db_session.add(ReportCell(row_id=row.id, report_date=date(2026, 10, day), value=value))
+    db_session.commit()
+    payload = config(sources, display=display, chart_mode=chart_mode, all_dormitories=True)
+    saved = client.post("/api/dashboard/blocks", json={"revision": 0, "config": payload})
+    assert saved.status_code == 201, saved.text
+    layout = saved.json()
+    # Пропуск в действующем источнике делает общий итог неполным.
+    assert preview(client, payload)["errors"]
+    north, south = [source["dormitory_id"] for source in sources]
+    assert client.patch(f"/api/dormitories/{south}", json={"is_archived": True}).status_code == 200
+    result = preview(client, payload)
+    assert result["errors"] == []
+    assert result["value"] == (0 if display == "chart" else 3)
+    if display == "chart":
+        assert [point["value"] for point in result["daily"]] == [3, 0]
+        assert [line["dormitory_id"] for line in result["series"]] == (
+            [north] if chart_mode == "dormitories" else []
+        )
+    else:
+        assert result["items"] == [{"label": "Северное", "value": 3, "is_archived": False}]
+    assert [item["id"] for item in client.get("/api/dashboard/sources").json()] == [north]
+    dashboard = client.get("/api/dashboard?from=2026-10-01&to=2026-10-02").json()
+    assert {**dashboard["widgets"][0], "id": 0} == result
+    assert client.get("/api/dashboard/layout").json() == layout
+    # Восстановление возвращает источник с его прежними данными и настройками.
+    assert client.patch(f"/api/dormitories/{south}", json={"is_archived": False}).status_code == 200
+    assert preview(client, payload)["errors"]
+    assert [item["id"] for item in client.get("/api/dashboard/sources").json()] == [north, south]
+    for dorm_id in (north, south):
+        assert (
+            client.patch(f"/api/dormitories/{dorm_id}", json={"is_archived": True}).status_code
+            == 200
+        )
+    empty = preview(client, payload)
+    assert empty["value"] is None
+    assert empty["items"] == []
+    assert empty["series"] == []
+    assert client.get("/api/dashboard/sources").json() == []
+
+
 def test_chart_report_values_gaps_and_saved_dashboard(
     client: TestClient, db_session: Session
 ) -> None:
@@ -332,7 +390,7 @@ def test_chart_report_values_gaps_and_saved_dashboard(
         ("Северное", [(1, "3"), (2, "0"), (3, "-2")]),
         ("Южное", [(1, "5"), (3, "1")]),
     ]:
-        dorm = Dormitory(name=name, client_name="Клиент", is_archived=name == "Южное")
+        dorm = Dormitory(name=name, client_name="Клиент")
         db_session.add(dorm)
         db_session.flush()
         row = ReportRow(dormitory_id=dorm.id, name="Показатель", position=1)
@@ -352,7 +410,7 @@ def test_chart_report_values_gaps_and_saved_dashboard(
         json={**payload, "chart_mode": "dormitories"},
     ).json()
     assert [line["label"] for line in compared["series"]] == ["Северное", "Южное"]
-    assert [line["is_archived"] for line in compared["series"]] == [False, True]
+    assert [line["is_archived"] for line in compared["series"]] == [False, False]
     assert [[point["value"] for point in line["daily"]] for line in compared["series"]] == [
         [3, 0, -2],
         [5, None, 1],

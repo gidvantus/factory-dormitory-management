@@ -214,6 +214,7 @@ describe('дашборд', () => {
       expect(screen.getByTestId('dashboard-total-residents')).toHaveTextContent('35'),
     );
     expect(selector).toHaveValue('');
+    const overviewTrend = screen.getByTestId('summary-trend-attendance').innerHTML;
     await user.selectOptions(selector, 'one');
     await waitFor(() =>
       expect(loader).toHaveBeenLastCalledWith(expect.any(Object), expect.any(AbortSignal), 'one'),
@@ -222,10 +223,40 @@ describe('дашборд', () => {
       expect(screen.getByTestId('chart-series-attendance')).toHaveTextContent('Выход: 15'),
     );
     expect(screen.getByTestId('dashboard-total-residents')).toHaveTextContent('35');
+    expect(screen.getByTestId('summary-trend-attendance').innerHTML).toBe(overviewTrend);
     await user.selectOptions(selector, '');
     await waitFor(() =>
       expect(screen.getByTestId('chart-series-attendance')).toHaveTextContent('Выход: 23'),
     );
+  });
+
+  it('сбрасывает график архивированного общежития после обновления обзора', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-04T12:00:00Z'));
+    const user = userEvent.setup();
+    const loader = vi.fn<DashboardLoader>().mockResolvedValue(DATA);
+    const view = render(<Dashboard loader={loader} />);
+    const selector = screen.getByRole('combobox', { name: 'Общежитие' });
+    await screen.findByRole('option', { name: 'Северное' });
+    await user.selectOptions(selector, 'one');
+    await waitFor(() => expect(selector).toHaveValue('one'));
+    const active: DashboardData = {
+      ...DATA,
+      dormitories: [DATA.dormitories[1]],
+      totals: { residents: 15, attendance: 8 },
+      clients: [DATA.clients[1]],
+      daily: [{ date: '2026-10-02', residents: 15, attendance: 8, turnover: 0 }],
+    };
+    const refreshed = vi.fn<DashboardLoader>().mockImplementation(async (_range, _signal, id) => {
+      if (id === 'one') throw new Error('Общежитие в архиве');
+      return active;
+    });
+    view.rerender(<Dashboard loader={refreshed} />);
+    await waitFor(() => expect(selector).toHaveValue(''));
+    expect(screen.queryByRole('option', { name: 'Северное' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-total-residents')).toHaveTextContent('15');
+    expect(screen.getByTestId('chart-series-attendance')).toHaveTextContent('Выход: 8');
   });
 
   it('отличает нулевой показатель от отсутствующего и показывает сегодняшнюю готовность отчётов', async () => {
@@ -255,6 +286,34 @@ describe('дашборд', () => {
       expect(screen.getByTestId('dashboard-total-residents')).toHaveTextContent('35'),
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('ошибка графика отдельного общежития сохраняет общую сводку и допускает повтор', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-04T12:00:00Z'));
+    let fail = true;
+    const loader: DashboardLoader = async (_range, _signal, id) => {
+      if (id && fail) throw new Error('Offline');
+      return DATA;
+    };
+    render(<Dashboard loader={loader} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('dashboard-total-residents')).toHaveTextContent('35'),
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Общежитие' }), {
+      target: { value: 'one' },
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Не удалось загрузить график общежития',
+    );
+    expect(screen.getByText('График временно недоступен')).toBeInTheDocument();
+    expect(screen.queryByText('За этот период пока нет данных')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dashboard-total-attendance')).toHaveTextContent('23');
+    expect(screen.getByTestId('summary-trend-attendance')).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(screen.getByTestId('chart-series-attendance')).toHaveTextContent('Выход: 23');
   });
 
   it('игнорирует запоздавший ответ для предыдущего периода', async () => {

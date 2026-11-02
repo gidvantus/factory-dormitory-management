@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 
 import { api, ApiError } from '../../api/client';
 import type { PaymentKind, Resident, ResidentField, ResidentsResponse } from '../../api/client';
@@ -298,14 +297,6 @@ function ResidentRow({
               setDraft((current) => ({ ...current, employee_id: id }));
             }}
           />
-          {resident.arrival_source && (
-            <Link
-              className="link-button"
-              to={`/cabinet/personnel?view=planning&dormitory=${resident.arrival_source.dormitory_id}&date=${resident.arrival_source.date}&arrival=${resident.arrival_source.plan_id}`}
-            >
-              Из плана заездов ↗
-            </Link>
-          )}
         </td>
         <td>
           <select
@@ -549,6 +540,7 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
         <p role="alert">
           {error}{' '}
           <button
+            className="link-button"
             type="button"
             onClick={() => {
               setStatus('loading');

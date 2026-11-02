@@ -1,6 +1,7 @@
 """Независимые подвкладки, стандартные разделы и запрет записи после скрытия."""
 
-from datetime import date
+from datetime import UTC, date
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -140,12 +141,13 @@ def test_independent_standard_subtab_hidden_data_and_report_dependency(
         ).status_code
         == 409
     )
-    report = client.get(
-        base + f"/report?from={historical.created_at.date()}&to={historical.created_at.date()}"
-    ).json()
+    report_date = (
+        historical.created_at.replace(tzinfo=UTC).astimezone(ZoneInfo("Europe/Moscow")).date()
+    )
+    report = client.get(base + f"/report?from={report_date}&to={report_date}").json()
     assert (
         next(item for item in report["rows"] if item["name"] == "Приехали")["values"][
-            historical.created_at.date().isoformat()
+            report_date.isoformat()
         ]
         == "1"
     )

@@ -130,15 +130,6 @@ export type ArrivalVisit = {
   } | null;
 };
 export type ArrivalWorkflowResult = { plans: ArrivalPlan[]; deleted_plan_ids: string[] };
-export type ArrivalSettlement = {
-  revision: number;
-  identity: IdentityChoice;
-  hostel_id: number;
-  settlement_date: string;
-  shift_start: string;
-  shift_end: string | null;
-  shift_count: number | null;
-};
 export type ArrivalInput = Omit<
   ArrivalPlan,
   'id' | 'revision' | 'workflow' | 'dormitory_name' | 'is_archived'
@@ -249,11 +240,6 @@ export const personnelApi = {
     send<void>(`/arrivals/${id}?revision=${revision}`, 'DELETE'),
   arrival: (id: string, signal?: AbortSignal) =>
     request<ArrivalPlan>(`/personnel/arrivals/${id}`, { signal }),
-  arrivalHostels: (id: string, date: string, signal?: AbortSignal) =>
-    request<{ hostels: { id: number; name: string }[] }>(
-      `/personnel/arrivals/${id}/settlement-options?date=${date}`,
-      { signal },
-    ),
   markArrival: (
     plan: string,
     person: string,
@@ -269,12 +255,6 @@ export const personnelApi = {
       date,
       revision,
     }),
-  undoArrivalMove: (plan: string, person: string, revision: number) =>
-    send<ArrivalWorkflowResult>(`/arrivals/${plan}/people/${person}/undo-move`, 'POST', {
-      revision,
-    }),
-  settleArrival: (plan: string, person: string, payload: ArrivalSettlement) =>
-    send<ArrivalWorkflowResult>(`/arrivals/${plan}/people/${person}/settle`, 'POST', payload),
   undoMerge: (id: string) => send(`/merges/${id}/undo`, 'POST'),
   preferences: (values: Preferences): Promise<Preferences> => send('/preferences', 'PUT', values),
   binding: (id: string, table: SourceTable, signal?: AbortSignal): Promise<Binding> =>

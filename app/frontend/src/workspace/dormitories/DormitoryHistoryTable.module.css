@@ -1,0 +1,27 @@
+.page {
+  display: grid;
+  gap: var(--gap-16);
+  min-width: 0;
+}
+.hint {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.error {
+  color: var(--color-danger);
+}
+.scroll {
+  overflow-x: auto;
+}
+.table {
+  width: 100%;
+}
+.table th,
+.table td {
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.table .action {
+  white-space: pre-line;
+}

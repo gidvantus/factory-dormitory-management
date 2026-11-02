@@ -8,6 +8,7 @@ export interface EditorSnapshot {
 export const EditorSurfaceContext = createContext<{
   inline: boolean;
   windowed?: boolean;
+  organized?: boolean;
   intro?: ComponentType<{ editorId: string }>;
   layout?: ComponentType<{ editorId: string; children: ReactNode }>;
   publish: (snapshot: EditorSnapshot) => void;

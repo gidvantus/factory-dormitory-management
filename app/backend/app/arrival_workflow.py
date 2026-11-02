@@ -1,4 +1,4 @@
-"""Атомарные отметки, перенос и оформление одного человека из плана заездов."""
+"""Отметки состояния и перенос одного человека из плана заездов."""
 
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -10,23 +10,9 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.arrival_settings import defaults, effective_people
-from app.models.arrival_plan import ArrivalPlan, ArrivalSettings, ArrivalVisit
-from app.models.hostel import Hostel
-from app.models.resident import Resident
-from app.personnel import (
-    choose_identity,
-    employee_in_scope,
-    event,
-    fulfill_arrival,
-    group_ids,
-    identity_lock,
-    normalized,
-    record_changed,
-    today,
-)
-from app.schemas.arrival_workflow import VisitSettle
-from app.table_data import require_writable_table
+from app.arrival_settings import active_people, effective_people
+from app.models.arrival_plan import ArrivalPlan, ArrivalVisit
+from app.personnel import today
 
 
 def person_of(plan: ArrivalPlan, person_id: str) -> dict[str, Any]:
@@ -76,8 +62,8 @@ def mark(plan: ArrivalPlan, person_id: str, status: str, revision: int, actor_id
     if visit and visit.status == status:
         return
     check_revision(plan, revision)
-    if visit and visit.status in ("moved", "settled"):
-        raise HTTPException(409, "Для этой записи уже выполнен перенос или оформлено проживание")
+    if visit and visit.status == "moved":
+        raise HTTPException(409, "Для этой записи уже выполнен перенос. Откройте новую дату.")
     if status != "expected" and visit and visit.status != "expected":
         raise HTTPException(409, "Сначала верните человека в ожидаемые")
     visit = visit or new_visit(plan, person_id)
@@ -121,6 +107,7 @@ def move(
         .with_for_update()
     )
     visit = visit or new_visit(plan, person_id)
+    returning = None
     if target is None:
         target = ArrivalPlan(
             id=str(uuid4()),
@@ -135,20 +122,33 @@ def move(
         db.add(target)
         target_people: list[dict[str, Any]] = []
     else:
-        if target.count >= 10000:
+        if len(active_people(target)) >= 10000:
             raise HTTPException(422, "В целевом заезде уже 10 000 человек")
-        if any(item.lineage_id == visit.lineage_id for item in target.visits):
+        returning = next(
+            (item for item in target.visits if item.lineage_id == visit.lineage_id), None
+        )
+        if returning and returning.status != "moved":
             raise HTTPException(
                 409, "Этот человек уже есть в выбранном дне. Проверьте его предыдущий перенос."
             )
         target_people = deepcopy(effective_people(target))
         target.revision += 1
-    new_person_id = str(uuid4())
-    target_people.append({**deepcopy(person), "id": new_person_id})
+    new_person_id = returning.person_id if returning else str(uuid4())
+    moved_person = {**deepcopy(person), "id": new_person_id}
+    if returning:
+        target_people = [
+            moved_person if item["id"] == new_person_id else item for item in target_people
+        ]
+    else:
+        target_people.append(moved_person)
     target.people = target_people
     target.count = len(target_people)
     target.names = [item["full_name"] for item in target_people if item["full_name"]]
-    destination = new_visit(target, new_person_id, visit.lineage_id)
+    destination = returning or new_visit(target, new_person_id, visit.lineage_id)
+    destination.status = "expected"
+    destination.arrived_on = None
+    destination.destination = None
+    destination.previous_status = None
     destination.origin = ref(plan, person_id)
     history(destination, "rescheduled_from", actor_id, origin=destination.origin)
     visit.previous_status = visit.status
@@ -210,134 +210,20 @@ def guard_edit(plan: ArrivalPlan, values: dict[str, Any]) -> None:
     old = {person["id"]: person for person in effective_people(plan)}
     new = {person["id"]: person for person in values["people"]}
     for visit in plan.visits:
+        if visit.status == "moved":
+            if visit.person_id in new:
+                raise HTTPException(409, "Перенесённый человек уже находится в другой дате.")
+            continue
         before, after = old.get(visit.person_id), new.get(visit.person_id)
         if not after or not before or after["full_name"] != before["full_name"]:
             raise HTTPException(
                 409,
                 "Нельзя удалить или заменить человека с отметками. Его история должна сохраниться.",
             )
-        if visit.status in ("moved", "settled") and before != after:
+        if (
+            visit.status == "moved"
+            or (visit.status == "settled" and (visit.settlement or visit.resident_id))
+        ) and before != after:
             raise HTTPException(
                 409, "Сведения перенесённого или заселённого человека доступны в связанной записи."
             )
-
-
-def settle(
-    db: Session,
-    plan: ArrivalPlan,
-    person_id: str,
-    payload: VisitSettle,
-    config: ArrivalSettings | None,
-    dormitory_ids: list[int],
-    actor_id: int,
-) -> ArrivalVisit:
-    person = person_of(plan, person_id)
-    visit = visit_of(plan, person_id)
-    if visit and visit.status == "settled":
-        return visit
-    check_revision(plan, payload.revision)
-    if visit is None or visit.status != "arrived":
-        raise HTTPException(409, "Сначала отметьте прибытие человека")
-    if normalized("full_name", payload.identity.full_name) != normalized(
-        "full_name", person["full_name"]
-    ):
-        raise HTTPException(422, "ФИО должно соответствовать выбранному человеку в плане заезда")
-    require_writable_table(db, plan.dormitory_id, "residents")
-    hostel = db.get(Hostel, payload.hostel_id)
-    month = payload.settlement_date.replace(day=1)
-    if (
-        hostel is None
-        or hostel.dormitory_id != plan.dormitory_id
-        or hostel.active_from_month > month
-        or (hostel.active_until_month and hostel.active_until_month <= month)
-    ):
-        raise HTTPException(422, "Выбранный хостел не действует в месяце заселения")
-    identity_lock(db)
-    if payload.identity.mode == "existing":
-        employee_in_scope(db, str(payload.identity.employee_id), dormitory_ids)
-    employee = choose_identity(db, payload.identity, dormitory_ids)
-    ids = group_ids(db, employee.id)
-    number = payload.identity.personnel_number or employee.personnel_number
-    residents = list(db.scalars(select(Resident).where(Resident.dormitory_id.in_(dormitory_ids))))
-    if any(
-        row.employee_id in ids
-        or (
-            number
-            and normalized("personnel_number", row.personnel_number)
-            == normalized("personnel_number", number)
-        )
-        for row in residents
-    ):
-        raise HTTPException(
-            409,
-            "У сотрудника или этого табельного номера уже есть действующее проживание. "
-            "Откройте существующую запись.",
-        )
-    fields = [
-        *(config.settings if config else defaults())["fields"],
-        *((config.retired_fields or {}).values() if config else []),
-    ]
-    snapshot = {
-        "full_name": person["full_name"],
-        "hostel_name": hostel.name,
-        "settlement_date": payload.settlement_date.isoformat(),
-        "shift_start": payload.shift_start.isoformat(),
-        "shift_end": payload.shift_end.isoformat() if payload.shift_end else None,
-        "shift_count": payload.shift_count,
-        "fields": deepcopy(fields),
-        "personal_values": deepcopy(person["custom_values"]),
-        "arrival_values": deepcopy(plan.custom_values),
-        "source": ref(plan, person_id),
-    }
-    notes = []
-    for field in fields:
-        value = (
-            snapshot["personal_values"]
-            if field["scope"] == "person"
-            else snapshot["arrival_values"]
-        ).get(field["id"])
-        if value is not None and value != "":
-            printed = "Да" if value is True else "Нет" if value is False else str(value)
-            notes.append(f"{field['label']}: {printed}")
-    row = Resident(
-        dormitory_id=plan.dormitory_id,
-        employee_id=employee.id,
-        full_name=person["full_name"],
-        personnel_number=number,
-        phone=payload.identity.phone or employee.phone,
-        hostel_id=hostel.id,
-        shift_start=payload.shift_start,
-        shift_end=payload.shift_end,
-        shift_count=payload.shift_count,
-        notes="; ".join(notes)[:5000] or None,
-    )
-    db.add(row)
-    db.flush()
-    record_changed(db, row, actor_id)
-    fulfill_arrival(db, row, actor_id)
-    event(
-        db,
-        employee.id,
-        "arrival",
-        "Заселение из плана заездов",
-        actor_id,
-        dormitory_id=plan.dormitory_id,
-        source_table="residents",
-        source_id=row.id,
-        snapshot=snapshot,
-        happened_on=payload.settlement_date,
-    )
-    visit.status = "settled"
-    visit.employee_id = employee.id
-    visit.resident_id = row.id
-    visit.resident = row
-    visit.settlement = snapshot
-    history(
-        visit,
-        "settled",
-        actor_id,
-        resident_id=row.id,
-        settlement_date=payload.settlement_date.isoformat(),
-    )
-    plan.revision += 1
-    return visit

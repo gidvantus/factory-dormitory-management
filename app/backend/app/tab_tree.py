@@ -68,6 +68,7 @@ def copy_columns(
                 for option in column.options
             ],
             archived=column.archived,
+            fill=deepcopy(column.fill),
         )
         db.add(copied)
         db.flush()

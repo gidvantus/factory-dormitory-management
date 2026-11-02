@@ -525,6 +525,10 @@ def save_binding(
         raise HTTPException(422, "Один столбец нельзя назначить нескольким полям")
     for field, column_id in payload.fields.items():
         col = columns.get(column_id)
+        if col and col.fill:
+            raise HTTPException(
+                409, "Связанный столбец нельзя назначить полю персонала. Выберите ручной столбец."
+            )
         kinds = (
             ("date",)
             if field.startswith("shift_")

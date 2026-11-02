@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chartSegments, chartX, filteredDays } from './chart';
+import { CHART, chartSegments, chartX, filteredDays } from './chart';
 import { currentMonth, isCalendarDate, rangeError, rangeTicks, todayDate } from './dates';
 
 describe('календарь дашборда', () => {
@@ -45,6 +45,12 @@ describe('данные графика', () => {
     expect(segments).toHaveLength(3);
     expect(segments[0]).toContain(' L');
     expect(segments[1]).not.toContain(' L');
+    const areas = chartSegments(rows, 'attendance', range, 8, CHART.width, true);
+    expect(areas).toHaveLength(3);
+    for (const [index, area] of areas.entries()) {
+      expect(area.startsWith(segments[index])).toBe(true);
+      expect(area).toMatch(/ Z$/);
+    }
     expect(chartSegments(rows, 'residents', range, 8)).toEqual([]);
     expect(Number.isFinite(chartX('2026-10-01', { from: '2026-10-01', to: '2026-10-01' }))).toBe(
       true,

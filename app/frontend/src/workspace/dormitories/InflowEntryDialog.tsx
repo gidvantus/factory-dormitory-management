@@ -85,7 +85,7 @@ export function InflowEntryDialog({
         {error ? (
           <>
             <p role="alert">{error}</p>
-            <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+            <button className="link-button" type="button" onClick={() => setAttempt((n) => n + 1)}>
               Повторить
             </button>
           </>

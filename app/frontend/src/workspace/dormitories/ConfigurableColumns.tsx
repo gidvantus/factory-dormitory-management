@@ -12,6 +12,8 @@ import type { FormEvent, ReactNode } from 'react';
 import { api, ApiError } from '../../api/client';
 import type {
   CellValue,
+  CellFillConfig,
+  CellFillRow,
   ColumnInput,
   ColumnKind,
   ColumnOption,
@@ -21,6 +23,8 @@ import type {
 } from '../../api/client';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { useEditorPreview } from '../../components/EditorSurface';
+import { EditorSection } from '../../components/EditorSection';
+import { useOrganizedEditor } from '../../components/useOrganizedEditor';
 import { personnelApi } from '../../api/personnel';
 import { BindingDialog } from '../personnel/BindingDialog';
 import type { SourceTable } from '../../api/personnel';
@@ -34,6 +38,10 @@ import { useSettingsNavigation } from './settingsContext';
 import { RowActionsMenu } from './RowActionsMenu';
 import { OutflowReasonInput } from './OutflowReasonInput';
 import { useUnsavedChanges } from '../../components/useUnsavedChanges';
+import { CellFillCell } from './CellFillCell';
+import { CellFillEditor } from './CellFillEditor';
+import { cellFillError, supportsCellFill, useCellFillSources } from './cellFill';
+import fillStyles from './CellFill.module.css';
 
 export function TableColumnsProvider({
   dormitoryId,
@@ -56,6 +64,10 @@ export function TableColumnsProvider({
   const [attempt, setAttempt] = useState(0);
   const [dialog, setDialog] = useState<ColumnsDialog>(null);
   const [values, setValues] = useState<Record<string, CellValue>>({});
+  const [fillRows, setFillRows] = useState<Record<number, CellFillRow>>({});
+  const [fillRefreshError, setFillRefreshError] = useState('');
+  const fillVersion = useRef(0);
+  const refreshFillValues = useRef<() => void>(() => {});
   const [personnelFields, setPersonnelFields] = useState<Record<string, number>>({});
   const [outflowFields, setOutflowFields] = useState<OutflowFields | null>(null);
   const pendingSaves = useRef(new Map<Promise<unknown>, string>());
@@ -90,17 +102,17 @@ export function TableColumnsProvider({
     return tracked;
   }
 
-  async function waitForRowSaves(rowId: number): Promise<void> {
+  async function waitForRowSaves(rowId: number, exceptKey?: string): Promise<void> {
     const prefix = `${rowId}:`;
     let pending: Promise<unknown>[];
     while (
       (pending = [...pendingSaves.current]
-        .filter(([, key]) => key.startsWith(prefix))
+        .filter(([, key]) => key.startsWith(prefix) && key !== exceptKey)
         .map(([promise]) => promise)).length
     ) {
       await Promise.allSettled(pending);
     }
-    if ([...failedSaves.current].some((key) => key.startsWith(prefix))) {
+    if ([...failedSaves.current].some((key) => key.startsWith(prefix) && key !== exceptKey)) {
       throw new ApiError(422, 'Сначала исправьте ошибки сохранения в этой строке.');
     }
   }
@@ -108,6 +120,9 @@ export function TableColumnsProvider({
     const controller = new AbortController();
     setLoading(true);
     setError('');
+    setFillRows({});
+    setFillRefreshError('');
+    fillVersion.current += 1;
     void Promise.all([
       api.tableColumns(dormitoryId, table, controller.signal),
       table === 'archive' || table.startsWith('custom_')
@@ -134,6 +149,44 @@ export function TableColumnsProvider({
       });
     return () => controller.abort();
   }, [dormitoryId, table, attempt, revision]);
+  useEffect(() => {
+    if (!columns.some((column) => !column.archived && column.fill)) return;
+    const controller = new AbortController();
+    let pending = false;
+    async function refresh(): Promise<void> {
+      if (document.visibilityState === 'hidden' || pending || pendingSaves.current.size) return;
+      const version = fillVersion.current;
+      pending = true;
+      try {
+        const rows = await api.cellFillValues(dormitoryId, table, controller.signal);
+        if (!controller.signal.aborted && version === fillVersion.current) {
+          setFillRows(Object.fromEntries(rows.map((row) => [row.id, row])));
+          setFillRefreshError('');
+        }
+      } catch (caught) {
+        if (!controller.signal.aborted)
+          setFillRefreshError(
+            caught instanceof ApiError ? caught.message : 'Не удалось обновить связанные ячейки.',
+          );
+      } finally {
+        pending = false;
+      }
+    }
+    const timer = window.setInterval(() => void refresh(), 30000);
+    const focus = (): void => {
+      void refresh();
+    };
+    refreshFillValues.current = focus;
+    window.addEventListener('focus', focus);
+    document.addEventListener('visibilitychange', focus);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      window.removeEventListener('focus', focus);
+      document.removeEventListener('visibilitychange', focus);
+      refreshFillValues.current = () => {};
+    };
+  }, [columns, dormitoryId, table]);
   const context: TableColumnsContext = {
     dormitoryId,
     table,
@@ -143,6 +196,11 @@ export function TableColumnsProvider({
     loading,
     error,
     values,
+    fillRows,
+    fillSaved: (row) => {
+      fillVersion.current += 1;
+      setFillRows((current) => ({ ...current, [row.id]: row }));
+    },
     personnelFields,
     outflowFields,
     trackSave,
@@ -167,6 +225,14 @@ export function TableColumnsProvider({
         </p>
       )}
       {children}
+      {fillRefreshError && (
+        <p role="alert" className={styles.error}>
+          {fillRefreshError}{' '}
+          <button className="link-button" type="button" onClick={() => refreshFillValues.current()}>
+            Обновить связанные ячейки
+          </button>
+        </p>
+      )}
       {dialog === 'manage' && <ManageColumns />}
       {dialog && dialog !== 'manage' && (
         <ColumnEditor
@@ -254,6 +320,7 @@ function ManageColumns(): JSX.Element {
           {(table === 'archive' || table.startsWith('custom_')) && (
             <button
               type="button"
+              className="btn btn--ghost btn--compact"
               disabled={pending}
               onClick={() => setBinding(table as SourceTable)}
             >
@@ -311,10 +378,11 @@ function ManageColumns(): JSX.Element {
 }
 
 function ColumnEditor({ column }: { column: TableColumn | null }): JSX.Element {
-  const { dormitoryId, table, reload, edit } = useColumns();
+  const { dormitoryId, table, columns, reload, edit } = useColumns();
   return (
     <ColumnForm
       column={column}
+      fillContext={{ dormitoryId, table, columns }}
       onClose={() => edit(null)}
       onSave={async (input) => {
         if (column) await api.updateColumn(dormitoryId, table, column.id, input);
@@ -332,6 +400,7 @@ export function ColumnForm({
   title,
   submitLabel,
   description,
+  fillContext,
 }: {
   column?: TableColumn | null;
   onClose: () => void;
@@ -339,9 +408,15 @@ export function ColumnForm({
   title?: string;
   submitLabel?: string;
   description?: string;
+  fillContext?: { dormitoryId: string; table: TableKey; columns: TableColumn[] };
 }): JSX.Element {
+  const organized = useOrganizedEditor();
   const [name, setName] = useState(column?.name ?? '');
   const [kind, setKind] = useState<ColumnKind>(column?.kind ?? 'text');
+  const [fill, setFill] = useState<CellFillConfig | null>(column?.fill ?? null);
+  const fillEnabled =
+    !!fillContext?.table.startsWith('custom_') && !column?.builtin_key && supportsCellFill(kind);
+  const fillSources = useCellFillSources(fillContext?.dormitoryId, fillEnabled);
   const [options, setOptions] = useState<ColumnOption[]>(
     column?.options ?? [{ id: null, label: '', archived: false }],
   );
@@ -351,7 +426,19 @@ export function ColumnForm({
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault();
     if (saving) return;
-    const input = { name: name.trim(), kind, options: kind === 'select' ? options : [] };
+    const input: ColumnInput = {
+      name: name.trim(),
+      kind,
+      options: kind === 'select' ? options : [],
+      ...(fillContext?.table.startsWith('custom_') ? { fill } : {}),
+    };
+    if (fill && fillContext) {
+      const message = cellFillError(fill, kind, fillContext.columns, fillSources.sources);
+      if (message) {
+        setError(message);
+        return;
+      }
+    }
     if (!input.name) {
       setError('Укажите название столбца.');
       return;
@@ -384,91 +471,150 @@ export function ColumnForm({
     >
       <form className={styles.form} onSubmit={(event) => void submit(event)}>
         {description && <p className={styles.help}>{description}</p>}
-        <label>
-          Название столбца
-          <input
-            value={name}
-            maxLength={120}
-            required
-            disabled={saving}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <label>
-          Тип столбца
-          <select
-            value={kind}
-            disabled={saving || !!column}
-            onChange={(event) => setKind(event.target.value as ColumnKind)}
-          >
-            {Object.entries(kinds)
-              .filter(([key]) => !!column || !['action', 'hostel'].includes(key))
-              .map(([key, label]) => (
-                <option value={key} key={key}>
-                  {label}
-                </option>
-              ))}
-          </select>
-        </label>
-        {column && (
-          <p className={styles.help}>
-            Тип сохраняется вместе с данными. Для другого типа добавьте новый столбец.
-          </p>
-        )}
-        {kind === 'select' && (
-          <fieldset disabled={saving || !!column?.builtin_key} className={styles.options}>
-            <legend>Варианты списка</legend>
-            {options.map((option, index) => (
-              <div className={styles.option} key={option.id ?? `new-${index}`}>
-                <input
-                  aria-label={`Вариант ${index + 1}`}
-                  value={option.label}
-                  maxLength={120}
-                  required
-                  onChange={(event) =>
-                    setOptions(
-                      options.map((item, i) =>
-                        i === index ? { ...item, label: event.target.value } : item,
-                      ),
-                    )
-                  }
-                />
-                <button
-                  type="button"
-                  onClick={() =>
-                    setOptions(
-                      option.id
-                        ? options.map((item, i) =>
-                            i === index ? { ...item, archived: !item.archived } : item,
-                          )
-                        : options.filter((_, i) => i !== index),
-                    )
-                  }
-                >
-                  {option.archived ? 'Восстановить вариант' : option.id ? 'В архив' : 'Убрать'}
-                </button>
-                {option.archived && <small>В архиве</small>}
-              </div>
-            ))}
-            <button
-              type="button"
-              disabled={options.length >= 200}
-              onClick={() => setOptions([...options, { id: null, label: '', archived: false }])}
+        <EditorSection
+          title="Название столбца"
+          description="Используйте название данных: например, «Дата выхода» или «Выданный комплект»."
+        >
+          <label>
+            Название столбца
+            <input
+              value={name}
+              maxLength={120}
+              required
+              disabled={saving}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+        </EditorSection>
+        <EditorSection
+          title="Формат данных"
+          description="Выберите, что будут вводить в ячейку. После создания тип изменить нельзя."
+        >
+          <label>
+            Тип столбца
+            <select
+              value={kind}
+              disabled={saving || !!column}
+              onChange={(event) => {
+                setKind(event.target.value as ColumnKind);
+                setFill(null);
+              }}
             >
-              + Вариант
-            </button>
-            {column && (
-              <p className={styles.help}>
-                Архивный вариант остается в старых записях и расчетах, но недоступен для новых
-                записей.
-              </p>
-            )}
-          </fieldset>
+              {Object.entries(kinds)
+                .filter(([key]) => !!column || !['action', 'hostel'].includes(key))
+                .map(([key, label]) => (
+                  <option value={key} key={key}>
+                    {label}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {column && (
+            <p className={styles.help}>
+              Тип сохраняется вместе с данными. Для другого типа добавьте новый столбец.
+            </p>
+          )}
+          {organized && (
+            <p className={styles.help}>
+              {
+                {
+                  text: 'Любой короткий текст: ФИО, телефон, комментарий.',
+                  number: 'Числовое значение, которое можно использовать в расчётах.',
+                  date: 'Дата события, начала или окончания периода.',
+                  checkbox: 'Отметка «да / нет».',
+                  select: 'Один вариант из заранее заданного списка.',
+                  action: 'Служебное действие строки.',
+                  hostel: 'Место проживания сотрудника.',
+                }[kind]
+              }
+            </p>
+          )}
+        </EditorSection>
+        {kind === 'select' && (
+          <EditorSection
+            title="Варианты для выбора"
+            description="Добавьте варианты. Использованные варианты можно архивировать без потери старых значений."
+          >
+            <fieldset disabled={saving || !!column?.builtin_key} className={styles.options}>
+              <legend>Варианты списка</legend>
+              {options.map((option, index) => (
+                <div className={styles.option} key={option.id ?? `new-${index}`}>
+                  <input
+                    aria-label={`Вариант ${index + 1}`}
+                    value={option.label}
+                    maxLength={120}
+                    required
+                    onChange={(event) =>
+                      setOptions(
+                        options.map((item, i) =>
+                          i === index ? { ...item, label: event.target.value } : item,
+                        ),
+                      )
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOptions(
+                        option.id
+                          ? options.map((item, i) =>
+                              i === index ? { ...item, archived: !item.archived } : item,
+                            )
+                          : options.filter((_, i) => i !== index),
+                      )
+                    }
+                  >
+                    {option.archived ? 'Восстановить вариант' : option.id ? 'В архив' : 'Убрать'}
+                  </button>
+                  {option.archived && <small>В архиве</small>}
+                </div>
+              ))}
+              <button
+                type="button"
+                disabled={options.length >= 200}
+                onClick={() => setOptions([...options, { id: null, label: '', archived: false }])}
+              >
+                + Вариант
+              </button>
+              {column && (
+                <p className={styles.help}>
+                  Архивный вариант остается в старых записях и расчетах, но недоступен для новых
+                  записей.
+                </p>
+              )}
+            </fieldset>
+          </EditorSection>
         )}
         {error && (
           <p role="alert" className={styles.error}>
             {error}
           </p>
+        )}
+        {fillEnabled && fillContext && (
+          <EditorSection
+            title="Заполнение ячеек"
+            description="Настройте ручной ввод, выбор записи или связь с другой таблицей."
+          >
+            {fillSources.loading && <p role="status">Загружаем источники…</p>}
+            {fillSources.error && (
+              <p role="alert">
+                {fillSources.error}{' '}
+                <button className="link-button" type="button" onClick={fillSources.retry}>
+                  Повторить
+                </button>
+              </p>
+            )}
+            <CellFillEditor
+              value={fill}
+              kind={kind}
+              columnId={column?.id}
+              columns={fillContext.columns}
+              sources={fillSources.sources}
+              table={fillContext.table}
+              disabled={saving || fillSources.loading}
+              onChange={setFill}
+            />
+          </EditorSection>
         )}
         <div className={styles.actions}>
           <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
@@ -605,6 +751,15 @@ export function ConfiguredHeaders(): JSX.Element {
         .map((column) => (
           <th scope="col" key={column.id} data-column-key={column.builtin_key ?? undefined}>
             {column.name}
+            {column.fill && (
+              <small className={fillStyles.headerNote}>
+                {column.fill.mode === 'pick'
+                  ? 'Выбор записи'
+                  : column.fill.update === 'copy'
+                    ? 'Разовая копия'
+                    : 'Из таблицы'}
+              </small>
+            )}
           </th>
         ))}
       {settings && columns.some((column) => !column.archived && isRowAction(column)) && (
@@ -623,7 +778,7 @@ export function ConfiguredCells({
   actionResult,
 }: {
   fields: string[];
-  row: { id: number; custom_values?: Record<string, CellValue>; employee_id?: string | null };
+  row: CellFillRow & { custom_values?: Record<string, CellValue>; employee_id?: string | null };
   children: ReactNode;
   readOnly?: boolean;
   onPersonnelLinked?: (id: string) => void;
@@ -642,6 +797,10 @@ export function ConfiguredCells({
               {column.id === columns.find((item) => !item.archived && isRowAction(item))?.id && (
                 <span className={styles.rowActionResult}>{actionResult}</span>
               )}
+            </td>
+          ) : column.fill ? (
+            <td key={column.id} className={styles.customCell}>
+              <CellFillCell column={column} row={row} readOnly={readOnly || !!settings?.readOnly} />
             </td>
           ) : column.builtin_key ? (
             <Fragment key={column.id}>{cells[fields.indexOf(column.builtin_key)]}</Fragment>
@@ -871,7 +1030,12 @@ function CustomCell({
       {error && (
         <span role="alert" className={styles.error}>
           {error}{' '}
-          <button type="button" disabled={readOnly} onClick={() => void save(draft)}>
+          <button
+            className="link-button"
+            type="button"
+            disabled={readOnly}
+            onClick={() => void save(draft)}
+          >
             Повторить
           </button>
         </span>

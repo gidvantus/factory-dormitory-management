@@ -15,35 +15,60 @@
 .page p {
   margin: 0;
 }
-.page button,
+/* Общие кнопки и крестик окна сохраняют собственные размеры, шрифт и фон. */
+.page
+  button:where(:not(:global(.btn))):where(:not(:global(.link-button))):where(
+    :not(:global(.modal__close))
+  ),
 .page input,
 .page select,
 .page textarea,
-.modal button,
+.modal
+  button:where(:not(:global(.btn))):where(:not(:global(.link-button))):where(
+    :not(:global(.modal__close))
+  ),
 .modal input,
 .modal select,
 .modal textarea {
   font: inherit;
 }
-.page button,
-.modal button {
+.page
+  button:where(:not(:global(.btn))):where(:not(:global(.link-button))):where(
+    :not(:global(.modal__close))
+  ),
+.modal
+  button:where(:not(:global(.btn))):where(:not(:global(.link-button))):where(
+    :not(:global(.modal__close))
+  ) {
   cursor: pointer;
 }
-.page button:disabled,
-.modal button:disabled {
+.page button:where(:not(:global(.btn))):where(:not(:global(.modal__close))):disabled,
+.modal button:where(:not(:global(.btn))):where(:not(:global(.modal__close))):disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
-.page button:where(:not(:global(.btn))),
-.modal button {
+.page
+  button:where(:not(:global(.btn))):where(:not(:global(.link-button))):where(
+    :not(:global(.modal__close))
+  ),
+.modal
+  button:where(:not(:global(.btn))):where(:not(:global(.link-button))):where(
+    :not(:global(.modal__close))
+  ) {
   border: 1px solid #e4e6df;
   background: var(--color-bg-surface);
   color: #42584d;
   border-radius: 9px;
   padding: 9px 13px;
 }
-.page button:where(:not(:global(.btn))):hover:not(:disabled),
-.modal button:hover:not(:disabled) {
+.page
+  button:where(:not(:global(.btn))):where(:not(:global(.link-button))):where(
+    :not(:global(.modal__close))
+  ):hover:not(:disabled),
+.modal
+  button:where(:not(:global(.btn))):where(:not(:global(.link-button))):where(
+    :not(:global(.modal__close))
+  ):hover:not(:disabled) {
   background: #f1f6ef;
 }
 .page .primary,

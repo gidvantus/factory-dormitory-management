@@ -306,7 +306,7 @@ it('сохраняет окно и настройки при ошибке сер
       mutate={mutate}
     />,
   );
-  await user.click(screen.getByRole('button', { name: 'Поля заезда' }));
+  await user.click(screen.getByRole('button', { name: 'Настроить вид' }));
   const editor = screen.getByRole('dialog', { name: 'Настройки плана заездов' });
   expect(within(editor).getByLabelText('Тип поля')).toBeDisabled();
   expect(within(editor).getByRole('combobox', { name: /Где заполнять/ })).toBeDisabled();

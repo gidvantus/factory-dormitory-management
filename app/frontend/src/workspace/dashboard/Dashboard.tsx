@@ -4,13 +4,22 @@ import type { FormEvent, ReactNode } from 'react';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import type { WorkspaceIconName } from '../WorkspaceIcon';
 import { DashboardChart } from './DashboardChart';
-import { EMPTY_DASHBOARD, formatCount, loadDashboard, METRICS } from './data';
-import type { DashboardData, DashboardLoader, DormitoryMetrics, Metric } from './data';
+import { EMPTY_DASHBOARD, loadDashboard, METRICS } from './data';
+import type {
+  DashboardData,
+  DashboardLoader,
+  DailyMetrics,
+  DormitoryMetrics,
+  Metric,
+} from './data';
 import { currentMonth, formatDate, rangeError, todayDate } from './dates';
 import type { DateRange } from './dates';
 import styles from './Dashboard.module.css';
 import { usePageRefresh } from '../usePageRefresh';
 import { DashboardBlocks } from './DashboardBlocks';
+import { DashboardSummary, ReportProgress } from './DashboardSummary';
+import { MetricBars } from './MetricBars';
+import { reportReady } from './summary';
 
 const breakdowns: {
   key: keyof Pick<DormitoryMetrics, 'residents' | 'attendance' | 'turnover'>;
@@ -62,6 +71,12 @@ export function Dashboard({
     data: DashboardData;
     status: 'loading' | 'ready' | 'error';
   }>({ range, data: EMPTY_DASHBOARD, status: 'loading' });
+  const [chartResult, setChartResult] = useState<{
+    range: DateRange;
+    dormitoryId: string;
+    rows: DailyMetrics[];
+    status: 'loading' | 'ready' | 'error';
+  } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,13 +85,40 @@ export function Dashboard({
       data: current.range === range ? current.data : EMPTY_DASHBOARD,
       status: current.range === range && current.status === 'ready' ? 'ready' : 'loading',
     }));
-    void loader(range, controller.signal, chartDormitoryId || null)
+    void loader(range, controller.signal, null)
       .then((data) => {
-        if (!controller.signal.aborted) setResult({ range, data, status: 'ready' });
+        if (!controller.signal.aborted) {
+          setResult({ range, data, status: 'ready' });
+          setChartDormitoryId((current) =>
+            data.dormitories.some((item) => item.id === current) ? current : '',
+          );
+        }
       })
       .catch(() => {
         if (!controller.signal.aborted)
           setResult({ range, data: EMPTY_DASHBOARD, status: 'error' });
+      });
+    return () => controller.abort();
+  }, [range, loader, attempt, revision]);
+
+  // Общая динамика нужна сводке даже при выборе отдельного общежития на графике.
+  useEffect(() => {
+    if (!chartDormitoryId) return;
+    const controller = new AbortController();
+    setChartResult({ range, dormitoryId: chartDormitoryId, rows: [], status: 'loading' });
+    void loader(range, controller.signal, chartDormitoryId)
+      .then((data) => {
+        if (!controller.signal.aborted)
+          setChartResult({
+            range,
+            dormitoryId: chartDormitoryId,
+            rows: data.daily,
+            status: 'ready',
+          });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setChartResult({ range, dormitoryId: chartDormitoryId, rows: [], status: 'error' });
       });
     return () => controller.abort();
   }, [range, chartDormitoryId, loader, attempt, revision]);
@@ -87,6 +129,14 @@ export function Dashboard({
     data.snapshotDate ??
     (range.from <= todayDate() ? (range.to < todayDate() ? range.to : todayDate()) : range.to);
   const snapshotLabel = `На ${formatDate(snapshot)}`;
+  const scopedChart =
+    chartResult?.range === range && chartResult.dormitoryId === chartDormitoryId
+      ? chartResult
+      : null;
+  const chartLoading =
+    loading || (!!chartDormitoryId && (!scopedChart || scopedChart.status === 'loading'));
+  const chartError = !!chartDormitoryId && scopedChart?.status === 'error';
+  const chartRows = chartDormitoryId ? (scopedChart?.rows ?? []) : data.daily;
 
   function applyPeriod(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -120,11 +170,11 @@ export function Dashboard({
           <h1 id="overview-title" tabIndex={-1}>
             Обзор
           </h1>
-          <p className={styles.lead}>Проживание и работа — по всем общежитиям</p>
+          <p className={styles.lead}>Проживание и работа — по действующим общежитиям</p>
         </div>
         <span className={styles.scopeBadge}>
           <WorkspaceIcon name="house" />
-          Все общежития
+          Действующие общежития
         </span>
       </div>
 
@@ -204,37 +254,24 @@ export function Dashboard({
         </div>
       )}
 
-      <section className={styles.summary} aria-label="Общие данные" aria-busy={loading}>
-        <article className={`${styles.summaryCard} ${styles.summaryResidents}`}>
-          <div>
-            <p className={styles.summaryLabel}>Всего проживающих</p>
-            <p className={styles.summaryValue} data-testid="dashboard-total-residents">
-              {formatCount(data.totals.residents)}
-              <span>чел.</span>
-            </p>
-            <p className={styles.summaryHint}>По всем общежитиям · {snapshotLabel.toLowerCase()}</p>
-          </div>
-          <span className={styles.summaryIcon}>
-            <WorkspaceIcon name="people" />
-          </span>
-        </article>
-        <article className={`${styles.summaryCard} ${styles.summaryAttendance}`}>
-          <div>
-            <p className={styles.summaryLabel}>Общий выход на работу</p>
-            <p className={styles.summaryValue} data-testid="dashboard-total-attendance">
-              {formatCount(data.totals.attendance)}
-              <span>чел.</span>
-            </p>
-            <p className={styles.summaryHint}>По всем общежитиям · {snapshotLabel.toLowerCase()}</p>
-          </div>
-          <span className={styles.summaryIcon}>
-            <WorkspaceIcon name="chart" />
-          </span>
-        </article>
-      </section>
+      <DashboardSummary data={data} range={range} snapshot={snapshot} loading={loading} />
 
+      {chartError && !loading && (
+        <div className={styles.loadError} role="alert">
+          <span>Не удалось загрузить график общежития.</span>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => setAttempt((current) => current + 1)}
+          >
+            Повторить
+          </button>
+        </div>
+      )}
       <DashboardChart
-        rows={loading ? [] : data.daily}
+        rows={chartLoading ? [] : chartRows}
+        loading={chartLoading}
+        failed={chartError || result.status === 'error'}
         range={range}
         selected={selected}
         onToggle={toggleMetric}
@@ -270,27 +307,23 @@ export function Dashboard({
                   </span>
                 </div>
                 {(block.key === 'attendance' ? data.clients.length : data.dormitories.length) ? (
-                  <ul className={styles.metricList}>
-                    {block.key === 'attendance'
-                      ? data.clients.map((client) => (
-                          <li key={client.name}>
-                            <span>{client.name}</span>
-                            <strong>{formatCount(client.attendance)}</strong>
-                          </li>
-                        ))
-                      : data.dormitories.map((dormitory) => (
-                          <li
-                            key={dormitory.id}
-                            data-archived={dormitory.is_archived ? 'true' : 'false'}
-                          >
-                            <span>
-                              {dormitory.name}
-                              {dormitory.is_archived ? ' (Архив)' : ''}
-                            </span>
-                            <strong>{formatCount(dormitory[block.key])}</strong>
-                          </li>
-                        ))}
-                  </ul>
+                  <MetricBars
+                    clients={block.key === 'attendance'}
+                    items={
+                      block.key === 'attendance'
+                        ? data.clients.map((client) => ({
+                            id: client.name,
+                            label: client.name,
+                            value: client.attendance,
+                          }))
+                        : data.dormitories.map((dormitory) => ({
+                            id: dormitory.id,
+                            label: dormitory.name,
+                            value: dormitory[block.key],
+                            archived: dormitory.is_archived,
+                          }))
+                    }
+                  />
                 ) : (
                   <div className={styles.blockEmpty}>
                     <WorkspaceIcon name="house" />
@@ -322,6 +355,10 @@ export function Dashboard({
                     <WorkspaceIcon name="info" />
                   </span>
                 </div>
+                <ReportProgress
+                  dormitories={data.dormitories}
+                  date={data.reportDate ?? todayDate()}
+                />
                 {data.dormitories.length ? (
                   <ul className={styles.metricList}>
                     {data.dormitories.map((dormitory) => (
@@ -335,12 +372,18 @@ export function Dashboard({
                         </span>
                         <span
                           className={styles.reportStatus}
-                          data-ready={dormitory.report_readiness?.is_ready ? 'true' : 'false'}
+                          data-ready={
+                            reportReady(dormitory, data.reportDate ?? todayDate()) === null
+                              ? 'unknown'
+                              : reportReady(dormitory, data.reportDate ?? todayDate())
+                                ? 'true'
+                                : 'false'
+                          }
                           title={
-                            dormitory.report_readiness?.is_ready
+                            reportReady(dormitory, data.reportDate ?? todayDate())
                               ? [
-                                  dormitory.report_readiness.confirmed_by,
-                                  dormitory.report_readiness.confirmed_at &&
+                                  dormitory.report_readiness?.confirmed_by,
+                                  dormitory.report_readiness?.confirmed_at &&
                                     new Intl.DateTimeFormat('ru-RU', {
                                       timeZone: 'Europe/Moscow',
                                       hour: '2-digit',
@@ -353,8 +396,8 @@ export function Dashboard({
                           }
                         >
                           <i className={styles.statusDot} aria-hidden="true" />
-                          {dormitory.report_readiness
-                            ? dormitory.report_readiness.is_ready
+                          {reportReady(dormitory, data.reportDate ?? todayDate()) !== null
+                            ? reportReady(dormitory, data.reportDate ?? todayDate())
                               ? 'Отчёт готов'
                               : 'Отчёт не готов'
                             : 'Статус недоступен'}

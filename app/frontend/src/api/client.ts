@@ -723,8 +723,34 @@ export interface TableColumn {
   position: number;
   options: ColumnOption[];
   archived: boolean;
+  fill?: CellFillConfig | null;
 }
-export type ColumnInput = Pick<TableColumn, 'name' | 'kind' | 'options'>;
+export type ColumnInput = Pick<TableColumn, 'name' | 'kind' | 'options' | 'fill'> & {
+  client_id?: number;
+};
+export interface CellFillConfig {
+  mode: 'pick' | 'lookup';
+  source: TableKey | 'personnel';
+  field: string;
+  match_column_id: number | null;
+  update: 'live' | 'copy';
+}
+export interface CellFillSource {
+  key: TableKey | 'personnel';
+  name: string;
+  fields: { id: string; name: string; kind: string }[];
+}
+export interface CellFillRow {
+  id: number;
+  fill_selections?: Record<string, { source: string; record_id: string }>;
+  fill_values?: Record<string, CellValue>;
+  fill_errors?: Record<string, string>;
+}
+export interface CellFillRecord {
+  id: string;
+  label: string;
+  detail: string;
+}
 export interface ReportTableLink {
   table_key: TableKey;
   column_id: number;
@@ -760,6 +786,7 @@ export interface CustomTab {
   id: number;
   dormitory_id: number;
   name: string;
+  kind?: 'table' | 'archive';
   parent_id?: number | null;
   parent_section?: string | null;
   is_group?: boolean;
@@ -774,7 +801,11 @@ export interface CustomTabTemplate extends CustomTab {
   dormitory_name: string;
   client_name: string;
 }
-export interface CustomTabRow {
+export interface DormitoryHistoryPage {
+  items: { id: number; date: string; action: string; author: string }[];
+  next_cursor: string | null;
+}
+export interface CustomTabRow extends CellFillRow {
   calendar_values?: Record<string, string>;
   employee_id?: string | null;
   id: number;
@@ -986,12 +1017,14 @@ export const api = {
     parentId: number | null = null,
     parentSection: string | null = null,
     options?: CustomTabOptions,
+    kind: 'table' | 'archive' = 'table',
   ): Promise<CustomTab> {
     return request(`/dormitories/${encodeURIComponent(id)}/tabs`, {
       method: 'POST',
       body: JSON.stringify({
         name,
         source_tab_id: sourceTabId,
+        ...(kind === 'archive' ? { kind } : {}),
         ...(options ? { options } : {}),
         ...(subtabs.length ? { subtabs } : {}),
         ...(parentId ? { parent_id: parentId } : {}),
@@ -1003,6 +1036,20 @@ export const api = {
     return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/table`, {
       method: 'POST',
       body: JSON.stringify({ columns }),
+    });
+  },
+  dormitoryHistory(
+    id: string,
+    tabId: number,
+    from: string,
+    to: string,
+    signal?: AbortSignal,
+    cursor?: string,
+  ): Promise<DormitoryHistoryPage> {
+    const params = new URLSearchParams({ from, to });
+    if (cursor) params.set('cursor', cursor);
+    return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/history?${params}`, {
+      signal,
     });
   },
   customTabRows(
@@ -1087,6 +1134,36 @@ export const api = {
         body: JSON.stringify({ value }),
       },
     );
+  },
+  cellFillSources(id: string, signal?: AbortSignal): Promise<CellFillSource[]> {
+    return request(`/dormitories/${encodeURIComponent(id)}/cell-fill/sources`, { signal });
+  },
+  cellFillRecords(
+    id: string,
+    source: string,
+    field: string,
+    search: string,
+    signal?: AbortSignal,
+  ): Promise<{ records: CellFillRecord[]; has_more: boolean }> {
+    return request(
+      `/dormitories/${encodeURIComponent(id)}/cell-fill/records?${new URLSearchParams({ source, field, search })}`,
+      { signal },
+    );
+  },
+  selectCellRecord(
+    id: string,
+    table: TableKey,
+    rowId: number,
+    columnId: number,
+    recordId: string | null,
+  ): Promise<CustomTabRow> {
+    return request(
+      `/dormitories/${encodeURIComponent(id)}/cell-fill/${table}/rows/${rowId}/selection/${columnId}`,
+      { method: 'PUT', body: JSON.stringify({ record_id: recordId }) },
+    );
+  },
+  cellFillValues(id: string, table: TableKey, signal?: AbortSignal): Promise<CellFillRow[]> {
+    return request(`/dormitories/${encodeURIComponent(id)}/cell-fill/${table}/values`, { signal });
   },
   archive(id: string, from: string, to: string, signal?: AbortSignal): Promise<ArchiveRow[]> {
     return request(

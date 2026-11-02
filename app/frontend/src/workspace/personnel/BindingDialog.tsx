@@ -3,6 +3,8 @@ import { personnelApi } from '../../api/personnel';
 import type { Binding, SourceTable } from '../../api/personnel';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { useEditorPreview } from '../../components/EditorSurface';
+import { EditorSection } from '../../components/EditorSection';
+import { useOrganizedEditor } from '../../components/useOrganizedEditor';
 import { message } from './helpers';
 import s from './Personnel.module.css';
 
@@ -29,6 +31,7 @@ export function BindingDialog({
   inline?: boolean;
   onBusyChange?: (busy: boolean) => void;
 }): JSX.Element {
+  const organized = useOrganizedEditor();
   const [data, setData] = useState<Binding | null>(null);
   const [fields, setFields] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
@@ -80,42 +83,66 @@ export function BindingDialog({
         объединяются вручную.
       </p>
       {!data && !error && <p role="status">Загружаем столбцы…</p>}
-      {data && (
-        <div className={s.formGrid}>
-          {Object.entries(roles).map(([role, title]) => (
-            <label key={role}>
-              {title}
-              <select
-                disabled={busy}
-                value={fields[role] ?? ''}
-                onChange={(event) => {
-                  const next = { ...fields };
-                  if (event.target.value) next[role] = Number(event.target.value);
-                  else delete next[role];
-                  setFields(next);
-                }}
-              >
-                <option value="">Не использовать</option>
-                {data.columns
-                  .filter(
-                    (col) =>
-                      !col.builtin_key &&
-                      (role.startsWith('shift_')
-                        ? col.kind === 'date'
-                        : role === 'personnel_number'
-                          ? ['text', 'number'].includes(col.kind)
-                          : col.kind === 'text'),
-                  )
-                  .map((col) => (
-                    <option key={col.id} value={col.id}>
-                      {col.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          ))}
-        </div>
-      )}
+      {data &&
+        (organized
+          ? [
+              {
+                title: 'Данные сотрудника',
+                description: 'ФИО, табельный номер и телефон помогают найти и проверить карточку.',
+                roles: ['full_name', 'personnel_number', 'phone'],
+              },
+              {
+                title: 'Даты вахты',
+                description: 'Здесь подходят только столбцы типа «Дата».',
+                roles: ['shift_start', 'shift_end'],
+              },
+              {
+                title: 'Причина или статус',
+                description: 'Необязательная связь с текстовым столбцом.',
+                roles: ['reason'],
+              },
+            ]
+          : [{ title: '', description: '', roles: Object.keys(roles) }]
+        ).map((group) => (
+          <EditorSection key={group.title} title={group.title} description={group.description}>
+            <div className={s.formGrid}>
+              {Object.entries(roles)
+                .filter(([role]) => group.roles.includes(role))
+                .map(([role, title]) => (
+                  <label key={role}>
+                    {title}
+                    <select
+                      disabled={busy}
+                      value={fields[role] ?? ''}
+                      onChange={(event) => {
+                        const next = { ...fields };
+                        if (event.target.value) next[role] = Number(event.target.value);
+                        else delete next[role];
+                        setFields(next);
+                      }}
+                    >
+                      <option value="">Не использовать</option>
+                      {data.columns
+                        .filter(
+                          (col) =>
+                            !col.builtin_key &&
+                            (role.startsWith('shift_')
+                              ? col.kind === 'date'
+                              : role === 'personnel_number'
+                                ? ['text', 'number'].includes(col.kind)
+                                : col.kind === 'text'),
+                        )
+                        .map((col) => (
+                          <option key={col.id} value={col.id}>
+                            {col.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                ))}
+            </div>
+          </EditorSection>
+        ))}
       {error && (
         <p role="alert" className={s.error}>
           {error}

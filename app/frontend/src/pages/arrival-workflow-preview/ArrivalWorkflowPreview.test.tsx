@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { expect, it } from 'vitest';
 import { ArrivalWorkflowPreview } from './ArrivalWorkflowPreview';
 
-it('переносит отдельного человека на выбранную дату и открывает связанный заезд с сохранёнными сменами', async () => {
+it('переносит человека с сохранением текущего дня и показывает его при ручном выборе новой даты', async () => {
   const user = userEvent.setup();
   render(<ArrivalWorkflowPreview />);
   const anna = screen.getByTestId('workflow-person-anna');
@@ -12,10 +12,14 @@ it('переносит отдельного человека на выбранн
   fireEvent.change(within(modal).getByLabelText('Новая дата заезда'), {
     target: { value: '2026-10-29' },
   });
-  expect(within(modal).getByText(/уже запланировано 1 чел/)).toBeInTheDocument();
   await user.click(within(modal).getByRole('button', { name: 'Перенести заезд' }));
-  expect(anna).toHaveAttribute('data-status', 'moved');
-  await user.click(within(anna).getByRole('button', { name: /Открыть 29 окт/ }));
+  expect(screen.queryByTestId('workflow-person-anna')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Начало периода')).toHaveValue('2026-10-27');
+  expect(screen.getByTestId('workflow-person-alex')).toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: 'Полная информация: Павел Ильин' }),
+  ).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /29 окт/ }));
   const people = screen.getByRole('list', { name: 'Люди: Северное' });
   expect(
     within(people).getByRole('button', { name: 'Полная информация: Анна Морозова' }),
@@ -25,31 +29,30 @@ it('переносит отдельного человека на выбранн
   ).toBeInTheDocument();
   expect(within(people).getAllByText('Ожидается')).toHaveLength(2);
   expect(within(people).getByText('15')).toBeInTheDocument();
-  expect(within(people).getByText('Перенесён с 27 окт.')).toBeInTheDocument();
+  const note = within(people).getByText(/Перенесён с 27 окт/);
+  expect(note.tagName).toBe('SMALL');
+  expect(note.closest('button,a')).toBeNull();
 });
 
-it('отдельно отмечает прибытие, заполняет проживание и сохраняет исходный заезд', async () => {
+it('после прибытия и неявки позволяет изменить решение и снова показывает три действия', async () => {
   const user = userEvent.setup();
   render(<ArrivalWorkflowPreview />);
-  let alex = screen.getByTestId('workflow-person-alex');
-  await user.click(within(alex).getByRole('button', { name: 'Прибыл' }));
-  expect(alex).toHaveAttribute('data-status', 'arrived');
-  await user.click(within(alex).getByRole('button', { name: 'В проживающие' }));
-  const modal = screen.getByRole('dialog');
-  expect(within(modal).getByLabelText('Табельный номер')).toHaveValue('0041');
-  expect(within(modal).getByLabelText('Количество смен')).toHaveValue(15);
-  await user.selectOptions(within(modal).getByLabelText('Место проживания'), 'Корпус А');
-  await user.click(within(modal).getByRole('button', { name: 'Оформить в проживающие' }));
-  expect(alex).toHaveAttribute('data-status', 'settled');
-  await user.click(screen.getByRole('button', { name: 'Проживающие 2' }));
-  const resident = screen.getByTestId('resident-alex');
-  expect(within(resident).getByText('Корпус А')).toBeInTheDocument();
-  expect(within(resident).getByText('15 смен')).toBeInTheDocument();
-  await user.click(within(resident).getByRole('button', { name: /Из плана/ }));
-  alex = screen.getByTestId('workflow-person-alex');
-  expect(alex).toHaveAttribute('data-status', 'settled');
-  await user.click(within(alex).getByRole('button', { name: 'Открыть проживание' }));
-  expect(within(screen.getByRole('dialog')).getByText(/Встреча у проходной/)).toBeInTheDocument();
+  const alex = screen.getByTestId('workflow-person-alex');
+  for (const [label, status] of [
+    ['Прибыл', 'arrived'],
+    ['Не приехал', 'no_show'],
+  ]) {
+    await user.click(within(alex).getByRole('button', { name: label }));
+    expect(alex).toHaveAttribute('data-status', status);
+    expect(within(alex).queryByRole('button', { name: 'Перенести' })).not.toBeInTheDocument();
+    await user.click(within(alex).getByRole('button', { name: 'Изменить статус' }));
+    expect(alex).toHaveAttribute('data-status', 'expected');
+    for (const choice of ['Прибыл', 'Не приехал', 'Перенести']) {
+      expect(within(alex).getByRole('button', { name: choice })).toBeEnabled();
+    }
+  }
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Заселить|проживание/i })).not.toBeInTheDocument();
 });
 
 it('сохраняет скрытые поля в полной информации, а отметка не открывает карточку поверх действия', async () => {

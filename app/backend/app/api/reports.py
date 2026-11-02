@@ -345,6 +345,12 @@ def delete_row(
     row = get_row(db, dormitory_id, row_id)
     if required_row_name(row.name):
         raise HTTPException(status.HTTP_409_CONFLICT, "Обязательную строку нельзя удалить")
+    from app.personnel_builder_dependencies import builder_dependencies
+
+    if users := builder_dependencies(
+        db, dormitory_id, {f"report:{dormitory_id}"}, row_id=str(row_id)
+    ):
+        raise HTTPException(409, "Строка используется в связях: " + ", ".join(users))
     for item in get_rows(db, dormitory_id):
         if item.id != row_id and item.formula and row.name in compile_formula(item.formula)[1]:
             raise HTTPException(status.HTTP_409_CONFLICT, "На строку ссылаются другие формулы")

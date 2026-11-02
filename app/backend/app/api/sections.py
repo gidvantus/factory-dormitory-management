@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
+from app.cell_fill import table_fill_dependencies
 from app.db import get_db
 from app.models.custom_tab import CustomTabEntry
 from app.models.hostel import Hostel
@@ -17,6 +18,7 @@ from app.models.payment import PaymentEntry
 from app.models.report import ReportCell, ReportRow
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
+from app.personnel_builder_dependencies import builder_dependencies
 from app.report_defaults import DEFAULT_REPORT_FORMULA, required_row_name
 from app.section_state import SECTIONS, locked_dormitory, section_parents, section_status
 from app.tab_catalog import normalized_name
@@ -113,6 +115,16 @@ def metadata(db: Session, dormitory_id: int) -> list[SectionResponse]:
                 + ", ".join(dependencies)
                 + ". Измените связь или скройте вкладку."
             )
+        elif used := table_fill_dependencies(db, dormitory_id, set(keys)):
+            reason = "Используется для заполнения ячеек: " + ", ".join(used)
+        elif used := builder_dependencies(
+            db,
+            dormitory_id,
+            {f"dorm:{dormitory_id}:{key}" for key in keys}
+            | ({f"report:{dormitory_id}"} if "report" in keys else set())
+            | ({f"places:{dormitory_id}"} if "places" in keys else set()),
+        ):
+            reason = "Используется в персонале: " + ", ".join(used)
         result.append(
             SectionResponse(
                 key=key,

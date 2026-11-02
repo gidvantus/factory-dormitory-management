@@ -8,6 +8,7 @@ from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dashboard_block import DashboardBlock, DashboardLayout
 from app.models.document import Document
 from app.models.dormitory import Dormitory
+from app.models.dormitory_history import DormitoryDataEvent
 from app.models.dormitory_template import DormitoryTemplate
 from app.models.hostel import Hostel, HostelCell
 from app.models.import_job import ImportJob
@@ -29,6 +30,7 @@ from app.models.personnel import (
     PersonnelBinding,
     PersonnelPreferences,
 )
+from app.models.personnel_builder import PersonnelBuilder
 from app.models.recovery_request import RecoveryRequest
 from app.models.report import ReportCell, ReportRow
 from app.models.report_readiness import ReportReadiness
@@ -55,6 +57,7 @@ __all__ = [
     "DashboardLayout",
     "Document",
     "Dormitory",
+    "DormitoryDataEvent",
     "DormitoryTemplate",
     "Employee",
     "EmployeeAlias",
@@ -77,6 +80,7 @@ __all__ = [
     "OutflowReason",
     "PaymentEntry",
     "PersonnelBinding",
+    "PersonnelBuilder",
     "PersonnelInflow",
     "PersonnelOutflow",
     "PersonnelPreferences",

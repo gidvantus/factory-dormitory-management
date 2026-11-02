@@ -8,12 +8,22 @@ from app.models.table_column import TableColumn
 from app.schemas.custom_tab import TabOptions
 from app.table_data import columns_for
 
+ARCHIVE_OPTIONS = TabOptions(
+    period_mode="range", add_row=False, clear_list=False, row_actions=False, show_dates=True
+)
+
 
 def options_for(tab: CustomTab) -> TabOptions:
+    if tab.kind == "archive":
+        return ARCHIVE_OPTIONS.model_copy()
     return TabOptions.model_validate(tab.options or {})
 
 
 def validate_options(db: Session, tab: CustomTab, options: TabOptions) -> None:
+    if tab.kind == "archive":
+        if options != ARCHIVE_OPTIONS:
+            raise HTTPException(422, "У архива постоянные столбцы: Дата, Действие и Автор")
+        return
     if options.date_column_id is not None:
         column = db.get(TableColumn, options.date_column_id)
         if (
@@ -35,6 +45,10 @@ def validate_options(db: Session, tab: CustomTab, options: TabOptions) -> None:
 
 def initialize_options(db: Session, tab: CustomTab, options: TabOptions) -> None:
     """Новая вкладка сразу получает основу для выбранного периода/календаря."""
+    if tab.kind == "archive":
+        tab.options = ARCHIVE_OPTIONS.model_dump()
+        tab.table_created = True
+        return
     if options.date_column_id is not None:
         raise HTTPException(422, "В новой вкладке столбец даты создаётся автоматически")
     if options.table_format == "calendar" or options.period_mode != "none":

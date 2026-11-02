@@ -304,6 +304,7 @@ function OutflowContent({
         <p role="alert">
           {error}{' '}
           <button
+            className="link-button"
             type="button"
             onClick={() => {
               setStatus('loading');

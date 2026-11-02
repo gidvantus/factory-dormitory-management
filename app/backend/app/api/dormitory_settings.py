@@ -13,6 +13,7 @@ from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.api.custom_tabs import RESERVED_NAMES, tab_responses
 from app.api.sections import metadata, section_keys
 from app.api.table_columns import prepare_options
+from app.cell_fill import assign_fill, refresh_copies, validate_fills
 from app.custom_tab_options import (
     initialize_options,
     options_for,
@@ -24,7 +25,7 @@ from app.models.custom_tab import CustomTab
 from app.models.report import ReportRow
 from app.models.table_column import TableColumn
 from app.schemas.custom_tab import CreateTabRequest, TabOptions
-from app.schemas.table_column import ColumnRequest, ColumnResponse
+from app.schemas.table_column import CellFill, ColumnRequest, ColumnResponse
 from app.section_state import (
     SECTIONS,
     locked_dormitory,
@@ -158,13 +159,18 @@ def read_settings(
     return result
 
 
-def save_table(db: Session, dormitory_id: int, key: str, payload: TableSetting) -> None:
+def save_table(
+    db: Session, dormitory_id: int, key: str, payload: TableSetting
+) -> tuple[list[tuple[TableColumn, CellFill | None]], dict[int, int]]:
     require_writable_table(db, dormitory_id, key)
     existing = {col.id: col for col in columns_for(db, dormitory_id, key)}
     ids = [col.id for col in payload.columns if col.id is not None]
     if len(set(ids)) != len(ids) or set(ids) != existing.keys():
         raise HTTPException(409, "Список столбцов изменился. Обновите настройки.")
     names: set[str] = set()
+    fills: list[tuple[TableColumn, CellFill | None]] = []
+    mapping: dict[int, int] = {}
+    temporary: list[tuple[int, TableColumn]] = []
     for position, item in enumerate(payload.columns):
         if not item.archived:
             name = normalized_name(item.name)
@@ -177,7 +183,11 @@ def save_table(db: Session, dormitory_id: int, key: str, payload: TableSetting) 
                 raise HTTPException(
                     409, "Тип существующего столбца нельзя изменить. Создайте новый."
                 )
-            if item.archived and not column.archived and (used := column_dependencies(db, column)):
+            if (
+                item.archived
+                and not column.archived
+                and (used := column_dependencies(db, column, include_fill=False))
+            ):
                 raise HTTPException(
                     409, f"Столбец «{column.name}» используется в отчёте: {', '.join(used)}"
                 )
@@ -199,6 +209,12 @@ def save_table(db: Session, dormitory_id: int, key: str, payload: TableSetting) 
             position,
             item.archived,
         )
+        if "fill" in item.model_fields_set:
+            fills.append((column, item.fill))
+        if item.client_id is not None:
+            if item.id is not None or any(key == item.client_id for key, _ in temporary):
+                raise HTTPException(422, "Некорректный временный идентификатор столбца")
+            temporary.append((item.client_id, column))
     if key.startswith("custom_"):
         tab = db.get(CustomTab, int(key.removeprefix("custom_")))
         assert tab is not None
@@ -217,6 +233,8 @@ def save_table(db: Session, dormitory_id: int, key: str, payload: TableSetting) 
                 )
             )
     db.flush()
+    mapping.update({key: column.id for key, column in temporary})
+    return fills, mapping
 
 
 @router.put("")
@@ -314,13 +332,24 @@ def write_settings(
             if item.is_active:
                 tab.is_active = True
         db.flush()
+        pending_fills: list[tuple[TableColumn, CellFill | None]] = []
+        column_mapping: dict[int, int] = {}
         for table in payload.tables:
             key = aliases.get(table.key, table.key)
             if key not in DEFAULT_COLUMNS and key not in by_key:
                 raise HTTPException(422, "Таблица не найдена")
             if key in DEFAULT_COLUMNS:
                 ensure_columns(db, dormitory_id, key)
-            save_table(db, dormitory_id, key, table)
+            fills, mapping = save_table(db, dormitory_id, key, table)
+            if column_mapping.keys() & mapping.keys():
+                raise HTTPException(422, "Временные идентификаторы столбцов повторяются")
+            pending_fills.extend(fills)
+            column_mapping.update(mapping)
+        changed_fills = [
+            column for column, fill in pending_fills if assign_fill(column, fill, column_mapping)
+        ]
+        validate_fills(db, dormitory_id)
+        refresh_copies(db, dormitory_id, changed_fills)
         for item in payload.tabs:
             tab = by_key[aliases.get(item.key, item.key)]
             if item.options is not None:

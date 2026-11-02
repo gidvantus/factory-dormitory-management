@@ -6,24 +6,27 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.arrival_settings import effective_people
+from app.arrival_settings import active_people
 from app.models.arrival_plan import ArrivalPlan, ArrivalVisit
 from app.models.dormitory import Dormitory
 
 
 def plan_response(plan: ArrivalPlan) -> dict[str, Any]:
+    people = active_people(plan)
+    person_ids = {person["id"] for person in people}
     return {
         "id": plan.id,
         "dormitory_id": plan.dormitory_id,
         "date": plan.date,
-        "count": plan.count,
-        "names": plan.names,
-        "people": effective_people(plan),
+        "count": len(people),
+        "names": [person["full_name"] for person in people if person["full_name"]],
+        "people": people,
         "custom_values": plan.custom_values or {},
         "revision": plan.revision,
         "workflow": {
             visit.person_id: {
-                "status": visit.status,
+                # Прежние отметки заселения показываем как прибытие; история и связи сохраняются.
+                "status": "arrived" if visit.status == "settled" else visit.status,
                 "arrived_on": visit.arrived_on,
                 "origin": visit.origin,
                 "destination": visit.destination,
@@ -35,6 +38,7 @@ def plan_response(plan: ArrivalPlan) -> dict[str, Any]:
                 else None,
             }
             for visit in plan.visits
+            if visit.person_id in person_ids
         },
     }
 

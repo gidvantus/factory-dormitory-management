@@ -27,6 +27,7 @@ class TabOptions(BaseModel):
 class CreateTabRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
+    kind: Literal["table", "archive"] = "table"
     source_tab_id: int | None = Field(default=None, ge=1, le=2147483647)
     parent_id: int | None = Field(default=None, ge=1, le=2147483647)
     parent_section: str | None = None
@@ -59,6 +60,7 @@ class TabResponse(BaseModel):
     id: int
     dormitory_id: int
     name: str
+    kind: Literal["table", "archive"] = "table"
     parent_id: int | None = None
     parent_section: str | None = None
     is_group: bool = False
@@ -91,6 +93,9 @@ class TabEntryResponse(BaseModel):
     employee_id: str | None = None
     custom_values: dict[str, Any]
     calendar_values: dict[str, str] = Field(default_factory=dict)
+    fill_selections: dict[str, Any] = Field(default_factory=dict)
+    fill_values: dict[str, Any] = Field(default_factory=dict)
+    fill_errors: dict[str, str] = Field(default_factory=dict)
 
 
 class CalendarCellRequest(BaseModel):

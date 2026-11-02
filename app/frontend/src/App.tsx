@@ -42,6 +42,11 @@ const DashboardTariffDesignPreview = lazy(() =>
     default: module.DashboardTariffDesignPreview,
   })),
 );
+const OverviewDesignPreview = lazy(() =>
+  import('./pages/overview-preview/OverviewDesignPreview').then((module) => ({
+    default: module.OverviewDesignPreview,
+  })),
+);
 const ShopDesignPreview = lazy(() =>
   import('./pages/ShopDesignPreview').then((module) => ({
     default: module.ShopDesignPreview,
@@ -57,6 +62,11 @@ const PersonnelTabsDesignPreview = lazy(() =>
     default: module.PersonnelTabsDesignPreview,
   })),
 );
+const PersonnelTabBuilder = lazy(() =>
+  import('./pages/personnel-tab-builder/PersonnelProjectPreview').then((module) => ({
+    default: module.PersonnelProjectPreview,
+  })),
+);
 const ArrivalSettingsPreview = lazy(() =>
   import('./pages/arrival-settings-preview/ArrivalSettingsPreview').then((module) => ({
     default: module.ArrivalSettingsPreview,
@@ -70,6 +80,11 @@ const ArrivalWorkflowPreview = lazy(() =>
 const ConstructorLab = lazy(() =>
   import('./pages/constructor-lab/ConstructorLab').then((module) => ({
     default: module.ConstructorLab,
+  })),
+);
+const CellFillPreview = lazy(() =>
+  import('./pages/cell-fill-preview/CellFillPreview').then((module) => ({
+    default: module.CellFillPreview,
   })),
 );
 const ConstructorProjectPreview = lazy(() =>
@@ -91,7 +106,9 @@ const PersonnelDesignPreview = lazy(() =>
   })),
 );
 const Personnel = lazy(() =>
-  import('./workspace/Personnel').then((module) => ({ default: module.Personnel })),
+  import('./workspace/personnel/PersonnelWithBuilder').then((module) => ({
+    default: module.PersonnelWithBuilder,
+  })),
 );
 
 /**
@@ -118,6 +135,38 @@ export function App(): JSX.Element {
       <CookieConsent />
       <Routes>
         <Route path="/" element={<Landing />} />
+        <Route
+          path="/preview/cell-fill"
+          element={
+            <Suspense fallback={<p role="status">Загрузка настроек заполнения…</p>}>
+              <CellFillPreview />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/personnel-tab-builder"
+          element={
+            <Suspense fallback={<p role="status">Загрузка конструктора подвкладок…</p>}>
+              <PersonnelTabBuilder />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/overview"
+          element={
+            <Suspense fallback={<p role="status">Загрузка вариантов обзора…</p>}>
+              <OverviewDesignPreview />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/constructors-organized/*"
+          element={
+            <Suspense fallback={<p role="status">Загрузка конструкторов…</p>}>
+              <ConstructorWindows organizationDemo />
+            </Suspense>
+          }
+        />
         <Route
           path="/preview/constructors-windows-live/*"
           element={

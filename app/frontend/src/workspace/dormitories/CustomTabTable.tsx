@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DormitoryHistoryTable } from './DormitoryHistoryTable';
 import type { MutableRefObject } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { CustomTab, CustomTabRow } from '../../api/client';
@@ -196,7 +197,7 @@ function CustomTableContent({
       {error && !deleting && !clearing && (
         <p role="alert" className={styles.error}>
           {error}{' '}
-          <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+          <button className="link-button" type="button" onClick={() => setAttempt((n) => n + 1)}>
             Повторить загрузку
           </button>
         </p>
@@ -273,7 +274,12 @@ function CustomTableContent({
           </p>
           {error && <p role="alert">{error}</p>}
           <div className="dialog-actions">
-            <button type="button" disabled={busy} onClick={() => setClearing(false)}>
+            <button
+              type="button"
+              className="btn btn--ghost btn--compact"
+              disabled={busy}
+              onClick={() => setClearing(false)}
+            >
               Отмена
             </button>
             <button
@@ -336,6 +342,8 @@ export function CustomTabTable({
 }): JSX.Element {
   const [creating, setCreating] = useState(false);
   const settings = useSettingsNavigation();
+  if (tab.kind === 'archive')
+    return <DormitoryHistoryTable dormitoryId={dormitoryId} tab={tab} range={range} />;
   if (tab.table_created)
     return (
       <TableColumnsProvider

@@ -326,6 +326,7 @@ function InflowContent({
         <p role="alert">
           {error}{' '}
           <button
+            className="link-button"
             type="button"
             onClick={() => {
               setStatus('loading');
