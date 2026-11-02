@@ -4,7 +4,15 @@ from datetime import date as CalendarDate
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictStr,
+    field_validator,
+    model_validator,
+)
 
 
 class StrictModel(BaseModel):
@@ -58,11 +66,27 @@ class NoteInput(StrictModel):
     text: str = Field(min_length=1, max_length=1500)
 
 
+class ArrivalPerson(StrictModel):
+    id: UUID
+    full_name: str = Field(default="", max_length=255)
+    custom_values: dict[str, StrictStr | StrictBool] = Field(default_factory=dict, max_length=240)
+
+    @field_validator("full_name")
+    @classmethod
+    def valid_name(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("Недопустимый символ в ФИО")
+        return " ".join(value.split())
+
+
 class ArrivalInput(StrictModel):
     date: CalendarDate
     dormitory_id: int = Field(ge=1)
     count: int = Field(ge=1, le=10000, strict=True)
     names: list[str] = Field(default_factory=list, max_length=10000)
+    people: list[ArrivalPerson] | None = Field(default=None, max_length=10000)
+    custom_values: dict[str, StrictStr | StrictBool] = Field(default_factory=dict, max_length=240)
+    settings_revision: int | None = Field(default=None, ge=0, strict=True)
 
     @field_validator("names")
     @classmethod
@@ -76,6 +100,17 @@ class ArrivalInput(StrictModel):
     def valid_count(self) -> "ArrivalInput":
         if len(self.names) > self.count:
             raise ValueError("Количество ФИО не должно превышать количество приезжающих")
+        if self.people is not None:
+            if len(self.people) != self.count:
+                raise ValueError("Число строк людей должно совпадать с количеством человек")
+            if len({person.id for person in self.people}) != len(self.people):
+                raise ValueError("Идентификаторы людей должны отличаться")
+            names = [person.full_name for person in self.people if person.full_name]
+            if "names" in self.model_fields_set and self.names != names:
+                raise ValueError("ФИО должны совпадать со строками людей")
+            self.names = names
+            if self.settings_revision is None:
+                raise ValueError("Передайте ревизию настроек полей")
         return self
 
 
@@ -121,6 +156,20 @@ class EmployeeColumnFilter(StrictModel):
         if value == "shift_decision":
             raise ValueError("Фильтр по решению об окончании вахты больше не поддерживается")
         return value
+
+
+class PersonnelExportInput(StrictModel):
+    name: str = Field(default="Выбранные сотрудники", min_length=1, max_length=120)
+    employee_ids: list[UUID] = Field(min_length=1, max_length=5000)
+    columns: list[list[int]] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def export_limits(self) -> "PersonnelExportInput":
+        if len(set(self.employee_ids)) != len(self.employee_ids):
+            raise ValueError("Сотрудники в выгрузке не должны повторяться")
+        if any(not ids or len(ids) > 1000 or any(id < 1 for id in ids) for ids in self.columns):
+            raise ValueError("Некорректный столбец выгрузки")
+        return self
 
 
 class SavedList(StrictModel):

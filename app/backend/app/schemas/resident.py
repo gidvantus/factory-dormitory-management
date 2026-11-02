@@ -2,7 +2,7 @@
 
 import re
 from datetime import date
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -44,6 +44,7 @@ class ResidentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     custom_values: dict[str, str | bool | int | float | None] = Field(default_factory=dict)
+    arrival_source: dict[str, Any] | None = None
 
     id: int
     employee_id: str | None = None

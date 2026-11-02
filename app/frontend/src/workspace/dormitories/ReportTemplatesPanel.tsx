@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { api, ApiError } from '../../api/client';
 import type { ReportTemplate, ReportTemplateDetail } from '../../api/client';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
 import styles from './Dormitories.module.css';
 
 function TemplatePreview({
@@ -76,9 +76,9 @@ function TemplatePreview({
         </>
       )}
       <div className="dialog-actions">
-        <button type="button" className="btn btn--ghost btn--compact" onClick={onClose}>
+        <ModalCancelButton onClick={onClose} type="button" className="btn btn--ghost btn--compact">
           Закрыть
-        </button>
+        </ModalCancelButton>
       </div>
     </Modal>
   );

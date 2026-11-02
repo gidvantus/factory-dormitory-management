@@ -119,6 +119,10 @@ describe('общежития', () => {
     expect(screen.getByLabelText('Название общежития')).toHaveFocus();
     expect(create).not.toHaveBeenCalled();
     await user.type(screen.getByLabelText('Название общежития'), 'Несохранённое');
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await user.keyboard('{Escape}');
+    expect(screen.getByLabelText('Название общежития')).toHaveValue('Несохранённое');
+    confirm.mockReturnValue(true);
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByTestId('create-dormitory-button')).toHaveFocus();

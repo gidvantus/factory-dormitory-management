@@ -1,7 +1,7 @@
 """Модели таблиц."""
 
 from app.models.activation import ActivationToken
-from app.models.arrival_plan import ArrivalPlan
+from app.models.arrival_plan import ArrivalPlan, ArrivalSettings, ArrivalVisit
 from app.models.audit import AuditEvent
 from app.models.base import Base
 from app.models.custom_tab import CustomTab, CustomTabEntry
@@ -45,6 +45,8 @@ __all__ = [
     "ActivationToken",
     "ArchiveEntry",
     "ArrivalPlan",
+    "ArrivalSettings",
+    "ArrivalVisit",
     "AuditEvent",
     "Base",
     "CustomTab",

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { personnelApi } from '../../api/personnel';
 import type { Binding, SourceTable } from '../../api/personnel';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
+import { useEditorPreview } from '../../components/EditorSurface';
 import { message } from './helpers';
 import s from './Personnel.module.css';
 
@@ -33,6 +34,7 @@ export function BindingDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
+  useEditorPreview('binding', { fields });
   useEffect(() => {
     onBusyChange?.(busy);
     return () => onBusyChange?.(false);
@@ -120,9 +122,9 @@ export function BindingDialog({
         </p>
       )}
       <div className={s.actions}>
-        <button type="button" disabled={busy} onClick={onClose}>
+        <ModalCancelButton onClick={onClose} type="button" disabled={busy}>
           Отмена
-        </button>
+        </ModalCancelButton>
         <button className={s.primary} disabled={busy || !data}>
           {busy ? 'Сохраняем…' : 'Сохранить связь'}
         </button>

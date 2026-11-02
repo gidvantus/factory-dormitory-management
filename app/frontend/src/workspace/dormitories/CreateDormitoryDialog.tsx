@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import type { FormEvent, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -11,7 +11,8 @@ import type {
   StructureTemplateDetail,
 } from '../../api/client';
 import { DormitoryTabPicker } from './DormitoryTabPicker';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
+import { EditorSurfaceContext } from '../../components/EditorSurface';
 import styles from './Dormitories.module.css';
 import creationStyles from './CreateDormitoryDialog.module.css';
 import { standardTabs } from './tabStructure';
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export function CreateDormitoryDialog({ onClose, onCreated, triggerRef }: Props): JSX.Element {
+  const inline = useContext(EditorSurfaceContext)?.inline ?? false;
   const [name, setName] = useState('');
   const [clientName, setClientName] = useState('');
   const [templateId, setTemplateId] = useState('');
@@ -152,6 +154,7 @@ export function CreateDormitoryDialog({ onClose, onCreated, triggerRef }: Props)
   }
 
   useEffect(() => {
+    if (inline) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const trigger = triggerRef.current;
@@ -159,7 +162,7 @@ export function CreateDormitoryDialog({ onClose, onCreated, triggerRef }: Props)
       document.body.style.overflow = previousOverflow;
       trigger?.focus({ preventScroll: true });
     };
-  }, [triggerRef]);
+  }, [triggerRef, inline]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -265,7 +268,7 @@ export function CreateDormitoryDialog({ onClose, onCreated, triggerRef }: Props)
     }
   }
 
-  return createPortal(
+  const content = (
     <Modal
       title="Создать общежитие"
       testId="create-dormitory-modal"
@@ -538,9 +541,14 @@ export function CreateDormitoryDialog({ onClose, onCreated, triggerRef }: Props)
           </p>
         )}
         <div className={`dialog-actions ${creationStyles.actions}`}>
-          <button type="button" className="btn btn--ghost" disabled={saving} onClick={onClose}>
+          <ModalCancelButton
+            onClick={onClose}
+            type="button"
+            className="btn btn--ghost"
+            disabled={saving}
+          >
             Отмена
-          </button>
+          </ModalCancelButton>
           <button
             type="submit"
             className="btn btn--primary"
@@ -557,7 +565,7 @@ export function CreateDormitoryDialog({ onClose, onCreated, triggerRef }: Props)
           </button>
         </div>
       </form>
-    </Modal>,
-    document.body,
+    </Modal>
   );
+  return inline ? content : createPortal(content, document.body);
 }

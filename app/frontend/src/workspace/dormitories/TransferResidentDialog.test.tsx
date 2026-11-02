@@ -117,6 +117,7 @@ it('показывает несовпадающие столбцы, требуе
     'Т/н: В новом общежитии нет этого столбца',
   );
   expect(within(dialog).getByRole('button', { name: 'Перевести' })).toBeDisabled();
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
   await user.click(within(dialog).getByRole('button', { name: 'Отмена' }));
   expect(transfer).not.toHaveBeenCalled();
   expect(trigger).toHaveFocus();

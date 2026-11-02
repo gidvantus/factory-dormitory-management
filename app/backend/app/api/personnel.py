@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,6 +17,7 @@ from app.access import (
     scoped_dormitories,
 )
 from app.api.organization import Membership
+from app.arrival_settings import settings_response
 from app.db import get_db
 from app.models.custom_tab import CustomTabEntry
 from app.models.dormitory import Dormitory
@@ -51,6 +52,7 @@ from app.personnel import (
     today,
     workspace,
 )
+from app.personnel_export import export_people
 from app.schemas.inflow import UpdateInflowRequest
 from app.schemas.outflow import UpdateOutflowRequest
 from app.schemas.personnel import (
@@ -58,6 +60,7 @@ from app.schemas.personnel import (
     EmployeeUpdate,
     IdentityFields,
     NoteInput,
+    PersonnelExportInput,
     PlanInput,
     PlanUpdate,
     PreferencesInput,
@@ -89,7 +92,24 @@ def dormitory_scope(db: Session, membership: Membership) -> list[int]:
 
 @router.get("")
 def get_workspace(user: SubscribedUser, membership: Membership, db: DbSession) -> dict[str, Any]:
-    return workspace(db, user, dormitory_scope(db, membership))
+    result = workspace(db, user, dormitory_scope(db, membership))
+    result["arrival_settings"] = settings_response(db, membership.organization_id)
+    return result
+
+
+@router.post("/export")
+def export_selected(
+    payload: PersonnelExportInput, user: SubscribedUser, membership: Membership, db: DbSession
+) -> Response:
+    data = workspace(db, user, dormitory_scope(db, membership))
+    return Response(
+        export_people(data, payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="personnel-{today()}.xlsx"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.post("/check")

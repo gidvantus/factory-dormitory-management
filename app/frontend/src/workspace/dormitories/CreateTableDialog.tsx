@@ -2,7 +2,8 @@ import { useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { ColumnInput, ColumnKind, CustomTab } from '../../api/client';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
+import { useEditorPreview } from '../../components/EditorSurface';
 import { columnKinds } from './columnKinds';
 import formStyles from './ConfigurableColumns.module.css';
 import styles from './CreateTableDialog.module.css';
@@ -31,6 +32,7 @@ export function CreateTableDialog({
   const id = useId();
   const nextKey = useRef(1);
   const [columns, setColumns] = useState<DraftColumn[]>([emptyColumn(0)]);
+  useEditorPreview('create-table', { columns });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   function update(key: number, patch: Partial<ColumnInput>): void {
@@ -211,9 +213,9 @@ export function CreateTableDialog({
           </p>
         )}
         <div className={formStyles.actions}>
-          <button type="button" disabled={saving} onClick={onClose}>
+          <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
             Отмена
-          </button>
+          </ModalCancelButton>
           <button type="submit" disabled={saving || !columns.length}>
             {saving ? 'Создаём…' : 'Создать таблицу'}
           </button>

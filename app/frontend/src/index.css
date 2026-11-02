@@ -522,6 +522,88 @@ input {
   color: var(--color-text);
 }
 
+/* Выбор карточки, раздела и сегмента использует общую палитру кнопок.
+   Модули страниц задают только расположение и размеры содержимого. */
+.btn--choice {
+  white-space: normal;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+}
+
+.btn--choice:hover:not(:disabled) {
+  background: var(--color-bg-alt);
+  border-color: var(--color-accent);
+}
+
+.btn--choice[aria-pressed='true'] {
+  background: var(--mint-100);
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.btn--quiet,
+.btn--segment {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-3xs);
+  color: var(--color-text-muted);
+}
+
+.btn--quiet:hover:not(:disabled),
+.btn--segment:hover:not(:disabled) {
+  background: var(--color-bg-alt);
+  color: var(--color-text);
+}
+
+.btn--quiet[aria-pressed='true'],
+.btn--quiet[aria-current='step'] {
+  background: var(--mint-100);
+  border-color: var(--mint-200);
+  color: var(--color-accent-hover);
+}
+
+.btn--segment[aria-pressed='true'] {
+  background: var(--color-bg-surface);
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+}
+
+.btn--tab {
+  min-height: 0;
+  padding: 0 0 var(--gap-10);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--color-text-muted);
+}
+
+.btn--tab[aria-pressed='true'] {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-accent-hover);
+}
+
+.btn--stepper {
+  min-height: var(--control-h-md);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-3xs);
+  background: var(--color-bg-alt);
+  color: var(--color-text);
+}
+
+.btn--stepper:hover:not(:disabled) {
+  background: var(--mint-100);
+}
+
+.btn:focus-visible {
+  outline: var(--focus-outline-width) solid var(--color-focus);
+  outline-offset: 3px;
+}
+
 /* Нажатие гасит подъём, но не меняет цвет: так состояние читается и у
    основного, и у опасного, и у второстепенного варианта. */
 .btn:active:not(:disabled) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { CatalogDormitory } from '../api/dashboardBlocks';
@@ -9,7 +9,8 @@ import type {
   StatisticsData,
   StatisticsReport,
 } from '../api/statistics';
-import { Modal } from '../components/Modal';
+import { Modal, ModalCancelButton } from '../components/Modal';
+import { EditorSurfaceContext } from '../components/EditorSurface';
 import { currentMonth, formatDate, rangeError } from './dashboard/dates';
 import type { DateRange } from './dashboard/dates';
 import { usePageRefresh } from './usePageRefresh';
@@ -114,9 +115,14 @@ function ReportDialog({
           </p>
         )}
         <div className={styles.modalFooter}>
-          <button type="button" className={styles.secondary} disabled={busy} onClick={onClose}>
+          <ModalCancelButton
+            onClick={onClose}
+            type="button"
+            className={styles.secondary}
+            disabled={busy}
+          >
             Отмена
-          </button>
+          </ModalCancelButton>
           <button className={styles.primary} disabled={!name.trim() || busy}>
             {busy ? 'Сохранение…' : report ? 'Сохранить' : 'Создать отчёт'}
           </button>
@@ -126,7 +132,11 @@ function ReportDialog({
   );
 }
 
-export function Statistics(): JSX.Element {
+export function Statistics({
+  basePath = '/cabinet/statistics',
+  initialRange,
+}: { basePath?: string; initialRange?: DateRange } = {}): JSX.Element {
+  const windowed = useContext(EditorSurfaceContext)?.windowed ?? false;
   const { reportId } = useParams<{ reportId: string }>();
   const navigate = useNavigate();
   const refresh = usePageRefresh();
@@ -142,7 +152,7 @@ export function Statistics(): JSX.Element {
   const [data, setData] = useState<StatisticsData | null>(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState('');
-  const [range, setRange] = useState<DateRange>(() => currentMonth());
+  const [range, setRange] = useState<DateRange>(() => initialRange ?? currentMonth());
   const [rangeMode, setRangeMode] = useState('month');
   const [dormitory, setDormitory] = useState('all');
   const [search, setSearch] = useState('');
@@ -269,7 +279,7 @@ export function Statistics(): JSX.Element {
     setError('');
     try {
       await statisticsApi.remove(report.id, report.revision);
-      navigate('/cabinet/statistics');
+      navigate(basePath);
     } catch (caught) {
       setError(errorMessage(caught));
       setDeleting(null);
@@ -291,6 +301,20 @@ export function Statistics(): JSX.Element {
         .toLocaleLowerCase('ru-RU')
         .includes(search.toLocaleLowerCase('ru-RU')),
   );
+  function editorSurface(content: JSX.Element): JSX.Element {
+    return windowed ? (
+      <Modal
+        title="Настроить блок статистики"
+        testId="statistics-block-window"
+        onClose={() => setEditor(null)}
+        closeDisabled={busy}
+      >
+        {content}
+      </Modal>
+    ) : (
+      content
+    );
+  }
   return (
     <section className={`${styles.page} ${styles.live}`} aria-label="Статистика">
       {error && (
@@ -314,30 +338,32 @@ export function Statistics(): JSX.Element {
           Загрузка отчётов…
         </p>
       ) : reportId && !report ? (
-        <Link className={styles.back} to="/cabinet/statistics">
+        <Link className={styles.back} to={basePath}>
           <Icon name="arrow" />
           Все отчёты
         </Link>
       ) : editor && report ? (
-        <StatisticsEditor
-          key={editor.id}
-          initial={editor}
-          catalog={catalog}
-          range={range}
-          busy={busy}
-          onRefresh={() => setSourceAttempt((current) => current + 1)}
-          onCancel={() => setEditor(null)}
-          onSave={(block) =>
-            saveBlocks(
-              report.blocks.some((item) => item.id === block.id)
-                ? report.blocks.map((item) => (item.id === block.id ? block : item))
-                : [...report.blocks, block],
-            )
-          }
-        />
+        editorSurface(
+          <StatisticsEditor
+            key={editor.id}
+            initial={editor}
+            catalog={catalog}
+            range={range}
+            busy={busy}
+            onRefresh={() => setSourceAttempt((current) => current + 1)}
+            onCancel={() => setEditor(null)}
+            onSave={(block) =>
+              saveBlocks(
+                report.blocks.some((item) => item.id === block.id)
+                  ? report.blocks.map((item) => (item.id === block.id ? block : item))
+                  : [...report.blocks, block],
+              )
+            }
+          />,
+        )
       ) : report ? (
         <>
-          <Link className={styles.back} to="/cabinet/statistics">
+          <Link className={styles.back} to={basePath}>
             <Icon name="arrow" />
             Все отчёты
           </Link>
@@ -647,11 +673,7 @@ export function Statistics(): JSX.Element {
           )}
           <div className={styles.reportCards}>
             {filtered.map((item) => (
-              <Link
-                key={item.id}
-                to={`/cabinet/statistics/${item.id}`}
-                className={styles.reportCard}
-              >
+              <Link key={item.id} to={`${basePath}/${item.id}`} className={styles.reportCard}>
                 <div className={styles.reportCardTop}>
                   <span className={styles.reportIcon}>
                     <Icon name={item.blocks[0]?.display ?? 'layers'} />
@@ -722,7 +744,7 @@ export function Statistics(): JSX.Element {
             if (dialog === 'create') {
               const created = await statisticsApi.create(input);
               setDialog(null);
-              navigate(`/cabinet/statistics/${created.id}`);
+              navigate(`${basePath}/${created.id}`);
             } else {
               await persist(input);
               setDialog(null);

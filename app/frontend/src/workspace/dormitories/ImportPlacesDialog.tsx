@@ -9,7 +9,7 @@ import {
   uploadPlacesImport,
 } from '../../api/client';
 import type { PlacesImportApplied, PlacesImportIssue, PlacesImportResult } from '../../api/client';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
 import styles from './ImportPlacesDialog.module.css';
 
 interface Props {
@@ -245,9 +245,13 @@ export function ImportPlacesDialog({
             {monthTitle(applied.month)}.
           </p>
           <div className="dialog-actions">
-            <button type="button" className="btn btn--primary btn--compact" onClick={onClose}>
+            <ModalCancelButton
+              onClick={onClose}
+              type="button"
+              className="btn btn--primary btn--compact"
+            >
               Готово
-            </button>
+            </ModalCancelButton>
           </div>
         </div>
       )}

@@ -32,6 +32,11 @@ const PricingDesignPreview = lazy(() =>
     default: module.PricingDesignPreview,
   })),
 );
+const PricingCalculatorPreview = lazy(() =>
+  import('./pages/pricing-calculator-preview/PricingCalculatorPreview').then((module) => ({
+    default: module.PricingCalculatorPreview,
+  })),
+);
 const DashboardTariffDesignPreview = lazy(() =>
   import('./pages/DashboardTariffDesignPreview').then((module) => ({
     default: module.DashboardTariffDesignPreview,
@@ -50,6 +55,31 @@ const PersonnelWorkspaceDesignPreview = lazy(() =>
 const PersonnelTabsDesignPreview = lazy(() =>
   import('./pages/personnel-tabs-preview/PersonnelTabsDesignPreview').then((module) => ({
     default: module.PersonnelTabsDesignPreview,
+  })),
+);
+const ArrivalSettingsPreview = lazy(() =>
+  import('./pages/arrival-settings-preview/ArrivalSettingsPreview').then((module) => ({
+    default: module.ArrivalSettingsPreview,
+  })),
+);
+const ArrivalWorkflowPreview = lazy(() =>
+  import('./pages/arrival-workflow-preview/ArrivalWorkflowPreview').then((module) => ({
+    default: module.ArrivalWorkflowPreview,
+  })),
+);
+const ConstructorLab = lazy(() =>
+  import('./pages/constructor-lab/ConstructorLab').then((module) => ({
+    default: module.ConstructorLab,
+  })),
+);
+const ConstructorProjectPreview = lazy(() =>
+  import('./pages/constructor-sandbox/ConstructorSandbox').then((module) => ({
+    default: module.ConstructorSandbox,
+  })),
+);
+const ConstructorWindows = lazy(() =>
+  import('./pages/constructor-windows/ConstructorWindows').then((module) => ({
+    default: module.ConstructorWindows,
   })),
 );
 const Statistics = lazy(() =>
@@ -88,7 +118,63 @@ export function App(): JSX.Element {
       <CookieConsent />
       <Routes>
         <Route path="/" element={<Landing />} />
+        <Route
+          path="/preview/constructors-windows-live/*"
+          element={
+            <Suspense fallback={<p role="status">Загрузка тестового кабинета…</p>}>
+              <ConstructorWindows liveResult />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/constructors-windows/*"
+          element={
+            <Suspense fallback={<p role="status">Загрузка тестового кабинета…</p>}>
+              <ConstructorWindows />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/constructors-project/*"
+          element={
+            <Suspense fallback={<p role="status">Загрузка тестового кабинета…</p>}>
+              <ConstructorProjectPreview />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/constructors"
+          element={
+            <Suspense fallback={<p role="status">Загрузка вариантов конструкторов…</p>}>
+              <ConstructorLab />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/pricing-calculator"
+          element={
+            <Suspense fallback={<p role="status">Загрузка калькулятора стоимости…</p>}>
+              <PricingCalculatorPreview />
+            </Suspense>
+          }
+        />
         <Route path="/preview/dormitory-settings" element={<DormitoryDesignPreview />} />
+        <Route
+          path="/preview/arrival-workflow"
+          element={
+            <Suspense fallback={<p role="status">Загрузка макета заселения…</p>}>
+              <ArrivalWorkflowPreview />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/arrival-settings"
+          element={
+            <Suspense fallback={<p role="status">Загрузка макета плана заездов…</p>}>
+              <ArrivalSettingsPreview />
+            </Suspense>
+          }
+        />
         <Route
           path="/preview/personnel-tabs"
           element={

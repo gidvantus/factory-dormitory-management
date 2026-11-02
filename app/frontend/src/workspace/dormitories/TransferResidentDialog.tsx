@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 
 import { api, ApiError } from '../../api/client';
 import type { Dormitory, Resident, ResidentTransferPreview } from '../../api/client';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
 import styles from './TransferResidentDialog.module.css';
 
 export function TransferResidentDialog({
@@ -231,9 +231,9 @@ export function TransferResidentDialog({
           </button>
         )}
         <div className={styles.actions}>
-          <button type="button" disabled={saving} onClick={onClose}>
+          <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
             Отмена
-          </button>
+          </ModalCancelButton>
           <button
             type="submit"
             disabled={
