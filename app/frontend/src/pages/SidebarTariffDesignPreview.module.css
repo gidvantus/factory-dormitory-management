@@ -1,0 +1,147 @@
+.page {
+  background: var(--color-bg-page);
+}
+
+.container {
+  width: min(100% - var(--gutter) * 2, calc(var(--container) + var(--space-7) * 4));
+  margin-inline: auto;
+}
+
+.labBrand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.labBrand > svg {
+  width: var(--space-5);
+  height: var(--space-5);
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.labBrand > span {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.previousPreview {
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+}
+
+.stateBar,
+.stateButtons {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+  flex-wrap: wrap;
+}
+
+.stateBar {
+  justify-content: space-between;
+  gap: var(--gap-16);
+  margin-block: var(--gap-24);
+}
+
+.stateButtons > span {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-right: var(--gap-8);
+}
+
+/*
+ * Каркас панели: те же классы `.shell`/`.sidebar`, что в кабинете, поэтому
+ * карточка видит ровно те правила, что в продукте. От продукта отличаются только
+ * ширина кадра и высота панели — она не липнет к окну и не занимает весь экран.
+ */
+.page .frame {
+  display: block;
+  flex: none;
+  width: 248px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-alt);
+  overflow: hidden;
+}
+
+.page .frame[data-width='narrow'] {
+  width: 220px;
+}
+
+.page .frame > aside {
+  position: relative;
+  top: auto;
+  height: 620px;
+}
+
+.stage {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap-28);
+  flex-wrap: wrap;
+}
+
+.aside {
+  flex: 1 1 320px;
+  min-width: 0;
+  max-width: 46ch;
+  padding: var(--gap-20);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.asideTitle {
+  font: 900 var(--text-h3) / var(--leading-snug) var(--font-display);
+}
+
+.asideBrief {
+  margin-top: var(--gap-8);
+  color: var(--mint-700);
+  font-weight: 800;
+  font-size: var(--text-xs);
+}
+
+.asideNote {
+  margin-top: var(--gap-10);
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
+  color: var(--color-text-body);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap-12);
+  margin-top: var(--gap-18);
+  padding-top: var(--gap-16);
+  border-top: 1px solid var(--color-border);
+}
+
+.facts dt {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.facts dd {
+  margin-top: var(--gap-4);
+  font-size: var(--text-xs);
+  color: var(--color-text-body);
+  overflow-wrap: anywhere;
+}
+
+.footerNote {
+  max-width: 78ch;
+  margin-block: var(--gap-24) var(--gap-28);
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
+  color: var(--color-text-muted);
+}

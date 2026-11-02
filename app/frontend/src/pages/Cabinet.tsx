@@ -5,6 +5,7 @@ import { useSession } from '../auth/SessionProvider';
 import { SubscriptionProvider } from '../auth/SubscriptionProvider';
 import { TrialProvider, useTrial } from '../auth/TrialProvider';
 import { subscribeToTrialExpired } from '../auth/trial';
+import { SidebarTariff } from '../workspace/SidebarTariff';
 import { SolutionsProvider, useSolutions } from '../workspace/SolutionsProvider';
 import { JOURNAL_CODE, TELEGRAM_NOTIFICATIONS_CODE } from '../workspace/solutions';
 import { userInitials } from '../workspace/userInitials';
@@ -232,7 +233,9 @@ function CabinetShell(): JSX.Element {
           </svg>
           <span className={styles['brand-name']}>Домовой</span>
         </Link>
-        <p className={styles['brand-note']}>Учёт проживающих в общежитиях</p>
+        {/* Подписи «Учёт проживающих в общежитиях» здесь больше нет: место в
+            панели отдано карточке тарифа (#124), а отступ между логотипом и
+            заголовком меню держит сам заголовок — `margin-top` в `.nav-label`. */}
         <nav aria-label="Основные разделы">
           <p className={styles['nav-label']}>Рабочее пространство</p>
           <ul className={styles['nav-list']}>
@@ -361,6 +364,10 @@ function CabinetShell(): JSX.Element {
           </ul>
         </nav>
         <div className={styles['sidebar-bottom']}>
+          {/* Карточка тарифа — первый блок нижней части панели: она отвечает на
+              вопрос «до какого числа оплачено», и до неё же дотягивается взгляд
+              после меню. Читает ту же подписку, что обзор, — запроса не добавляет. */}
+          <SidebarTariff />
           <nav className={styles['account-nav']} aria-label="Учётная запись">
             <NavLink
               className={styles['nav-link']}

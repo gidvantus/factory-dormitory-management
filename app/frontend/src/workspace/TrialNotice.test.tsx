@@ -123,10 +123,10 @@ describe('предупреждение о сроке тарифа', () => {
     expect(link).toHaveTextContent('Открыть тарифы');
   });
 
-  it('за 15 дней полосы нет: остаток виден только в ленте тарифа', async () => {
+  it('за 15 дней полосы нет: остаток виден только в карточке панели', async () => {
     mountOverview(RUNNING, subscription(15));
 
-    expect(await screen.findByTestId('dashboard-tariff-ends')).toHaveTextContent(
+    expect(await screen.findByTestId('sidebar-tariff-ends')).toHaveTextContent(
       'Оплачен до 02.11.2026',
     );
     expect(screen.queryByTestId('tariff-notice')).not.toBeInTheDocument();
@@ -188,20 +188,21 @@ describe('закрытый кабинет', () => {
     expect(block).toHaveAttribute('data-trial', 'true');
     expect(block).toHaveAttribute('data-locked', 'true');
     expect(within(block).getByTestId('tariff-expired-notice')).toBeInTheDocument();
-    expect(within(block).getByTestId('dashboard-tariff')).toBeInTheDocument();
+    // Карточка тарифа переехала в панель (#124): в блоке обзора её больше нет, а
+    // закрытость кабинета она называет сама, своим состоянием `locked`.
+    expect(within(block).queryByTestId('sidebar-tariff')).not.toBeInTheDocument();
+    expect(screen.getByTestId('sidebar-tariff')).toHaveAttribute('data-access', 'locked');
   });
 });
 
 describe('пробный период на обзоре', () => {
-  it('на идущем периоде показывает остаток дней и дату окончания в блоке «Ваш тариф»', async () => {
+  it('на идущем периоде показывает остаток дней и дату окончания в карточке панели', async () => {
     mountOverview(RUNNING, NO_TARIFF);
 
-    const note = await screen.findByTestId('trial-days-left');
-    expect(note).toHaveTextContent('Пробный период: осталось 12 дней, до 01.11.2026');
-    // Срок периода — часть «Вашего тарифа», а не отдельная строка над блоком.
-    expect(within(screen.getByTestId('dashboard-tariff')).getByTestId('trial-days-left')).toBe(
-      note,
-    );
+    const note = await screen.findByTestId('sidebar-tariff-trial-days');
+    expect(note).toHaveTextContent('осталось 12 дней, до 01.11.2026');
+    // Срок периода — часть карточки тарифа в панели, а не отдельная строка обзора.
+    expect(screen.getByTestId('sidebar-tariff')).toContainElement(note);
     expect(screen.queryByTestId('tariff-notice')).not.toBeInTheDocument();
   });
 
@@ -210,30 +211,31 @@ describe('пробный период на обзоре', () => {
 
     expect(await screen.findByTestId('workspace-overview')).toBeInTheDocument();
     expect(screen.queryByTestId('tariff-expired-notice')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('trial-days-left')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sidebar-tariff-trial-days')).not.toBeInTheDocument();
   });
 
   it('читает состояние отдельной ручкой, а не из профиля', async () => {
     const fetchMock = mountOverview(RUNNING, NO_TARIFF);
 
-    await screen.findByTestId('trial-days-left');
+    await screen.findByTestId('sidebar-tariff-trial-days');
 
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/api/trial'))).toBe(true);
   });
 
-  it('на идущем пробном периоде выделяет блок с остатком дней', async () => {
+  it('на идущем пробном периоде выделяет блок обзора, а срок показывает карточка панели', async () => {
     mountOverview(RUNNING, NO_TARIFF);
 
-    await screen.findByTestId('trial-days-left');
+    const days = await screen.findByTestId('sidebar-tariff-trial-days');
 
     const block = screen.getByTestId('trial-tariff-block');
     expect(block).toHaveAttribute('data-trial', 'true');
     expect(block).toHaveAttribute('data-locked', 'false');
-    expect(within(block).getByTestId('trial-days-left')).toBeInTheDocument();
+    expect(within(block).queryByTestId('sidebar-tariff-trial-days')).not.toBeInTheDocument();
+    expect(screen.getByTestId('sidebar-tariff')).toContainElement(days);
   });
 });
 
-describe('оплаченные периоды под лентой тарифа', () => {
+describe('оплаченные периоды под предупреждением о сроке', () => {
   it('показывает действующий и оплаченный вперёд периоды с датами', async () => {
     mountOverview(
       { ...RUNNING, is_active: false },
@@ -249,7 +251,7 @@ describe('оплаченные периоды под лентой тарифа',
   it('без оплаченного вперёд периода блока нет', async () => {
     mountOverview({ ...RUNNING, is_active: false }, subscription(5));
 
-    expect(await screen.findByTestId('dashboard-tariff-ends')).toBeInTheDocument();
+    expect(await screen.findByTestId('sidebar-tariff-ends')).toBeInTheDocument();
     expect(screen.queryByTestId('tariff-next')).not.toBeInTheDocument();
   });
 });

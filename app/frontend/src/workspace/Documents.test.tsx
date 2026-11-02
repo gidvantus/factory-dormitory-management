@@ -213,7 +213,11 @@ describe('раздел «Документы» в кабинете', () => {
 
     expect(await screen.findByTestId('documents-error')).toHaveTextContent('Внутренняя ошибка');
 
-    await user.click(screen.getByRole('button', { name: 'Повторить' }));
+    // Кнопка внутри блока ошибки: в панели кабинета с #124 есть своя «Повторить»
+    // для карточки тарифа, и поиск по всей странице нашёл бы обе.
+    await user.click(
+      within(screen.getByTestId('documents-error')).getByRole('button', { name: 'Повторить' }),
+    );
 
     expect(await screen.findByTestId('documents-row')).toBeInTheDocument();
     expect(callsTo(fetchMock, '/api/billing/invoices')).toHaveLength(2);

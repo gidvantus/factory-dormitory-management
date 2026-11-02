@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionProvider } from '../auth/SessionProvider';
 import { mockFetch } from '../test/mockFetch';
+import type { MockResponse } from '../test/mockFetch';
 import { Notifications } from '../workspace/Notifications';
 import { Cabinet } from './Cabinet';
 
@@ -15,15 +16,40 @@ const INACTIVE = {
   is_active: false,
 };
 
+/** Тарифа нет: карточка в панели показывает состояние «Тариф не выбран». */
+const NO_TARIFF = { tariff: null, ends_at: null, days_left: 0, is_expiring: false, next: null };
+
+/** Пробного периода нет: он не перебивает состояние карточки. */
+const NO_TRIAL = {
+  ends_at: null,
+  days_left: 0,
+  is_active: false,
+  locked: false,
+  member_limit: null,
+};
+
+/**
+ * Оболочка кабинета читает пробный период и подписку организации. Без этих
+ * ответов карточка тарифа в панели (#124) всегда стоит в состоянии ошибки, и
+ * тесты оболочки проверяли бы не то, что задумано.
+ */
+function shellRoutes(url: string): MockResponse | undefined {
+  if (url.endsWith('/api/trial')) return { status: 200, body: NO_TRIAL };
+  if (url.endsWith('/api/tariffs/current')) return { status: 200, body: NO_TARIFF };
+  return undefined;
+}
+
 /**
  * Оболочка кабинета монтируется без `RequireAuth`: неактивного туда штатно
  * не пускают, а плашка — страховка на случай смены состояния сессии.
  */
 function renderCabinet(profile: typeof INACTIVE): ReturnType<typeof render> {
-  mockFetch((url) =>
-    url.includes('/api/me')
-      ? { status: 200, body: profile }
-      : { status: 404, body: { detail: 'Не найдено' } },
+  mockFetch(
+    (url) =>
+      shellRoutes(url) ??
+      (url.includes('/api/me')
+        ? { status: 200, body: profile }
+        : { status: 404, body: { detail: 'Не найдено' } }),
   );
   return render(
     <MemoryRouter initialEntries={['/cabinet']}>
@@ -63,10 +89,12 @@ describe('плашка активации в кабинете', () => {
 
 describe('пункты меню учётной записи', () => {
   function renderCabinetAt(route: string): ReturnType<typeof render> {
-    mockFetch((url) =>
-      url.includes('/api/me')
-        ? { status: 200, body: { ...INACTIVE, is_active: true } }
-        : { status: 404, body: { detail: 'Не найдено' } },
+    mockFetch(
+      (url) =>
+        shellRoutes(url) ??
+        (url.includes('/api/me')
+          ? { status: 200, body: { ...INACTIVE, is_active: true } }
+          : { status: 404, body: { detail: 'Не найдено' } }),
     );
     return render(
       <MemoryRouter initialEntries={[route]}>
@@ -166,6 +194,8 @@ describe('пункт меню «Уведомления»', () => {
 
   function renderWithSolutions(isOwned: boolean): ReturnType<typeof render> {
     mockFetch((url) => {
+      const shell = shellRoutes(url);
+      if (shell) return shell;
       if (url.endsWith('/api/me')) return { status: 200, body: ACTIVE };
       if (url.endsWith('/api/solutions')) {
         return { status: 200, body: { items: [solution(isOwned)] } };
@@ -300,6 +330,7 @@ describe('пункт меню «Журнал»', () => {
               },
             };
       }
+      if (url.endsWith('/api/tariffs/current')) return { status: 200, body: NO_TARIFF };
       return { status: 404, body: { detail: 'Не найдено' } };
     });
     return render(
@@ -316,7 +347,6 @@ describe('пункт меню «Журнал»', () => {
       </MemoryRouter>,
     );
   }
-
   it('появляется у владельца с правом и ведёт на свой адрес', async () => {
     const user = userEvent.setup();
     renderNav({ owned: true });
@@ -395,6 +425,7 @@ describe('закрытый кабинет и пробный период', () =>
     mockFetch((url) => {
       if (url.endsWith('/api/me')) return { status: 200, body: ACTIVE };
       if (url.endsWith('/api/trial')) return { status: 200, body: LOCKED_TRIAL };
+      if (url.endsWith('/api/tariffs/current')) return { status: 200, body: NO_TARIFF };
       return { status: 404, body: { detail: 'Не найдено' } };
     });
     return render(
