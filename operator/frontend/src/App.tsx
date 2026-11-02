@@ -1,15 +1,17 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { RequireOperator } from './auth/RequireOperator';
-import { Home } from './pages/Home';
 import { Login } from './pages/Login';
+import { OrganizationCard } from './pages/OrganizationCard';
+import { Organizations } from './pages/Organizations';
 
 /**
  * Маршруты кабинета оператора.
  *
- * `/login` — форма входа без проверки сессии; `/` — пустая страница под
- * `RequireOperator` (аноним уезжает на `/login`); всё остальное редиректит на
- * `/`, чтобы старый адрес не давал 404.
+ * `/login` — форма входа без проверки сессии; `/` — список организаций под
+ * `RequireOperator` (аноним уезжает на `/login`); `/organizations/:id` —
+ * карточка организации под той же проверкой; всё остальное редиректит на `/`,
+ * чтобы старый адрес не давал 404.
  */
 export function App(): JSX.Element {
   return (
@@ -19,7 +21,15 @@ export function App(): JSX.Element {
         path="/"
         element={
           <RequireOperator>
-            <Home />
+            <Organizations />
+          </RequireOperator>
+        }
+      />
+      <Route
+        path="/organizations/:id"
+        element={
+          <RequireOperator>
+            <OrganizationCard />
           </RequireOperator>
         }
       />

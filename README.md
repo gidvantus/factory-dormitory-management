@@ -515,7 +515,9 @@ no-store`.
 - **Backend** — FastAPI (Python).
 - **Frontend** — React + TypeScript.
 - **Кабинет оператора** — отдельное приложение `operator/`: FastAPI без базы и
-  React + TypeScript, вход по логину и паролю из конфига.
+  React + TypeScript, вход по логину и паролю из конфига. Список и карточку
+  организаций кабинет не хранит: читает и правит он их в основном API по
+  внутренней сети с сервисным токеном `OPERATOR_SERVICE_TOKEN`.
 - **База данных** — PostgreSQL, запуск через Docker Compose.
 
 ## Структура
@@ -527,7 +529,9 @@ no-store`.
 │   └── frontend/         — React + TypeScript: src/, Dockerfile, nginx.conf
 ├── operator/
 │   ├── backend/          — FastAPI кабинета оператора: без базы, вход по логину
-│   └── frontend/         — React + TypeScript: форма входа, Dockerfile, nginx.conf
+│   │                       и прокси организаций в основной API
+│   └── frontend/         — React + TypeScript: вход, список и карточка
+│                           организации, Dockerfile, nginx.conf
 ├── caddy/                — Caddyfile: домен и сертификат (профиль tls)
 ├── docker-compose.yml    — стенд: db + api + web + bot + operator-api + operator-web
 │                           (+ caddy по профилю tls)
@@ -629,6 +633,20 @@ npm run test
 Тесты и статический анализ кабинета оператора (`pytest`, `ruff`, `mypy`) гоняются
 внутри сервиса: `docker compose exec operator-api ...` — полный список в
 `docs/operator.md`.
+
+Проверки контура «кабинет → основной API» (порт API — из `.env` стенда, по
+умолчанию 8001):
+
+```bash
+TOKEN="$(grep -E '^OPERATOR_SERVICE_TOKEN=' .env | cut -d= -f2-)"
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8001/api/platform/organizations
+curl -s -H "X-Operator-Token: $TOKEN" http://localhost:8001/api/platform/organizations
+curl -s -H "X-Operator-Token: wrong" http://localhost:8001/api/platform/organizations
+```
+
+Без заголовка, с неверным заголовком и при пустом `OPERATOR_SERVICE_TOKEN` — `401
+{"detail": "Неверный сервисный токен"}`; с верным токеном — `200` со списком
+организаций.
 
 ## Процесс работы
 
