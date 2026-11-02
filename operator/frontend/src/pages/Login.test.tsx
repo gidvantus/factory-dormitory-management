@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -65,6 +65,18 @@ describe('экран входа кабинета оператора', () => {
     expect(screen.getByTestId('operator-login-username')).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByTestId('operator-login-password')).toHaveAttribute('aria-invalid', 'true');
     expect(screen.queryByTestId('home-probe')).not.toBeInTheDocument();
+  });
+
+  it('после отказа фокус остаётся в форме — на алерте', async () => {
+    renderLogin([{ status: 401, body: { detail: 'Неверный логин или пароль' } }]);
+
+    await submitPair('operator', 'wrong');
+
+    const error = await screen.findByTestId('operator-login-error');
+    // Отправка была с кнопки: она стала `disabled` и потеряла фокус. Без
+    // возврата фокуса Tab после ошибки начинал обход страницы с шапки.
+    await waitFor(() => expect(error).toHaveFocus());
+    expect(document.querySelector('form')?.contains(document.activeElement)).toBe(true);
   });
 
   it('пустые поля не отправляют запрос и подписаны под полями', async () => {

@@ -34,7 +34,12 @@
   --color-text-placeholder: #9a958b;
   --color-accent: var(--n-sage);
   --color-accent-hover: var(--n-sage-dark);
-  --color-on-accent: #fbf9f4;
+  /* Подпись основной кнопки — тёплый чёрный, а не почти белый из макета.
+      Почти белый `#fbf9f4` на шалфее `#9ca590` даёт 2.43:1 при шрифте 14.5px/600 —
+      ниже AA (1.4.3 требует 4.5:1), axe помечает это как serious. Тёплый чёрный
+      `#262420` на том же шалфее — 6.0:1, палитра «natural neutral» не меняется.
+      Осознанное расхождение с `mockups/126/`: макет нужно синхронизировать. */
+  --color-on-accent: var(--n-ink);
   --color-focus: var(--n-sage);
   --color-danger: var(--n-brick);
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { FormEvent } from 'react';
 
@@ -54,9 +54,22 @@ export function Login(): JSX.Element {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<LoginError | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const errorRef = useRef<HTMLParagraphElement | null>(null);
 
   // Только отказ по паре (401) красит поля: сеть и 5xx оставляют их обычными.
   const rejectedPair = error?.pairRejected === true;
+
+  // После отказа фокус возвращается в форму — на сам алерт.
+  //
+  // Кнопка на время запроса получает `disabled`; браузер снимает фокус с
+  // отключённого элемента и уводит его на <body>, поэтому при отправке мышью
+  // (или Tab → Enter на кнопке) Tab после ошибки начинал обход страницы с
+  // шапки, а требование постановки — «фокус после ошибки остаётся в форме».
+  // Алерт внутри формы и с `tabIndex={-1}`: он же объявляется скринридером.
+  useEffect(() => {
+    if (error === null) return;
+    errorRef.current?.focus();
+  }, [error]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -145,7 +158,13 @@ export function Login(): JSX.Element {
             </div>
 
             {error !== null && (
-              <p className="alert alert--error" role="alert" data-testid="operator-login-error">
+              <p
+                className="alert alert--error"
+                role="alert"
+                tabIndex={-1}
+                ref={errorRef}
+                data-testid="operator-login-error"
+              >
                 {error.text}
               </p>
             )}
