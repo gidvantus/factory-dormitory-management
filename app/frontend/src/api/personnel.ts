@@ -1,4 +1,5 @@
-import { request } from './client';
+import { request, requestBlob } from './client';
+import type { Field, Settings, Value } from '../workspace/personnel/arrivals/data';
 
 export type IdentityFields = {
   full_name: string | null;
@@ -89,14 +90,66 @@ export type Plan = {
   comment: string;
 };
 export type ArrivalPlan = {
+  dormitory_name?: string;
+  is_archived?: boolean;
   id: string;
   dormitory_id: number;
   date: string;
   count: number;
   names: string[];
+  people?: { id: string; full_name: string; custom_values: Record<string, Value> }[];
+  custom_values?: Record<string, Value>;
   revision: number;
+  workflow?: Record<string, ArrivalVisit>;
 };
-export type ArrivalInput = Omit<ArrivalPlan, 'id' | 'revision'>;
+export type ArrivalRef = { plan_id: string; person_id: string; date: string; dormitory_id: number };
+export type ArrivalVisit = {
+  status: 'expected' | 'arrived' | 'no_show' | 'moved' | 'settled';
+  arrived_on: string | null;
+  origin: ArrivalRef | null;
+  destination: ArrivalRef | null;
+  resident: { id: number; dormitory_id: number } | null;
+  employee_id: string | null;
+  history: {
+    action: string;
+    at: string;
+    date: string;
+    destination?: ArrivalRef;
+    origin?: ArrivalRef;
+  }[];
+  settlement: {
+    full_name: string;
+    hostel_name: string;
+    settlement_date: string;
+    shift_start: string;
+    shift_end: string | null;
+    shift_count: number | null;
+    fields: Field[];
+    personal_values: Record<string, Value>;
+    arrival_values: Record<string, Value>;
+  } | null;
+};
+export type ArrivalWorkflowResult = { plans: ArrivalPlan[]; deleted_plan_ids: string[] };
+export type ArrivalSettlement = {
+  revision: number;
+  identity: IdentityChoice;
+  hostel_id: number;
+  settlement_date: string;
+  shift_start: string;
+  shift_end: string | null;
+  shift_count: number | null;
+};
+export type ArrivalInput = Omit<
+  ArrivalPlan,
+  'id' | 'revision' | 'workflow' | 'dormitory_name' | 'is_archived'
+> & {
+  settings_revision?: number;
+};
+export type ArrivalConfiguration = Settings & {
+  revision: number;
+  archived_fields: Field[];
+  used_fields: string[];
+};
 export type PersonnelData = {
   today: string;
   dormitories: { id: number; name: string; client_name: string; is_archived: boolean }[];
@@ -104,8 +157,13 @@ export type PersonnelData = {
   source_columns?: PersonnelSourceColumn[];
   plans: Plan[];
   arrival_plans: ArrivalPlan[];
+  arrival_settings?: ArrivalConfiguration;
   preferences: Preferences;
 };
+export type ArrivalPlanningData = Pick<
+  PersonnelData,
+  'today' | 'dormitories' | 'arrival_plans' | 'arrival_settings'
+> & { from: string; to: string };
 export type EmployeeDetail = {
   employee_id: string;
   events: {
@@ -142,6 +200,20 @@ const send = <T = { ok: boolean }>(path: string, method: string, body?: unknown)
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 export const personnelApi = {
+  arrivals: (
+    range?: { from: string; to: string },
+    dormitory?: number | null,
+    signal?: AbortSignal,
+  ): Promise<ArrivalPlanningData> => {
+    const params = new URLSearchParams(range);
+    if (dormitory) params.set('dormitory_id', String(dormitory));
+    return request(`/personnel/arrivals?${params}`, { signal });
+  },
+  exportSelected: (name: string, employee_ids: string[], columns: number[][]): Promise<Blob> =>
+    requestBlob('/personnel/export', {
+      method: 'POST',
+      body: JSON.stringify({ name, employee_ids, columns }),
+    }),
   workspace: (signal?: AbortSignal): Promise<PersonnelData> => request('/personnel', { signal }),
   detail: (id: string, signal?: AbortSignal): Promise<EmployeeDetail> =>
     request(`/personnel/employees/${encodeURIComponent(id)}`, { signal }),
@@ -167,10 +239,42 @@ export const personnelApi = {
   ) => send(`/employees/${id}`, 'PATCH', values),
   addNote: (id: string, text: string) => send(`/employees/${id}/notes`, 'POST', { text }),
   createArrival: (values: ArrivalInput) => send<ArrivalPlan>('/arrivals', 'POST', values),
+  arrivalSettings: (signal?: AbortSignal) =>
+    request<ArrivalConfiguration>('/personnel/arrivals/settings', { signal }),
+  saveArrivalSettings: (values: Settings & { revision: number }) =>
+    send<ArrivalConfiguration>('/arrivals/settings', 'PUT', values),
   updateArrival: (id: string, values: ArrivalInput & { revision: number }) =>
     send<ArrivalPlan>(`/arrivals/${id}`, 'PUT', values),
   deleteArrival: (id: string, revision: number) =>
     send<void>(`/arrivals/${id}?revision=${revision}`, 'DELETE'),
+  arrival: (id: string, signal?: AbortSignal) =>
+    request<ArrivalPlan>(`/personnel/arrivals/${id}`, { signal }),
+  arrivalHostels: (id: string, date: string, signal?: AbortSignal) =>
+    request<{ hostels: { id: number; name: string }[] }>(
+      `/personnel/arrivals/${id}/settlement-options?date=${date}`,
+      { signal },
+    ),
+  markArrival: (
+    plan: string,
+    person: string,
+    status: 'expected' | 'arrived' | 'no_show',
+    revision: number,
+  ) =>
+    send<ArrivalWorkflowResult>(`/arrivals/${plan}/people/${person}/status`, 'POST', {
+      status,
+      revision,
+    }),
+  moveArrival: (plan: string, person: string, date: string, revision: number) =>
+    send<ArrivalWorkflowResult>(`/arrivals/${plan}/people/${person}/move`, 'POST', {
+      date,
+      revision,
+    }),
+  undoArrivalMove: (plan: string, person: string, revision: number) =>
+    send<ArrivalWorkflowResult>(`/arrivals/${plan}/people/${person}/undo-move`, 'POST', {
+      revision,
+    }),
+  settleArrival: (plan: string, person: string, payload: ArrivalSettlement) =>
+    send<ArrivalWorkflowResult>(`/arrivals/${plan}/people/${person}/settle`, 'POST', payload),
   undoMerge: (id: string) => send(`/merges/${id}/undo`, 'POST'),
   preferences: (values: Preferences): Promise<Preferences> => send('/preferences', 'PUT', values),
   binding: (id: string, table: SourceTable, signal?: AbortSignal): Promise<Binding> =>

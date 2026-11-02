@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { UnsavedChangesProvider } from './components/UnsavedChanges';
 
 import { App } from './App';
 import { SessionProvider } from './auth/SessionProvider';
@@ -10,13 +11,21 @@ const container = document.getElementById('root');
 if (container === null) {
   throw new Error('Не найден узел #root');
 }
+const router = createBrowserRouter([
+  {
+    path: '*',
+    element: (
+      <SessionProvider>
+        <UnsavedChangesProvider>
+          <App />
+        </UnsavedChangesProvider>
+      </SessionProvider>
+    ),
+  },
+]);
 
 createRoot(container).render(
   <StrictMode>
-    <BrowserRouter>
-      <SessionProvider>
-        <App />
-      </SessionProvider>
-    </BrowserRouter>
+    <RouterProvider router={router} />
   </StrictMode>,
 );

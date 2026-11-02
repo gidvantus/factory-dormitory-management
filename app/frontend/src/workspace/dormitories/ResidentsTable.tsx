@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { api, ApiError } from '../../api/client';
 import type { PaymentKind, Resident, ResidentField, ResidentsResponse } from '../../api/client';
@@ -17,6 +18,8 @@ import { TransferResidentDialog } from './TransferResidentDialog';
 import { OutflowResidentDialog } from './OutflowResidentDialog';
 import { IdentityDialog } from '../personnel/IdentityDialog';
 import { EmployeeNameCell } from './EmployeeNameCell';
+import { useUnsavedChanges } from '../../components/useUnsavedChanges';
+import { matchesResident } from './residentSearch';
 
 type FieldValue = string | number | null;
 
@@ -42,6 +45,8 @@ function ResidentRow({
   onDelete,
   onTransfer,
   onOutflow,
+  onSaved,
+  hidden = false,
 }: {
   resident: Resident;
   index: number;
@@ -51,11 +56,14 @@ function ResidentRow({
   onDelete: (resident: Resident) => void;
   onTransfer: (resident: Resident, trigger: HTMLButtonElement) => void;
   onOutflow: (resident: Resident, trigger: HTMLButtonElement) => void;
+  onSaved: (resident: Resident) => void;
+  hidden?: boolean;
 }): JSX.Element {
   const [draft, setDraft] = useState(resident);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const saved = useRef(resident);
+  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(saved.current));
   const rowLabel = `строка ${index + 1}`;
   const { trackSave, waitForRowSaves } = useTableSaves();
   const registrationInFlight = useRef(false);
@@ -113,6 +121,7 @@ function ResidentRow({
         [field]: updated[field],
         hostel_name: updated.hostel_name,
       }));
+      onSaved(updated);
       return true;
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось сохранить строку.');
@@ -223,7 +232,7 @@ function ResidentRow({
   }
 
   return (
-    <tr data-testid={`resident-${resident.id}`}>
+    <tr data-testid={`resident-${resident.id}`} hidden={hidden}>
       <ConfiguredCells
         row={resident}
         fields={[
@@ -289,6 +298,14 @@ function ResidentRow({
               setDraft((current) => ({ ...current, employee_id: id }));
             }}
           />
+          {resident.arrival_source && (
+            <Link
+              className="link-button"
+              to={`/cabinet/personnel?view=planning&dormitory=${resident.arrival_source.dormitory_id}&date=${resident.arrival_source.date}&arrival=${resident.arrival_source.plan_id}`}
+            >
+              Из плана заездов ↗
+            </Link>
+          )}
         </td>
         <td>
           <select
@@ -414,6 +431,7 @@ function ResidentRow({
 function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element {
   const month = currentMonth().from.slice(0, 7);
   const [data, setData] = useState<ResidentsResponse>({ residents: [], hostels: [] });
+  const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
@@ -480,6 +498,8 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
     }
   }
 
+  const visible = data.residents.filter((resident) => matchesResident(resident, query));
+  const visibleIds = new Set(visible.map((resident) => resident.id));
   return (
     <section className={styles.page} data-testid="dormitory-residents">
       <div className={styles.heading}>
@@ -498,6 +518,32 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
           {adding ? 'Добавляем…' : '+ Добавить строку'}
         </button>
       </div>
+      {status === 'ready' && (
+        <div className={styles.searchBar}>
+          <label>
+            Поиск по проживающим
+            <input
+              type="search"
+              value={query}
+              maxLength={255}
+              placeholder="ФИО, телефон или табельный номер"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          {query && (
+            <button
+              type="button"
+              className="btn btn--ghost btn--compact"
+              onClick={() => setQuery('')}
+            >
+              Сбросить поиск
+            </button>
+          )}
+          <span aria-live="polite">
+            Найдено {visible.length} из {data.residents.length}
+          </span>
+        </div>
+      )}
       {status === 'loading' && <p role="status">Загружаем проживающих…</p>}
       {status === 'error' && (
         <p role="alert">
@@ -544,10 +590,19 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
                   key={resident.id}
                   resident={resident}
                   index={index}
+                  hidden={!visibleIds.has(resident.id)}
                   hostels={data.hostels}
                   dormitoryId={dormitoryId}
                   month={month}
                   onDelete={setDeleting}
+                  onSaved={(updated) =>
+                    setData((current) => ({
+                      ...current,
+                      residents: current.residents.map((row) =>
+                        row.id === updated.id ? updated : row,
+                      ),
+                    }))
+                  }
                   onTransfer={(row, trigger) => setTransferring({ resident: row, trigger })}
                   onOutflow={(row, trigger) => setOutflowing({ resident: row, trigger })}
                 />
@@ -556,6 +611,9 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
           </ConfiguredTable>
           {data.residents.length === 0 && (
             <p className={styles.empty}>Здесь пока нет проживающих. Добавьте первую строку.</p>
+          )}
+          {data.residents.length > 0 && !visible.length && (
+            <p className={styles.empty}>По вашему запросу проживающие не найдены.</p>
           )}
         </div>
       )}

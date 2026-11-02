@@ -1,16 +1,17 @@
 """Список проживающих, общий для пользователей общежития."""
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, lazyload
 
 from app import notification_rules
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser, own_dormitory
 from app.api.organization import Membership
 from app.db import get_db
+from app.models.arrival_plan import ArrivalVisit
 from app.models.hostel import Hostel
 from app.models.outflow import PersonnelOutflow
 from app.models.payment import PaymentEntry
@@ -54,10 +55,21 @@ def get_resident(db: Session, dormitory_id: int, resident_id: int) -> Resident:
     return resident
 
 
-def resident_response(db: Session, resident: Resident) -> ResidentResponse:
+def resident_response(
+    db: Session, resident: Resident, arrival_sources: dict[int, dict[str, Any]] | None = None
+) -> ResidentResponse:
     hostel = db.get(Hostel, resident.hostel_id) if resident.hostel_id else None
+    if arrival_sources is not None:
+        source = arrival_sources.get(resident.id)
+    else:
+        visit = db.scalar(select(ArrivalVisit).where(ArrivalVisit.resident_id == resident.id))
+        source = (visit.settlement or {}).get("source") if visit else None
     return ResidentResponse.model_validate(
-        {**resident.__dict__, "hostel_name": hostel.name if hostel else None}
+        {
+            **resident.__dict__,
+            "hostel_name": hostel.name if hostel else None,
+            "arrival_source": source,
+        }
     )
 
 
@@ -83,8 +95,18 @@ def list_residents(
         )
         .order_by(Hostel.name, Hostel.id)
     ).all()
+    arrival_sources = {
+        visit.resident_id: visit.settlement["source"]
+        for visit in db.scalars(
+            select(ArrivalVisit)
+            .options(lazyload(ArrivalVisit.resident))
+            .join(Resident, ArrivalVisit.resident_id == Resident.id)
+            .where(Resident.dormitory_id == dormitory_id)
+        )
+        if visit.resident_id is not None and visit.settlement and "source" in visit.settlement
+    }
     return ResidentsResponse(
-        residents=[resident_response(db, resident) for resident in residents],
+        residents=[resident_response(db, resident, arrival_sources) for resident in residents],
         hostels=[HostelOption(id=hostel.id, name=hostel.name) for hostel in hostels],
     )
 

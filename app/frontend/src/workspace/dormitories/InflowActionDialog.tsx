@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api, ApiError } from '../../api/client';
 import type { InflowAction, InflowActionPreview, InflowRow } from '../../api/client';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
 import { todayDate } from '../dashboard/dates';
 import { OutflowTransferFields } from './OutflowTransferFields';
 import styles from './TransferResidentDialog.module.css';
@@ -137,9 +137,9 @@ export function InflowActionDialog({
           </button>
         )}
         <div className={styles.actions}>
-          <button type="button" disabled={saving} onClick={onClose}>
+          <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
             Отмена
-          </button>
+          </ModalCancelButton>
           <button
             type="submit"
             disabled={

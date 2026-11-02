@@ -30,6 +30,43 @@ const blank: Resident = {
   notes: null,
 };
 
+it('ищет ФИО с ё/е, телефон без форматирования и актуальный табельный номер после сохранения', async () => {
+  const user = userEvent.setup();
+  const resident = {
+    ...blank,
+    full_name: 'Семёнов Пётр',
+    personnel_number: '0001',
+    phone: '+7 (900) 111-22-33',
+  };
+  vi.spyOn(api, 'tableColumns').mockResolvedValue(defaultColumns('residents'));
+  vi.spyOn(api, 'residents').mockResolvedValue({ residents: [resident], hostels: [] });
+  vi.spyOn(api, 'updateResident').mockImplementation(async (_dorm, _id, _month, field, value) => ({
+    ...resident,
+    [field]: value,
+  }));
+  render(
+    <MemoryRouter>
+      <ResidentsTable dormitoryId="7" />
+    </MemoryRouter>,
+  );
+  const search = await screen.findByRole('searchbox', { name: 'Поиск по проживающим' });
+  await user.type(search, 'семенов петр');
+  expect(screen.getByTestId('resident-3')).toBeInTheDocument();
+  await user.clear(search);
+  await user.type(search, '9001112233');
+  expect(screen.getByTestId('resident-3')).toBeInTheDocument();
+  await user.clear(search);
+  await user.type(search, '0001');
+  const number = within(screen.getByTestId('resident-3')).getByLabelText('Т/н, строка 1');
+  await user.clear(number);
+  await user.type(number, '0002');
+  await user.click(search);
+  await waitFor(() => expect(screen.getByTestId('resident-3')).not.toBeVisible());
+  await user.clear(search);
+  await user.type(search, '0002');
+  expect(await screen.findByTestId('resident-3')).toBeInTheDocument();
+});
+
 describe('Проживающие', () => {
   it('открывает карточку по ФИО поверх таблицы без решений и изменения связи', async () => {
     const resident = { ...blank, full_name: 'Иванов Иван', employee_id: 'first' };

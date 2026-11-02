@@ -513,3 +513,30 @@ def test_main_without_tokens_logs_and_exits_before_the_network(
     logged = "\n".join(record.getMessage() for record in caplog.records)
     assert "TELEGRAM_BOT_TOKEN" in logged
     assert "TELEGRAM_SERVICE_TOKEN" in logged
+
+
+def test_main_hides_http_library_urls_with_bot_token(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from app import telegram
+
+    monkeypatch.setattr(bot, "get_settings", make_settings)
+    for name in ("httpx", "httpcore"):
+        monkeypatch.setattr(logging.getLogger(name), "level", logging.INFO)
+    called: list[str] = []
+
+    def run(*, settings: Settings) -> None:
+        def respond(request: httpx.Request) -> httpx.Response:
+            called.append(request.url.path)
+            return httpx.Response(200, json={"ok": True, "result": []})
+
+        with client_with(respond) as client:
+            telegram.get_updates(client=client, settings=settings)
+
+    monkeypatch.setattr(bot, "run_forever", run)
+    with caplog.at_level(logging.INFO):
+        bot.main()
+    assert len(called) == 1
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Бот запущен" in logged
+    assert BOT_TOKEN not in logged and SERVICE_TOKEN not in logged

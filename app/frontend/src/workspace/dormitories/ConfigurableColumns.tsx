@@ -19,7 +19,8 @@ import type {
   TableKey,
   OutflowFields,
 } from '../../api/client';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
+import { useEditorPreview } from '../../components/EditorSurface';
 import { personnelApi } from '../../api/personnel';
 import { BindingDialog } from '../personnel/BindingDialog';
 import type { SourceTable } from '../../api/personnel';
@@ -32,6 +33,7 @@ import { columnKinds as kinds } from './columnKinds';
 import { useSettingsNavigation } from './settingsContext';
 import { RowActionsMenu } from './RowActionsMenu';
 import { OutflowReasonInput } from './OutflowReasonInput';
+import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 
 export function TableColumnsProvider({
   dormitoryId,
@@ -58,6 +60,14 @@ export function TableColumnsProvider({
   const [outflowFields, setOutflowFields] = useState<OutflowFields | null>(null);
   const pendingSaves = useRef(new Map<Promise<unknown>, string>());
   const failedSaves = useRef(new Set<string>());
+  const [saveStatus, setSaveStatus] = useState({ pending: 0, failed: 0, touched: false });
+  function updateSaveStatus(): void {
+    setSaveStatus({
+      pending: pendingSaves.current.size,
+      failed: failedSaves.current.size,
+      touched: true,
+    });
+  }
 
   function trackSave<T>(key: string, promise: Promise<T>): Promise<T> {
     const tracked = promise
@@ -73,8 +83,10 @@ export function TableColumnsProvider({
       )
       .finally(() => {
         pendingSaves.current.delete(tracked);
+        updateSaveStatus();
       });
     pendingSaves.current.set(tracked, key);
+    updateSaveStatus();
     return tracked;
   }
 
@@ -145,6 +157,15 @@ export function TableColumnsProvider({
   };
   return (
     <ColumnsContext.Provider value={context}>
+      {saveStatus.touched && (
+        <p role="status" aria-live="polite">
+          {saveStatus.pending
+            ? `Сохраняем изменения (${saveStatus.pending})…`
+            : saveStatus.failed
+              ? 'Есть ошибки сохранения. Исправьте отмеченные ячейки.'
+              : 'Все изменения сохранены'}
+        </p>
+      )}
       {children}
       {dialog === 'manage' && <ManageColumns />}
       {dialog && dialog !== 'manage' && (
@@ -326,6 +347,7 @@ export function ColumnForm({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  useEditorPreview('column', { name, kind, options });
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault();
     if (saving) return;
@@ -449,9 +471,9 @@ export function ColumnForm({
           </p>
         )}
         <div className={styles.actions}>
-          <button type="button" disabled={saving} onClick={onClose}>
+          <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
             Отмена
-          </button>
+          </ModalCancelButton>
           <button type="submit" disabled={saving}>
             {saving ? 'Сохраняем…' : (submitLabel ?? 'Сохранить столбец')}
           </button>
@@ -725,6 +747,7 @@ function CustomCell({
   const initial = key in values ? values[key] : (row.custom_values?.[column.id] ?? null);
   const [draft, setDraft] = useState<CellValue>(initial);
   const [committed, setCommitted] = useState<CellValue>(initial);
+  useUnsavedChanges(draft !== committed);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   async function save(value: CellValue): Promise<boolean> {

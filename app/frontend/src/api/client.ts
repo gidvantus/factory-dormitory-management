@@ -523,6 +523,12 @@ export interface PlacesImportApplied {
 export const PLACES_IMPORT_MAX_BYTES = 20 * 1024 * 1024;
 
 export interface Resident {
+  arrival_source?: {
+    plan_id: string;
+    person_id: string;
+    date: string;
+    dormitory_id: number;
+  } | null;
   employee_id?: string | null;
   custom_values?: Record<string, CellValue>;
   id: number;
@@ -546,7 +552,7 @@ export interface ResidentsResponse {
 
 export type ResidentField = keyof Omit<
   Resident,
-  'id' | 'hostel_name' | 'custom_values' | 'employee_id'
+  'id' | 'hostel_name' | 'custom_values' | 'employee_id' | 'arrival_source'
 >;
 
 export interface ResidentTransferPreview {
@@ -729,7 +735,11 @@ export async function waitForDormitoryWrites(id: string): Promise<void> {
     throw new ApiError(409, 'Сначала исправьте ошибки сохранения данных.');
 }
 
-async function sendRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+export function requestBlob(path: string, init: RequestInit = {}): Promise<Blob> {
+  return sendRequest<Blob>(path, init, true);
+}
+
+async function sendRequest<T>(path: string, init: RequestInit = {}, blob = false): Promise<T> {
   const response = await fetch(`/api${path}`, {
     // Cookie сессии — единственное хранилище токена, поэтому её надо отправлять всегда.
     credentials: 'include',
@@ -761,6 +771,7 @@ async function sendRequest<T>(path: string, init: RequestInit = {}): Promise<T> 
   if (response.status === 204) {
     return undefined as T;
   }
+  if (blob) return (await response.blob()) as T;
   return (await response.json()) as T;
 }
 

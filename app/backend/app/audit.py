@@ -111,7 +111,20 @@ PHONE_KEYS = frozenset({"phone"})
 EMAIL_KEYS = frozenset({"email"})
 # Свободный текст: содержимое не хранится ни в каком виде — ПДн в свободном
 # тексте шаблоном надёжно не ловится, поэтому остаются длина и отпечаток.
-FREE_TEXT_KEYS = frozenset({"notes", "reason", "additional_info", "text", "comment", "description"})
+FREE_TEXT_KEYS = frozenset(
+    {
+        "notes",
+        "reason",
+        "additional_info",
+        "text",
+        "comment",
+        "description",
+        "custom_values",
+        "personal_values",
+        "arrival_values",
+        "names",
+    }
+)
 MASKED_KEYS = NAME_KEYS | PHONE_KEYS | EMAIL_KEYS | FREE_TEXT_KEYS
 
 MASKED_KEY = "_masked"
@@ -556,6 +569,12 @@ def _masked_field(name: str, value: Any) -> Any:
 
     Не строка и пустая строка маскировать нечего — значение возвращается как есть.
     """
+    # Пользовательские поля имеют произвольные ключи: маскируем весь JSON,
+    # включая снимки колонок, а не пытаемся угадывать ФИО или контакты по ID.
+    if name in {"custom_values", "names", "personal_values", "arrival_values"} and isinstance(
+        value, (dict, list)
+    ):
+        value = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     if not isinstance(value, str) or not value:
         return value
     if name in NAME_KEYS:

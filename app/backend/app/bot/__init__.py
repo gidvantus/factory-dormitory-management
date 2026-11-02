@@ -389,6 +389,9 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # HTTP-клиенты печатают URL целиком, а в адресе Bot API находится токен.
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
     settings = get_settings()
     missing = [
         name

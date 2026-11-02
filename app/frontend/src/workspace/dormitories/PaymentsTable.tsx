@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 
 import { api, ApiError } from '../../api/client';
 import type { PaymentField, PaymentKind, PaymentRow } from '../../api/client';
@@ -29,6 +30,7 @@ function PaymentEntry({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const saved = useRef(row);
+  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(saved.current));
 
   function change(field: PaymentField, value: string | null): void {
     setDraft((current) => ({ ...current, [field]: value }));

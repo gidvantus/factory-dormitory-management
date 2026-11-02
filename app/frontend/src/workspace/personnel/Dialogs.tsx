@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Block, BlockKind, PersonnelData, SavedList } from '../../api/personnel';
 import { Modal } from '../../components/Modal';
+import { useEditorPreview } from '../../components/EditorSurface';
 import { SubmitForm } from './Forms';
 import { blockNames, dormName, filterPeople, names } from './helpers';
 import s from './Personnel.module.css';
@@ -28,6 +29,7 @@ export function BlockDialog({
       saved_list_id: null,
     },
   );
+  useEditorPreview('personnel-block', draft);
   return (
     <Modal
       title={block ? 'Настроить блок' : 'Добавить блок'}
@@ -170,6 +172,7 @@ export function SaveListDialog({
   onClose: () => void;
   onSave: (list: SavedList, pin: boolean) => Promise<void>;
 }): JSX.Element {
+  useEditorPreview('personnel-save-list', { criteria });
   return (
     <Modal
       title="Сохранить свой список"

@@ -212,7 +212,7 @@ it('фильтрует по двум статусам, собирает выбр
   ).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Список выбранных (2)' }));
   const selected = screen.getByTestId('personnel-selected-list');
-  expect(within(selected).getByRole('button', { name: 'Выгрузить' })).toBeDisabled();
+  expect(within(selected).getByRole('button', { name: 'Выгрузить' })).toBeEnabled();
   expect(within(selected).getByText('Сидоров Сергей')).toBeInTheDocument();
   expect(within(selected).queryByText('Петров Пётр')).not.toBeInTheDocument();
   await user.clear(within(selected).getByLabelText('Название списка'));
@@ -256,6 +256,11 @@ it('открывает простой план из источника отчё�
     payload.arrival_plans = [plan];
     return plan;
   });
+  vi.spyOn(personnelApi, 'arrivals').mockImplementation(async () => ({
+    ...payload,
+    from: payload.today,
+    to: '2026-10-16',
+  }));
   render(
     <MemoryRouter initialEntries={['/cabinet/personnel?view=planning&dormitory=1']}>
       <Personnel />
@@ -268,11 +273,14 @@ it('открывает простой план из источника отчё�
   expect(screen.queryByLabelText('Период окончания вахты')).not.toBeInTheDocument();
   expect(screen.queryByRole('option', { name: /Старое/ })).not.toBeInTheDocument();
   expect(screen.queryByText('Нажмите на имя, чтобы открыть карточку')).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'Добавить заезд: Северное, 2026-10-10' }));
+  await user.click(
+    await screen.findByRole('button', { name: 'Добавить заезд: Северное, 2026-10-10' }),
+  );
   await user.clear(screen.getByLabelText('Количество человек'));
   await user.type(screen.getByLabelText('Количество человек'), '10');
   await user.click(screen.getByRole('button', { name: 'Сохранить заезд' }));
   expect(await screen.findByText('Ожидается за период: 10 чел.')).toBeInTheDocument();
+  expect(personnelApi.workspace).not.toHaveBeenCalled();
 });
 
 describe('Персонал без задач', () => {

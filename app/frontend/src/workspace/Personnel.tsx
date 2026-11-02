@@ -13,6 +13,7 @@ import type {
 import { useSession } from '../auth/SessionProvider';
 import { usePageRefresh } from './usePageRefresh';
 import { ArrivalPlanningBoard } from './personnel/ArrivalPlanningBoard';
+import { ArrivalPlanningPage } from './personnel/ArrivalPlanningPage';
 import { PersonnelEmployeeFocus } from './personnel/PersonnelEmployeeFocus';
 import { BlockDialog, SaveListDialog } from './personnel/Dialogs';
 import type { Mutate } from './personnel/Forms';
@@ -45,6 +46,11 @@ type OpenPerson = (id: string, tab?: ProfileTab) => void;
 type Criteria = Omit<SavedList, 'id' | 'name'>;
 
 export function Personnel(): JSX.Element {
+  const [params] = useSearchParams();
+  return params.get('view') === 'planning' ? <ArrivalPlanningPage /> : <PersonnelDirectory />;
+}
+
+function PersonnelDirectory(): JSX.Element {
   const { user } = useSession();
   const [params, setParams] = useSearchParams();
   const selectedId = params.get('employee');
@@ -53,13 +59,26 @@ export function Personnel(): JSX.Element {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
-  const [view, setView] = useState<View>(
+  const [view, setViewState] = useState<View>(
     params.get('view') === 'planning'
       ? 'planning'
       : params.get('view') === 'list'
         ? 'list'
         : 'workspace',
   );
+  function setView(next: View): void {
+    setViewState(next);
+    setParams((previous) => {
+      const result = new URLSearchParams(previous);
+      result.set('view', next);
+      if (next === 'planning') {
+        if (dormitory && !data?.dormitories.find((item) => item.id === dormitory)?.is_archived)
+          result.set('dormitory', String(dormitory));
+        else result.delete('dormitory');
+      }
+      return result;
+    });
+  }
   const [dormitory, setDormitory] = useState<number | null>(() => {
     const id = Number(params.get('dormitory'));
     return Number.isSafeInteger(id) && id > 0 ? id : null;

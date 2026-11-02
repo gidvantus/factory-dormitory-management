@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useEditorPreview } from '../../components/EditorSurface';
 import { api, ApiError, waitForDormitoryWrites } from '../../api/client';
 import type {
   ColumnKind,
@@ -148,6 +149,7 @@ export function DormitorySettingsDialog({
   }
   const blocked = !!node && ancestors(node).some((item) => item.status !== 'active');
   const columns = tables[selected] ?? [];
+  useEditorPreview('structure', { selected, nodes, columns, page });
   const rules: ReportRow[] =
     snapshot?.rules.map((item, position) => ({ ...item, position, values: {}, errors: {} })) ?? [];
   function updateColumns(next: DraftColumn[]): void {
@@ -355,6 +357,8 @@ export function DormitorySettingsDialog({
     <Modal
       title="Настройки общежития"
       onClose={close}
+      dirty={dirty}
+      guardClose={false}
       closeDisabled={busy}
       panelClassName={styles.panel}
       containerClassName={styles.overlay}
@@ -909,7 +913,7 @@ export function DormitorySettingsDialog({
               <button type="button" onClick={() => setConfirmClose(false)}>
                 Продолжить настройку
               </button>
-              <button type="button" onClick={onClose}>
+              <button onClick={onClose} type="button">
                 Закрыть без сохранения
               </button>
             </div>
