@@ -6,12 +6,18 @@
 бы строку в журнале на каждый просмотр — и журнал заполнялся бы своими же
 просмотрами.
 
-Права: `OwnerMembership`, то есть только `OWNER_ROLE`. `admin` правит
-организацию (`EDIT_ROLES`), но журнал — раздел уровня владельца: там видно, кто
-что делал. Порядок кодов отказа выбран так, чтобы они были различимы:
+Права: `JournalAccess` — владелец организации **с действующим правом** на решение
+`journal` магазина улучшений. Сначала `OwnerMembership`, то есть только
+`OWNER_ROLE`: `admin` правит организацию (`EDIT_ROLES`), но журнал — раздел уровня
+владельца, там видно, кто что делал. Затем право: журнал продаётся отдельным
+решением каталога (`app.solutions.JOURNAL`, seed `0049_solution_journal`), и без
+права ручка отвечает 403 про магазин. Порядок жёсткий — активация → роль → право,
+иначе сотрудник без права увидел бы предложение купить то, чего ему всё равно не
+откроют. Коды отказа поэтому различимы:
 
 * **401** — нет сессии;
-* **403** — кабинет не активирован или роль не `owner`;
+* **403** — кабинет не активирован, роль не `owner` или у организации нет права на
+  решение `journal`;
 * **404** — пользователь не привязан к организации;
 * **422** — период длиннее `MAX_RANGE_DAYS`, начало позже конца, период целиком
   в будущем, дата вне календаря, неразборчивый курсор или `limit` вне 1..200.
@@ -60,10 +66,12 @@ from app.api.organization import (
 )
 from app.db import get_db
 from app.models.audit import AuditEvent
+from app.models.organization import OrganizationMember
 from app.report_readiness import today_moscow
 from app.schemas.audit import JournalEntry, JournalKind, JournalPage
 from app.schemas.user import ErrorResponse
 from app.security import ACTIVATION_REQUIRED_DETAIL
+from app.solutions import JOURNAL, SOLUTION_REQUIRED_DETAIL, has_solution
 
 router = APIRouter(tags=["journal"])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -106,7 +114,9 @@ JOURNAL_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     status.HTTP_403_FORBIDDEN: {
         "model": ErrorResponse,
-        "description": f"{ACTIVATION_REQUIRED_DETAIL}; {ORGANIZATION_EDIT_FORBIDDEN_DETAIL}",
+        "description": f"{ACTIVATION_REQUIRED_DETAIL} — кабинет не активирован; "
+        f"{ORGANIZATION_EDIT_FORBIDDEN_DETAIL} — роль не владелец; "
+        f"{SOLUTION_REQUIRED_DETAIL} — нет права на решение «Журнал действий»",
     },
     status.HTTP_404_NOT_FOUND: {
         "model": ErrorResponse,
@@ -120,6 +130,25 @@ JOURNAL_RESPONSES: dict[int | str, dict[str, Any]] = {
         "security/data/noise",
     },
 }
+
+
+def require_journal_access(membership: OwnerMembership, db: DbSession) -> OrganizationMember:
+    """Владелец организации с действующим правом на решение «Журнал действий».
+
+    Право берётся из того же механизма, что у «Уведомлений» (`app.solutions`), и
+    проверяется **после** `OwnerMembership`: порядок отказов контрактный —
+    активация (403), роль (403 «Недостаточно прав»), право (403 про магазин).
+    Сотрудник без права не должен видеть предложение купить то, что ему не
+    откроют, а неактивированный кабинет — предложение что-то купить вместо ссылки
+    на письмо.
+    """
+    if not has_solution(db, membership.organization_id, JOURNAL):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, SOLUTION_REQUIRED_DETAIL)
+    return membership
+
+
+# Готово для `Depends`: результат — строка членства владельца, её и берёт роут.
+JournalAccess = Annotated[OrganizationMember, Depends(require_journal_access)]
 
 
 def _as_utc(moment: datetime) -> datetime:
@@ -259,7 +288,7 @@ def _period(date_from: date | None, date_to: date | None) -> tuple[date, date]:
     responses=JOURNAL_RESPONSES,
 )
 def read_journal(
-    membership: OwnerMembership,
+    membership: JournalAccess,
     db: DbSession,
     kind: Annotated[JournalKind | None, Query()] = None,
     date_from: Annotated[date | None, Query()] = None,
@@ -268,6 +297,10 @@ def read_journal(
     cursor: Annotated[str | None, Query()] = None,
 ) -> JournalPage:
     """Записи журнала своей организации за период, свежие сверху.
+
+    Читает только владелец организации с действующим правом на решение `journal`:
+    без права ручка отвечает 403 про магазин улучшений, и это контракт с
+    кабинетом — по нему экран показывает «Решение не подключено».
 
     Фильтры необязательны: без них отдаётся неделя по сегодня включительно
     (сегодня — московское). `kind` сужает по виду действия — вид считается при

@@ -1,14 +1,18 @@
 """Точка входа FastAPI."""
 
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from functools import lru_cache
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
+from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import FastAPI, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 from starlette.middleware.base import RequestResponseEndpoint
 
 from app import audit, dormitory_history
@@ -28,6 +32,7 @@ from app.api import (
     health,
     hostels,
     inflow,
+    notification_rules,
     organization,
     outflow,
     payments,
@@ -57,8 +62,35 @@ from app.api import (
 # подменил бы его.
 from app.api.audit import router as journal_router
 from app.config import get_settings
+from app.db import get_db
+from app.file_access import can_read, content_type_for, normalize_key
+from app.schemas.user import ErrorResponse
+from app.security import OptionalUser
+from app.storage import StorageNotFoundError, log_storage_mode, storage
 
 API_PREFIX = "/api"
+
+# Логи приложения видны в контейнере `api`. Uvicorn поднимает только свои
+# логгеры (`uvicorn`, `uvicorn.error`, `uvicorn.access`), а корневой оставляет на
+# WARNING — поэтому INFO самого проекта (режим файлового хранилища при импорте
+# `app.storage`, сохранённые объекты S3, письма) в лог не попадал вовсе. Так же
+# поступает бот (`app.bot.main`). `basicConfig` ничего не делает, если корневой
+# логгер уже настроен, поэтому чужая конфигурация не ломается.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+# Ключ хранилища в URL приходит без префикса `uploads/`:
+# `/uploads/2026-10-29/<uuid>.xlsx`. Тексты отказов — часть контракта с
+# клиентом: фронт их не показывает и не переписывает (отказ скачивания рисует
+# браузер), но тестировщик сверяет их дословно.
+UPLOAD_NOT_FOUND_DETAIL = "Файл не найден"
+UPLOAD_FORBIDDEN_DETAIL = "Нет доступа к файлу"
+
+# Описание отказов раздачи файлов для `responses=`: они и есть контракт.
+UPLOAD_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_200_OK: {"description": "Байты файла, `Content-Type` по расширению"},
+    status.HTTP_403_FORBIDDEN: {"model": ErrorResponse, "description": UPLOAD_FORBIDDEN_DETAIL},
+    status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": UPLOAD_NOT_FOUND_DETAIL},
+}
 
 # Методы, у которых бывает тело. `DELETE` в этом списке нет: тела у удалений
 # в этом API не бывает, а лишнее чтение потока запроса ни к чему.
@@ -106,19 +138,95 @@ async def read_request_body(request: Request) -> Any | None:
         return None
 
 
-def client_ip(request: Request) -> str | None:
-    """IP клиента: за nginx это `X-Real-IP`, дальше — первый `X-Forwarded-For`.
+IPAddress = IPv4Address | IPv6Address
+IPNetwork = IPv4Network | IPv6Network
 
-    Прямое подключение (без прокси) видно в `request.client`. Значение обрезается
-    до длины колонки: заголовок задаёт клиент, а не мы.
+# Доверенные сети прокси разбираются из настроек с кэшем по самому значению:
+# правка `.env` даёт новую строку и новый разбор, а опечатка предупреждает в лог
+# один раз, а не на каждый запрос.
+
+
+@lru_cache(maxsize=8)
+def _parse_trusted_networks(value: str) -> tuple[IPNetwork, ...]:
+    """Разобрать список сетей прокси; некорректный элемент пропускается.
+
+    Опечатка в настройке не должна ронять каждый запрос: сеть, которую не удалось
+    разобрать, просто не считается доверенной, и в журнал пишется предупреждение.
     """
-    forwarded = request.headers.get("x-real-ip")
-    if not forwarded:
-        chain = request.headers.get("x-forwarded-for", "")
-        forwarded = chain.split(",")[0].strip()
-    if not forwarded and request.client is not None:
-        forwarded = request.client.host
-    return forwarded[:IP_LIMIT] or None
+    networks: list[IPNetwork] = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            networks.append(ip_network(item, strict=False))
+        except ValueError:
+            logging.getLogger(__name__).warning(
+                "TRUSTED_PROXY_NETWORKS: %r — не адрес и не сеть, пропущено", item
+            )
+    return tuple(networks)
+
+
+def _trusted_proxies() -> tuple[IPNetwork, ...]:
+    """Доверенные сети прокси из текущих настроек."""
+    return _parse_trusted_networks(get_settings().trusted_proxy_networks)
+
+
+def _as_ip(value: str) -> IPAddress | None:
+    """Адрес как объект `ipaddress`; всё, что не адрес, — `None`."""
+    try:
+        return ip_address(value.strip())
+    except ValueError:
+        return None
+
+
+def _is_trusted_proxy(value: str, trusted: tuple[IPNetwork, ...]) -> bool:
+    """Пришёл ли адрес от доверенного прокси (неопознанное доверенным не считается)."""
+    address = _as_ip(value)
+    if address is None:
+        return False
+    return any(address in network for network in trusted)
+
+
+def _forwarded_hops(request: Request) -> list[str]:
+    """Цепочка `X-Forwarded-For` по порядку: от клиента (левый) к прокси (правый)."""
+    chain = request.headers.get("x-forwarded-for", "")
+    return [hop.strip() for hop in chain.split(",") if hop.strip()]
+
+
+def _clip(value: str | None) -> str | None:
+    """Обрезка до длины колонки: длинное значение задаёт клиент, а не мы."""
+    if not value:
+        return None
+    return value[:IP_LIMIT]
+
+
+def client_ip(request: Request) -> str | None:
+    """IP клиента: ближайший справа адрес `X-Forwarded-For` вне доверенных сетей.
+
+    Заголовки задаёт клиент, поэтому вера им выдаётся только за прокси: если
+    непосредственный сосед (`request.client`) не входит в `TRUSTED_PROXY_NETWORKS`,
+    адрес берётся из соединения, а заголовки игнорируются. За прокси цепочка
+    читается с конца — каждый прокси дописывает в неё адрес того, кто к нему
+    пришёл, поэтому первый справа адрес вне доверенной сети и есть клиент, а всё,
+    что левее, прислал сам клиент и верить этому нельзя.
+
+    `X-Real-IP` не читается вовсе. Пока прокси его перезаписывал, он равнялся
+    `X-Forwarded-For`; после TLS-слоя (#105) caddy его не выставляет, nginx не
+    трогает, и единственным автором заголовка остаётся сам запрос — приоритет
+    этого заголовка давал любому клиенту подменить свой адрес в журнале аудита.
+    """
+    peer = request.client.host if request.client is not None else None
+    trusted = _trusted_proxies()
+    if peer is not None and not _is_trusted_proxy(peer, trusted):
+        # Прямое подключение: заголовкам здесь верить некому.
+        return _clip(peer)
+    hops = [hop for hop in _forwarded_hops(request) if _as_ip(hop) is not None]
+    for hop in reversed(hops):
+        if not _is_trusted_proxy(hop, trusted):
+            return _clip(hop)
+    # Вся цепочка — доверенные прокси: ближе к клиенту самый дальний адрес.
+    return _clip(hops[0]) if hops else _clip(peer)
 
 
 def client_user_agent(request: Request) -> str | None:
@@ -137,7 +245,11 @@ async def lifespan(_application: FastAPI) -> AsyncIterator[None]:
     Подготовка идемпотентна и делается один раз на процесс: повторный подъём
     приложения тем же процессом (а в тестах — каждый `TestClient`) не гоняет
     `CREATE TABLE IF NOT EXISTS` по тринадцати партициям заново.
+
+    Здесь же пишется режим файлового хранилища: при импорте модуля `app.storage`
+    это было бы раньше настройки логирования, и строка терялась бы.
     """
+    log_storage_mode()
     if audit.month_guard():
         audit.refresh_audit_storage()
     yield
@@ -259,6 +371,62 @@ def create_app() -> FastAPI:
     application.include_router(trial.router, prefix=API_PREFIX)
     application.include_router(documents.router, prefix=API_PREFIX)
     application.include_router(telegram.router, prefix=API_PREFIX)
+    application.include_router(notification_rules.router, prefix=API_PREFIX)
+
+    # -----------------------------------------------------------------------
+    # Раздача загруженных файлов: `/uploads/<ключ>` читается через единый
+    # механизм хранения (`app.storage`) — из S3 с префиксом среды либо с
+    # локального диска. Ключ — без префикса `uploads/` (например
+    # `2026-10-29/<uuid>.xlsx`). nginx проксирует `/uploads/` на этот адрес,
+    # поэтому ссылка из SPA открывается тем же origin, что и сама страница.
+    #
+    # Маршрут живёт ВНЕ `/api` намеренно: это ссылка на файл, её открывает
+    # браузер, и cookie сессии (`crm_session`, `path=/`) уходит сама.
+    #
+    # Доступ проверяется по умолчанию ЗАКРЫТО (`app/file_access.can_read`).
+    # Аноним на закрытый файл получает 404 — само существование файла не
+    # подтверждается; вошедший без прав — 403. Пустой ключ, ключ с `..` и
+    # отсутствующий в хранилище объект дают тот же 404.
+    # -----------------------------------------------------------------------
+    @application.get(
+        "/uploads/{key:path}",
+        tags=["files"],
+        response_class=Response,
+        summary="Скачать загруженный файл",
+        responses=UPLOAD_RESPONSES,
+    )
+    def get_upload(
+        key: str,
+        user: OptionalUser,
+        db: Annotated[Session, Depends(get_db)],
+    ) -> Response:
+        """Отдать файл из хранилища. Право чтения считает `app.file_access`."""
+        storage_key = normalize_key(key)
+        if storage_key is None or user is None:
+            # Аноним не узнаёт, существует ли файл: для него всё — 404.
+            raise HTTPException(status.HTTP_404_NOT_FOUND, UPLOAD_NOT_FOUND_DETAIL)
+        if not can_read(db, storage_key, user):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, UPLOAD_FORBIDDEN_DETAIL)
+        try:
+            data = storage.read_bytes(storage_key)
+        except StorageNotFoundError:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, UPLOAD_NOT_FOUND_DETAIL) from None
+        content_type = content_type_for(storage_key)
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={
+                # Загруженный файл — документ: при открытии по прямой ссылке он
+                # не должен исполнить скрипт на нашем origin. `nosniff` и
+                # песочница это запрещают.
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+                # Файл закрытый: копия не должна пережить отзыв доступа ни в
+                # браузере, ни в общем прокси.
+                "Cache-Control": "private, no-store",
+            },
+        )
+
     return application
 
 

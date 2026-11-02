@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -491,7 +491,11 @@ describe('страница организации', () => {
     expect(await screen.findByTestId('organization-error')).toHaveTextContent(
       'Не удалось загрузить данные организации',
     );
-    await user.click(screen.getByRole('button', { name: 'Повторить' }));
+    // Кнопка внутри блока ошибки: в панели кабинета с #124 есть своя «Повторить»
+    // для карточки тарифа, и поиск по всей странице нашёл бы обе.
+    await user.click(
+      within(screen.getByTestId('organization-error')).getByRole('button', { name: 'Повторить' }),
+    );
     expect(await screen.findByTestId('organization-name')).toBeInTheDocument();
   });
 

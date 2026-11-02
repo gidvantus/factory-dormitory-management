@@ -1,0 +1,28 @@
+{
+	# Почта для писем об истечении сертификата (ACME принимает только ASCII).
+	email {$ACME_EMAIL}
+	# ACME-директория: боевая по умолчанию, staging — через .env.
+	acme_ca {$CADDY_ACME_CA}
+	# Автоматический редирект HTTP→HTTPS выключен: редирект делает блок :80
+	# ниже, иначе /healthz получает 308 вместо 200.
+	auto_https disable_redirects
+}
+
+# ---- HTTP (порт 80): /healthz отвечает 200 без редиректа, остальное — на https ----
+:80 {
+	# route — строгий порядок: сначала /healthz, только потом редирект.
+	route {
+		@healthz path /healthz
+		respond @healthz "ok" 200
+		@ourhost host {$SITE_DOMAIN} www.{$SITE_DOMAIN}
+		redir @ourhost https://{host}{uri} permanent
+		# Запросы по IP и чужому Host — на канонический домен: сертификата на IP не бывает.
+		redir https://{$SITE_DOMAIN}{uri} permanent
+	}
+}
+
+# ---- Домен: SPA и /api (nginx фронта проксирует /api на api:8000) ----
+{$SITE_DOMAIN}, www.{$SITE_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:80
+}

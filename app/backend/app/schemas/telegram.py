@@ -5,14 +5,11 @@
 рядом — так по одному файлу видно, что именно уходит наружу.
 """
 
-from pydantic import BaseModel, Field, field_validator
-
-from app.models.telegram import NOTIFICATION_KINDS
+from pydantic import BaseModel, Field
 
 # Тексты отказа кабинета. Технических подробностей в них нет намеренно.
 TELEGRAM_NOT_CONFIGURED_DETAIL = "Telegram не настроен"
 TELEGRAM_NOT_CONNECTED_DETAIL = "Telegram не подключён"
-UNKNOWN_NOTIFICATION_KIND_DETAIL = "Неизвестный вид уведомления"
 
 # Причина 410 у бота: код неизвестен, просрочен или уже погашен.
 INVALID_LINK_CODE_REASON = "invalid_code"
@@ -76,21 +73,12 @@ class DeliveryFailedRequest(BaseModel):
     error: str = Field(default="")
 
 
-class SubscriptionResponse(BaseModel):
-    """Вид события и состояние подписки на него."""
-
-    kind: str
-    title: str
-    is_enabled: bool
-
-
 class TelegramStatusResponse(BaseModel):
-    """Состояние подключения и подписки для карточки кабинета."""
+    """Состояние подключения для карточки кабинета."""
 
     connected: bool
     username: str | None
     bot_username: str
-    subscriptions: list[SubscriptionResponse]
 
 
 class TelegramConnectResponse(BaseModel):
@@ -103,20 +91,6 @@ class TelegramConnectResponse(BaseModel):
 
 class TelegramDisconnectResponse(BaseModel):
     connected: bool
-
-
-class UpdateSubscriptionRequest(BaseModel):
-    """Правка подписки. Незнакомый вид события — это 422."""
-
-    kind: str
-    is_enabled: bool
-
-    @field_validator("kind")
-    @classmethod
-    def check_kind(cls, value: str) -> str:
-        if value not in NOTIFICATION_KINDS:
-            raise ValueError(UNKNOWN_NOTIFICATION_KIND_DETAIL)
-        return value
 
 
 class TestMessageResponse(BaseModel):

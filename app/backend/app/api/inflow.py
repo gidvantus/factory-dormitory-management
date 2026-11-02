@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app import notification_rules
 from app.access import (
     SUBSCRIBED_USER_RESPONSES,
     OwnDormitory,
@@ -104,6 +105,9 @@ def create_inflow(
     db.add(row)
     db.commit()
     db.refresh(row)
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="inflow", row_id=row.id, actor_id=_user.id
+    )
     return row
 
 
@@ -213,6 +217,10 @@ def create_entry(
     )
     db.commit()
     db.refresh(row)
+    # Новая строка притока: правила этой таблицы ставятся после коммита.
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="inflow", row_id=row.id, actor_id=user.id
+    )
     return row
 
 
@@ -271,6 +279,18 @@ def process_inflow(
         title="Приток · заселён в общежитие" if action == "settle" else "Приток · записан в отток",
     )
     db.commit()
+    # События двух таблиц: обработанная строка притока и созданная ею строка
+    # назначения. Обе записи уже закоммичены, хуки идут после коммита.
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="inflow", row_id=plan.source.id, actor_id=user.id
+    )
+    notification_rules.notify_row_written(
+        db,
+        dormitory_id=dormitory_id,
+        table_key="residents" if action == "settle" else "outflow",
+        row_id=target.id,
+        actor_id=user.id,
+    )
     return InflowActionResponse(
         inflow=InflowResponse.model_validate(plan.source),
         destination=plan.preview.destination,
@@ -294,6 +314,9 @@ def update_inflow(
     record_changed(db, row, _user.id)
     db.commit()
     db.refresh(row)
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="inflow", row_id=row.id, actor_id=_user.id
+    )
     return row
 
 

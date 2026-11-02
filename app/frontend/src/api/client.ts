@@ -11,11 +11,18 @@ import type {
 export const TRIAL_EXPIRED_DETAIL =
   'Пробный период закончился. Выберите тариф, чтобы продолжить работу';
 
-/** Заголовок 409 «на пробном периоде больше нельзя приглашать». */
-export const TRIAL_LIMIT_HEADER = 'X-Trial-Limit';
+/**
+ * Заголовок 409 «предел мест исчерпан».
+ *
+ * Один и тот же отказ у пробного периода (если предел задан) и у тарифа
+ * (`max_members` его яруса): текст серверный, а по заголовку отказ по местам
+ * отличается от прочих `409` (занятый адрес, занятые слоты подписки). Без
+ * заголовка идёт обычный путь ошибки — так и должно быть.
+ */
+export const MEMBER_LIMIT_HEADER = 'X-Member-Limit';
 
-/** Значение этого заголовка: отказ именно по лимиту сотрудников. */
-export const TRIAL_LIMIT_HEADER_VALUE = 'members';
+/** Значение этого заголовка: отказ именно по пределу мест. */
+export const MEMBER_LIMIT_HEADER_VALUE = 'seats';
 
 /**
  * Роль пользователя в организации.
@@ -48,13 +55,17 @@ export interface UserProfile {
  * `locked` — кабинет закрыт: рабочие разделы недоступны. `is_active` — доступ
  * определяет именно пробный период, поэтому только тогда действует
  * `member_limit`.
+ *
+ * `member_limit: null` — предела нет: пробный период не ограничивает число
+ * сотрудников (`TRIAL_MEMBER_LIMIT` на сервере не задан). Число мест экран не
+ * придумывает и не держит константой — печатает то, что ответил сервер.
  */
 export interface TrialState {
   ends_at: string | null;
   days_left: number;
   is_active: boolean;
   locked: boolean;
-  member_limit: number;
+  member_limit: number | null;
 }
 
 export interface RegisterResult {
@@ -136,9 +147,25 @@ export interface OrganizationLookup {
   details: OrganizationLookupDetails | null;
 }
 
-/** Период списания тарифа: код в базе, «в месяц»/«в год»/«разово» собирает сервер. */
-export type TariffPeriod = 'month' | 'year' | 'once' | 'half_year';
+/**
+ * Период списания тарифа: код в базе, «в месяц»/«раз в квартал»/«в год»
+ * собирает сервер.
+ *
+ * Набор общий с решениями магазина улучшений (`SOLUTION_PERIODS` на сервере):
+ * `quarter` появился в #99, `half_year` остался ради уже проданного «Стандарта».
+ */
+export type TariffPeriod = 'month' | 'quarter' | 'half_year' | 'year' | 'once';
 
+/**
+ * Строка прайса.
+ *
+ * `group_code` — код яруса: строки одного яруса с разными сроками делят его, и
+ * страница собирает из них переключатель срока. У прежних строк кода нет —
+ * тогда ярусом считается само имя, и строка стоит в прайсе одна.
+ *
+ * `max_members` — предел мест яруса, `null` — без ограничения. `tooltip` —
+ * подсказка к плашке, `null` — подсказки нет.
+ */
 export interface Tariff {
   id: number;
   name: string;
@@ -150,13 +177,38 @@ export interface Tariff {
   /** «За что» именно эти деньги: «за одно место». */
   unit_label: string | null;
   position: number;
+  max_members: number | null;
+  tooltip: string | null;
+  group_code: string | null;
   /** Готовая цена от сервера: «5 000 ₽ за одно место в месяц». */
   price_label: string;
 }
 
-/** Тариф организации: `tariff` = null, пока тариф не назначен. */
+/** Оплаченный вперёд период: тариф и день, с которого он действует. */
+export interface NextTariff {
+  tariff: Tariff;
+  /**
+   * Момент начала. Равен `ends_at` текущего периода: граница исключающая, в
+   * этот момент текущий тариф уже не действует.
+   */
+  starts_at: string;
+}
+
+/**
+ * Подписка организации.
+ *
+ * `tariff: null` — действующего тарифа нет: работал и кончился, либо его ещё не
+ * было. `ends_at: null` при непустом `tariff` — бессрочный тариф. `days_left`,
+ * `is_expiring` и `next` считает сервер (`app/subscription.py`): клиент не
+ * вычитает дни из `ends_at` и не держит вторую копию правила «за 14 дней
+ * предупредить».
+ */
 export interface OrganizationTariff {
   tariff: Tariff | null;
+  ends_at: string | null;
+  days_left: number;
+  is_expiring: boolean;
+  next: NextTariff | null;
 }
 
 /**
@@ -256,24 +308,17 @@ export interface Document extends DocumentSummary {
   updated_at: string;
 }
 
-/** Вид уведомления и состояние подписки на него. `kind` — код, `title` — подпись. */
-export interface TelegramSubscription {
-  kind: string;
-  title: string;
-  is_enabled: boolean;
-}
-
 /**
  * Состояние подключения Telegram.
  *
  * `bot_username` приходит с сервера: фронт имени бота не знает и в ссылку его
- * не подставляет.
+ * не подставляет. Подписки на события карточка не читает: единственный механизм
+ * подписки — конструктор персональных правил.
  */
 export interface TelegramStatus {
   connected: boolean;
   username: string | null;
   bot_username: string;
-  subscriptions: TelegramSubscription[];
 }
 
 /** Код привязки и готовая ссылка на бота. Код одноразовый и живёт 15 минут. */
@@ -281,6 +326,92 @@ export interface TelegramConnectResult {
   code: string;
   deep_link: string;
   expires_at: string;
+}
+
+/**
+ * Оператор условия правила.
+ *
+ * Словарь повторяет `app/notification_rules.py::OPERATORS_BY_KIND`: набор
+ * допустимых операторов зависит от типа столбца, и его присылает каталог —
+ * клиент операторы не выдумывает.
+ */
+export type RuleOperator = 'equals' | 'not_equals' | 'greater' | 'less' | 'not_empty' | 'is_empty';
+
+/** Типы столбцов, по которым можно построить условие: `action` и `hostel` не годятся. */
+export type RuleColumnKind = 'text' | 'number' | 'date' | 'checkbox' | 'select';
+
+/**
+ * Условие правила.
+ *
+ * `value` уже приведено к типу столбца: число — строкой, дата — ISO-строкой,
+ * чекбокс — `bool`; у «заполнено/не заполнено» значения нет (`null`). У столбца
+ * вида `select` значение — идентификатор варианта списка, а не подпись.
+ */
+export interface NotificationRuleCondition {
+  column_id: number;
+  operator: RuleOperator;
+  value: string | boolean | number | null;
+}
+
+/**
+ * Правило уведомлений: что человек назвал событием, к какой таблице оно
+ * относится и при каких условиях по столбцам срабатывает.
+ *
+ * `table_title` — человеческое название таблицы для чтения (`table_key` нужен
+ * запросам). `broken` — правило ссылается на удалённый столбец или таблицу:
+ * оно молчит, но остаётся в списке и удаляется.
+ */
+export interface NotificationRule {
+  id: number;
+  name: string;
+  table_key: TableKey;
+  table_title: string;
+  is_enabled: boolean;
+  conditions: NotificationRuleCondition[];
+  broken: boolean;
+}
+
+/**
+ * Тело `POST`/`PUT` правила. `dormitory_id` в теле нет: общежитие берётся из
+ * пути, иначе ручку можно было бы перевести в чужое общежитие телом запроса.
+ */
+export interface NotificationRuleInput {
+  name: string;
+  table_key: TableKey;
+  is_enabled: boolean;
+  conditions: NotificationRuleCondition[];
+}
+
+/** Столбец каталога и операторы, которые к нему подходят. */
+export interface NotificationRuleCatalogColumn {
+  id: number;
+  name: string;
+  kind: RuleColumnKind;
+  operators: RuleOperator[];
+}
+
+/** Таблица каталога: встроенный раздел или пользовательская вкладка. */
+export interface NotificationRuleCatalogTable {
+  key: TableKey;
+  title: string;
+  columns: NotificationRuleCatalogColumn[];
+}
+
+/** Каталог конструктора: таблицы только этого общежития. */
+export interface NotificationRuleCatalog {
+  tables: NotificationRuleCatalogTable[];
+}
+
+/**
+ * Ответ предпросмотра: ровно текст сообщения Telegram и число подходящих строк.
+ *
+ * `text` — название правила, когда под правило подходит хотя бы одна строка, и
+ * `null`, когда не подходит ни одна. Клиент показывает `text` как есть и никогда
+ * не склеивает сообщение сам.
+ */
+export interface NotificationRulePreview {
+  text: string | null;
+  matched: number;
 }
 
 /** Роли, которые можно выдать приглашением. `owner` у организации один. */
@@ -563,14 +694,14 @@ export interface DashboardResponse {
 
 export class ApiError extends Error {
   readonly status: number;
-  /** 409 по лимиту пробного периода: сервер помечает его заголовком `X-Trial-Limit`. */
-  readonly trialLimit: boolean;
+  /** 409 по пределу мест: сервер помечает его заголовком `X-Member-Limit`. */
+  readonly memberLimit: boolean;
 
-  constructor(status: number, message: string, trialLimit = false) {
+  constructor(status: number, message: string, memberLimit = false) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
-    this.trialLimit = trialLimit;
+    this.memberLimit = memberLimit;
   }
 }
 
@@ -634,7 +765,7 @@ async function sendRequest<T>(path: string, init: RequestInit = {}, blob = false
     throw new ApiError(
       response.status,
       message,
-      response.headers.get(TRIAL_LIMIT_HEADER) === TRIAL_LIMIT_HEADER_VALUE,
+      response.headers.get(MEMBER_LIMIT_HEADER) === MEMBER_LIMIT_HEADER_VALUE,
     );
   }
   if (response.status === 204) {
@@ -948,6 +1079,17 @@ export interface JournalParams {
   /** 1..200, по умолчанию 50. */
   limit?: number;
   cursor?: string;
+}
+
+/**
+ * Адрес конструктора правил по общежитию.
+ *
+ * `dormitory_id` живёт только в пути: в теле запроса его нет, и подменить
+ * общежитие телом нельзя. Один помощник на все шесть ручек — чтобы путь не
+ * разъезжался между ними.
+ */
+function rulePath(dormitoryId: number): string {
+  return `/dormitories/${encodeURIComponent(String(dormitoryId))}/telegram-rules`;
 }
 
 export const api = {
@@ -1319,7 +1461,11 @@ export const api = {
     return request<Tariff[]>('/tariffs', { signal });
   },
 
-  /** Тариф организации: только чтение. 404 — у пользователя нет организации. */
+  /**
+   * Подписка организации: действующий тариф, его конец, остаток дней и
+   * оплаченный вперёд период. Только чтение: 404 — у пользователя нет
+   * организации, `tariff: null` — действующего тарифа нет (не ошибка).
+   */
   currentTariff(signal?: AbortSignal): Promise<OrganizationTariff> {
     return request<OrganizationTariff>('/tariffs/current', { signal });
   },
@@ -1347,8 +1493,12 @@ export const api = {
    * true`; без неё сервер отвечает `422`, и это его правило, а не проверка
    * клиента. Повторный клик безопасен: живой неоплаченный счёт за тот же
    * предмет сервер вернёт как есть (`200`), а не создаст второй, и уже
-   * записанный акцепт не перезапишет. Тариф уже куплен — `409` с текстом
-   * причины.
+   * записанный акцепт не перезапишет.
+   *
+   * Покупка тарифа — продление на будущий период: свободен текущий слот —
+   * заполняется он, занят — будущий (`201`), а когда оплачены оба, сервер
+   * отвечает `409` «Тариф уже оплачен на будущий период». Клиент слоты не
+   * размечает: правило одно и живёт на сервере.
    */
   purchaseInvoice(input: CreateInvoiceInput): Promise<Invoice> {
     return request<Invoice>('/billing/invoices', {
@@ -1375,7 +1525,7 @@ export const api = {
     return request<Document>(`/documents/${encodeURIComponent(code)}`, { signal });
   },
 
-  /** Состояние подключения Telegram и подписки. */
+  /** Состояние подключения Telegram. */
   telegramStatus(signal?: AbortSignal): Promise<TelegramStatus> {
     return request<TelegramStatus>('/telegram/status', { signal });
   },
@@ -1390,17 +1540,66 @@ export const api = {
     return request<{ connected: boolean }>('/telegram/disconnect', { method: 'POST' });
   },
 
-  /** Переключить подписку. Возвращается обновлённый список целиком. */
-  setTelegramSubscription(kind: string, isEnabled: boolean): Promise<TelegramSubscription[]> {
-    return request<TelegramSubscription[]>('/telegram/subscriptions', {
-      method: 'PATCH',
-      body: JSON.stringify({ kind, is_enabled: isEnabled }),
-    });
-  },
-
   /** Тестовое уведомление: проверка всей цепочки до Telegram. */
   sendTelegramTestMessage(): Promise<{ queued: boolean }> {
     return request<{ queued: boolean }>('/telegram/test-message', { method: 'POST' });
+  },
+
+  /**
+   * Правила уведомлений пользователя в этом общежитии.
+   *
+   * Правила персональные: у коллеги по организации свои, и список за него сервер
+   * не дополняет. 403 — нет права на решение, 404 — общежитие не наше.
+   */
+  notificationRules(dormitoryId: number, signal?: AbortSignal): Promise<NotificationRule[]> {
+    return request<NotificationRule[]>(rulePath(dormitoryId), { signal });
+  },
+
+  /** Каталог «таблица → столбцы → операторы» для условий правила. */
+  notificationRuleCatalog(
+    dormitoryId: number,
+    signal?: AbortSignal,
+  ): Promise<NotificationRuleCatalog> {
+    return request<NotificationRuleCatalog>(`${rulePath(dormitoryId)}/catalog`, { signal });
+  },
+
+  /** Завести правило. 201 — создано, `422` приходит как `ApiError` с текстом контракта. */
+  createNotificationRule(
+    dormitoryId: number,
+    input: NotificationRuleInput,
+  ): Promise<NotificationRule> {
+    return request<NotificationRule>(rulePath(dormitoryId), {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+
+  /** Переписать правило целиком: `PUT`, а не `PATCH` — так же правило читает клиент. */
+  updateNotificationRule(
+    dormitoryId: number,
+    ruleId: number,
+    input: NotificationRuleInput,
+  ): Promise<NotificationRule> {
+    return request<NotificationRule>(`${rulePath(dormitoryId)}/${ruleId}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    });
+  },
+
+  /** Удалить правило. 404 (правило уже удалено) приходит как `ApiError`. */
+  deleteNotificationRule(dormitoryId: number, ruleId: number): Promise<void> {
+    return request<void>(`${rulePath(dormitoryId)}/${ruleId}`, { method: 'DELETE' });
+  },
+
+  /** Предпросмотр: текст сообщения собирает сервер, клиент его не пересобирает. */
+  previewNotificationRule(
+    dormitoryId: number,
+    input: Omit<NotificationRuleInput, 'is_enabled'>,
+  ): Promise<NotificationRulePreview> {
+    return request<NotificationRulePreview>(`${rulePath(dormitoryId)}/preview`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
   },
 
   reportReadiness(id: string, signal?: AbortSignal): Promise<DailyReportReadiness> {

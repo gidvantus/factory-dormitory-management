@@ -241,7 +241,6 @@ ACTION_TITLES: dict[str, str] = {
     "post_telegram_chat": "Привязать чат бота к кабинету по коду",
     "post_telegram_connect": "Выдать код привязки Telegram",
     "post_telegram_disconnect": "Отвязать Telegram",
-    "patch_telegram_subscriptions": "Включить или выключить вид уведомлений",
     "post_telegram_test_message": "Прислать тестовое уведомление",
 }
 

@@ -10,10 +10,28 @@
 ИНН уникален, но nullable: пустая заготовка организации — нормальное состояние,
 а в Postgres несколько `NULL` в уникальном индексе друг другу не мешают.
 
-Ссылка на тариф (`tariff_id`) — это «купленный» тариф организации: одна строка
-прайса на организацию, `NULL` — тариф ещё не выбран. Внешний ключ с
-`ON DELETE SET NULL`: удаление тарифа из прайса не должно ломать организацию,
-она просто остаётся без тарифа, как и до выбора.
+**Тариф организации — это два слота.** `tariff_id` с `tariff_ends_at` — текущий
+оплаченный период, `next_tariff_id` с `next_tariff_ends_at` — оплаченный вперёд.
+Слотов ровно два: третий тариф не продаётся, пока не наступит будущий период.
+Разделение на слоты даёт продление без второго источника срока — «начало
+будущего периода» это и есть `tariff_ends_at` текущего, поэтому отдельного
+`next_starts_at` здесь нет.
+
+`tariff_ends_at` — **исключающая** граница, как `users.trial_ends_at`: в момент
+`ends_at` тариф уже не действует. `NULL` в `tariff_ends_at` у заполненного
+`tariff_id` означает бессрочный тариф: так его назначает администратор платформы
+и так в базе лежат строки периода `once`.
+
+`tariff_id` при этом — «последний оплаченный в этот слот», а не «действующий
+сейчас»: если срок истёк и оплачен будущий период, действующим становится
+будущий, и это вычисление (`app/subscription.py`), а не мутация на чтении.
+Воркеров и планировщика в проекте нет, поэтому «наступивший» период переезжает
+в текущий слот в ближайшей транзакции, которая пишет подписку (оплата счёта).
+
+Ссылка на тариф (`tariff_id`, `next_tariff_id`) — это «купленный» тариф
+организации: одна строка прайса на слот, `NULL` — слот ещё не оплачен. Внешний
+ключ с `ON DELETE SET NULL`: удаление тарифа из прайса не должно ломать
+организацию, она просто остаётся без тарифа в этом слоте, как и до выбора.
 """
 
 from datetime import datetime
@@ -56,6 +74,16 @@ class Organization(Base):
     # Выбранный организации тариф. Пока `NULL` — организация без тарифа.
     tariff_id: Mapped[int | None] = mapped_column(
         ForeignKey("tariffs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Конец текущего оплаченного периода (`NULL` — бессрочно). Граница
+    # исключающая: в этот момент тариф уже не действует.
+    tariff_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Тариф, оплаченный вперёд: начинает действовать с `tariff_ends_at` текущего.
+    next_tariff_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tariffs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    next_tariff_ends_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

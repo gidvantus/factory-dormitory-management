@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import notification_rules
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.cell_fill import assign_fill, checked_fill_changes
 from app.db import get_db
@@ -234,6 +235,11 @@ def save_custom_cell(
     if isinstance(row, (Resident, PersonnelInflow, PersonnelOutflow, CustomTabEntry, ArchiveEntry)):
         record_changed(db, row, _user.id)
     db.commit()
+    # Правила уведомлений ставятся после коммита ячейки: падение рассылки не
+    # откатывает и не превращает подтверждённую правку в 500.
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key=table_key, row_id=row_id, actor_id=_user.id
+    )
     return CellRequest(value=value)
 
 
@@ -283,6 +289,11 @@ def create_archive(
     db.add(row)
     db.commit()
     db.refresh(row)
+    # Строка архива — такая же запись своей таблицы, как и остальные: правило на
+    # «Архив» обязано срабатывать, раз таблица есть в каталоге.
+    notification_rules.notify_row_written(
+        db, dormitory_id=dormitory_id, table_key="archive", row_id=row.id, actor_id=_user.id
+    )
     return row
 
 
