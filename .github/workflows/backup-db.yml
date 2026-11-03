@@ -1,0 +1,226 @@
+name: Ежедневный бэкап БД
+
+# Ежедневный бэкап боевой PostgreSQL в S3-бакет: pg_dump на сервере → выгрузка
+# через `python -m app.backup_cli upload` → ротация последних KEEP дампов.
+#
+# Раннер подключается к серверу по SSH и передаёт серверный скрипт через stdin
+# (`bash -s`): актуальная версия скрипта всегда из репозитория, на сервере
+# ничего хранить не нужно. Каталог `_tools/` не заводится — серверный скрипт
+# живёт в heredoc шага.
+#
+# Зачем отдельный workflow: ручной деплой (`.github/workflows/deploy.yml`, шаг 8)
+# снимает дамп только перед миграциями. Ротации там нет, внешней копии нет, и
+# запуск привязан к релизу. Эксплуатация — docs/backup.md.
+#
+# Секреты не новые: переиспользуются CRM_SSH_HOST / CRM_SSH_USER / CRM_SSH_PORT /
+# CRM_SSH_KEY от деплоя. Ключей S3 в GitHub нет и не нужно: S3-конфигурация
+# живёт в `.env` сервера, и дамп уходит в бакет из контейнера `api`.
+#
+# ВНИМАНИЕ: `schedule` срабатывает ТОЛЬКО с ветки по умолчанию (`main`).
+# Пока файл не слит в `main`, работает только ручной запуск — docs/backup.md.
+on:
+  schedule:
+    # 03:00 UTC каждые сутки. Время GitHub Actions — UTC.
+    - cron: "0 3 * * *"
+  # Ручной запуск: Actions → «Ежедневный бэкап БД» → «Run workflow».
+  # Этим же путём запускается проверка из рабочей ветки.
+  workflow_dispatch:
+
+# Один бэкап за раз: второй дожидается первого, а не снимает параллельно второй
+# дамп той же базы и не гоняется с ним за одни и те же объекты в ротации.
+concurrency:
+  group: crm-db-backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    name: Бэкап боевой БД → S3
+    timeout-minutes: 60
+    env:
+      SSH_HOST: ${{ secrets.CRM_SSH_HOST }}
+      SSH_USER: ${{ secrets.CRM_SSH_USER }}
+      SSH_PORT: ${{ secrets.CRM_SSH_PORT || '22' }}
+      REMOTE_DIR: /srv/crm-dormitory
+      # Псевдоним хоста из ~/.ssh/config, который пишется на шаге настройки
+      # ключа: в нём собраны ключ, порт и все ssh-опции. Отдельный от деплойного
+      # (`crm-deploy`), чтобы правка одного workflow не меняла подключение другого.
+      SSH_TARGET: crm-backup
+      # Сколько дампов остаётся в S3. 11-й запуск вытесняет самый старый.
+      KEEP: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: "Проверка: секреты бэкапа заданы"
+        # Падение обязано происходить здесь, до подключения к серверу: без этой
+        # проверки шаг SSH висел бы на подключении, а причина была бы не видна.
+        env:
+          SSH_KEY: ${{ secrets.CRM_SSH_KEY }}
+          SSH_HOST_SECRET: ${{ secrets.CRM_SSH_HOST }}
+          SSH_USER_SECRET: ${{ secrets.CRM_SSH_USER }}
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -n "${SSH_KEY:-}" ] || missing="$missing CRM_SSH_KEY"
+          [ -n "${SSH_HOST_SECRET:-}" ] || missing="$missing CRM_SSH_HOST"
+          [ -n "${SSH_USER_SECRET:-}" ] || missing="$missing CRM_SSH_USER"
+          if [ -n "$missing" ]; then
+            echo "::error::Не заданы секреты бэкапа:$missing. Дамп не снимался. Бэкап использует те же секреты, что и деплой, — новый набор не нужен (docs/backup.md)."
+            exit 1
+          fi
+          echo "Секреты бэкапа заданы (те же, что у деплоя)."
+
+      - name: "SSH: настроить ключ доступа"
+        env:
+          SSH_KEY: ${{ secrets.CRM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          : "${SSH_KEY:?Нужен секрет CRM_SSH_KEY}"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # Ключ, скопированный с Windows-машины, приходит с CRLF и ломает
+          # разбор PEM — убираем \r.
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          if ! ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1; then
+            echo "::error::ssh не может прочитать приватный ключ CRM_SSH_KEY. Скопируйте ключ целиком, без CRLF, — docs/deploy.md."
+            exit 1
+          fi
+          # Один источник истины для подключения: псевдоним хоста в
+          # ~/.ssh/config. ConnectTimeout важен: без него подключение к «чёрной
+          # дыре» держится до общего timeout-minutes.
+          {
+            echo "Host $SSH_TARGET"
+            echo "  HostName $SSH_HOST"
+            echo "  User $SSH_USER"
+            echo "  Port $SSH_PORT"
+            echo "  IdentityFile $HOME/.ssh/id_ed25519"
+            echo "  IdentitiesOnly yes"
+            echo "  BatchMode yes"
+            echo "  StrictHostKeyChecking accept-new"
+            echo "  ConnectTimeout 20"
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          echo "Приватный ключ прочитан, параметры подключения записаны."
+
+      - name: "SSH: проверка подключения"
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" 'echo ===SSH-OK===; hostname; whoami'
+
+      - name: "Проверка: S3 включён и пишем в боевой префикс"
+        # `check` падает, если хранилище не S3 или префикс не crm-prod. JOB
+        # КРАСНЕЕТ и ничего не снимает — это правильный результат: при
+        # `S3_ENV=test` дамп уехал бы в crm-agent-test, а при выключенном S3
+        # остался бы на том же диске, с которого снят. Прод из workflow не
+        # правится: `.env` сервера — ручная операция, docs/backup.md.
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2029
+          if ! ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose exec -T api python -m app.backup_cli check"; then
+            echo "::error::Хранилище не готово к бэкапу: 'python -m app.backup_cli check' отказал (причина — строкой ОШИБКА выше). Дамп не снимался. Правка .env сервера и ключи — docs/backup.md."
+            exit 1
+          fi
+
+      - name: "Сервер: дамп БД → S3 → ротация"
+        # Порядок важен: upload ДО rotate. Обратный порядок удалил бы самый
+        # старый дамп раньше, чем появился новый, и при сбое выгрузки в бакете
+        # осталось бы на одну копию меньше, а сегодняшней не было бы вовсе.
+        run: |
+          set -euo pipefail
+          # Серверный скрипт — из репозитория, через stdin. Параметры заданы
+          # переменными окружения, а не подстановкой в текст скрипта: значения
+          # приходят из env самого workflow, пользовательского ввода здесь нет.
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" "REMOTE_DIR=$REMOTE_DIR KEEP=$KEEP bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          cd "$REMOTE_DIR"
+
+          # Имя дампа — UTC, тот же шаблон, что проверяет CLI:
+          # crm_ГГГГММДД_ЧЧММСС.dump. Он же имя объекта в S3.
+          DUMP="crm_$(date -u +%Y%m%d_%H%M%S).dump"
+          HOST_DUMP="$REMOTE_DIR/backups/$DUMP"
+          DB_CONTAINER=""
+          API_CONTAINER=""
+
+          cleanup() {
+            if [ -n "$DB_CONTAINER" ]; then
+              docker exec "$DB_CONTAINER" rm -f "/tmp/$DUMP" >/dev/null 2>&1 || true
+            fi
+            if [ -n "$API_CONTAINER" ]; then
+              docker exec "$API_CONTAINER" rm -f "/tmp/$DUMP" >/dev/null 2>&1 || true
+            fi
+          }
+
+          report_failure() {
+            echo "ОШИБКА: бэкап БД не завершён — свежей копии в S3 нет." >&2
+            if [ -f "$HOST_DUMP" ]; then
+              echo "Локальная копия осталась на сервере: $HOST_DUMP" >&2
+            else
+              echo "Локальной копии тоже нет: дамп не успел сняться." >&2
+            fi
+          }
+
+          on_exit() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              report_failure
+            fi
+            cleanup
+          }
+          # trap и на ошибке: /tmp контейнеров не должен копить дампы между
+          # запусками. Локальная копия при этом НЕ удаляется — она страховка.
+          trap on_exit EXIT
+
+          # Имя контейнера не хардкодим: оно зависит от COMPOSE_PROJECT_NAME
+          # в .env сервера, поэтому контейнер ищется через compose.
+          DB_CONTAINER="$(docker compose ps -aq db)"
+          if [ -z "$DB_CONTAINER" ]; then
+            echo "ОШИБКА: контейнер БД не найден через 'docker compose ps -aq db' в $REMOTE_DIR — стек на сервере не поднят. Снимать дамп не из чего: поднимите стек и запустите бэкап снова (docs/backup.md)." >&2
+            exit 1
+          fi
+          DB_RUNNING="$(docker inspect -f '{{.State.Running}}' "$DB_CONTAINER" 2>/dev/null || true)"
+          if [ "$DB_RUNNING" != "true" ]; then
+            echo "ОШИБКА: контейнер БД $DB_CONTAINER существует, но не запущен (State.Running=$DB_RUNNING). Дамп у остановленной базы не снять, а пустая копия хуже отсутствия копии (docs/backup.md)." >&2
+            exit 1
+          fi
+          API_CONTAINER="$(docker compose ps -aq api)"
+          if [ -z "$API_CONTAINER" ]; then
+            echo "ОШИБКА: контейнер api не найден через 'docker compose ps -aq api' в $REMOTE_DIR — выгружать дамп некуда (python -m app.backup_cli живёт в нём). Поднимите стек (docs/backup.md)." >&2
+            exit 1
+          fi
+
+          # POSTGRES_USER/POSTGRES_DB — из окружения самого контейнера: compose
+          # передаёт их из .env, значения в workflow не дублируются.
+          DB_USER="$(docker exec "$DB_CONTAINER" printenv POSTGRES_USER)"
+          DB_NAME="$(docker exec "$DB_CONTAINER" printenv POSTGRES_DB)"
+
+          mkdir -p "$REMOTE_DIR/backups"
+
+          echo "Дамп: $DUMP (UTC, база $DB_NAME)"
+          docker exec "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc -f "/tmp/$DUMP"
+          # Сначала локальная копия: она переживает сбой выгрузки в S3.
+          docker cp "$DB_CONTAINER:/tmp/$DUMP" "$HOST_DUMP"
+          ls -lh "$HOST_DUMP"
+
+          docker cp "$HOST_DUMP" "$API_CONTAINER:/tmp/$DUMP"
+          docker compose exec -T api python -m app.backup_cli upload "/tmp/$DUMP" "$DUMP"
+          docker compose exec -T api python -m app.backup_cli rotate backup/db "$KEEP"
+
+          docker exec "$API_CONTAINER" rm -f "/tmp/$DUMP"
+          # Локальная копия удаляется ТОЛЬКО после успешной выгрузки и ротации.
+          rm -f "$HOST_DUMP"
+          echo "Бэкап $DUMP выгружен в S3; локальная копия удалена."
+          REMOTE
+
+      - name: "Итог: бэкап завершён"
+        run: |
+          set -euo pipefail
+          echo "OK: дамп боевой БД снят и выгружен в S3 (ветка $GITHUB_REF_NAME, коммит $GITHUB_SHA)."
+          echo "Ключ объекта: crm-prod/backup/db/crm_<ГГГГММДД_ЧЧММСС>.dump — см. строку 'OK: выгружен …' выше."
+          echo "Восстановление и разбор сбоев — docs/backup.md."
