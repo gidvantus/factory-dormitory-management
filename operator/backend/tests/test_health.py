@@ -38,6 +38,12 @@ def test_openapi_documents_the_contract(client: TestClient) -> None:
         # Пользователи платформы: тот же контур, второй раздел кабинета.
         "/api/users",
         "/api/users/{user_id}",
+        # Счета платформы: третий раздел — реестр всех организаций, оплата,
+        # отмена и печатные формы.
+        "/api/invoices",
+        "/api/invoices/{invoice_id}",
+        "/api/invoices/{invoice_id}/file",
+        "/api/invoices/{invoice_id}/act-file",
     }
     login = schema["paths"]["/api/auth/login"]["post"]
     assert login["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
@@ -86,3 +92,25 @@ def test_openapi_documents_the_users_contour(client: TestClient) -> None:
     assert details["responses"]["404"] is not None
     assert update["responses"]["404"] is not None
     assert update["responses"]["422"] is not None
+
+
+def test_openapi_documents_the_invoices_contour(client: TestClient) -> None:
+    """Отказы счетов — тоже контракт: `detail` приходит из основного API дословно."""
+    schema = client.get("/openapi.json").json()
+    listing = schema["paths"]["/api/invoices"]["get"]
+    update = schema["paths"]["/api/invoices/{invoice_id}"]["patch"]
+    invoice_file = schema["paths"]["/api/invoices/{invoice_id}/file"]["get"]
+    act_file = schema["paths"]["/api/invoices/{invoice_id}/act-file"]["get"]
+
+    assert listing["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "PlatformInvoicePage"
+    )
+    for operation in (listing, update, invoice_file, act_file):
+        assert operation["responses"]["401"]["description"] == UNAUTHORIZED_DETAIL
+        assert operation["responses"]["502"] is not None
+        assert operation["responses"]["503"] is not None
+    assert update["responses"]["404"] is not None
+    assert update["responses"]["409"] is not None
+    assert update["responses"]["422"] is not None
+    assert invoice_file["responses"]["404"] is not None
+    assert act_file["responses"]["404"] is not None

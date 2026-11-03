@@ -7,7 +7,7 @@ OpenAPI (`/openapi.json` и `/docs`) собирается из них, а не �
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -154,3 +154,75 @@ class UpdatePlatformUserRequest(ForwardedBody):
     """
 
     full_name: str | None = None
+
+
+# --- Счета платформы ---------------------------------------------------------
+# Те же правила, что у организаций и пользователей: модели повторяют форму
+# ответа основного API один в один, а тела правки проверяются там же, наверху.
+# Набор полей строки счёта — это `PlatformInvoice` основного API
+# (`app/backend/app/schemas/platform_invoice.py`), наследующий ответ кабинета
+# клиента; кабинет его не переименовывает и не сокращает.
+
+# Статусы счёта. Набор тот же, что объявляет основной API и держит `CHECK` в
+# таблице `invoices`; значение приходит с сервера и уходит в браузер дословно.
+InvoiceStatus = Literal["new", "paid", "closed", "cancelled"]
+
+# Вид предмета счёта: тариф или решение магазина улучшений.
+InvoiceItemKind = Literal["tariff", "solution"]
+
+
+class PlatformInvoice(BaseModel):
+    """Строка реестра счетов платформы: счёт плюс организация, которой он выставлен.
+
+    `amount` едет строкой (`"10000.00"`), а не числом: копейки не должны
+    теряться на округлении. Готовые подписи `amount_label` и `status_label`
+    собирает основной API — кабинет их не пересчитывает.
+
+    `organization_name` бывает `null` у пустой заготовки организации.
+    `can_manage` в платформенном контуре всегда `true`: право даёт сервисный
+    токен, ролей организации здесь нет, и фронт на это поле не ветвится.
+    """
+
+    id: int
+    number: str
+    status: InvoiceStatus
+    status_label: str
+    item_kind: InvoiceItemKind
+    amount: str
+    currency: str
+    amount_label: str
+    tariff_name: str | None
+    tariff_period: str | None
+    buyer_name: str | None
+    buyer_inn: str | None
+    buyer_kpp: str | None
+    buyer_ogrn: str | None
+    buyer_address: str | None
+    has_act: bool
+    can_manage: bool
+    paid_at: datetime | None
+    created_at: datetime
+    organization_id: int
+    organization_name: str | None
+
+
+class PlatformInvoicePage(BaseModel):
+    """Страница списка: элементы и общее число счетов по тем же условиям.
+
+    Пока `len(items) < total`, у списка есть что догружать.
+    """
+
+    items: list[PlatformInvoice]
+    total: int
+
+
+class UpdateInvoiceStatusRequest(ForwardedBody):
+    """Тело смены статуса счёта — то, что кабинет передаёт основному API.
+
+    Единственное поле и никаких проверок: набор допустимых статусов и
+    разрешённые переходы живут в основном API (`app/backend/app/invoice_status.py`),
+    и его `409`/`422` уходят клиенту дословно. Вторая копия правил здесь
+    разошлась бы с оригиналом на первой же правке.
+    """
+
+    status: str | None = None
