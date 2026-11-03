@@ -1,17 +1,31 @@
 """Пароли и токены: модуль security."""
 
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 
 import jwt
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from app.config import get_settings
 from app.security import (
+    BOT_TOKEN_HEADER,
+    INVALID_BOT_TOKEN_DETAIL,
+    INVALID_OPERATOR_TOKEN_DETAIL,
+    OPERATOR_TOKEN_HEADER,
     create_access_token,
     decode_access_token,
     hash_password,
+    require_operator_service,
+    require_service_bot,
     verify_password,
 )
+
+# Заведомо ненастоящие секреты: настоящие в тестах не нужны.
+BOT_SERVICE_TOKEN = "unit-test-bot-service-token"
+OPERATOR_SERVICE_TOKEN = "unit-test-operator-service-token"
 
 
 def test_hash_is_not_the_password() -> None:
@@ -66,3 +80,66 @@ def test_me_with_broken_cookie_is_unauthorized(client: TestClient) -> None:
     response = client.get("/api/me")
     assert response.status_code == 401
     assert "broken-not-a-jwt" not in response.text
+
+
+def header_request(name: str, raw: bytes) -> Request:
+    """Запрос с сырыми байтами заголовка — ровно так его отдаёт ASGI-сервер."""
+    return Request({"type": "http", "headers": [(name.lower().encode("ascii"), raw)]})
+
+
+@pytest.fixture
+def service_secrets(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Оба сервисных секрета заданы. Кеш настроек сбрасывается до и после."""
+    monkeypatch.setenv("TELEGRAM_SERVICE_TOKEN", BOT_SERVICE_TOKEN)
+    monkeypatch.setenv("OPERATOR_SERVICE_TOKEN", OPERATOR_SERVICE_TOKEN)
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    ("header", "guard", "detail"),
+    [
+        (BOT_TOKEN_HEADER, require_service_bot, INVALID_BOT_TOKEN_DETAIL),
+        (OPERATOR_TOKEN_HEADER, require_operator_service, INVALID_OPERATOR_TOKEN_DETAIL),
+    ],
+)
+def test_non_ascii_service_token_is_a_plain_refusal(
+    service_secrets: None,
+    header: str,
+    guard: Callable[[Request], None],
+    detail: str,
+) -> None:
+    """Мусорный заголовок — это неверный токен (`401`), а не `500` с traceback.
+
+    Байт `0xE9` — obs-text: h11 его пропускает, Starlette отдаёт значение
+    строкой в latin-1, а `secrets.compare_digest` на не-ASCII `str` бросает
+    `TypeError`. Оба сервисных контура обязаны вести себя одинаково.
+    """
+    request = header_request(header, b"\xe9")
+
+    with pytest.raises(HTTPException) as error:
+        guard(request)
+
+    assert error.value.status_code == 401
+    assert error.value.detail == detail
+
+
+@pytest.mark.parametrize(
+    ("header", "guard"),
+    [
+        (BOT_TOKEN_HEADER, require_service_bot),
+        (OPERATOR_TOKEN_HEADER, require_operator_service),
+    ],
+)
+def test_correct_service_token_still_passes(
+    service_secrets: None,
+    header: str,
+    guard: Callable[[Request], None],
+) -> None:
+    """Побайтовое сравнение не сломало штатный пропуск."""
+    token = BOT_SERVICE_TOKEN if header == BOT_TOKEN_HEADER else OPERATOR_SERVICE_TOKEN
+
+    guard(header_request(header, token.encode("utf-8")))

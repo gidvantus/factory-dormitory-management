@@ -5,12 +5,16 @@ name: Деплой на боевой сервер
 # этот стек: db + api + web + bot (+ caddy по профилю tls).
 #
 # Деплой выполняется ТОЛЬКО отсюда: Actions → «Деплой на боевой сервер» →
-# «Run workflow» из ветки develop-m. Каждый шаг назван по стадии работы, чтобы
+# «Run workflow» из ветки main. Каждый шаг назван по стадии работы, чтобы
 # по подсвеченному красным шагу сразу было видно, где встал деплой. Порядок:
 # проверка ветки и секретов → ревизия коммита → ключ и связь по SSH → чек-лист
-# .env сервера → бэкап БД → архив из develop-m → распаковка → сборка образов →
+# .env сервера → бэкап БД → архив из main → распаковка → сборка образов →
 # запуск стека (здесь же миграции) → ANALYZE → reload caddy → /healthz →
 # /api/health по HTTPS → итог.
+#
+# Про ветки: код и этот файл правятся в рабочей ветке, релиз — это merge
+# рабочей ветки в main merge-коммитом, а деплой запускается только из main.
+# Запуск из рабочей ветки шаг 2 не пропустит.
 #
 # Адресов сервера и домена в репозитории нет: хост и пользователь приходят из
 # секретов CRM_SSH_HOST / CRM_SSH_USER, домен — из SITE_DOMAIN в .env сервера.
@@ -30,7 +34,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Деплой develop-m → сервер
+    name: Деплой main → сервер
     timeout-minutes: 90
     env:
       SSH_HOST: ${{ secrets.CRM_SSH_HOST }}
@@ -50,14 +54,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: "Проверка: деплой только из ветки develop-m"
-        if: github.ref != 'refs/heads/develop-m'
+      - name: "Проверка: деплой только из ветки main"
+        if: github.ref != 'refs/heads/main'
         run: |
           # Имя ветки — управляемый извне текст, поэтому в скрипт оно приходит
           # переменной окружения, а не подстановкой выражения GitHub: иначе
           # ветка вида feature/x$(...) исполнилась бы прямо на раннере, где в
           # окружении лежат адрес и пользователь боевого сервера.
-          echo "::error::Деплой разрешён только из ветки develop-m. Текущая: $GITHUB_REF. Файл workflow лежит и в main, но main отстаёт от develop-m — запуск из main выкатил бы на сервер устаревший код."
+          echo "::error::Деплой разрешён только из ветки main. Текущая: $GITHUB_REF. Рабочая ветка в деплой не годится: чтобы выкатить её содержимое, сначала слейте рабочую ветку в main merge-коммитом."
           exit 1
 
       - name: "Проверка: секреты деплоя заданы"
@@ -166,22 +170,30 @@ jobs:
           # app/bot/__init__.py пишет ошибку и выходит, контейнер bot уходит в
           # рестарт по кругу (restart: unless-stopped), и шаг запуска стека
           # падает на --wait. Проверяем их здесь, чтобы падение назвало ключ.
-          for key in SITE_DOMAIN ACME_EMAIL CADDY_ACME_CA FRONTEND_PORT API_PORT FRONTEND_BASE_URL TELEGRAM_BOT_TOKEN TELEGRAM_SERVICE_TOKEN; do
+          # OPERATOR_* обязательны по той же причине: без OPERATOR_PASSWORD
+          # operator-api уходит в рестарт, без OPERATOR_TOKEN_SECRET нечем
+          # подписать сессию кабинета, и шаг запуска стека краснеет без имени
+          # причины. Чек-лист кабинета оператора — docs/deploy.md.
+          # JWT_SECRET обязателен так же: без него api не стартует. Отдельно
+          # ниже он проверяется на заглушку: длина заглушки из .env.example
+          # проходит минимум кода (app/backend/app/config.py:19 — 16 символов),
+          # поэтому код её не отличит от боевого секрета.
+          for key in SITE_DOMAIN ACME_EMAIL CADDY_ACME_CA FRONTEND_PORT API_PORT FRONTEND_BASE_URL JWT_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_SERVICE_TOKEN OPERATOR_USERNAME OPERATOR_PASSWORD OPERATOR_TOKEN_SECRET; do
             if [ -z "$(env_get "$key")" ]; then
               missing="$missing $key"
             fi
           done
           if [ -n "$missing" ]; then
-            echo "::error::В $REMOTE_DIR/.env не заданы или пусты:$missing. Чек-лист переменных — docs/ssl.md, порядок подготовки сервера — docs/deploy.md."
+            echo "::error::В $REMOTE_DIR/.env не заданы или пусты:$missing. Чек-лист переменных основного кабинета — docs/ssl.md, чек-лист кабинета оператора и токенов бота — docs/deploy.md, порядок подготовки сервера — docs/deploy.md."
             exit 1
           fi
-          for key in FRONTEND_PORT API_PORT; do
+          for key in FRONTEND_PORT API_PORT OPERATOR_API_PORT OPERATOR_FRONTEND_PORT; do
             value="$(env_get "$key")"
             case "$value" in
               "$LOOPBACK":*)
                 ;;
               *)
-                echo "::error::$key в $REMOTE_DIR/.env равно '$value', а обязано начинаться с $LOOPBACK (например $LOOPBACK:8081). Иначе сервис опубликован на всех интерфейсах в обход TLS — docs/ssl.md."
+                echo "::error::$key в $REMOTE_DIR/.env равно '$value', а обязано начинаться с $LOOPBACK (например $LOOPBACK:8081 для основного кабинета, $LOOPBACK:8002 и $LOOPBACK:8082 для кабинета оператора). Иначе сервис опубликован на всех интерфейсах в обход TLS — docs/ssl.md, кабинет оператора — docs/deploy.md."
                 exit 1
                 ;;
             esac
@@ -190,8 +202,43 @@ jobs:
             echo "::error::SESSION_COOKIE_SECURE в $REMOTE_DIR/.env не равно true. Cookie сессии crm_session уходила бы открытым текстом — docs/ssl.md."
             exit 1
           fi
+          # Тот же флаг у кабинета оператора. В .env.example стоит false, и
+          # env_file с required: true подставляет его молча: operator-api выдал
+          # бы Set-Cookie operator_session без Secure (operator/backend/app/
+          # security.py). Кабинет живёт на loopback-портах и снаружи доступен
+          # только через SSH-туннель, поэтому «https» тут ни при чём: флаг
+          # обязателен, чтобы сессия не ходила открытым текстом при любом
+          # будущем проксировании. Проверяем здесь, чтобы падение назвало ключ.
+          if [ "$(env_get OPERATOR_SESSION_COOKIE_SECURE)" != "true" ]; then
+            echo "::error::OPERATOR_SESSION_COOKIE_SECURE в $REMOTE_DIR/.env не равно true. Cookie operator_session отдавалась бы без флага Secure, и сессия кабинета оператора ходила бы открытым текстом при любом проксировании. Чек-лист кабинета оператора — docs/deploy.md."
+            exit 1
+          fi
+          # Заглушки из .env.example. Файл подключён в docker-compose.yml как
+          # env_file с required: true, поэтому незаданное в .env сервера
+          # значение молча применилось бы как боевое: вход в кабинет оператора
+          # с паролем change-me и подпись сессии публично известным секретом.
+          # Проверяем здесь, чтобы падение назвало ключ, а не оставило дыру.
+          if [ "$(env_get OPERATOR_PASSWORD)" = "change-me" ]; then
+            echo "::error::OPERATOR_PASSWORD в $REMOTE_DIR/.env равно заглушке 'change-me' из .env.example. Пароль входа в кабинет оператора обязан быть боевым — чек-лист кабинета оператора в docs/deploy.md."
+            exit 1
+          fi
+          # Оба секрета подписи сессии проверяются одинаково: .env.example не
+          # содержит боевых секретов, поэтому 'local-stand-only…' или
+          # 'change-me' в значении — не боевой ключ. JWT_SECRET: заглушка
+          # local-stand-only-secret-change-me-32-chars длиннее минимума кода
+          # (app/backend/app/config.py:19 — 16 символов), значит api подпишет
+          # crm_session публично известным ключом и пустит в кабинет под любым
+          # пользователем. OPERATOR_TOKEN_SECRET — тот же класс дыры.
+          for key in JWT_SECRET OPERATOR_TOKEN_SECRET; do
+            case "$(env_get "$key")" in
+              *local-stand-only*|*change-me*)
+                echo "::error::$key в $REMOTE_DIR/.env содержит заглушку из .env.example ('local-stand-only…' или 'change-me'). Секрет подписи сессии обязан быть боевым — чек-лист переменных основного кабинета в docs/ssl.md, кабинета оператора — docs/deploy.md."
+                exit 1
+                ;;
+            esac
+          done
           echo "SITE_DOMAIN=$(env_get SITE_DOMAIN)" >> "$GITHUB_ENV"
-          echo ".env сервера прошёл чек-лист TLS."
+          echo ".env сервера прошёл чек-лист TLS и чек-лист кабинета оператора."
 
       - name: "Сервер: бэкап БД перед обновлением"
         # Единственная страховка от неудачных миграций: alembic upgrade head
@@ -236,7 +283,7 @@ jobs:
       - name: "Архив: упаковать и передать на сервер"
         run: |
           set -euo pipefail
-          # core.autocrlf=false: в архив должны попасть ровно файлы develop-m,
+          # core.autocrlf=false: в архив должны попасть ровно файлы main,
           # без автоконвертации переводов строк.
           git -c core.autocrlf=false archive --format=tar -o /tmp/deploy.tar HEAD
           ls -lh /tmp/deploy.tar
@@ -271,9 +318,9 @@ jobs:
           # Миграции применяет сам api при старте (app/backend/entrypoint.sh:
           # alembic upgrade head, затем uvicorn), поэтому отдельного шага
           # миграций нет. Ошибка alembic роняет api и этот шаг.
-          # --wait проверяет только healthcheck'и, а они есть лишь у db и
-          # caddy: зелёный шаг ещё не доказывает, что api, web и bot живы.
-          # Настоящие проверки — шаги /healthz и /api/health ниже.
+          # --wait проверяет db, caddy, operator-api, operator-web; у api, web и
+          # bot healthcheck'ов нет, поэтому зелёный шаг ещё не доказывает, что
+          # они живы. Настоящие проверки — шаги /healthz и /api/health ниже.
           # shellcheck disable=SC2029
           ssh "$SSH_TARGET" \
               "cd $REMOTE_DIR && docker compose --profile tls up -d --no-build --remove-orphans --wait --wait-timeout 180"
@@ -366,7 +413,7 @@ jobs:
       - name: "Итог: деплой завершён"
         run: |
           set -euo pipefail
-          echo "OK: на сервере развёрнут develop-m @ $GITHUB_SHA"
+          echo "OK: на сервере развёрнут main @ $GITHUB_SHA"
           echo "Домен: https://${SITE_DOMAIN:-<не прочитан>}/"
           # shellcheck disable=SC2029
           ssh "$SSH_TARGET" \
