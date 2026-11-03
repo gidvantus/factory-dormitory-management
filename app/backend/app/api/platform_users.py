@@ -28,6 +28,7 @@ from app.models.user import User
 from app.schemas.platform_user import PlatformUser, PlatformUserPage, PlatformUserUpdate
 from app.schemas.user import ErrorResponse
 from app.security import INVALID_OPERATOR_TOKEN_DETAIL, require_operator_service
+from app.sql_like import ESCAPE_CHARACTER, like_pattern
 
 # Текст отказа — часть контракта: кабинет передаёт его дословно, а тестировщик
 # сверяет построчно. Поэтому константа одна на роутер и на тесты.
@@ -61,10 +62,6 @@ PageOffset = Annotated[int, Query(ge=0)]
 MAX_SEARCH_LENGTH = 100
 SearchQuery = Annotated[str | None, Query(max_length=MAX_SEARCH_LENGTH)]
 
-# Символ экранирования для `LIKE`. Обратный слэш выбран потому, что он не
-# встречается в email и почти не встречается в ФИО.
-ESCAPE_CHARACTER = "\\"
-
 LIST_RESPONSES: dict[int | str, dict[str, object]] = {
     status.HTTP_422_UNPROCESSABLE_ENTITY: {
         "model": ErrorResponse,
@@ -91,21 +88,9 @@ UPDATE_RESPONSES: dict[int | str, dict[str, object]] = {
 }
 
 
-def _like_pattern(value: str) -> str:
-    """Подстрока как шаблон `LIKE`: `%`, `_` и обратный слэш экранируются.
-
-    Без экранирования `search=%` вернул бы всю платформу: значение приходит от
-    клиента, а `LIKE` толкует его как шаблон, а не как текст.
-    """
-    escaped = value.replace(ESCAPE_CHARACTER, ESCAPE_CHARACTER * 2)
-    for char in ("%", "_"):
-        escaped = escaped.replace(char, ESCAPE_CHARACTER + char)
-    return f"%{escaped}%"
-
-
 def _search_condition(search: str) -> ColumnElement[bool]:
     """Подстрока без учёта регистра по email **или** ФИО."""
-    pattern = _like_pattern(search)
+    pattern = like_pattern(search)
     return or_(
         User.email.ilike(pattern, escape=ESCAPE_CHARACTER),
         User.full_name.ilike(pattern, escape=ESCAPE_CHARACTER),

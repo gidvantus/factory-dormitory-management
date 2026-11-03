@@ -2,8 +2,10 @@
  * Клиент API кабинета оператора.
  *
  * Ручки ровно те, что отдаёт `operator-api`: вход, «кто вошёл», выход
- * (`operator/backend/app/api/auth.py`) и организации платформы
- * (`operator/backend/app/api/organizations.py`). Токен не хранится в JS: сессия
+ * (`operator/backend/app/api/auth.py`), организации платформы
+ * (`operator/backend/app/api/organizations.py`), пользователи
+ * (`operator/backend/app/api/users.py`) и счета
+ * (`operator/backend/app/api/invoices.py`). Токен не хранится в JS: сессия
  * живёт в httpOnly cookie `operator_session`, поэтому каждый запрос идёт с
  * `credentials: 'include'`.
  *
@@ -262,4 +264,114 @@ export function updateUser(id: number, payload: PlatformUserUpdate): Promise<Pla
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
+}
+
+// --- Счета платформы --------------------------------------------------------
+// Форма ответа — та же, что у основного API (`app/backend/app/schemas/invoice.py`):
+// кабинет её не переписывает (`operator/backend/app/schemas.py`). `status_label`
+// и `amount_label` собирает сервер, экран их не пересчитывает. `can_manage`
+// в платформенном контуре всегда `true` — право даёт сервисный токен, и фронт
+// на это поле не ветвится.
+
+/** Статусы счёта по контракту: одно и то же в фильтре и в ответе. */
+export type InvoiceStatus = 'new' | 'paid' | 'closed' | 'cancelled';
+
+/** Вид предмета счёта: подписка (`tariff`) или право магазина (`solution`). */
+export type InvoiceItemKind = 'tariff' | 'solution';
+
+/** Строка реестра счетов: счёт плюс организация, которой он выставлен. */
+export interface PlatformInvoice {
+  id: number;
+  number: string;
+  status: InvoiceStatus;
+  /** Готовая подпись статуса из API — на экране берётся дословно. */
+  status_label: string;
+  item_kind: InvoiceItemKind;
+  /** Сумма строкой: копейки не должны теряться на округлении. */
+  amount: string;
+  currency: string;
+  /** Готовая подпись суммы из API («12 400 ₽ за 3 месяца»). */
+  amount_label: string;
+  /** Название предмета: тарифа или решения — колонка исторически одна. */
+  tariff_name: string | null;
+  tariff_period: string | null;
+  buyer_name: string | null;
+  buyer_inn: string | null;
+  buyer_kpp: string | null;
+  buyer_ogrn: string | null;
+  buyer_address: string | null;
+  /** Акт уже сформирован: по нему экран показывает ссылку на скачивание. */
+  has_act: boolean;
+  can_manage: boolean;
+  paid_at: string | null;
+  /** ISO-8601 из API; показывается как дата без времени. */
+  created_at: string;
+  organization_id: number;
+  /** `null` у пустой заготовки организации. */
+  organization_name: string | null;
+}
+
+/** Страница списка: элементы и общее число счетов по тем же условиям. */
+export interface PlatformInvoicePage {
+  items: PlatformInvoice[];
+  total: number;
+}
+
+/**
+ * Параметры списка.
+ *
+ * `limit` 1..100, `offset` ≥ 0, `status` — пусто либо статус счёта, `search` —
+ * подстрока названия организации или ИНН, до 100 символов.
+ */
+export interface InvoiceListQuery {
+  limit: number;
+  offset: number;
+  status?: InvoiceStatus | '';
+  search?: string;
+}
+
+/**
+ * Страница счетов всех организаций: свежие сверху.
+ *
+ * Пустые `status` и `search` не отправляются: фильтр необязательный, а правило
+ * поиска живёт в основном API.
+ */
+export function listInvoices({
+  limit,
+  offset,
+  status,
+  search,
+}: InvoiceListQuery): Promise<PlatformInvoicePage> {
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (status !== undefined && status !== '') {
+    query.set('status', status);
+  }
+  if (search !== undefined && search.trim() !== '') {
+    query.set('search', search.trim());
+  }
+  return request<PlatformInvoicePage>(`/invoices?${query.toString()}`);
+}
+
+/**
+ * Оплата или отмена счёта: ответ — обновлённая строка.
+ *
+ * Разрешённые переходы и тексты отказов — правило основного API
+ * (`app/backend/app/invoice_status.py`), поэтому тело — только `status`,
+ * а `detail` отказа показывается дословно.
+ */
+export function updateInvoiceStatus(id: number, status: InvoiceStatus): Promise<PlatformInvoice> {
+  return request<PlatformInvoice>(`/invoices/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+/**
+ * Адрес PDF счёта или акта для обычной ссылки `href`.
+ *
+ * За файлом должен уходить переход, а не `fetch`: ответ — байты с
+ * `Content-Disposition`, и имя файла собирает основной API.
+ */
+export function invoiceFileUrl(id: number, kind: 'invoice' | 'act'): string {
+  return kind === 'act' ? `/api/invoices/${id}/act-file` : `/api/invoices/${id}/file`;
 }

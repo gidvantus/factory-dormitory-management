@@ -22,13 +22,13 @@
 """
 
 from datetime import UTC, datetime
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import billing_forms, invoice_files
+from app import invoice_files
 from app.api.organization import (
     EDIT_ROLES,
     ORGANIZATION_EDIT_FORBIDDEN_DETAIL,
@@ -38,17 +38,21 @@ from app.api.organization import (
 )
 from app.db import get_db
 from app.invoice_status import (
-    ACT_KIND,
     INVOICE_NOT_FOUND_DETAIL,
     NEW_STATUS,
     change_status,
-    status_label,
+)
+from app.invoices import (
+    ACT_NOT_FOUND_DETAIL,
+    PDF_MEDIA_TYPE,
+    act_invoice_ids,
+    invoice_response,
+    pdf_response,
 )
 from app.models.invoice import (
     SOLUTION_ITEM_KIND,
     TARIFF_ITEM_KIND,
     Invoice,
-    InvoiceDocument,
     invoice_number,
     pending_invoice_number,
 )
@@ -56,12 +60,9 @@ from app.models.organization import Organization
 from app.models.solution import Solution
 from app.models.tariff import Tariff
 from app.offer import OFFER_ACCEPTANCE_REQUIRED_DETAIL, has_acceptance, record_acceptance
-from app.pricing import format_invoice_amount
 from app.schemas.invoice import (
     CreateInvoiceRequest,
-    InvoiceItemKind,
     InvoiceResponse,
-    InvoiceStatus,
     UpdateInvoiceStatusRequest,
 )
 from app.schemas.user import ErrorResponse
@@ -74,12 +75,6 @@ DbSession = Annotated[Session, Depends(get_db)]
 TARIFF_NOT_FOUND_DETAIL = "Тариф не найден"
 SOLUTION_NOT_FOUND_DETAIL = "Решение не найдено"
 BUYER_REQUISITES_DETAIL = "Заполните название и ИНН организации на странице «Организация»"
-ACT_NOT_FOUND_DETAIL = "Акт по счёту ещё не сформирован"
-
-# Печатные формы счёта и акта отдаются PDF-файлом: форма собирается один раз,
-# сохраняется в файловое хранилище (`app/invoice_files.py`) и дальше отдаётся
-# сохранённое. Адреса ручек, коды ответов и имена файлов не меняются.
-PDF_MEDIA_TYPE = "application/pdf"
 
 # 404 у этих роутов приходит с тремя разными текстами: нет организации у
 # пользователя, нет счёта у организации или нет предмета покупки. Все в описании.
@@ -126,53 +121,10 @@ CONFLICT_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-def _act_invoice_ids(db: Session, invoice_ids: list[int]) -> set[int]:
-    """Счета, у которых уже есть акт. Одним запросом на весь список."""
-    if not invoice_ids:
-        return set()
-    rows = db.scalars(
-        select(InvoiceDocument.invoice_id).where(
-            InvoiceDocument.invoice_id.in_(invoice_ids),
-            InvoiceDocument.kind == ACT_KIND,
-        )
-    )
-    return set(rows)
-
-
-def _response(invoice: Invoice, has_act: bool, can_manage: bool) -> InvoiceResponse:
-    """Ответ по строке счёта: подписи статуса и суммы собирает сервер."""
-    return InvoiceResponse(
-        id=invoice.id,
-        number=invoice.number,
-        # В колонке `VARCHAR(20)` набор значений держит `CHECK` по тем же
-        # статусам, что объявляет `InvoiceStatus`; приведение говорит об этом
-        # типизатору, а не ослабляет проверку.
-        status=cast(InvoiceStatus, invoice.status),
-        status_label=status_label(invoice.status),
-        # Набор значений держит `CHECK` по тем же видам, что объявляет
-        # `InvoiceItemKind`; приведение говорит об этом типизатору.
-        item_kind=cast(InvoiceItemKind, invoice.item_kind),
-        amount=invoice.amount,
-        currency=invoice.currency,
-        amount_label=format_invoice_amount(invoice.amount, invoice.currency, invoice.tariff_period),
-        tariff_name=invoice.tariff_name,
-        tariff_period=invoice.tariff_period,
-        buyer_name=invoice.buyer_name,
-        buyer_inn=invoice.buyer_inn,
-        buyer_kpp=invoice.buyer_kpp,
-        buyer_ogrn=invoice.buyer_ogrn,
-        buyer_address=invoice.buyer_address,
-        has_act=has_act,
-        can_manage=can_manage,
-        paid_at=invoice.paid_at,
-        created_at=invoice.created_at,
-    )
-
-
 def _one_response(db: Session, invoice: Invoice, membership: Membership) -> InvoiceResponse:
-    return _response(
+    return invoice_response(
         invoice,
-        invoice.id in _act_invoice_ids(db, [invoice.id]),
+        invoice.id in act_invoice_ids(db, [invoice.id]),
         membership.role in EDIT_ROLES,
     )
 
@@ -192,15 +144,6 @@ def _load_own_invoice(db: Session, membership: Membership, invoice_id: int) -> I
     if invoice is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, INVOICE_NOT_FOUND_DETAIL)
     return invoice
-
-
-def _pdf_response(content: bytes, filename: str) -> Response:
-    """Файл печатной формы вложением: имя дублируется ASCII-запасным."""
-    return Response(
-        content=content,
-        media_type=PDF_MEDIA_TYPE,
-        headers={"Content-Disposition": billing_forms.content_disposition(filename)},
-    )
 
 
 @router.post(
@@ -367,9 +310,9 @@ def list_invoices(membership: Membership, db: DbSession) -> list[InvoiceResponse
             .order_by(Invoice.created_at.desc(), Invoice.id.desc())
         )
     )
-    acts = _act_invoice_ids(db, [invoice.id for invoice in invoices])
+    acts = act_invoice_ids(db, [invoice.id for invoice in invoices])
     can_manage = membership.role in EDIT_ROLES
-    return [_response(invoice, invoice.id in acts, can_manage) for invoice in invoices]
+    return [invoice_response(invoice, invoice.id in acts, can_manage) for invoice in invoices]
 
 
 @router.get(
@@ -438,7 +381,7 @@ def download_invoice(invoice_id: int, membership: Membership, db: DbSession) -> 
     """
     invoice = _load_own_invoice(db, membership, invoice_id)
     content = invoice_files.read_or_store(db, invoice, invoice_files.INVOICE_PURPOSE)
-    return _pdf_response(content, f"invoice-{invoice.number}.pdf")
+    return pdf_response(content, f"invoice-{invoice.number}.pdf")
 
 
 @router.get(
@@ -467,7 +410,7 @@ def download_act(invoice_id: int, membership: Membership, db: DbSession) -> Resp
     отвечает `404` до первой оплаты — файл она не создаёт.
     """
     invoice = _load_own_invoice(db, membership, invoice_id)
-    if invoice.id not in _act_invoice_ids(db, [invoice.id]):
+    if invoice.id not in act_invoice_ids(db, [invoice.id]):
         raise HTTPException(status.HTTP_404_NOT_FOUND, ACT_NOT_FOUND_DETAIL)
     content = invoice_files.read_or_store(db, invoice, invoice_files.ACT_PURPOSE)
-    return _pdf_response(content, f"act-{invoice.number}.pdf")
+    return pdf_response(content, f"act-{invoice.number}.pdf")

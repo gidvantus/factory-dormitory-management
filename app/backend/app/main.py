@@ -38,6 +38,7 @@ from app.api import (
     payments,
     personnel,
     personnel_builder,
+    platform_invoices,
     platform_organizations,
     platform_users,
     recovery,
@@ -349,6 +350,10 @@ def create_app() -> FastAPI:
     # Пользователи платформы — второй раздел того же контура: тот же заголовок
     # `X-Operator-Token` и та же зависимость на роутере.
     application.include_router(platform_users.router, prefix=API_PREFIX)
+    # Счета платформы — третий раздел того же контура: тот же заголовок
+    # `X-Operator-Token` и та же зависимость на роутере. Именно здесь оператор
+    # вносит оплату: в кабинете клиента кнопки «Оплатить» нет намеренно (#120).
+    application.include_router(platform_invoices.router, prefix=API_PREFIX)
     application.include_router(journal_router, prefix=API_PREFIX)
     application.include_router(dashboard.router, prefix=API_PREFIX)
     application.include_router(dashboard_blocks.router, prefix=API_PREFIX)
