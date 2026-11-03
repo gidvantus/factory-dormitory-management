@@ -1,0 +1,2708 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Макет #149 — кабинет оператора: счета</title>
+    <style>
+      /* ==========================================================================
+         Макет постановки #149. Токены сняты с operator/frontend/src/index.css
+         («natural neutral»): палитра, радиусы, высоты контролов, шрифт, плотность.
+         Каркас экрана, кнопки, поля, алерт, блок «пусто» и реестр перенесены из
+         index.css и макетов #131/#132. Новое — раздел «Счета»: полоса фильтров,
+         строка реестра счетов, метки статуса, ссылки на PDF и двухшаговое
+         подтверждение необратимого действия внутри ячейки.
+         Сборки, внешних файлов, шрифтов и сети нет.
+         ========================================================================== */
+
+      :root {
+        /* Примитивы из operator/frontend/src/index.css */
+        --n-beige: #e2d9ca;
+        --n-linen: #e8e1d7;
+        --n-sage: #9ca590;
+        --n-sage-dark: #8c9581;
+        --n-grey: #79726a;
+        --n-grey-deep: #3a362f;
+        --n-ink: #262420;
+
+        --n-brick: #8a4b33;
+        --n-brick-tint: #f3e6df;
+        --n-brick-line: #e2cdc1;
+
+        /* Семантика из того же файла */
+        --color-bg-page: #f0eee8;
+        --color-bg-surface: #ffffff;
+        --color-border: #dedbd3;
+        --color-border-strong: #c9c4b9;
+        --color-text: var(--n-ink);
+        --color-text-body: #55534d;
+        --color-text-muted: #6d6960;
+        --color-text-placeholder: #9a958b;
+        --color-accent: var(--n-sage);
+        --color-accent-hover: var(--n-sage-dark);
+        /* Тёплый чёрный на шалфее — 6.0:1. */
+        --color-on-accent: var(--n-ink);
+        --color-focus: var(--n-sage);
+        --color-danger: var(--n-brick);
+
+        --font-display: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        --font-body: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        --text-sm: 0.9375rem;
+
+        --radius-xs: 6px;
+        --radius-sm: 10px;
+        --radius-md: 14px;
+        --control-h: 44px;
+        --control-h-sm: 36px;
+        --shadow-card: 0 1px 2px rgba(58, 54, 47, 0.04);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #e6e1d6;
+        color: var(--color-text);
+        font-family: var(--font-body);
+        font-size: 16px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: 2px;
+        border-radius: var(--radius-xs);
+      }
+
+      :where(a, button, input, select) {
+        font: inherit;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* --- Оправа галереи: не часть интерфейса продукта ---------------------- */
+
+      .gallery__head {
+        display: grid;
+        gap: 6px;
+        padding: 28px 40px 24px;
+        border-bottom: 1px solid #d5cec0;
+      }
+
+      .gallery__title {
+        margin: 0;
+        font: 600 18px/1.3 var(--font-display);
+        letter-spacing: -0.2px;
+        color: #2f2b26;
+      }
+
+      .gallery__note {
+        max-width: 80ch;
+        margin: 0;
+        color: #5f5a52;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .gallery__note code {
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: #ddd6c8;
+        font-size: 12.5px;
+      }
+
+      .frame {
+        border-bottom: 1px solid #d5cec0;
+      }
+
+      .frame__caption {
+        margin: 0;
+        padding: 12px 40px;
+        background: #e9e4da;
+        color: #55504a;
+        font-size: 12.5px;
+        line-height: 1.5;
+        border-bottom: 1px solid #d9d3c6;
+      }
+
+      .frame__caption b {
+        font-weight: 600;
+        color: #3d3934;
+      }
+
+      /* --- Продукт: каркас (перенос из index.css) ---------------------------- */
+
+      .screen {
+        display: flex;
+        flex-direction: column;
+        min-height: 380px;
+        background: var(--color-bg-page);
+        color: var(--color-text);
+        font-family: var(--font-body);
+      }
+
+      .topbar {
+        display: flex;
+        flex: none;
+        align-items: stretch;
+        height: 68px;
+        padding: 0 40px;
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-bg-surface);
+      }
+
+      .brand {
+        display: flex;
+        align-self: center;
+        align-items: center;
+        gap: 11px;
+        width: fit-content;
+        color: var(--color-text);
+        text-decoration: none;
+      }
+
+      .brand__mark {
+        display: block;
+        width: 34px;
+        height: 34px;
+        flex: none;
+      }
+
+      .brand__name {
+        font: 600 19px/1.15 var(--font-display);
+        letter-spacing: -0.2px;
+      }
+
+      /* Три раздела кабинета: организации, счета, пользователи. Подчёркивание
+         активного лежит на линии шапки — это и есть метка «где я». */
+      .nav {
+        display: flex;
+        align-items: stretch;
+        gap: 2px;
+        margin-left: 32px;
+        margin-right: auto;
+        margin-bottom: -1px;
+      }
+
+      .nav__link {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 12px;
+        border-bottom: 2px solid transparent;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        text-decoration: none;
+        white-space: nowrap;
+        transition:
+          color 160ms ease,
+          border-color 160ms ease;
+      }
+
+      .nav__link:first-child {
+        padding-left: 0;
+      }
+
+      .nav__link:hover {
+        color: var(--n-ink);
+      }
+
+      .nav__link[aria-current='page'] {
+        border-bottom-color: var(--color-accent);
+        color: var(--n-ink);
+      }
+
+      .topbar__right {
+        display: flex;
+        align-self: center;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .account {
+        color: var(--color-text-muted);
+        font-size: 13px;
+      }
+
+      .screen__main {
+        flex: 1;
+        padding: 32px 40px 48px;
+      }
+
+      /* --- Продукт: страница ------------------------------------------------ */
+
+      .page {
+        display: grid;
+        gap: 20px;
+        width: 100%;
+        max-width: 1120px;
+      }
+
+      /* Реестр счетов шире остальных: шесть колонок, из них колонка действий
+         держит и ссылки на PDF, и две команды. */
+      .page--invoices {
+        max-width: 1280px;
+      }
+
+      .page__head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .page__title {
+        margin: 0;
+        font: 600 26px/1.25 var(--font-display);
+        letter-spacing: -0.4px;
+        color: var(--n-ink);
+        overflow-wrap: anywhere;
+      }
+
+      .page__meta {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* --- Продукт: кнопки и поля (перенос из index.css) -------------------- */
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: var(--control-h);
+        padding: 10px 18px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        background: none;
+        white-space: nowrap;
+        flex: none;
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 14.5px;
+        letter-spacing: 0.01em;
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          background-color 160ms ease,
+          border-color 160ms ease,
+          color 160ms ease;
+      }
+
+      .btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .btn--primary {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+      }
+
+      .btn--primary:hover:not(:disabled) {
+        background: var(--color-accent-hover);
+        color: var(--color-on-accent);
+      }
+
+      .btn--ghost {
+        background: transparent;
+        border-color: var(--color-border-strong);
+        color: var(--n-grey-deep);
+      }
+
+      .btn--ghost:hover:not(:disabled) {
+        background: #efede7;
+        border-color: var(--n-grey);
+        color: var(--n-ink);
+      }
+
+      .btn--compact {
+        min-height: var(--control-h-sm);
+        padding: 7px 13px;
+        border-radius: var(--radius-xs);
+        font-size: 13px;
+      }
+
+      /* «Отменить» — необратимо и без возврата: подпись и рамка кирпича,
+         заливки нет, чтобы не перетягивать внимание с «Оплатить». */
+      .btn--danger {
+        border-color: var(--n-brick-line);
+        color: var(--color-danger);
+      }
+
+      .btn--danger:hover:not(:disabled) {
+        border-color: var(--n-brick);
+        background: var(--n-brick-tint);
+        color: var(--color-danger);
+      }
+
+      .btn[aria-busy='true'] {
+        cursor: progress;
+      }
+
+      .btn[aria-busy='true']::after {
+        content: '';
+        width: 0.85em;
+        height: 0.85em;
+        border: 1.5px solid currentcolor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: btn-spin 700ms linear infinite;
+      }
+
+      @keyframes btn-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .field {
+        display: grid;
+        gap: 7px;
+        min-width: 0;
+      }
+
+      .field__input {
+        width: 100%;
+        min-height: var(--control-h);
+        padding: 11px 14px;
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-sm);
+        background: var(--color-bg-surface);
+        color: var(--color-text);
+        font-size: var(--text-sm);
+        transition:
+          border-color 160ms ease,
+          background-color 160ms ease;
+      }
+
+      .field__input:hover {
+        border-color: var(--n-grey);
+      }
+
+      .field__input::placeholder {
+        color: var(--color-text-placeholder);
+      }
+
+      .alert {
+        margin: 0;
+        padding: 11px 14px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        font-size: 13.5px;
+        font-weight: 500;
+        line-height: 1.45;
+      }
+
+      .alert--error {
+        border-color: var(--n-brick-line);
+        background: var(--n-brick-tint);
+        color: var(--color-danger);
+      }
+
+      /* --- Фильтры над реестром --------------------------------------------- */
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .search {
+        position: relative;
+        width: min(100%, 380px);
+      }
+
+      .search__icon {
+        position: absolute;
+        top: 50%;
+        left: 13px;
+        width: 16px;
+        height: 16px;
+        transform: translateY(-50%);
+        color: var(--color-text-placeholder);
+        pointer-events: none;
+      }
+
+      .search .field__input {
+        padding-left: 39px;
+      }
+
+      /* Статус — нативный select в рамке поля: клавиатура и мобильные селекторы
+         работают без скриптов, стрелка своя, чтобы не зависеть от ОС. */
+      .select {
+        position: relative;
+        width: 208px;
+      }
+
+      .select__input {
+        appearance: none;
+        padding-right: 38px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+
+      .select__icon {
+        position: absolute;
+        top: 50%;
+        right: 13px;
+        width: 13px;
+        height: 13px;
+        transform: translateY(-50%);
+        color: var(--color-text-muted);
+        pointer-events: none;
+      }
+
+      /* --- Реестр ----------------------------------------------------------- */
+
+      .list {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        box-shadow: var(--shadow-card);
+        overflow: hidden;
+      }
+
+      .list__table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      .list__table th {
+        padding: 11px 20px;
+        border-bottom: 1px solid var(--color-border);
+        color: var(--color-text-muted);
+        font: 600 12.5px/1.4 var(--font-body);
+        letter-spacing: 0.01em;
+        text-align: start;
+        white-space: nowrap;
+      }
+
+      .list__table td {
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--color-border);
+        vertical-align: middle;
+        color: var(--color-text-body);
+      }
+
+      .list__table tbody tr:last-child td {
+        border-bottom: 0;
+      }
+
+      /* Ширины колонок: номер и дата — узкая колонка документа, организация и
+         предмет — самые длинные, статус — самое короткое слово, действия —
+         столько, сколько занимают ссылки и кнопки. */
+      .page--invoices .list__table th:nth-child(1) {
+        width: 15%;
+      }
+
+      .page--invoices .list__table th:nth-child(2) {
+        width: 22%;
+      }
+
+      .page--invoices .list__table th:nth-child(3) {
+        width: 19%;
+      }
+
+      /* Сумма шире прочих колонок с коротким содержимым: `amount_label` — это
+         «12 400 ₽ за 3 месяца», и разрывать его на две строки в 1440 не нужно. */
+      .page--invoices .list__table th:nth-child(4) {
+        width: 17%;
+      }
+
+      .page--invoices .list__table th:nth-child(5) {
+        width: 10%;
+      }
+
+      .page--invoices .list__table td {
+        font-size: 13.5px;
+      }
+
+      .list__action {
+        width: 1%;
+        text-align: end;
+      }
+
+      .list__foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 20px;
+        border-top: 1px solid var(--color-border);
+        background: var(--color-bg-surface);
+      }
+
+      .list__shown {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* --- Строка счёта ------------------------------------------------------ */
+
+      /* Номер и дата — один блок документа: номер читается первым, дата под ним
+         тише, как `№ 142` над ФИО в реестре пользователей. */
+      .invoice__number {
+        display: block;
+        color: var(--n-ink);
+        font-size: 14px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.01em;
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+
+      .invoice__date {
+        display: block;
+        color: var(--color-text-muted);
+        font-size: 11.5px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
+        line-height: 1.5;
+      }
+
+      .invoice__org {
+        display: block;
+        color: var(--n-ink);
+        font-size: 14.5px;
+        font-weight: 600;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+      }
+
+      /* Вид предмета: оплата тарифа продлевает подписку, оплата решения выдаёт
+         право. Это разное следствие одной кнопки, поэтому вид назван словом. */
+      .invoice__kind {
+        display: block;
+        color: var(--color-text-muted);
+        font-size: 11.5px;
+        letter-spacing: 0.02em;
+        line-height: 1.5;
+      }
+
+      .invoice__item {
+        display: block;
+        color: var(--color-text-body);
+        font-size: 13.5px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      .invoice__amount {
+        display: block;
+        font-size: 13.5px;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.45;
+      }
+
+      /* Неоплаченный счёт — единственное громкое число в строке: это очередь
+         оператора, остальные суммы ждут своего часа тише. */
+      .invoice__amount--due {
+        color: var(--n-ink);
+        font-weight: 600;
+      }
+
+      /* Статус — слово; метка поддерживает слово формой, а не только цветом:
+         контур — счёт ещё движется, заливка — решение принято. */
+      .invoice__status {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--color-text-body);
+        font-size: 13.5px;
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+
+      .invoice__status--new {
+        color: var(--n-ink);
+        font-weight: 600;
+      }
+
+      .invoice__status--cancelled {
+        color: var(--color-text-muted);
+      }
+
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+      }
+
+      .status-dot--new {
+        box-shadow: inset 0 0 0 1.5px var(--n-grey-deep);
+      }
+
+      .status-dot--paid {
+        background: var(--color-accent);
+      }
+
+      .status-dot--closed {
+        background: var(--color-border-strong);
+      }
+
+      .status-dot--cancelled {
+        box-shadow: inset 0 0 0 1.5px var(--n-brick);
+      }
+
+      /* --- Действия строки --------------------------------------------------- */
+
+      /* Две зоны: документы (прочитать, ничего не меняет) и команды (меняют
+         статус навсегда). Волосяная линия между ними — не украшение, а граница
+         между чтением и необратимым действием; у строк без команд её нет. */
+      .row-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 14px;
+      }
+
+      .row-actions__docs {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .row-actions__acts {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-left: 14px;
+        border-left: 1px solid var(--color-border);
+      }
+
+      /* Ссылка на PDF: обычный переход, а не кнопка с запросом. Подчёркивание
+         тонкое, чтобы не спорить с кнопками рядом. */
+      .doc-link {
+        color: var(--color-text-body);
+        font-size: 13px;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        text-decoration-color: var(--color-border-strong);
+        white-space: nowrap;
+      }
+
+      .doc-link:hover {
+        color: var(--n-ink);
+        text-decoration-color: var(--n-grey);
+      }
+
+      /* --- Состояния экрана -------------------------------------------------- */
+
+      .state {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 30px 24px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        color: var(--color-text-muted);
+        font-size: 14px;
+      }
+
+      .spinner {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        border: 1.5px solid var(--color-border-strong);
+        border-top-color: var(--n-sage);
+        border-radius: 50%;
+        animation: btn-spin 800ms linear infinite;
+      }
+
+      .empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 252px;
+        padding: 36px 24px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        text-align: center;
+      }
+
+      .empty__icon {
+        display: grid;
+        place-items: center;
+        margin-bottom: 8px;
+        color: var(--n-grey);
+      }
+
+      .empty__icon svg {
+        width: 26px;
+        height: 26px;
+        stroke-width: 1.4;
+      }
+
+      .empty h2 {
+        margin: 0;
+        font: 600 17px/1.3 var(--font-display);
+        color: var(--n-ink);
+      }
+
+      .empty p {
+        max-width: 42ch;
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      /* Пустой результат фильтра — тот же блок, но ниже: пустая платформа
+         бывает один раз, а промах фильтра — постоянно. */
+      .empty--compact {
+        min-height: 196px;
+        padding: 28px 24px;
+      }
+
+      /* ==========================================================================
+         Узкое окно: фильтры в столбик, строка реестра — блок с подписями.
+         ========================================================================== */
+
+      @media (max-width: 760px) {
+        .gallery__head,
+        .frame__caption {
+          padding-right: 20px;
+          padding-left: 20px;
+        }
+
+        .topbar {
+          flex-wrap: wrap;
+          height: auto;
+          padding: 0;
+        }
+
+        .topbar .brand {
+          height: 56px;
+          margin-left: 20px;
+        }
+
+        .topbar .topbar__right {
+          height: 56px;
+          margin-left: auto;
+          padding-right: 20px;
+        }
+
+        .brand__mark {
+          width: 30px;
+          height: 30px;
+        }
+
+        .brand__name {
+          font-size: 17px;
+        }
+
+        .topbar__right {
+          gap: 10px;
+        }
+
+        .nav {
+          order: 3;
+          flex-basis: 100%;
+          height: 46px;
+          margin: 0;
+          padding: 0 20px;
+          border-top: 1px solid var(--color-border);
+        }
+
+        .nav__link {
+          flex: 1;
+          justify-content: center;
+          padding: 0 8px;
+        }
+
+        .nav__link:first-child {
+          padding-left: 8px;
+        }
+
+        .screen__main {
+          padding: 24px 20px 32px;
+        }
+
+        .page {
+          gap: 16px;
+        }
+
+        .page__head {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .page__title {
+          font-size: 21px;
+        }
+
+        /* Фильтры в столбик: поиск, статус, «Сбросить» — на всю ширину. */
+        .toolbar {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 10px;
+        }
+
+        .search,
+        .select {
+          width: 100%;
+        }
+
+        .toolbar .btn {
+          width: 100%;
+        }
+
+        /* Таблица перестаёт быть таблицей: строка — блок, подписи слева. */
+        .list__table thead {
+          display: none;
+        }
+
+        .list__table,
+        .list__table tbody,
+        .list__table tr,
+        .list__table td {
+          display: block;
+        }
+
+        .list__table tr {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 2px 12px;
+          padding: 15px 20px;
+          border-bottom: 1px solid var(--color-border);
+        }
+
+        .list__table tbody tr:last-child {
+          border-bottom: 0;
+        }
+
+        .list__table td {
+          padding: 0;
+          border: 0;
+        }
+
+        /* Номер с датой — сверху слева, статус — сверху справа: в узком окне
+           «оплачен или нет» нужен раньше суммы. */
+        .list__num-cell {
+          grid-column: 1;
+          grid-row: 1 / span 2;
+        }
+
+        .list__status {
+          grid-column: 2;
+          grid-row: 1;
+          justify-self: end;
+        }
+
+        .list__org {
+          grid-column: 1 / -1;
+          grid-row: 3;
+          margin-top: 4px;
+        }
+
+        .list__item {
+          grid-column: 1 / -1;
+          grid-row: 4;
+          margin-top: 6px;
+        }
+
+        .list__amount {
+          grid-column: 1 / -1;
+          grid-row: 5;
+          margin-top: 5px;
+        }
+
+        .list__action {
+          grid-column: 1 / -1;
+          grid-row: 6;
+          width: auto;
+          margin-top: 10px;
+          text-align: start;
+        }
+
+        .row-actions {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 10px;
+        }
+
+        .row-actions__docs {
+          flex-wrap: wrap;
+          gap: 8px 16px;
+        }
+
+        .row-actions__acts {
+          padding-left: 0;
+          border-left: 0;
+        }
+
+        .row-actions__acts .btn {
+          flex: 1;
+        }
+
+        .list__foot {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 10px;
+          padding: 14px 20px 16px;
+        }
+
+        .list__foot .btn {
+          width: 100%;
+        }
+
+        .list__shown {
+          order: 2;
+          text-align: center;
+        }
+
+        .state {
+          padding: 24px 20px;
+        }
+
+        .empty {
+          padding: 28px 20px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+
+        .btn[aria-busy='true']::after {
+          display: none;
+        }
+
+        .spinner {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="gallery__head">
+      <h1 class="gallery__title">Кабинет оператора: счета — макет постановки #149</h1>
+      <p class="gallery__note">
+        Статичный макет. Токены, каркас, кнопки, поля и реестр — из
+        <code>operator/frontend/src/index.css</code> и макетов #131/#132 («natural neutral»);
+        новое — раздел «Счета» в навигации, полоса фильтров, строка счёта с документами и
+        двухшаговым подтверждением. Кадры — сценарий одного экрана сверху вниз: загруженный
+        список, подтверждение, отправка, отказ действия, фильтр по статусу, пустые состояния,
+        загрузка и ошибка. Оформление галереи (серые подписи кадров) в продукт не входит.
+      </p>
+    </header>
+
+    <!-- ==========================================================================
+         Кадр 1. Список · загружен
+         ========================================================================== -->
+    <section class="frame" id="frame-1">
+      <p class="frame__caption">
+        <b>1. Список · загружен.</b> В навигации три раздела, «Счета» активен (подчёркивание на
+        линии шапки, `aria-current="page"`). Заголовок «Счета» и счётчик `12 счетов` — это
+        `total` ответа. Фильтры: поиск по названию или ИНН, статус, «Сбросить». В реестре шесть
+        строк: `new` с номером, организацией, видом и названием предмета, суммой, статусом и
+        действиями; у `paid` и `closed` — ссылки на счёт и акт без статусных кнопок; у
+        `cancelled` — только «Скачать счёт». В подвале «Показано 6 из 12» и «Показать ещё».
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations"
+              >Организации</a
+            >
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-invoices"
+              >Счета</a
+            >
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-users">Пользователи</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account" title="Логин, под которым открыт кабинет">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--invoices">
+            <div class="page__head">
+              <h1 class="page__title">Счета</h1>
+              <p class="page__meta">12 счетов</p>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="invoices-search-1">Поиск по названию или ИНН</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="invoices-search-1"
+                  type="search"
+                  placeholder="Название или ИНН"
+                  data-testid="operator-invoices-search"
+                />
+              </div>
+              <div class="select">
+                <label class="visually-hidden" for="invoices-status-1">Статус счёта</label>
+                <select
+                  class="field__input select__input"
+                  id="invoices-status-1"
+                  data-testid="operator-invoices-status"
+                >
+                  <option value="">Все статусы</option>
+                  <option value="new">Новый</option>
+                  <option value="paid">Оплачен</option>
+                  <option value="closed">Закрыт</option>
+                  <option value="cancelled">Отменён</option>
+                </select>
+                <svg
+                  class="select__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+              <button
+                class="btn btn--ghost btn--compact"
+                type="button"
+                data-testid="operator-invoices-reset"
+              >
+                Сбросить
+              </button>
+            </div>
+
+            <div class="list" data-testid="operator-invoices">
+              <table class="list__table">
+                <caption class="visually-hidden">
+                  Счета организаций: номер и дата, организация, предмет, сумма, статус, действия
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">№ счёта</th>
+                    <th scope="col">Организация</th>
+                    <th scope="col">Предмет</th>
+                    <th scope="col">Сумма</th>
+                    <th scope="col">Статус</th>
+                    <th scope="col"><span class="visually-hidden">Действия</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-testid="operator-invoice-row">
+                    <td class="list__num-cell">
+                      <span class="invoice__number" data-testid="operator-invoice-number"
+                        >СЧ-2026-1042</span
+                      >
+                      <span class="invoice__date" data-testid="operator-invoice-date"
+                        >03.11.2026</span
+                      >
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org" data-testid="operator-invoice-organization"
+                        >ООО «Ромашка»</span
+                      >
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item" data-testid="operator-invoice-item"
+                        >Общежитие 200 мест</span
+                      >
+                    </td>
+                    <td class="list__amount">
+                      <span
+                        class="invoice__amount invoice__amount--due"
+                        data-testid="operator-invoice-amount"
+                        >5 000 ₽ в месяц</span
+                      >
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new" data-testid="operator-invoice-status"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-1" data-testid="operator-invoice-download"
+                            >Скачать счёт</a
+                          >
+                        </div>
+                        <div class="row-actions__acts">
+                          <button
+                            class="btn btn--ghost btn--compact btn--danger"
+                            type="button"
+                            data-testid="operator-invoice-cancel"
+                          >
+                            Отменить
+                          </button>
+                          <button
+                            class="btn btn--primary btn--compact"
+                            type="button"
+                            data-testid="operator-invoice-pay"
+                          >
+                            Оплатить
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr data-testid="operator-invoice-row">
+                    <td class="list__num-cell">
+                      <span class="invoice__number" data-testid="operator-invoice-number"
+                        >СЧ-2026-1041</span
+                      >
+                      <span class="invoice__date" data-testid="operator-invoice-date"
+                        >03.11.2026</span
+                      >
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org" data-testid="operator-invoice-organization"
+                        >ООО «Северный дом»</span
+                      >
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item" data-testid="operator-invoice-item"
+                        >Расширенный</span
+                      >
+                    </td>
+                    <td class="list__amount">
+                      <span
+                        class="invoice__amount invoice__amount--due"
+                        data-testid="operator-invoice-amount"
+                        >12 400 ₽ за 3 месяца</span
+                      >
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new" data-testid="operator-invoice-status"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-1" data-testid="operator-invoice-download"
+                            >Скачать счёт</a
+                          >
+                        </div>
+                        <div class="row-actions__acts">
+                          <button
+                            class="btn btn--ghost btn--compact btn--danger"
+                            type="button"
+                            data-testid="operator-invoice-cancel"
+                          >
+                            Отменить
+                          </button>
+                          <button
+                            class="btn btn--primary btn--compact"
+                            type="button"
+                            data-testid="operator-invoice-pay"
+                          >
+                            Оплатить
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr data-testid="operator-invoice-row">
+                    <td class="list__num-cell">
+                      <span class="invoice__number" data-testid="operator-invoice-number"
+                        >СЧ-2026-1039</span
+                      >
+                      <span class="invoice__date" data-testid="operator-invoice-date"
+                        >02.11.2026</span
+                      >
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org" data-testid="operator-invoice-organization"
+                        >АО «Стройтрест №4»</span
+                      >
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item" data-testid="operator-invoice-item">Базовый</span>
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount" data-testid="operator-invoice-amount"
+                        >3 200 ₽ в месяц</span
+                      >
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status" data-testid="operator-invoice-status"
+                        ><span class="status-dot status-dot--paid" aria-hidden="true"></span>Оплачен</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-1" data-testid="operator-invoice-download"
+                            >Скачать счёт</a
+                          >
+                          <a class="doc-link" href="#frame-1" data-testid="operator-invoice-act"
+                            >Скачать акт</a
+                          >
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr data-testid="operator-invoice-row">
+                    <td class="list__num-cell">
+                      <span class="invoice__number" data-testid="operator-invoice-number"
+                        >СЧ-2026-1035</span
+                      >
+                      <span class="invoice__date" data-testid="operator-invoice-date"
+                        >01.11.2026</span
+                      >
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org" data-testid="operator-invoice-organization"
+                        >ИП Кузнецов А. В.</span
+                      >
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Решение</span>
+                      <span class="invoice__item" data-testid="operator-invoice-item"
+                        >Электронный обход</span
+                      >
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount" data-testid="operator-invoice-amount"
+                        >900 ₽ разово</span
+                      >
+                    </td>
+                    <td class="list__status">
+                      <span
+                        class="invoice__status invoice__status--cancelled"
+                        data-testid="operator-invoice-status"
+                        ><span class="status-dot status-dot--cancelled" aria-hidden="true"></span
+                        >Отменён</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-1" data-testid="operator-invoice-download"
+                            >Скачать счёт</a
+                          >
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr data-testid="operator-invoice-row">
+                    <td class="list__num-cell">
+                      <span class="invoice__number" data-testid="operator-invoice-number"
+                        >СЧ-2026-1031</span
+                      >
+                      <span class="invoice__date" data-testid="operator-invoice-date"
+                        >28.10.2026</span
+                      >
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org" data-testid="operator-invoice-organization"
+                        >ООО «Общежитие-Сервис»</span
+                      >
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item" data-testid="operator-invoice-item"
+                        >Общежитие 200 мест</span
+                      >
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount" data-testid="operator-invoice-amount"
+                        >38 000 ₽ в год</span
+                      >
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status" data-testid="operator-invoice-status"
+                        ><span class="status-dot status-dot--closed" aria-hidden="true"></span>Закрыт</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-1" data-testid="operator-invoice-download"
+                            >Скачать счёт</a
+                          >
+                          <a class="doc-link" href="#frame-1" data-testid="operator-invoice-act"
+                            >Скачать акт</a
+                          >
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr data-testid="operator-invoice-row">
+                    <td class="list__num-cell">
+                      <span class="invoice__number" data-testid="operator-invoice-number"
+                        >СЧ-2026-1027</span
+                      >
+                      <span class="invoice__date" data-testid="operator-invoice-date"
+                        >27.10.2026</span
+                      >
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org" data-testid="operator-invoice-organization"
+                        >ООО «Тёплый дом»</span
+                      >
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Решение</span>
+                      <span class="invoice__item" data-testid="operator-invoice-item"
+                        >Распознавание документов</span
+                      >
+                    </td>
+                    <td class="list__amount">
+                      <span
+                        class="invoice__amount invoice__amount--due"
+                        data-testid="operator-invoice-amount"
+                        >1 500 ₽ разово</span
+                      >
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new" data-testid="operator-invoice-status"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-1" data-testid="operator-invoice-download"
+                            >Скачать счёт</a
+                          >
+                        </div>
+                        <div class="row-actions__acts">
+                          <button
+                            class="btn btn--ghost btn--compact btn--danger"
+                            type="button"
+                            data-testid="operator-invoice-cancel"
+                          >
+                            Отменить
+                          </button>
+                          <button
+                            class="btn btn--primary btn--compact"
+                            type="button"
+                            data-testid="operator-invoice-pay"
+                          >
+                            Оплатить
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="list__foot">
+                <p class="list__shown">Показано 6 из 12</p>
+                <button
+                  class="btn btn--ghost"
+                  type="button"
+                  data-testid="operator-invoices-more"
+                >
+                  Показать ещё
+                </button>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         Кадр 2. Подтверждение оплаты и отмены
+         ========================================================================== -->
+    <section class="frame" id="frame-2">
+      <p class="frame__caption">
+        <b>2. Подтверждение.</b> Первый клик запроса не отправляет: «Оплатить» заменяется парой
+        «Подтвердить» / «Не надо», и «Отменить» — тоже: пара одна и та же, различает их только
+        место, куда её поставили. <code>PATCH</code> уходит ровно один и только после
+        «Подтвердить». Пара занимает место прежней кнопки, строка не растёт, модалки нет: список
+        остаётся на месте, фильтры не сбрасываются.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Счета</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--invoices">
+            <div class="page__head">
+              <h1 class="page__title">Счета</h1>
+              <p class="page__meta">12 счетов</p>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="invoices-search-2">Поиск по названию или ИНН</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="invoices-search-2"
+                  type="search"
+                  placeholder="Название или ИНН"
+                />
+              </div>
+              <div class="select">
+                <label class="visually-hidden" for="invoices-status-2">Статус счёта</label>
+                <select class="field__input select__input" id="invoices-status-2">
+                  <option value="">Все статусы</option>
+                  <option value="new">Новый</option>
+                  <option value="paid">Оплачен</option>
+                  <option value="closed">Закрыт</option>
+                  <option value="cancelled">Отменён</option>
+                </select>
+                <svg
+                  class="select__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+              <button class="btn btn--ghost btn--compact" type="button">Сбросить</button>
+            </div>
+
+            <div class="list">
+              <table class="list__table">
+                <caption class="visually-hidden">
+                  Счета организаций: номер и дата, организация, предмет, сумма, статус, действия
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">№ счёта</th>
+                    <th scope="col">Организация</th>
+                    <th scope="col">Предмет</th>
+                    <th scope="col">Сумма</th>
+                    <th scope="col">Статус</th>
+                    <th scope="col"><span class="visually-hidden">Действия</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="list__num-cell">
+                      <span class="invoice__number">СЧ-2026-1042</span>
+                      <span class="invoice__date">03.11.2026</span>
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org">ООО «Ромашка»</span>
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item">Общежитие 200 мест</span>
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount invoice__amount--due">5 000 ₽ в месяц</span>
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-2">Скачать счёт</a>
+                        </div>
+                        <div class="row-actions__acts">
+                          <button
+                            class="btn btn--primary btn--compact"
+                            type="button"
+                            data-testid="operator-invoice-confirm"
+                          >
+                            Подтвердить
+                          </button>
+                          <button
+                            class="btn btn--ghost btn--compact"
+                            type="button"
+                            data-testid="operator-invoice-confirm-decline"
+                          >
+                            Не надо
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="list__num-cell">
+                      <span class="invoice__number">СЧ-2026-1041</span>
+                      <span class="invoice__date">03.11.2026</span>
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org">ООО «Северный дом»</span>
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item">Расширенный</span>
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount invoice__amount--due">12 400 ₽ за 3 месяца</span>
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-2">Скачать счёт</a>
+                        </div>
+                        <div class="row-actions__acts">
+                          <button
+                            class="btn btn--primary btn--compact"
+                            type="button"
+                            data-testid="operator-invoice-confirm"
+                          >
+                            Подтвердить
+                          </button>
+                          <button
+                            class="btn btn--ghost btn--compact"
+                            type="button"
+                            data-testid="operator-invoice-confirm-decline"
+                          >
+                            Не надо
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="list__num-cell">
+                      <span class="invoice__number">СЧ-2026-1027</span>
+                      <span class="invoice__date">27.10.2026</span>
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org">ООО «Тёплый дом»</span>
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Решение</span>
+                      <span class="invoice__item">Распознавание документов</span>
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount invoice__amount--due">1 500 ₽ разово</span>
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-2">Скачать счёт</a>
+                        </div>
+                        <div class="row-actions__acts">
+                          <button
+                            class="btn btn--primary btn--compact"
+                            type="button"
+                            data-testid="operator-invoice-confirm"
+                          >
+                            Подтвердить
+                          </button>
+                          <button
+                            class="btn btn--ghost btn--compact"
+                            type="button"
+                            data-testid="operator-invoice-confirm-decline"
+                          >
+                            Не надо
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="list__foot">
+                <p class="list__shown">Показано 3 из 12</p>
+                <button class="btn btn--ghost" type="button">Показать ещё</button>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         Кадр 3. Отправка оплаты
+         ========================================================================== -->
+    <section class="frame" id="frame-3">
+      <p class="frame__caption">
+        <b>3. Оплата отправляется.</b> На время запроса кнопки строки неактивны и помечены
+        <code>aria-busy="true"</code>: подпись кнопки не меняется, индикатор показывает, что запрос
+        в работе. Ссылки на счёт остаются доступны — за файлом уходит обычный переход. Соседние
+        строки не блокируются.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Счета</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--invoices">
+            <div class="page__head">
+              <h1 class="page__title">Счета</h1>
+              <p class="page__meta">12 счетов</p>
+            </div>
+
+            <div class="list">
+              <table class="list__table">
+                <caption class="visually-hidden">
+                  Счета организаций: номер и дата, организация, предмет, сумма, статус, действия
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">№ счёта</th>
+                    <th scope="col">Организация</th>
+                    <th scope="col">Предмет</th>
+                    <th scope="col">Сумма</th>
+                    <th scope="col">Статус</th>
+                    <th scope="col"><span class="visually-hidden">Действия</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="list__num-cell">
+                      <span class="invoice__number">СЧ-2026-1042</span>
+                      <span class="invoice__date">03.11.2026</span>
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org">ООО «Ромашка»</span>
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item">Общежитие 200 мест</span>
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount invoice__amount--due">5 000 ₽ в месяц</span>
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-3">Скачать счёт</a>
+                        </div>
+                        <div class="row-actions__acts">
+                          <button
+                            class="btn btn--ghost btn--compact btn--danger"
+                            type="button"
+                            disabled
+                            aria-busy="true"
+                          >
+                            Отменить
+                          </button>
+                          <button
+                            class="btn btn--primary btn--compact"
+                            type="button"
+                            disabled
+                            aria-busy="true"
+                          >
+                            Оплатить
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="list__num-cell">
+                      <span class="invoice__number">СЧ-2026-1041</span>
+                      <span class="invoice__date">03.11.2026</span>
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org">ООО «Северный дом»</span>
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item">Расширенный</span>
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount invoice__amount--due">12 400 ₽ за 3 месяца</span>
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-3">Скачать счёт</a>
+                        </div>
+                        <div class="row-actions__acts">
+                          <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                            Отменить
+                          </button>
+                          <button class="btn btn--primary btn--compact" type="button">
+                            Оплатить
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="list__foot">
+                <p class="list__shown">Показано 2 из 12</p>
+                <button class="btn btn--ghost" type="button">Показать ещё</button>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         Кадр 4. Отказ действия
+         ========================================================================== -->
+    <section class="frame" id="frame-4">
+      <p class="frame__caption">
+        <b>4. Отказ действия.</b> Текст <code>detail</code> показывается дословно в
+        <code>role="alert"</code> над реестром, статус строки не меняется, список не
+        перезагружается, фильтры и страница остаются. Так выглядят все отказы контракта: «Так
+        нельзя изменить статус счёта», «Тариф уже оплачен на будущий период», «Счёт не найден».
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Счета</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--invoices">
+            <div class="page__head">
+              <h1 class="page__title">Счета</h1>
+              <p class="page__meta">12 счетов</p>
+            </div>
+
+            <p class="alert alert--error" role="alert" data-testid="operator-invoices-action-error">
+              Так нельзя изменить статус счёта
+            </p>
+
+            <div class="list">
+              <table class="list__table">
+                <caption class="visually-hidden">
+                  Счета организаций: номер и дата, организация, предмет, сумма, статус, действия
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">№ счёта</th>
+                    <th scope="col">Организация</th>
+                    <th scope="col">Предмет</th>
+                    <th scope="col">Сумма</th>
+                    <th scope="col">Статус</th>
+                    <th scope="col"><span class="visually-hidden">Действия</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="list__num-cell">
+                      <span class="invoice__number">СЧ-2026-1042</span>
+                      <span class="invoice__date">03.11.2026</span>
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org">ООО «Ромашка»</span>
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item">Общежитие 200 мест</span>
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount invoice__amount--due">5 000 ₽ в месяц</span>
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-4">Скачать счёт</a>
+                        </div>
+                        <div class="row-actions__acts">
+                          <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                            Отменить
+                          </button>
+                          <button class="btn btn--primary btn--compact" type="button">
+                            Оплатить
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="list__num-cell">
+                      <span class="invoice__number">СЧ-2026-1041</span>
+                      <span class="invoice__date">03.11.2026</span>
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org">ООО «Северный дом»</span>
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item">Расширенный</span>
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount invoice__amount--due">12 400 ₽ за 3 месяца</span>
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-4">Скачать счёт</a>
+                        </div>
+                        <div class="row-actions__acts">
+                          <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                            Отменить
+                          </button>
+                          <button class="btn btn--primary btn--compact" type="button">
+                            Оплатить
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="list__foot">
+                <p class="list__shown">Показано 2 из 12</p>
+                <button class="btn btn--ghost" type="button">Показать ещё</button>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         Кадр 5. Фильтр по статусу
+         ========================================================================== -->
+    <section class="frame" id="frame-5">
+      <p class="frame__caption">
+        <b>5. Фильтр по статусу.</b> Выбран «Новый»: в <code>GET /api/invoices</code> уходит
+        <code>status=new</code>, счётчик показывает `total` отфильтрованного ответа — `3 счёта`, а
+        «Показать ещё» пропадает, потому что показано всё. Кнопка «Сбросить» снимает фильтр и
+        возвращает список без параметров. Фильтр по организации — через поиск, а не через выбор:
+        организаций на платформе сотни.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Счета</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--invoices">
+            <div class="page__head">
+              <h1 class="page__title">Счета</h1>
+              <p class="page__meta">3 счёта</p>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="invoices-search-5">Поиск по названию или ИНН</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="invoices-search-5"
+                  type="search"
+                  placeholder="Название или ИНН"
+                />
+              </div>
+              <div class="select">
+                <label class="visually-hidden" for="invoices-status-5">Статус счёта</label>
+                <select class="field__input select__input" id="invoices-status-5">
+                  <option value="">Все статусы</option>
+                  <option value="new" selected>Новый</option>
+                  <option value="paid">Оплачен</option>
+                  <option value="closed">Закрыт</option>
+                  <option value="cancelled">Отменён</option>
+                </select>
+                <svg
+                  class="select__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+              <button class="btn btn--ghost btn--compact" type="button">Сбросить</button>
+            </div>
+
+            <div class="list">
+              <table class="list__table">
+                <caption class="visually-hidden">
+                  Счета организаций в статусе «Новый»: номер и дата, организация, предмет, сумма,
+                  статус, действия
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">№ счёта</th>
+                    <th scope="col">Организация</th>
+                    <th scope="col">Предмет</th>
+                    <th scope="col">Сумма</th>
+                    <th scope="col">Статус</th>
+                    <th scope="col"><span class="visually-hidden">Действия</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="list__num-cell">
+                      <span class="invoice__number">СЧ-2026-1042</span>
+                      <span class="invoice__date">03.11.2026</span>
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org">ООО «Ромашка»</span>
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item">Общежитие 200 мест</span>
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount invoice__amount--due">5 000 ₽ в месяц</span>
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-5">Скачать счёт</a>
+                        </div>
+                        <div class="row-actions__acts">
+                          <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                            Отменить
+                          </button>
+                          <button class="btn btn--primary btn--compact" type="button">
+                            Оплатить
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="list__num-cell">
+                      <span class="invoice__number">СЧ-2026-1041</span>
+                      <span class="invoice__date">03.11.2026</span>
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org">ООО «Северный дом»</span>
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Тариф</span>
+                      <span class="invoice__item">Расширенный</span>
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount invoice__amount--due">12 400 ₽ за 3 месяца</span>
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-5">Скачать счёт</a>
+                        </div>
+                        <div class="row-actions__acts">
+                          <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                            Отменить
+                          </button>
+                          <button class="btn btn--primary btn--compact" type="button">
+                            Оплатить
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="list__num-cell">
+                      <span class="invoice__number">СЧ-2026-1027</span>
+                      <span class="invoice__date">27.10.2026</span>
+                    </td>
+                    <td class="list__org">
+                      <span class="invoice__org">ООО «Тёплый дом»</span>
+                    </td>
+                    <td class="list__item">
+                      <span class="invoice__kind">Решение</span>
+                      <span class="invoice__item">Распознавание документов</span>
+                    </td>
+                    <td class="list__amount">
+                      <span class="invoice__amount invoice__amount--due">1 500 ₽ разово</span>
+                    </td>
+                    <td class="list__status">
+                      <span class="invoice__status invoice__status--new"
+                        ><span class="status-dot status-dot--new" aria-hidden="true"></span>Новый</span
+                      >
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <div class="row-actions__docs">
+                          <a class="doc-link" href="#frame-5">Скачать счёт</a>
+                        </div>
+                        <div class="row-actions__acts">
+                          <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                            Отменить
+                          </button>
+                          <button class="btn btn--primary btn--compact" type="button">
+                            Оплатить
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="list__foot">
+                <p class="list__shown">Показано 3 из 3</p>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         Кадр 6. Пусто без фильтра
+         ========================================================================== -->
+    <section class="frame" id="frame-6">
+      <p class="frame__caption">
+        <b>6. Счетов пока нет.</b> Пустая платформа: ни один счёт ещё не выставлен. Текст
+        приглашает к действию и объясняет, откуда счета берутся, — это не заглушка «нет данных».
+        Счётчик в шапке скрыт, потому что `total = 0`. У пустого результата фильтра другой
+        заголовок — см. кадр 7.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Счета</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--invoices">
+            <div class="page__head">
+              <h1 class="page__title">Счета</h1>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="invoices-search-6">Поиск по названию или ИНН</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="invoices-search-6"
+                  type="search"
+                  placeholder="Название или ИНН"
+                />
+              </div>
+              <div class="select">
+                <label class="visually-hidden" for="invoices-status-6">Статус счёта</label>
+                <select class="field__input select__input" id="invoices-status-6">
+                  <option value="">Все статусы</option>
+                  <option value="new">Новый</option>
+                  <option value="paid">Оплачен</option>
+                  <option value="closed">Закрыт</option>
+                  <option value="cancelled">Отменён</option>
+                </select>
+                <svg
+                  class="select__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+              <button class="btn btn--ghost btn--compact" type="button">Сбросить</button>
+            </div>
+
+            <div class="empty" data-testid="operator-invoices-empty">
+              <span class="empty__icon" aria-hidden="true">
+                <svg
+                  width="26"
+                  height="26"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M5.5 3.5h9l4 4v13h-13z" />
+                  <path d="M14.5 3.5v4h4M8.5 12h6M8.5 15.5h4" />
+                </svg>
+              </span>
+              <h2>Счетов пока нет</h2>
+              <p>
+                Счета выставляют организации из своих кабинетов — за тариф или решение магазина. Как
+                только появится первый счёт, он будет здесь: оплата, отмена и документы в одной
+                строке.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         Кадр 7. Ничего не найдено
+         ========================================================================== -->
+    <section class="frame" id="frame-7">
+      <p class="frame__caption">
+        <b>7. Ничего не найдено.</b> Фильтр не дал результата: поиск «ромашка» и статус «Отменён».
+        Заголовок другой, чем у пустой платформы, и в тексте названы условия — оператору видно, что
+        именно он сузил. Значения фильтров остаются в поле и в селекторе, «Сбросить» — рядом.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Счета</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--invoices">
+            <div class="page__head">
+              <h1 class="page__title">Счета</h1>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="invoices-search-7">Поиск по названию или ИНН</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="invoices-search-7"
+                  type="search"
+                  value="ромашка"
+                  placeholder="Название или ИНН"
+                />
+              </div>
+              <div class="select">
+                <label class="visually-hidden" for="invoices-status-7">Статус счёта</label>
+                <select class="field__input select__input" id="invoices-status-7">
+                  <option value="">Все статусы</option>
+                  <option value="new">Новый</option>
+                  <option value="paid">Оплачен</option>
+                  <option value="closed">Закрыт</option>
+                  <option value="cancelled" selected>Отменён</option>
+                </select>
+                <svg
+                  class="select__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+              <button class="btn btn--ghost btn--compact" type="button">Сбросить</button>
+            </div>
+
+            <div class="empty empty--compact" data-testid="operator-invoices-empty">
+              <span class="empty__icon" aria-hidden="true">
+                <svg
+                  width="26"
+                  height="26"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+              </span>
+              <h2>Ничего не найдено</h2>
+              <p>
+                По запросу «ромашка» в статусе «Отменён» счетов нет. Поиск идёт по названию
+                организации и ИНН, регистр не важен.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         Кадр 8. Загрузка
+         ========================================================================== -->
+    <section class="frame" id="frame-8">
+      <p class="frame__caption">
+        <b>8. Загрузка.</b> Первый запрос за списком: <code>role="status"</code> с текстом
+        «Загружаем счета…», счётчик скрыт. Фильтры уже на месте — оператор может начать вводить
+        запрос, не дожидаясь ответа; задержка поиска 300 мс складывается с загрузкой, а не дублирует
+        её.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Счета</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--invoices">
+            <div class="page__head">
+              <h1 class="page__title">Счета</h1>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="invoices-search-8">Поиск по названию или ИНН</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="invoices-search-8"
+                  type="search"
+                  placeholder="Название или ИНН"
+                />
+              </div>
+              <div class="select">
+                <label class="visually-hidden" for="invoices-status-8">Статус счёта</label>
+                <select class="field__input select__input" id="invoices-status-8">
+                  <option value="">Все статусы</option>
+                  <option value="new">Новый</option>
+                  <option value="paid">Оплачен</option>
+                  <option value="closed">Закрыт</option>
+                  <option value="cancelled">Отменён</option>
+                </select>
+                <svg
+                  class="select__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+              <button class="btn btn--ghost btn--compact" type="button">Сбросить</button>
+            </div>
+
+            <div class="state" role="status" aria-live="polite" data-testid="operator-invoices-loading">
+              <span class="spinner" aria-hidden="true"></span>
+              Загружаем счета…
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ==========================================================================
+         Кадр 9. Ошибка загрузки
+         ========================================================================== -->
+    <section class="frame" id="frame-9">
+      <p class="frame__caption">
+        <b>9. Ошибка загрузки.</b> Отказ кабинета-API: <code>detail</code> — дословно в
+        <code>role="alert"</code>. Так же выглядят 502 «Основной API не принял сервисный токен» и
+        503 «Кабинет не настроен: не задан OPERATOR_SERVICE_TOKEN» — своих формулировок фронт не
+        заводит. Фильтры остаются доступными: после отказа их можно сбросить и повторить запрос.
+      </p>
+      <div class="screen">
+        <header class="topbar">
+          <span class="brand" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Счета</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--invoices">
+            <div class="page__head">
+              <h1 class="page__title">Счета</h1>
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <label class="visually-hidden" for="invoices-search-9">Поиск по названию или ИНН</label>
+                <svg
+                  class="search__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="m16 16 4.5 4.5" />
+                </svg>
+                <input
+                  class="field__input"
+                  id="invoices-search-9"
+                  type="search"
+                  placeholder="Название или ИНН"
+                />
+              </div>
+              <div class="select">
+                <label class="visually-hidden" for="invoices-status-9">Статус счёта</label>
+                <select class="field__input select__input" id="invoices-status-9">
+                  <option value="">Все статусы</option>
+                  <option value="new">Новый</option>
+                  <option value="paid">Оплачен</option>
+                  <option value="closed">Закрыт</option>
+                  <option value="cancelled">Отменён</option>
+                </select>
+                <svg
+                  class="select__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+              <button class="btn btn--ghost btn--compact" type="button">Сбросить</button>
+            </div>
+
+            <p class="alert alert--error" role="alert" data-testid="operator-invoices-error">
+              Основной API недоступен
+            </p>
+          </div>
+        </main>
+      </div>
+    </section>
+  </body>
+</html>
