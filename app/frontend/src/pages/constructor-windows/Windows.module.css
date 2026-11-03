@@ -1,6 +1,31 @@
 .page {
   background: var(--color-bg-page);
 }
+.compare {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 16px 18px;
+  margin: 0 0 26px;
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.compare strong {
+  font-size: 13px;
+}
+.compare p {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 5px;
+}
+.compareButtons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 :global(body:has(.modal[data-editor-window='true'])) {
   overflow: hidden;
 }

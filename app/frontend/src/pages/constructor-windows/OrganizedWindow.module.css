@@ -1,0 +1,155 @@
+.layout {
+  min-width: 0;
+  min-height: 0;
+  max-height: calc(100dvh - 160px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.layout[data-has-navigation='true'] {
+  grid-template-columns: 210px minmax(0, 1fr);
+}
+.navigation {
+  min-height: 0;
+  background: var(--color-bg-alt);
+  border-right: 1px solid var(--color-border);
+  padding: 22px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: auto;
+}
+.navigation > p {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin: 0 10px 10px;
+}
+.navigation > button {
+  justify-content: flex-start;
+  text-align: left;
+  white-space: normal;
+  gap: 9px;
+  min-width: 0;
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.navigation > button span {
+  font-size: 10px;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+.navigation > small {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+  margin: 18px 10px 0;
+}
+.content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 28px;
+}
+:global(.modal[data-editor-organized='true'] [data-organized-grid='true']),
+:global(.modal[data-editor-organized='true'] [data-editor-options='true'] > div:first-of-type) {
+  display: block;
+}
+:global(.modal[data-editor-organized='true'] fieldset:has([name='report-row-mode']) label > span) {
+  display: grid;
+  gap: 4px;
+}
+:global(.modal[data-editor-organized='true'] fieldset:has([name='report-row-mode']) label small) {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+:global(.modal[data-editor-organized='true'] [data-section-tone='danger'] button) {
+  justify-self: start;
+}
+:global(.modal[data-editor-organized='true'] > .modal__panel:has([data-has-navigation='true'])) {
+  width: min(1080px, 100%);
+  max-width: 1080px;
+}
+:global(.modal[data-editor-organized='true'] > .modal__panel > .modal__body) {
+  display: block;
+  overflow: hidden;
+  padding: 0;
+}
+:global(.modal[data-editor-organized='true'] form > .dialog-actions),
+:global(.modal[data-editor-organized='true'] form > div:last-child),
+:global(.modal[data-editor-organized='true'] fieldset > .dialog-actions) {
+  position: sticky;
+  bottom: -24px;
+  margin-bottom: -24px;
+  padding: 16px 0;
+  background: var(--color-bg-surface);
+  border-top: 1px solid var(--color-border);
+  z-index: 3;
+}
+:global(.modal[data-editor-organized='true'] [data-section-tone='danger']) {
+  margin-top: 12px;
+}
+:global(.modal[data-editor-organized='true'] [data-section-tone='danger'] .dialog-actions) {
+  position: static;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+:global(.modal[data-editor-organized='true'] textarea) {
+  width: 100%;
+  min-height: 110px;
+  padding: 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-3xs);
+  color: var(--color-text);
+  background: var(--color-bg-page);
+  font: 14px/1.65 var(--font-body);
+  resize: vertical;
+}
+:global(
+  .modal[data-editor-organized='true'] [data-testid='dormitory-settings-modal'] > .modal__body
+) {
+  padding: 0;
+}
+:global(
+  .modal[data-editor-organized='true']
+    [data-testid='dormitory-settings-modal']
+    [data-editor-organizer]
+    > div
+) {
+  padding: 0;
+}
+@media (max-width: 760px) {
+  .layout {
+    max-height: calc(100dvh - 110px);
+  }
+  .layout[data-has-navigation='true'] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .navigation {
+    flex-direction: row;
+    gap: 5px;
+    padding: 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .navigation > p,
+  .navigation > small {
+    display: none;
+  }
+  .navigation > button {
+    width: auto;
+    white-space: nowrap;
+  }
+  .content {
+    padding: 18px;
+  }
+  :global(.modal[data-editor-organized='true'] form > .dialog-actions),
+  :global(.modal[data-editor-organized='true'] form > div:last-child),
+  :global(.modal[data-editor-organized='true'] fieldset > .dialog-actions) {
+    bottom: -18px;
+    margin-bottom: -18px;
+  }
+}

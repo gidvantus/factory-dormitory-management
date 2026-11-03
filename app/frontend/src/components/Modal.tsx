@@ -147,6 +147,7 @@ export function Modal({
         className={`modal ${containerClassName}`}
         data-editor-inline={inline || undefined}
         data-editor-window={surface?.windowed || undefined}
+        data-editor-organized={surface?.organized || undefined}
         onChangeCapture={(event) => {
           if (protectChanges && event.target instanceof Element && event.target.closest('form'))
             setChanged(true);

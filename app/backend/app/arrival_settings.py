@@ -70,6 +70,11 @@ def effective_people(plan: ArrivalPlan) -> list[dict[str, Any]]:
     return result
 
 
+def active_people(plan: ArrivalPlan) -> list[dict[str, Any]]:
+    moved = {visit.person_id for visit in plan.visits if visit.status == "moved"}
+    return [person for person in effective_people(plan) if person["id"] not in moved]
+
+
 def organization_plans(db: Session, organization_id: int) -> list[ArrivalPlan]:
     return list(
         db.scalars(

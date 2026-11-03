@@ -1,4 +1,4 @@
-"""Сводные показатели по общежитиям организации из формульных строк общего отчёта."""
+"""Сводные показатели действующих общежитий организации из общего отчёта."""
 
 from collections import defaultdict
 from datetime import date, timedelta
@@ -49,7 +49,7 @@ def as_float(value: Decimal | None) -> float | None:
     return float(value) if value is not None else None
 
 
-@router.get("", response_model=DashboardResponse, summary="Обзор по всем общежитиям")
+@router.get("", response_model=DashboardResponse, summary="Обзор по действующим общежитиям")
 def read_dashboard(
     _user: SubscribedUser,
     membership: Membership,
@@ -72,7 +72,9 @@ def read_dashboard(
         if snapshot_date is not None
         else []
     )
-    dormitories = scoped_dormitories(db, membership.organization_id)
+    dormitories = [
+        item for item in scoped_dormitories(db, membership.organization_id) if not item.is_archived
+    ]
     if dormitory_id is not None and not any(item.id == dormitory_id for item in dormitories):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Общежитие не найдено")
     by_day: dict[date, dict[str, list[Decimal | None]]] = {

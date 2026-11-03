@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useEditorPreview } from '../../components/EditorSurface';
+import { EditorSection } from '../../components/EditorSection';
 import { api, ApiError, waitForDormitoryWrites } from '../../api/client';
 import type {
   ColumnKind,
@@ -20,6 +21,9 @@ import { RuleSummary } from './RuleSummary';
 import { BindingDialog } from '../personnel/BindingDialog';
 import type { SourceTable } from '../../api/personnel';
 import styles from './DormitorySettingsDialog.module.css';
+import { CellFillEditor } from './CellFillEditor';
+import { cellFillError, personnelFillSource, sourceFields, supportsCellFill } from './cellFill';
+import type { CellFillSource } from '../../api/client';
 
 type Page = 'structure' | 'links' | 'templates';
 type DraftColumn = Omit<SettingsColumn, 'id' | 'table_key'> & { id?: number; local: number };
@@ -29,6 +33,7 @@ interface Node {
   parent: string | null;
   status: 'active' | 'hidden' | 'deleted';
   custom: boolean;
+  kind?: 'table' | 'archive';
   reason: string | null;
   options?: CustomTabOptions;
   dateColumnName?: string | null;
@@ -92,6 +97,7 @@ export function DormitorySettingsDialog({
         parent: item.parent_id ? `custom_${item.parent_id}` : (item.parent_section ?? null),
         status: item.is_active ? ('active' as const) : ('hidden' as const),
         custom: true,
+        kind: item.kind,
         options: { ...defaultTabOptions, ...item.options },
         reason: item.delete_block_reason,
       })),
@@ -148,7 +154,35 @@ export function DormitorySettingsDialog({
     return chain;
   }
   const blocked = !!node && ancestors(node).some((item) => item.status !== 'active');
-  const columns = tables[selected] ?? [];
+  const columns = (tables[selected] ?? []).map((column) => {
+    const id = column.id ?? -column.local;
+    const linked = Object.entries(tables).flatMap(([key, list]) =>
+      list
+        .filter(
+          (item) =>
+            !item.archived &&
+            item.fill &&
+            ((item.fill.source === selected && item.fill.field === String(id)) ||
+              (key === selected && item.fill.match_column_id === id)),
+        )
+        .map((item) => `Ячейки «${item.name}»`),
+    );
+    return {
+      ...column,
+      used_by: [...column.used_by.filter((name) => !name.startsWith('Ячейки «')), ...linked],
+    };
+  });
+  const fillColumns = columns.map((column) => ({ ...column, id: column.id ?? -column.local }));
+  const fillSources: CellFillSource[] = [
+    personnelFillSource,
+    ...Object.entries(tables)
+      .filter(([key]) => nodes.some((item) => item.key === key && item.status !== 'deleted'))
+      .map(([key, list]) => ({
+        key: key as CellFillSource['key'],
+        name: nodes.find((item) => item.key === key)?.name ?? key,
+        fields: sourceFields(list.map((column) => ({ ...column, id: column.id ?? -column.local }))),
+      })),
+  ];
   useEditorPreview('structure', { selected, nodes, columns, page });
   const rules: ReportRow[] =
     snapshot?.rules.map((item, position) => ({ ...item, position, values: {}, errors: {} })) ?? [];
@@ -192,6 +226,18 @@ export function DormitorySettingsDialog({
         );
         return;
       }
+      for (const column of active) {
+        const message = cellFillError(
+          column.fill,
+          column.kind,
+          tables[key].map((item) => ({ ...item, id: item.id ?? -item.local })),
+          fillSources,
+        );
+        if (message) {
+          setError(`«${column.name}»: ${message}`);
+          return;
+        }
+      }
     }
     setBusy(true);
     setError('');
@@ -227,6 +273,13 @@ export function DormitorySettingsDialog({
               kind: column.kind,
               options: column.options,
               archived: column.archived,
+              ...(!column.id && Object.values(tables).some((list) => list.some((item) => item.fill))
+                ? { client_id: -column.local }
+                : {}),
+              ...(column.fill ||
+              snapshot.tables[key]?.some((item) => item.id === column.id && item.fill)
+                ? { fill: column.fill ?? null }
+                : {}),
             })),
           })),
         tabs: nodes
@@ -472,72 +525,84 @@ export function DormitorySettingsDialog({
                         Открыть таблицу ↗
                       </button>
                     </div>
-                    <fieldset disabled={busy} className={styles.nodeSettings}>
-                      {node.custom && (
-                        <label>
-                          Название вкладки
-                          <input
-                            value={node.name}
-                            maxLength={120}
-                            onChange={(event) => updateNode({ name: event.target.value })}
-                          />
-                        </label>
-                      )}
-                      <div className={styles.toolbar}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateNode({ status: node.status === 'active' ? 'hidden' : 'active' })
-                          }
-                        >
-                          {node.status === 'deleted'
-                            ? 'Добавить обратно'
-                            : node.status === 'hidden'
-                              ? 'Восстановить вкладку'
-                              : 'Скрыть вкладку'}
-                        </button>
-                        {node.status !== 'deleted' && (
+                    <EditorSection
+                      title="Вкладка и доступность"
+                      description="Название, видимость и создание подвкладок. Причины недоступных действий указаны рядом."
+                    >
+                      <fieldset disabled={busy} className={styles.nodeSettings}>
+                        {node.custom && (
+                          <label>
+                            Название вкладки
+                            <input
+                              value={node.name}
+                              maxLength={120}
+                              onChange={(event) => updateNode({ name: event.target.value })}
+                            />
+                          </label>
+                        )}
+                        <div className={styles.toolbar}>
                           <button
                             type="button"
-                            disabled={!!node.reason}
-                            title={node.reason ?? undefined}
                             onClick={() =>
-                              confirmDelete
-                                ? updateNode({ status: 'deleted' })
-                                : setConfirmDelete(true)
+                              updateNode({ status: node.status === 'active' ? 'hidden' : 'active' })
                             }
                           >
-                            {confirmDelete
-                              ? 'Подтвердить удаление вкладки'
-                              : 'Удалить пустую вкладку'}
+                            {node.status === 'deleted'
+                              ? 'Добавить обратно'
+                              : node.status === 'hidden'
+                                ? 'Восстановить вкладку'
+                                : 'Скрыть вкладку'}
                           </button>
+                          {node.status !== 'deleted' && (
+                            <button
+                              type="button"
+                              disabled={!!node.reason}
+                              title={node.reason ?? undefined}
+                              onClick={() =>
+                                confirmDelete
+                                  ? updateNode({ status: 'deleted' })
+                                  : setConfirmDelete(true)
+                              }
+                            >
+                              {confirmDelete
+                                ? 'Подтвердить удаление вкладки'
+                                : 'Удалить пустую вкладку'}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            disabled={blocked || dirty || node.kind === 'archive'}
+                            title={
+                              node.kind === 'archive'
+                                ? 'Архив действий не содержит подвкладок'
+                                : undefined
+                            }
+                            onClick={() => setCreating({ parent: selected })}
+                          >
+                            + Подвкладка
+                          </button>
+                        </div>
+                        {node.reason && (
+                          <p className={styles.hint}>
+                            {node.reason} Можно скрыть вкладку: данные продолжат учитываться в
+                            отчёте.
+                          </p>
                         )}
-                        <button
-                          type="button"
-                          disabled={blocked || dirty}
-                          onClick={() => setCreating({ parent: selected })}
-                        >
-                          + Подвкладка
-                        </button>
-                      </div>
-                      {node.reason && (
-                        <p className={styles.hint}>
-                          {node.reason} Можно скрыть вкладку: данные продолжат учитываться в отчёте.
-                        </p>
-                      )}
-                      {confirmDelete && (
-                        <p className={styles.warning}>
-                          Вкладка и её подвкладки будут удалены. Подтвердите действие кнопкой выше.
-                        </p>
-                      )}
-                    </fieldset>
+                        {confirmDelete && (
+                          <p className={styles.warning}>
+                            Вкладка и её подвкладки будут удалены. Подтвердите действие кнопкой
+                            выше.
+                          </p>
+                        )}
+                      </fieldset>
+                    </EditorSection>
                     {blocked && (
                       <p className={styles.warning}>
                         Вкладка или её родитель скрыты либо удалены. Восстановите их перед
                         изменением таблицы.
                       </p>
                     )}
-                    {node.custom && (
+                    {node.custom && node.kind !== 'archive' && (
                       <CustomTabOptionsEditor
                         value={node.options ?? defaultTabOptions}
                         onChange={(options) => updateNode({ options })}
@@ -547,198 +612,243 @@ export function DormitorySettingsDialog({
                         disabled={blocked || busy}
                       />
                     )}
-                    {selected in tables ? (
-                      <fieldset disabled={busy || blocked} className={styles.columnEditor}>
-                        <div className={styles.columnHeading}>
-                          <h4>Столбцы таблицы</h4>
-                          <span>Название · формат · порядок</span>
-                        </div>
-                        {(selected === 'archive' || node.custom) && (
-                          <div className={styles.toolbar} style={{ marginBottom: 14 }}>
-                            <button
-                              type="button"
-                              disabled={dirty}
-                              onClick={() => setBinding(selected as SourceTable)}
-                            >
-                              Связь с персоналом
-                            </button>
-                            {dirty && (
-                              <small>
-                                Сохраните изменения, чтобы настроить связь с персоналом.
-                              </small>
-                            )}
+                    {node.kind === 'archive' ? (
+                      <EditorSection
+                        title="Архив действий"
+                        description="История изменений данных текущего общежития заполняется автоматически."
+                      >
+                        <p>
+                          Постоянные столбцы: Дата, Действие, Автор. Записи и столбцы доступны
+                          только для чтения. В описании сохраняются вкладка, запись, поле и значения
+                          до и после изменения.
+                        </p>
+                      </EditorSection>
+                    ) : selected in tables ? (
+                      <EditorSection
+                        title="Столбцы и порядок"
+                        description="Настройте данные таблицы. Убранные столбцы можно восстановить вместе со значениями."
+                      >
+                        <fieldset disabled={busy || blocked} className={styles.columnEditor}>
+                          <div className={styles.columnHeading}>
+                            <h4>Столбцы таблицы</h4>
+                            <span>Название · формат · порядок</span>
                           </div>
-                        )}
-                        {!columns.length && (
-                          <p className={styles.empty}>
-                            Таблица ещё не создана. Добавьте столбцы и сохраните изменения.
-                          </p>
-                        )}
-                        {columns.map((column, index) => (
-                          <div
-                            className={`${styles.column} ${column.archived ? styles.archived : ''}`}
-                            key={column.local}
-                          >
-                            <div className={styles.columnLine}>
-                              <span className={styles.index}>{index + 1}</span>
-                              <input
-                                aria-label={`Название столбца ${index + 1}`}
-                                value={column.name}
-                                maxLength={120}
-                                placeholder="Название столбца"
-                                disabled={column.archived}
-                                onChange={(event) =>
-                                  changeColumn(column.local, { name: event.target.value })
-                                }
-                              />
-                              <select
-                                aria-label={`Формат столбца ${index + 1}`}
-                                value={column.kind}
-                                disabled={!!column.id || column.archived}
-                                onChange={(event) =>
-                                  changeColumn(column.local, {
-                                    kind: event.target.value as ColumnKind,
-                                    options:
-                                      event.target.value === 'select'
-                                        ? [{ id: null, label: '', archived: false }]
-                                        : [],
-                                  })
-                                }
+                          {(selected === 'archive' || node.custom) && (
+                            <div className={styles.toolbar} style={{ marginBottom: 14 }}>
+                              <button
+                                type="button"
+                                disabled={dirty}
+                                onClick={() => setBinding(selected as SourceTable)}
                               >
-                                {Object.entries(columnKinds)
-                                  .filter(
-                                    ([kind]) => !!column.id || !['action', 'hostel'].includes(kind),
-                                  )
-                                  .map(([kind, label]) => (
-                                    <option key={kind} value={kind}>
-                                      {label}
-                                    </option>
-                                  ))}
-                              </select>
-                              <div className={styles.columnActions}>
-                                <button
-                                  type="button"
-                                  aria-label={`Выше: ${column.name}`}
-                                  disabled={!index}
-                                  onClick={() => {
-                                    const next = [...columns];
-                                    [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                                    updateColumns(next);
-                                  }}
-                                >
-                                  ↑
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label={`Ниже: ${column.name}`}
-                                  disabled={index === columns.length - 1}
-                                  onClick={() => {
-                                    const next = [...columns];
-                                    [next[index + 1], next[index]] = [next[index], next[index + 1]];
-                                    updateColumns(next);
-                                  }}
-                                >
-                                  ↓
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={!column.archived && column.used_by.length > 0}
-                                  title={
-                                    column.used_by.length
-                                      ? `Связи отчёта: ${column.used_by.join(', ')}`
-                                      : undefined
-                                  }
-                                  onClick={() =>
-                                    column.id
-                                      ? changeColumn(column.local, { archived: !column.archived })
-                                      : updateColumns(
-                                          columns.filter((item) => item.local !== column.local),
-                                        )
-                                  }
-                                >
-                                  {column.archived ? 'Вернуть' : 'Убрать'}
-                                </button>
-                              </div>
-                            </div>
-                            {!!column.used_by.length && (
-                              <small className={styles.dependency}>
-                                ↗ Используется в отчёте: {column.used_by.join(', ')}
-                              </small>
-                            )}
-                            {column.kind === 'action' &&
-                              column.builtin_key?.startsWith('action_') && (
-                                <small className={styles.hint}>
-                                  Действие с записью. В таблице находится в меню «Действия».
+                                Связь с персоналом
+                              </button>
+                              {dirty && (
+                                <small>
+                                  Сохраните изменения, чтобы настроить связь с персоналом.
                                 </small>
                               )}
-                            {column.kind === 'select' && !column.archived && (
-                              <fieldset disabled={!!column.builtin_key} className={styles.options}>
-                                <legend>Варианты списка</legend>
-                                {column.options.map((option, optionIndex) => (
-                                  <div key={option.id ?? optionIndex}>
-                                    <input
-                                      aria-label={`Вариант ${optionIndex + 1} столбца ${index + 1}`}
-                                      value={option.label}
-                                      maxLength={120}
-                                      onChange={(event) =>
-                                        changeColumn(column.local, {
-                                          options: column.options.map((item, i) =>
-                                            i === optionIndex
-                                              ? { ...item, label: event.target.value }
-                                              : item,
-                                          ),
-                                        })
-                                      }
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        changeColumn(column.local, {
-                                          options: option.id
-                                            ? column.options.map((item, i) =>
-                                                i === optionIndex
-                                                  ? { ...item, archived: !item.archived }
-                                                  : item,
-                                              )
-                                            : column.options.filter((_, i) => i !== optionIndex),
-                                        })
-                                      }
-                                    >
-                                      {option.archived
-                                        ? 'Вернуть вариант'
-                                        : option.id
-                                          ? 'В архив'
-                                          : 'Убрать вариант'}
-                                    </button>
-                                    {option.archived && <small>В архиве</small>}
-                                  </div>
-                                ))}
-                                <button
-                                  type="button"
-                                  disabled={column.options.length >= 200}
-                                  onClick={() =>
+                            </div>
+                          )}
+                          {!columns.length && (
+                            <p className={styles.empty}>
+                              Таблица ещё не создана. Добавьте столбцы и сохраните изменения.
+                            </p>
+                          )}
+                          {columns.map((column, index) => (
+                            <div
+                              className={`${styles.column} ${column.archived ? styles.archived : ''}`}
+                              key={column.local}
+                            >
+                              <div className={styles.columnLine}>
+                                <span className={styles.index}>{index + 1}</span>
+                                <input
+                                  aria-label={`Название столбца ${index + 1}`}
+                                  value={column.name}
+                                  maxLength={120}
+                                  placeholder="Название столбца"
+                                  disabled={column.archived}
+                                  onChange={(event) =>
+                                    changeColumn(column.local, { name: event.target.value })
+                                  }
+                                />
+                                <select
+                                  aria-label={`Формат столбца ${index + 1}`}
+                                  value={column.kind}
+                                  disabled={!!column.id || column.archived}
+                                  onChange={(event) =>
                                     changeColumn(column.local, {
-                                      options: [
-                                        ...column.options,
-                                        { id: null, label: '', archived: false },
-                                      ],
+                                      kind: event.target.value as ColumnKind,
+                                      options:
+                                        event.target.value === 'select'
+                                          ? [{ id: null, label: '', archived: false }]
+                                          : [],
+                                      fill: null,
                                     })
                                   }
                                 >
-                                  + Вариант
-                                </button>
-                              </fieldset>
-                            )}
-                          </div>
-                        ))}
-                        <button className={styles.add} type="button" onClick={addColumn}>
-                          + Добавить столбец
-                        </button>
-                        <p className={styles.hint}>
-                          Тип существующего столбца сохраняется вместе с данными. Убранные столбцы
-                          можно вернуть; значения останутся на месте.
-                        </p>
-                      </fieldset>
+                                  {Object.entries(columnKinds)
+                                    .filter(
+                                      ([kind]) =>
+                                        !!column.id || !['action', 'hostel'].includes(kind),
+                                    )
+                                    .map(([kind, label]) => (
+                                      <option key={kind} value={kind}>
+                                        {label}
+                                      </option>
+                                    ))}
+                                </select>
+                                <div className={styles.columnActions}>
+                                  <button
+                                    type="button"
+                                    aria-label={`Выше: ${column.name}`}
+                                    disabled={!index}
+                                    onClick={() => {
+                                      const next = [...columns];
+                                      [next[index - 1], next[index]] = [
+                                        next[index],
+                                        next[index - 1],
+                                      ];
+                                      updateColumns(next);
+                                    }}
+                                  >
+                                    ↑
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={`Ниже: ${column.name}`}
+                                    disabled={index === columns.length - 1}
+                                    onClick={() => {
+                                      const next = [...columns];
+                                      [next[index + 1], next[index]] = [
+                                        next[index],
+                                        next[index + 1],
+                                      ];
+                                      updateColumns(next);
+                                    }}
+                                  >
+                                    ↓
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={!column.archived && column.used_by.length > 0}
+                                    title={
+                                      column.used_by.length
+                                        ? `Используется в связях: ${column.used_by.join(', ')}`
+                                        : undefined
+                                    }
+                                    onClick={() =>
+                                      column.id
+                                        ? changeColumn(column.local, { archived: !column.archived })
+                                        : updateColumns(
+                                            columns.filter((item) => item.local !== column.local),
+                                          )
+                                    }
+                                  >
+                                    {column.archived ? 'Вернуть' : 'Убрать'}
+                                  </button>
+                                </div>
+                              </div>
+                              {node.custom &&
+                                !column.archived &&
+                                !column.builtin_key &&
+                                supportsCellFill(column.kind) && (
+                                  <CellFillEditor
+                                    value={column.fill}
+                                    kind={column.kind}
+                                    columnId={column.id ?? -column.local}
+                                    columns={fillColumns}
+                                    sources={fillSources}
+                                    table={selected}
+                                    onChange={(fill) => changeColumn(column.local, { fill })}
+                                  />
+                                )}
+                              {!!column.used_by.length && (
+                                <small className={styles.dependency}>
+                                  ↗{' '}
+                                  {column.used_by.some((name) => name.startsWith('Ячейки «'))
+                                    ? 'Используется в связях'
+                                    : 'Используется в отчёте'}
+                                  : {column.used_by.join(', ')}
+                                </small>
+                              )}
+                              {column.kind === 'action' &&
+                                column.builtin_key?.startsWith('action_') && (
+                                  <small className={styles.hint}>
+                                    Действие с записью. В таблице находится в меню «Действия».
+                                  </small>
+                                )}
+                              {column.kind === 'select' && !column.archived && (
+                                <fieldset
+                                  disabled={!!column.builtin_key}
+                                  className={styles.options}
+                                >
+                                  <legend>Варианты списка</legend>
+                                  {column.options.map((option, optionIndex) => (
+                                    <div key={option.id ?? optionIndex}>
+                                      <input
+                                        aria-label={`Вариант ${optionIndex + 1} столбца ${index + 1}`}
+                                        value={option.label}
+                                        maxLength={120}
+                                        onChange={(event) =>
+                                          changeColumn(column.local, {
+                                            options: column.options.map((item, i) =>
+                                              i === optionIndex
+                                                ? { ...item, label: event.target.value }
+                                                : item,
+                                            ),
+                                          })
+                                        }
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          changeColumn(column.local, {
+                                            options: option.id
+                                              ? column.options.map((item, i) =>
+                                                  i === optionIndex
+                                                    ? { ...item, archived: !item.archived }
+                                                    : item,
+                                                )
+                                              : column.options.filter((_, i) => i !== optionIndex),
+                                          })
+                                        }
+                                      >
+                                        {option.archived
+                                          ? 'Вернуть вариант'
+                                          : option.id
+                                            ? 'В архив'
+                                            : 'Убрать вариант'}
+                                      </button>
+                                      {option.archived && <small>В архиве</small>}
+                                    </div>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    disabled={column.options.length >= 200}
+                                    onClick={() =>
+                                      changeColumn(column.local, {
+                                        options: [
+                                          ...column.options,
+                                          { id: null, label: '', archived: false },
+                                        ],
+                                      })
+                                    }
+                                  >
+                                    + Вариант
+                                  </button>
+                                </fieldset>
+                              )}
+                            </div>
+                          ))}
+                          <button className={styles.add} type="button" onClick={addColumn}>
+                            + Добавить столбец
+                          </button>
+                          <p className={styles.hint}>
+                            Тип существующего столбца сохраняется вместе с данными. Убранные столбцы
+                            можно вернуть; значения останутся на месте.
+                          </p>
+                        </fieldset>
+                      </EditorSection>
                     ) : (
                       <p className={styles.empty}>
                         В этом разделе таблица настраивается в самом разделе. Подвкладки можно

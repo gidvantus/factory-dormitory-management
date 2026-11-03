@@ -50,6 +50,7 @@ export function PersonnelTableCells({
                 {!hasName && (
                   <button
                     type="button"
+                    className="btn btn--ghost btn--compact"
                     disabled={card.busy || readOnly}
                     onClick={() => void card.open()}
                   >

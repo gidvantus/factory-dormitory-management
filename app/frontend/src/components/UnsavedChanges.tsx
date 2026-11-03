@@ -4,12 +4,11 @@ import { UNSAFE_DataRouterContext, useBlocker } from 'react-router-dom';
 
 import { ChangesContext, DISCARD_MESSAGE, useUnloadWarning } from './useUnsavedChanges';
 
-function NavigationGuard({ dirty }: { dirty: boolean }): null {
+function NavigationGuard({ dirty, searchDirty }: { dirty: boolean; searchDirty: boolean }): null {
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
-      dirty &&
-      (currentLocation.pathname !== nextLocation.pathname ||
-        currentLocation.search !== nextLocation.search),
+      (dirty && currentLocation.pathname !== nextLocation.pathname) ||
+      (searchDirty && currentLocation.search !== nextLocation.search),
   );
   useEffect(() => {
     if (blocker.state === 'blocked') {
@@ -21,13 +20,14 @@ function NavigationGuard({ dirty }: { dirty: boolean }): null {
 }
 
 export function UnsavedChangesProvider({ children }: { children: ReactNode }): JSX.Element {
-  const [entries, setEntries] = useState<Set<string>>(() => new Set());
+  const [entries, setEntries] = useState<Map<string, boolean>>(() => new Map());
   const router = useContext(UNSAFE_DataRouterContext);
-  const register = useCallback((id: string, active: boolean) => {
+  const register = useCallback((id: string, active: boolean, ignoreSearch = false) => {
     setEntries((current) => {
-      if (current.has(id) === active) return current;
-      const next = new Set(current);
-      if (active) next.add(id);
+      if (active ? current.has(id) && current.get(id) === ignoreSearch : !current.has(id))
+        return current;
+      const next = new Map(current);
+      if (active) next.set(id, ignoreSearch);
       else next.delete(id);
       return next;
     });
@@ -35,7 +35,12 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }): J
   useUnloadWarning(entries.size > 0);
   return (
     <ChangesContext.Provider value={register}>
-      {router && <NavigationGuard dirty={entries.size > 0} />}
+      {router && (
+        <NavigationGuard
+          dirty={entries.size > 0}
+          searchDirty={[...entries.values()].some((ignore) => !ignore)}
+        />
+      )}
       {children}
     </ChangesContext.Provider>
   );

@@ -5,17 +5,7 @@ import type { PlannedArrival, PlannedPerson, VisitStatus } from './model';
 import { STATUS_LABELS } from './model';
 import s from './ArrivalWorkflowPreview.module.css';
 
-export type PersonAction =
-  | 'arrive'
-  | 'no_show'
-  | 'restore'
-  | 'move'
-  | 'undo_move'
-  | 'open_move'
-  | 'settle'
-  | 'resident'
-  | 'details'
-  | 'origin';
+export type PersonAction = 'arrive' | 'no_show' | 'restore' | 'move' | 'details';
 export type OnPersonAction = (
   action: PersonAction,
   arrival: PlannedArrival,
@@ -102,13 +92,7 @@ export function PersonRow({
         <p className={s.subtle}>Карточка сотрудника · Т/н {person.card.number}</p>
       )}
       {person.from && (
-        <button
-          type="button"
-          className={`link-button ${s.origin}`}
-          onClick={() => action('origin')}
-        >
-          Перенесён с {dateLabel(person.from.date)}
-        </button>
+        <small className={s.subtle}>Перенесён с {dateLabel(person.from.date, true)}</small>
       )}
       <div className={s.rowActions}>
         {person.status === 'expected' && (
@@ -139,67 +123,13 @@ export function PersonRow({
             </button>
           </>
         )}
-        {person.status === 'arrived' && (
-          <>
-            <button
-              type="button"
-              className="btn btn--primary btn--compact"
-              onClick={() => action('settle')}
-            >
-              В проживающие
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost btn--compact"
-              onClick={() => action('restore')}
-            >
-              Исправить отметку
-            </button>
-          </>
-        )}
-        {person.status === 'no_show' && (
-          <>
-            <button
-              type="button"
-              className="btn btn--ghost btn--compact"
-              onClick={() => action('restore')}
-            >
-              Вернуть в ожидаемые
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost btn--compact"
-              onClick={() => action('move')}
-            >
-              Перенести
-            </button>
-          </>
-        )}
-        {person.status === 'moved' && person.to && (
-          <>
-            <button
-              type="button"
-              className="btn btn--ghost btn--compact"
-              onClick={() => action('open_move')}
-            >
-              Открыть {dateLabel(person.to.date)}
-            </button>
-            <button
-              type="button"
-              className={`link-button ${s.secondaryAction}`}
-              onClick={() => action('undo_move')}
-            >
-              Отменить перенос
-            </button>
-          </>
-        )}
-        {person.status === 'settled' && (
+        {(person.status === 'arrived' || person.status === 'no_show') && (
           <button
             type="button"
             className="btn btn--ghost btn--compact"
-            onClick={() => action('resident')}
+            onClick={() => action('restore')}
           >
-            Открыть проживание
+            Изменить статус
           </button>
         )}
       </div>

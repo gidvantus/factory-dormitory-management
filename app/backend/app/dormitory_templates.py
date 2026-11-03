@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
+from app.cell_fill import remap_copied_fills
 from app.custom_tab_options import mapped_options, options_for
 from app.models.custom_tab import CustomTab
 from app.models.dormitory import Dormitory
@@ -62,6 +63,7 @@ def take_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
                 "key": tab.table_key,
                 "options": options_for(tab).model_dump(),
                 "name": tab.name,
+                "kind": tab.kind,
                 "is_active": tab.is_active,
                 "table_created": tab.table_created,
                 "is_group": tab.is_group,
@@ -79,6 +81,7 @@ def take_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
                     "builtin_key": col.builtin_key,
                     "options": deepcopy(col.options),
                     "archived": col.archived,
+                    "fill": deepcopy(col.fill),
                 }
                 for col in columns_for(db, dormitory_id, key)
             ]
@@ -167,6 +170,7 @@ def apply_snapshot(
             tab = CustomTab(
                 dormitory_id=dorm.id,
                 name=item["name"],
+                kind=item.get("kind", "table"),
                 table_created=item["table_created"],
                 is_group=item["is_group"],
                 is_active=True,
@@ -197,6 +201,7 @@ def apply_snapshot(
             columns[original_id] = col.id
     for tab, _ in created:
         tab.options = mapped_options(tab, columns)
+    remap_copied_fills(db, dorm.id, columns, tables)
     hostels: dict[int, int] = {}
     for item in data["hostels"]:
         original_id = item.pop("id")

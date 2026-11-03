@@ -96,7 +96,7 @@ function ArchiveContent({
       {error && (
         <p role="alert" className={styles.error}>
           {error}{' '}
-          <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+          <button className="link-button" type="button" onClick={() => setAttempt((n) => n + 1)}>
             Повторить
           </button>
         </p>

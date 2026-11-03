@@ -6,6 +6,8 @@ import { api, ApiError } from '../../api/client';
 import type { ReportLink, ReportRow } from '../../api/client';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { useEditorPreview } from '../../components/EditorSurface';
+import { EditorSection } from '../../components/EditorSection';
+import { useOrganizedEditor } from '../../components/useOrganizedEditor';
 import { dateNumber, formatDate } from '../dashboard/dates';
 import type { DateRange } from '../dashboard/dates';
 import styles from './ReportTable.module.css';
@@ -163,7 +165,10 @@ export function RowDialog({
   onBusyChange?: (busy: boolean) => void;
   initialLink?: ReportLink | null;
 }): JSX.Element {
+  const organized = useOrganizedEditor();
   const required = row !== null && requiredRowNames.has(row.name);
+  const formulaRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const [referenceQuery, setReferenceQuery] = useState('');
   const [name, setName] = useState(row?.name ?? '');
   const [mode, setMode] = useState<'manual' | 'formula' | 'link'>(
     required || row?.formula ? 'formula' : row?.link || initialLink ? 'link' : 'manual',
@@ -183,6 +188,10 @@ export function RowDialog({
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (saving || deleting) return;
+    if (organized && !name.trim()) {
+      setError('Укажите название строки.');
+      return;
+    }
     if (mode === 'link' && !link) {
       setError('Выберите таблицу, столбец и настройте условие подсчёта.');
       return;
@@ -231,66 +240,143 @@ export function RowDialog({
     }
   }
 
+  function insertFormula(text: string): void {
+    if (!organized) {
+      setFormula((current) => `${current}${text}`);
+      return;
+    }
+    const element = formulaRef.current;
+    const start = element?.selectionStart ?? formula.length,
+      end = element?.selectionEnd ?? start;
+    setFormula((current) => current.slice(0, start) + text + current.slice(end));
+    setTimeout(() => {
+      element?.focus();
+      element?.setSelectionRange(start + text.length, start + text.length);
+    }, 0);
+  }
+  const deleteControls =
+    row &&
+    !required &&
+    (confirmDelete ? (
+      <button
+        type="button"
+        className={`btn btn--danger ${styles.dialogDelete}`}
+        onClick={() => void remove()}
+        disabled={saving || deleting}
+      >
+        Подтвердить удаление
+      </button>
+    ) : (
+      <button
+        type="button"
+        className={`btn btn--ghost ${styles.dialogDelete}`}
+        onClick={() => setConfirmDelete(true)}
+        disabled={saving || deleting}
+      >
+        Удалить строку
+      </button>
+    ));
   const content = (
     <form className={styles.rowForm} noValidate onSubmit={(event) => void submit(event)}>
-      <label className={styles.field} htmlFor="report-row-name">
-        Название строки
-        <input
-          id="report-row-name"
-          data-testid="report-row-name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          maxLength={120}
-          required
-          disabled={saving || deleting || required}
-          placeholder="Например, Проживающие"
-        />
-      </label>
-      {required && (
-        <p className={styles.formulaHelp}>
-          Это обязательная итоговая строка. Её название и тип нельзя изменить, но формулу можно
-          настроить.
-        </p>
-      )}
-      <fieldset className={styles.modeGroup} disabled={saving || deleting}>
-        <legend>Как заполняется строка</legend>
-        <label>
+      <EditorSection
+        title="Название строки"
+        description="Так строка будет называться в отчёте и в ссылках из других формул."
+      >
+        <label className={styles.field} htmlFor="report-row-name">
+          Название строки
           <input
-            type="radio"
-            name="report-row-mode"
-            checked={mode === 'manual'}
-            disabled={required}
-            onChange={() => setMode('manual')}
-          />{' '}
-          Вручную по дням
+            id="report-row-name"
+            data-testid="report-row-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={120}
+            required
+            disabled={saving || deleting || required}
+            placeholder="Например, Проживающие"
+          />
         </label>
-        <label>
-          <input
-            type="radio"
-            name="report-row-mode"
-            checked={mode === 'formula'}
-            onChange={() => setMode('formula')}
-          />{' '}
-          Формулой для всех дней
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="report-row-mode"
-            checked={mode === 'link'}
-            disabled={required}
-            onChange={() => setMode('link')}
-          />{' '}
-          Связь с таблицей
-        </label>
-      </fieldset>
+        {required && (
+          <p className={styles.formulaHelp}>
+            Это обязательная итоговая строка. Её название и тип нельзя изменить, но формулу можно
+            настроить.
+          </p>
+        )}
+      </EditorSection>
+      <EditorSection
+        title="Способ заполнения"
+        description="Выбор определяет, какие настройки нужны ниже."
+      >
+        <fieldset className={styles.modeGroup} disabled={saving || deleting}>
+          <legend>Как заполняется строка</legend>
+          <label>
+            <input
+              type="radio"
+              name="report-row-mode"
+              checked={mode === 'manual'}
+              disabled={required}
+              onChange={() => setMode('manual')}
+            />{' '}
+            {organized ? (
+              <span>
+                <strong>Вручную по дням</strong>
+                <small>Значения вводятся в ячейки отчёта.</small>
+              </span>
+            ) : (
+              'Вручную по дням'
+            )}
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="report-row-mode"
+              checked={mode === 'formula'}
+              onChange={() => setMode('formula')}
+            />{' '}
+            {organized ? (
+              <span>
+                <strong>Формулой для всех дней</strong>
+                <small>Выражение рассчитывает каждую дату.</small>
+              </span>
+            ) : (
+              'Формулой для всех дней'
+            )}
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="report-row-mode"
+              checked={mode === 'link'}
+              disabled={required}
+              onChange={() => setMode('link')}
+            />{' '}
+            {organized ? (
+              <span>
+                <strong>Связь с таблицей</strong>
+                <small>Количество берётся из выбранного источника.</small>
+              </span>
+            ) : (
+              'Связь с таблицей'
+            )}
+          </label>
+        </fieldset>
+        {organized && mode === 'manual' && (
+          <p className={styles.formulaHelp}>
+            После сохранения значения этой строки можно вводить по дням непосредственно в отчёте.
+          </p>
+        )}
+      </EditorSection>
       {mode === 'link' && (
-        <ReportLinkEditor
-          dormitoryId={dormitoryId}
-          initial={link}
-          onChange={setLink}
-          disabled={saving || deleting}
-        />
+        <EditorSection
+          title="Источник и правило подсчёта"
+          description="Сначала выберите таблицу, затем столбец, условие и дату распределения."
+        >
+          <ReportLinkEditor
+            dormitoryId={dormitoryId}
+            initial={link}
+            onChange={setLink}
+            disabled={saving || deleting}
+          />
+        </EditorSection>
       )}
       {mode === 'link' && row && !row.formula && !row.link && (
         <p className={styles.warning}>
@@ -300,39 +386,102 @@ export function RowDialog({
       )}
       {mode === 'formula' && (
         <>
-          <label className={styles.field} htmlFor="report-row-formula">
-            Формула
-            <input
-              id="report-row-formula"
-              data-testid="report-row-formula"
-              value={formula}
-              onChange={(event) => setFormula(event.target.value)}
-              maxLength={1000}
-              required
-              disabled={saving || deleting}
-              placeholder="=[Проживающие]+[Прибывшие]"
-            />
-          </label>
-          <p className={styles.formulaHelp}>
-            Используйте названия других строк в квадратных скобках и знаки + − * /. Формула считает
-            каждую дату отдельно. Пустая ячейка считается нулём.
-          </p>
-          {rows.filter((item) => item.id !== row?.id).length > 0 && (
-            <div className={styles.references}>
-              <span>Вставить строку:</span>
-              {rows
-                .filter((item) => item.id !== row?.id)
-                .map((item) => (
+          <EditorSection
+            title="Выражение"
+            description="Можно сочетать несколько действий и скобки. Формула применяется к каждой дате отдельно."
+          >
+            <label className={styles.field} htmlFor="report-row-formula">
+              Формула
+              {organized ? (
+                <textarea
+                  ref={(element) => {
+                    formulaRef.current = element;
+                  }}
+                  id="report-row-formula"
+                  data-testid="report-row-formula"
+                  value={formula}
+                  onChange={(event) => setFormula(event.target.value)}
+                  maxLength={1000}
+                  required
+                  disabled={saving || deleting}
+                  rows={3}
+                  spellCheck={false}
+                  placeholder="=([Проживает М]+[Проживает Ж])+[Прибыло]-[Выбыло]"
+                />
+              ) : (
+                <input
+                  id="report-row-formula"
+                  data-testid="report-row-formula"
+                  value={formula}
+                  onChange={(event) => setFormula(event.target.value)}
+                  maxLength={1000}
+                  required
+                  disabled={saving || deleting}
+                  placeholder="=[Проживающие]+[Прибывшие]"
+                />
+              )}
+            </label>
+            {organized && (
+              <div className={styles.references} aria-label="Действия формулы">
+                {['+', '-', '*', '/', '(', ')'].map((operator) => (
                   <button
-                    key={item.id}
+                    key={operator}
                     type="button"
                     disabled={saving || deleting}
-                    onClick={() => setFormula((current) => `${current}[${item.name}]`)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => insertFormula(operator)}
                   >
-                    {item.name}
+                    {operator}
                   </button>
                 ))}
-            </div>
+              </div>
+            )}
+            <p className={styles.formulaHelp}>
+              Используйте названия других строк в квадратных скобках и знаки + − * /. Формула
+              считает каждую дату отдельно. Пустая ячейка считается нулём.
+            </p>
+          </EditorSection>
+          {rows.filter((item) => item.id !== row?.id).length > 0 && (
+            <EditorSection
+              title="Строки для формулы"
+              description="Нажмите название: ссылка вставится в позицию курсора в выражении."
+            >
+              {organized && (
+                <label className={styles.field}>
+                  Найти строку отчёта
+                  <input
+                    value={referenceQuery}
+                    onChange={(event) => setReferenceQuery(event.target.value)}
+                    placeholder="Например, проживает"
+                  />
+                </label>
+              )}
+              <div className={styles.references}>
+                <span>Вставить строку:</span>
+                {rows
+                  .filter(
+                    (item) =>
+                      item.id !== row?.id &&
+                      (!organized ||
+                        item.name
+                          .toLocaleLowerCase('ru')
+                          .includes(referenceQuery.toLocaleLowerCase('ru'))),
+                  )
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      disabled={saving || deleting}
+                      onMouseDown={(event) => {
+                        if (organized) event.preventDefault();
+                      }}
+                      onClick={() => insertFormula(`[${item.name}]`)}
+                    >
+                      {item.name}
+                    </button>
+                  ))}
+              </div>
+            </EditorSection>
           )}
           {row && !required && !row.formula && (
             <p className={styles.warning}>
@@ -346,28 +495,17 @@ export function RowDialog({
           {error}
         </p>
       )}
+      {organized && row && !required && (
+        <EditorSection
+          title="Удаление строки"
+          tone="danger"
+          description="Удаление — отдельное действие. Зависимые формулы проверяются перед удалением."
+        >
+          {deleteControls}
+        </EditorSection>
+      )}
       <div className="dialog-actions">
-        {row &&
-          !required &&
-          (confirmDelete ? (
-            <button
-              type="button"
-              className={`btn btn--danger ${styles.dialogDelete}`}
-              onClick={() => void remove()}
-              disabled={saving || deleting}
-            >
-              Подтвердить удаление
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={`btn btn--ghost ${styles.dialogDelete}`}
-              onClick={() => setConfirmDelete(true)}
-              disabled={saving || deleting}
-            >
-              Удалить строку
-            </button>
-          ))}
+        {!organized && deleteControls}
         <ModalCancelButton
           onClick={onClose}
           type="button"
@@ -602,7 +740,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
       {status === 'ready' && error && (
         <p className={styles.saveError} role="alert">
           {error}{' '}
-          <button type="button" onClick={refresh}>
+          <button className="link-button" type="button" onClick={refresh}>
             Повторить
           </button>
         </p>

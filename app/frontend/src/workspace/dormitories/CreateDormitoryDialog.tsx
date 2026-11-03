@@ -13,6 +13,7 @@ import type {
 import { DormitoryTabPicker } from './DormitoryTabPicker';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { EditorSurfaceContext } from '../../components/EditorSurface';
+import { EditorSection } from '../../components/EditorSection';
 import styles from './Dormitories.module.css';
 import creationStyles from './CreateDormitoryDialog.module.css';
 import { standardTabs } from './tabStructure';
@@ -284,240 +285,266 @@ export function CreateDormitoryDialog({ onClose, onCreated, triggerRef }: Props)
         aria-busy={saving}
       >
         <div className={creationStyles.fields}>
-          <div className="field">
-            <label className="field__label" htmlFor="dormitory-name">
-              Название общежития
-            </label>
-            <input
-              className="field__input"
-              id="dormitory-name"
-              data-testid="dormitory-name"
-              ref={nameRef}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              maxLength={255}
-              required
-              disabled={saving}
-              placeholder="Например, Северное"
-              aria-invalid={!!errors.name}
-              aria-describedby={errors.name ? 'dormitory-name-error' : undefined}
-            />
-            {errors.name && (
-              <p className="field__error" id="dormitory-name-error" role="alert">
-                {errors.name}
-              </p>
-            )}
-          </div>
-          <div className="field">
-            <label className="field__label" htmlFor="dormitory-client-name">
-              Название клиента
-            </label>
-            <input
-              className="field__input"
-              id="dormitory-client-name"
-              data-testid="dormitory-client-name"
-              ref={clientRef}
-              value={clientName}
-              onChange={(event) => setClientName(event.target.value)}
-              maxLength={255}
-              required
-              disabled={saving}
-              placeholder="Например, Стройкомплект"
-              aria-invalid={!!errors.clientName}
-              aria-describedby={errors.clientName ? 'dormitory-client-error' : undefined}
-            />
-            {errors.clientName && (
-              <p className="field__error" id="dormitory-client-error" role="alert">
-                {errors.clientName}
-              </p>
-            )}
-          </div>
-          <div className={creationStyles.modes} role="group" aria-label="Способ создания структуры">
-            <button
-              type="button"
-              aria-pressed={mode === 'manual'}
-              disabled={saving}
-              onClick={() => {
-                setMode('manual');
-                setSample('');
-                setStructure(null);
-              }}
-            >
-              Выбрать вручную
-            </button>
-            <button
-              type="button"
-              aria-pressed={mode === 'sample'}
-              disabled={saving}
-              onClick={() => {
-                setMode('sample');
-                setTemplateId('');
-              }}
-            >
-              По образцу
-            </button>
-          </div>
-          {mode === 'sample' && (
+          <EditorSection
+            title="Общежитие и клиент"
+            description="Основные названия для карточки общежития."
+          >
             <div className="field">
-              <label className="field__label" htmlFor="dormitory-sample">
-                Образец структуры
+              <label className="field__label" htmlFor="dormitory-name">
+                Название общежития
               </label>
-              <select
+              <input
                 className="field__input"
-                id="dormitory-sample"
-                value={sample}
-                disabled={saving || catalogStatus !== 'ready'}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setSample(value);
-                  setStructure(null);
-                  setSampleError('');
-                  setSampleLoading(false);
-                  if (value.startsWith('dorm:'))
-                    setSelectedTabs(
-                      Object.fromEntries(
-                        catalog.map((item) => [
-                          item.id,
-                          item.variants.find(
-                            (variant) => variant.dormitory_id === Number(value.slice(5)),
-                          )?.id ?? null,
-                        ]),
-                      ),
-                    );
-                }}
-              >
-                <option value="">Выберите общежитие или шаблон</option>
-                <optgroup label="Сохранённые структуры">
-                  {structures.map((item) => (
-                    <option key={item.id} value={`template:${item.id}`}>
-                      {item.name} · {item.tab_count} вкладок
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="Существующие общежития">
-                  {samples.map((item) => (
-                    <option key={item.dormitory_id} value={`dorm:${item.dormitory_id}`}>
-                      {item.client_name} · {item.dormitory_name}
-                    </option>
-                  ))}
-                </optgroup>
-              </select>
-              {sampleLoading && <p role="status">Загружаем структуру…</p>}
-              {sampleError && (
-                <p role="alert">
-                  {sampleError}{' '}
-                  <button type="button" onClick={() => setSampleAttempt((value) => value + 1)}>
-                    Повторить загрузку образцов
-                  </button>
-                </p>
-              )}
-            </div>
-          )}
-          {mode === 'manual' && (
-            <div className="field">
-              <label className="field__label" htmlFor="dormitory-template">
-                Шаблон отчёта <span className={styles.optional}>(необязательно)</span>
-              </label>
-              <select
-                className="field__input"
-                id="dormitory-template"
-                data-testid="dormitory-template"
-                value={templateId}
-                onChange={(event) => {
-                  setTemplateId(event.target.value);
-                  const report = catalog.find((item) =>
-                    item.variants.some((variant) => variant.section_key === 'report'),
-                  );
-                  if (event.target.value && report && !selectedTabs[report.id])
-                    setSelectedTabs((items) => ({ ...items, [report.id]: report.variants[0].id }));
-                }}
-                disabled={saving || templatesStatus !== 'ready'}
-              >
-                <option value="">Без шаблона</option>
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name} · {template.row_count} строк
-                  </option>
-                ))}
-              </select>
-              {templatesStatus === 'loading' && (
-                <p className={styles.templateHint}>Загружаем шаблоны…</p>
-              )}
-              {templatesStatus === 'error' && (
-                <p className={styles.templateHint}>
-                  Не удалось загрузить шаблоны.{' '}
-                  <button
-                    type="button"
-                    className="link-button"
-                    onClick={() => setTemplatesAttempt((value) => value + 1)}
-                  >
-                    Повторить
-                  </button>
-                </p>
-              )}
-              {templateId && (
-                <p className={styles.templateHint}>
-                  Скопируются только строки и формулы. Значения останутся пустыми.
-                </p>
-              )}
-            </div>
-          )}
-          {catalogStatus === 'loading' && <p role="status">Загружаем доступные вкладки…</p>}
-          {catalogStatus === 'error' && (
-            <p role="alert">
-              Не удалось загрузить список вкладок.{' '}
-              <button type="button" onClick={() => setCatalogAttempt((value) => value + 1)}>
-                Повторить загрузку вкладок
-              </button>
-            </p>
-          )}
-          {mode === 'sample' && structure && (
-            <fieldset className={creationStyles.snapshotPicker} disabled={saving}>
-              <legend>Вкладки нового общежития</legend>
-              <p>
-                Отметьте нужные вкладки. Без выбранного родителя подвкладка станет самостоятельной.
-              </p>
-              {[
-                ...Object.entries(structure.snapshot.sections)
-                  .filter(([, state]) => state !== 'deleted')
-                  .map(([key]) => ({
-                    key,
-                    name: standardTabs.find((tab) => tab.path === key)?.label ?? key,
-                  })),
-                ...structure.snapshot.tabs,
-              ].map((item) => (
-                <label key={item.key}>
-                  <input
-                    type="checkbox"
-                    checked={structureKeys.includes(item.key)}
-                    onChange={(event) =>
-                      setStructureKeys((current) =>
-                        event.target.checked
-                          ? [...current, item.key]
-                          : current.filter((key) => key !== item.key),
-                      )
-                    }
-                  />
-                  {item.name}
-                </label>
-              ))}
-            </fieldset>
-          )}
-          {catalogStatus === 'ready' &&
-            (mode === 'manual' || (sample.startsWith('dorm:') && !sampleLoading)) && (
-              <DormitoryTabPicker
-                items={catalog}
-                selected={selectedTabs}
+                id="dormitory-name"
+                data-testid="dormitory-name"
+                ref={nameRef}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                maxLength={255}
+                required
                 disabled={saving}
-                onChange={(selected) => {
-                  setSelectedTabs(selected);
-                  const report = catalog.find((item) =>
-                    item.variants.some((variant) => variant.section_key === 'report'),
-                  );
-                  if (report && !selected[report.id]) setTemplateId('');
-                }}
+                placeholder="Например, Северное"
+                aria-invalid={!!errors.name}
+                aria-describedby={errors.name ? 'dormitory-name-error' : undefined}
               />
+              {errors.name && (
+                <p className="field__error" id="dormitory-name-error" role="alert">
+                  {errors.name}
+                </p>
+              )}
+            </div>
+            <div className="field">
+              <label className="field__label" htmlFor="dormitory-client-name">
+                Название клиента
+              </label>
+              <input
+                className="field__input"
+                id="dormitory-client-name"
+                data-testid="dormitory-client-name"
+                ref={clientRef}
+                value={clientName}
+                onChange={(event) => setClientName(event.target.value)}
+                maxLength={255}
+                required
+                disabled={saving}
+                placeholder="Например, Стройкомплект"
+                aria-invalid={!!errors.clientName}
+                aria-describedby={errors.clientName ? 'dormitory-client-error' : undefined}
+              />
+              {errors.clientName && (
+                <p className="field__error" id="dormitory-client-error" role="alert">
+                  {errors.clientName}
+                </p>
+              )}
+            </div>
+          </EditorSection>
+          <EditorSection
+            title="Состав и образцы"
+            description="Соберите вкладки вручную или выберите готовую структуру. Записи из образцов не копируются."
+          >
+            <div
+              className={creationStyles.modes}
+              role="group"
+              aria-label="Способ создания структуры"
+            >
+              <button
+                type="button"
+                aria-pressed={mode === 'manual'}
+                disabled={saving}
+                onClick={() => {
+                  setMode('manual');
+                  setSample('');
+                  setStructure(null);
+                }}
+              >
+                Выбрать вручную
+              </button>
+              <button
+                type="button"
+                aria-pressed={mode === 'sample'}
+                disabled={saving}
+                onClick={() => {
+                  setMode('sample');
+                  setTemplateId('');
+                }}
+              >
+                По образцу
+              </button>
+            </div>
+            {mode === 'sample' && (
+              <div className="field">
+                <label className="field__label" htmlFor="dormitory-sample">
+                  Образец структуры
+                </label>
+                <select
+                  className="field__input"
+                  id="dormitory-sample"
+                  value={sample}
+                  disabled={saving || catalogStatus !== 'ready'}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setSample(value);
+                    setStructure(null);
+                    setSampleError('');
+                    setSampleLoading(false);
+                    if (value.startsWith('dorm:'))
+                      setSelectedTabs(
+                        Object.fromEntries(
+                          catalog.map((item) => [
+                            item.id,
+                            item.variants.find(
+                              (variant) => variant.dormitory_id === Number(value.slice(5)),
+                            )?.id ?? null,
+                          ]),
+                        ),
+                      );
+                  }}
+                >
+                  <option value="">Выберите общежитие или шаблон</option>
+                  <optgroup label="Сохранённые структуры">
+                    {structures.map((item) => (
+                      <option key={item.id} value={`template:${item.id}`}>
+                        {item.name} · {item.tab_count} вкладок
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Существующие общежития">
+                    {samples.map((item) => (
+                      <option key={item.dormitory_id} value={`dorm:${item.dormitory_id}`}>
+                        {item.client_name} · {item.dormitory_name}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+                {sampleLoading && <p role="status">Загружаем структуру…</p>}
+                {sampleError && (
+                  <p role="alert">
+                    {sampleError}{' '}
+                    <button
+                      className="link-button"
+                      type="button"
+                      onClick={() => setSampleAttempt((value) => value + 1)}
+                    >
+                      Повторить загрузку образцов
+                    </button>
+                  </p>
+                )}
+              </div>
             )}
+            {mode === 'manual' && (
+              <div className="field">
+                <label className="field__label" htmlFor="dormitory-template">
+                  Шаблон отчёта <span className={styles.optional}>(необязательно)</span>
+                </label>
+                <select
+                  className="field__input"
+                  id="dormitory-template"
+                  data-testid="dormitory-template"
+                  value={templateId}
+                  onChange={(event) => {
+                    setTemplateId(event.target.value);
+                    const report = catalog.find((item) =>
+                      item.variants.some((variant) => variant.section_key === 'report'),
+                    );
+                    if (event.target.value && report && !selectedTabs[report.id])
+                      setSelectedTabs((items) => ({
+                        ...items,
+                        [report.id]: report.variants[0].id,
+                      }));
+                  }}
+                  disabled={saving || templatesStatus !== 'ready'}
+                >
+                  <option value="">Без шаблона</option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name} · {template.row_count} строк
+                    </option>
+                  ))}
+                </select>
+                {templatesStatus === 'loading' && (
+                  <p className={styles.templateHint}>Загружаем шаблоны…</p>
+                )}
+                {templatesStatus === 'error' && (
+                  <p className={styles.templateHint}>
+                    Не удалось загрузить шаблоны.{' '}
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => setTemplatesAttempt((value) => value + 1)}
+                    >
+                      Повторить
+                    </button>
+                  </p>
+                )}
+                {templateId && (
+                  <p className={styles.templateHint}>
+                    Скопируются только строки и формулы. Значения останутся пустыми.
+                  </p>
+                )}
+              </div>
+            )}
+            {catalogStatus === 'loading' && <p role="status">Загружаем доступные вкладки…</p>}
+            {catalogStatus === 'error' && (
+              <p role="alert">
+                Не удалось загрузить список вкладок.{' '}
+                <button
+                  className="link-button"
+                  type="button"
+                  onClick={() => setCatalogAttempt((value) => value + 1)}
+                >
+                  Повторить загрузку вкладок
+                </button>
+              </p>
+            )}
+            {mode === 'sample' && structure && (
+              <fieldset className={creationStyles.snapshotPicker} disabled={saving}>
+                <legend>Вкладки нового общежития</legend>
+                <p>
+                  Отметьте нужные вкладки. Без выбранного родителя подвкладка станет
+                  самостоятельной.
+                </p>
+                {[
+                  ...Object.entries(structure.snapshot.sections)
+                    .filter(([, state]) => state !== 'deleted')
+                    .map(([key]) => ({
+                      key,
+                      name: standardTabs.find((tab) => tab.path === key)?.label ?? key,
+                    })),
+                  ...structure.snapshot.tabs,
+                ].map((item) => (
+                  <label key={item.key}>
+                    <input
+                      type="checkbox"
+                      checked={structureKeys.includes(item.key)}
+                      onChange={(event) =>
+                        setStructureKeys((current) =>
+                          event.target.checked
+                            ? [...current, item.key]
+                            : current.filter((key) => key !== item.key),
+                        )
+                      }
+                    />
+                    {item.name}
+                  </label>
+                ))}
+              </fieldset>
+            )}
+            {catalogStatus === 'ready' &&
+              (mode === 'manual' || (sample.startsWith('dorm:') && !sampleLoading)) && (
+                <DormitoryTabPicker
+                  items={catalog}
+                  selected={selectedTabs}
+                  disabled={saving}
+                  onChange={(selected) => {
+                    setSelectedTabs(selected);
+                    const report = catalog.find((item) =>
+                      item.variants.some((variant) => variant.section_key === 'report'),
+                    );
+                    if (report && !selected[report.id]) setTemplateId('');
+                  }}
+                />
+              )}
+          </EditorSection>
         </div>
         <aside className={creationStyles.preview} aria-label="Предпросмотр структуры">
           <p className={creationStyles.eyebrow}>ПРЕДПРОСМОТР</p>

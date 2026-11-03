@@ -11,6 +11,13 @@ from app import notification_rules
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser, own_dormitory
 from app.api.organization import Membership
 from app.api.table_columns import prepare_options
+from app.cell_fill import (
+    FillResolver,
+    assign_fill,
+    checked_fill_changes,
+    remap_copied_fills,
+    table_fill_dependencies,
+)
 from app.custom_tab_options import initialize_options, mapped_options, options_for
 from app.db import get_db
 from app.models.custom_tab import CustomTab, CustomTabEntry
@@ -18,11 +25,13 @@ from app.models.dormitory import Dormitory
 from app.models.report import ReportRow
 from app.models.table_column import TableColumn
 from app.personnel import record_changed
+from app.personnel_builder_dependencies import builder_dependencies
 from app.schemas.custom_tab import (
     CalendarCellRequest,
     CreateTabRequest,
     CreateTabTableRequest,
     TabEntryResponse,
+    TabOptions,
     TabResponse,
     TabTemplateResponse,
     UpdateTabRequest,
@@ -76,6 +85,12 @@ def tab_responses(db: Session, dormitory_id: int, tabs: list[CustomTab]) -> list
                 + ", ".join(name for key in keys for name in dependencies.get(key, []))
                 + ". Сначала измените их связь или скройте вкладку."
             )
+        elif used := table_fill_dependencies(db, dormitory_id, keys):
+            reason = "Вкладка используется для заполнения ячеек: " + ", ".join(used)
+        elif used := builder_dependencies(
+            db, dormitory_id, {f"dorm:{dormitory_id}:{key}" for key in keys}
+        ):
+            reason = "Вкладка используется в персонале: " + ", ".join(used)
         result.append(
             TabResponse.model_validate(tab).model_copy(
                 update={"has_data": bool(ids & populated), "delete_block_reason": reason}
@@ -195,6 +210,10 @@ def create_tab(
     parent = None
     if payload.parent_id:
         parent = get_custom_tab(db, dormitory_id, payload.parent_id, require_active=True)
+        if parent.kind == "archive":
+            raise HTTPException(409, "Архив действий не может содержать подвкладки")
+    if payload.kind == "archive" and (payload.subtabs or source):
+        raise HTTPException(422, "Для архива выберите новую отдельную подвкладку")
     if payload.parent_section:
         if payload.parent_section not in SECTIONS:
             raise HTTPException(422, "Неизвестная родительская вкладка")
@@ -231,6 +250,7 @@ def create_tab(
     tab = CustomTab(
         dormitory_id=dormitory_id,
         name=payload.name,
+        kind=source.kind if source else payload.kind,
         parent_id=payload.parent_id,
         parent_section=payload.parent_section,
         is_group=source.is_group if source else bool(payload.subtabs),
@@ -239,11 +259,13 @@ def create_tab(
     db.add(tab)
     db.flush()
 
+    copied_columns: dict[int, int] = {}
     if source and source.table_created:
         mapping = copy_columns(
             db, source.dormitory_id, source.table_key, dormitory_id, tab.table_key
         )
         tab.options = mapped_options(source, mapping)
+        copied_columns.update(mapping)
     if source:
         if not source.table_created:
             tab.options = options_for(source).model_dump()
@@ -256,6 +278,7 @@ def create_tab(
                 parent_id=copied_ids[child.parent_id] if child.parent_id else None,
                 is_group=child.is_group,
                 name=child.name,
+                kind=child.kind,
                 table_created=child.table_created,
             )
             db.add(copied)
@@ -265,6 +288,14 @@ def create_tab(
                 db, child.dormitory_id, child.table_key, dormitory_id, copied.table_key
             )
             copied.options = mapped_options(child, mapping)
+            copied_columns.update(mapping)
+        remap_copied_fills(
+            db,
+            dormitory_id,
+            copied_columns,
+            {f"custom_{old}": f"custom_{new}" for old, new in copied_ids.items()},
+            source.dormitory_id,
+        )
     else:
         for name in payload.subtabs:
             child = CustomTab(dormitory_id=dormitory_id, parent_id=tab.id, name=name)
@@ -272,8 +303,8 @@ def create_tab(
             db.flush()
             if payload.options:
                 initialize_options(db, child, payload.options)
-        if payload.options:
-            initialize_options(db, tab, payload.options)
+        if payload.options or tab.kind == "archive":
+            initialize_options(db, tab, payload.options or TabOptions())
     db.commit()
     db.refresh(tab)
     return tab
@@ -325,6 +356,18 @@ def create_table(
     )
     db.add_all(columns)
     tab.table_created = True
+    db.flush()
+    client_ids = [item.client_id for item in payload.columns if item.client_id is not None]
+    if len(set(client_ids)) != len(client_ids):
+        raise HTTPException(422, "Временные идентификаторы столбцов повторяются")
+    mapping = {
+        item.client_id: column.id
+        for item, column in zip(payload.columns, columns, strict=False)
+        if item.client_id is not None
+    }
+    for item, stored_column in zip(payload.columns, columns, strict=False):
+        assign_fill(stored_column, item.fill, mapping)
+    checked_fill_changes(db, dormitory_id, [])
     db.commit()
     db.refresh(tab)
     return tab
@@ -339,7 +382,7 @@ def list_rows(
     _dormitory: OwnDormitory,
     from_date: Annotated[date | None, Query(alias="from")] = None,
     to_date: Annotated[date | None, Query(alias="to")] = None,
-) -> list[CustomTabEntry]:
+) -> list[TabEntryResponse]:
     lock_dormitory(db, dormitory_id)
     tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True)
     validate_period(from_date, to_date)
@@ -353,18 +396,23 @@ def list_rows(
             .order_by(CustomTabEntry.id)
         )
     )
+    resolver = FillResolver(db, dormitory_id)
+    result = [resolver.response(row) for row in rows]
     options = options_for(tab)
     if from_date and to_date and options.table_format == "list" and options.period_mode != "none":
         if options.date_column_id is None:
             raise HTTPException(409, "Выберите столбец даты в настройках вкладки")
-        key = str(options.date_column_id)
-        rows = [
-            row
-            for row in rows
-            if isinstance(row.custom_values.get(key), str)
-            and from_date.isoformat() <= row.custom_values[key] <= to_date.isoformat()
+        column = resolver.columns[options.date_column_id]
+        key = str(column.id)
+        result = [
+            entry
+            for entry in result
+            if isinstance(
+                value := (entry.fill_values if column.fill else entry.custom_values).get(key), str
+            )
+            and from_date.isoformat() <= value <= to_date.isoformat()
         ]
-    return rows
+    return result
 
 
 def validate_period(start: date | None, end: date | None) -> None:
@@ -426,6 +474,10 @@ def delete_row(
         raise HTTPException(409, "Действия со строками отключены в настройках вкладки")
     row = get_record(db, dormitory_id, tab.table_key, row_id)
     assert isinstance(row, CustomTabEntry)
+    if used := builder_dependencies(
+        db, dormitory_id, {f"dorm:{dormitory_id}:{tab.table_key}"}, row_id=str(row_id)
+    ):
+        raise HTTPException(409, "Строка используется в персонале: " + ", ".join(used))
     record_changed(
         db, row, _user.id, kind="deleted", title="Удалена исходная запись пользовательской таблицы"
     )
@@ -445,6 +497,10 @@ def clear_rows(
     tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True, require_active=True)
     if not options_for(tab).clear_list:
         raise HTTPException(409, "Очистка списка отключена в настройках вкладки")
+    if options_for(tab).table_format == "calendar" and (
+        used := builder_dependencies(db, dormitory_id, {f"dorm:{dormitory_id}:{tab.table_key}"})
+    ):
+        raise HTTPException(409, "Строки используются в персонале: " + ", ".join(used))
     rows = list(
         db.scalars(
             select(CustomTabEntry).where(

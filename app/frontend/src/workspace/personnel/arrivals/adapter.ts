@@ -36,7 +36,9 @@ export function draftOf(
   revision: number,
 ): ArrivalDraft {
   return {
-    ...(plan ? viewOf(plan, dorm.name) : newArrival(dorm.name, date)),
+    ...(plan
+      ? viewOf({ ...plan, count: Math.max(1, plan.count) }, dorm.name)
+      : newArrival(dorm.name, date)),
     dormitory_id: dorm.id,
     revision: plan?.revision ?? 0,
     settings_revision: revision,

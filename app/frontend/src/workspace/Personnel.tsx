@@ -40,22 +40,31 @@ import s from './personnel/Personnel.module.css';
 import w from './personnel/PersonnelWorkspace.module.css';
 import listStyles from './personnel/EmployeeList.module.css';
 import f from './personnel/PersonnelFocus.module.css';
+import type { PersonnelPageExtension } from './personnel/PersonnelPageExtension';
 
 type View = 'workspace' | 'list' | 'planning';
 type OpenPerson = (id: string, tab?: ProfileTab) => void;
 type Criteria = Omit<SavedList, 'id' | 'name'>;
 
-export function Personnel(): JSX.Element {
+export function Personnel({ extension }: { extension?: PersonnelPageExtension } = {}): JSX.Element {
   const [params] = useSearchParams();
-  return params.get('view') === 'planning' ? <ArrivalPlanningPage /> : <PersonnelDirectory />;
+  return params.get('view') === 'planning' && !extension?.active ? (
+    <ArrivalPlanningPage extension={extension} />
+  ) : (
+    <PersonnelDirectory extension={extension} />
+  );
 }
 
-function PersonnelDirectory(): JSX.Element {
+function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension }): JSX.Element {
   const { user } = useSession();
   const [params, setParams] = useSearchParams();
   const selectedId = params.get('employee');
   const [profileTab, setProfileTab] = useState<ProfileTab>('overview');
   const [data, setData] = useState<PersonnelData | null>(null);
+  const onData = extension?.onData;
+  useEffect(() => {
+    if (data) onData?.(data);
+  }, [data, onData]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
@@ -66,11 +75,18 @@ function PersonnelDirectory(): JSX.Element {
         ? 'list'
         : 'workspace',
   );
+  const extended = !!extension,
+    customActive = !!extension?.active;
+  useEffect(() => {
+    if (extended && !customActive)
+      setViewState(params.get('view') === 'list' ? 'list' : 'workspace');
+  }, [extended, customActive, params]);
   function setView(next: View): void {
     setViewState(next);
     setParams((previous) => {
       const result = new URLSearchParams(previous);
       result.set('view', next);
+      if (extension) result.delete('tab');
       if (next === 'planning') {
         if (dormitory && !data?.dormitories.find((item) => item.id === dormitory)?.is_archived)
           result.set('dormitory', String(dormitory));
@@ -254,16 +270,21 @@ function PersonnelDirectory(): JSX.Element {
           </h1>
           <p>Проживание, вахты и контакты — в одном месте.</p>
         </div>
-        {view === 'workspace' && (
+        {(extension || view === 'workspace') && (
           <div className={s.actions}>
-            <button
-              type="button"
-              className="btn btn--primary btn--compact"
-              disabled={busy || blocks.length >= 20}
-              onClick={() => setBlockEditor('new')}
-            >
-              <PersonnelBlockIcon name="plus" /> Добавить блок
-            </button>
+            {extension?.actions}
+            {view === 'workspace' && !extension?.active && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn--primary btn--compact"
+                  disabled={busy || blocks.length >= 20}
+                  onClick={() => setBlockEditor('new')}
+                >
+                  <PersonnelBlockIcon name="plus" /> Добавить блок
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -278,7 +299,7 @@ function PersonnelDirectory(): JSX.Element {
           <button
             key={id}
             role="tab"
-            aria-selected={view === id}
+            aria-selected={!extension?.active && view === id}
             onClick={() => {
               if (
                 id === 'planning' &&
@@ -292,313 +313,333 @@ function PersonnelDirectory(): JSX.Element {
             {id === 'list' && <b>{data.employees.length}</b>}
           </button>
         ))}
+        {extension?.tabs}
       </div>
-      {view === 'list' && (
-        <div className={f.hero}>
-          <div>
-            <h2>Сотрудники</h2>
-            <p>Люди, проживание и вахты — всё под рукой.</p>
-            <div className={f.stats}>
-              <span>
-                <b>{rows.length}</b> В списке
-              </span>
-              <span>
-                <i aria-hidden="true" />
-                <b>{listSummary('current')}</b> Проживает
-              </span>
-              <span>
-                <PersonnelBlockIcon name="ending" />
-                <b>{listSummary('ending')}</b> Завершают вахту
-              </span>
-            </div>
-          </div>
-          <div className={f.heroArt} aria-hidden="true">
-            <img src={resident} alt="" />
-            <img src={personnel} alt="" />
-            <img src={manager} alt="" />
-          </div>
-        </div>
-      )}
-      <div className={`${s.toolbar} ${w.toolbar}`}>
-        <div className={s.actions}>
-          <label>
-            Общежитие
-            <select
-              aria-label="Общежитие на странице"
-              value={dormitory ?? 'all'}
-              onChange={(event) => {
-                setDormitory(event.target.value === 'all' ? null : Number(event.target.value));
-                setScope([]);
-              }}
-            >
-              <option value="all">Все общежития</option>
-              {data.dormitories
-                .filter((dorm) => view !== 'planning' || !dorm.is_archived)
-                .map((dorm) => (
-                  <option key={dorm.id} value={dorm.id}>
-                    {dorm.name}
-                    {dorm.is_archived ? ' · архив' : ''}
-                  </option>
-                ))}
-            </select>
-          </label>
-          {view !== 'planning' && (
-            <label>
-              Период
-              <select
-                aria-label="Период окончания вахты"
-                value={days}
-                onChange={(event) => setDays(Number(event.target.value))}
-              >
-                {[...new Set([5, 7, 14, 30, days])]
-                  .sort((a, b) => a - b)
-                  .map((days) => (
-                    <option key={days} value={days}>
-                      Вахта: до {days} дней
-                    </option>
-                  ))}
-              </select>
-            </label>
-          )}
-        </div>
-        {view === 'workspace' ? (
-          <button
-            type="button"
-            className={`btn btn--compact ${configuring ? 'btn--primary' : 'btn--outline'}`}
-            aria-pressed={configuring}
-            onClick={() => setConfiguring((value) => !value)}
-          >
-            <PersonnelBlockIcon name="settings" />
-            {configuring ? 'Завершить настройку' : 'Настроить поверхность'}
-          </button>
-        ) : view !== 'planning' ? (
-          <span className={s.hint}>Нажмите на имя, чтобы открыть карточку</span>
-        ) : null}
-      </div>
-      {error && (
-        <p role="alert" className={s.error}>
-          {error} <button onClick={() => setAttempt((n) => n + 1)}>Обновить данные</button>
-        </p>
-      )}
-      {selectedId && !employee && (
-        <p role="alert" className={s.notice}>
-          Карточка не найдена. <button onClick={closeProfile}>Закрыть</button>
-        </p>
-      )}
-      {!data.dormitories.length && view !== 'planning' && (
-        <p className={s.notice}>
-          Сначала <Link to="/cabinet/dormitories">создайте общежитие</Link>, затем добавьте
-          сотрудника в его таблицу.
-        </p>
-      )}
-      {view === 'workspace' && (
-        <div className={view === 'workspace' ? w.metrics : s.metrics}>
-          {(
-            [
-              ['current', 'Проживают сейчас'],
-              ['ending', `Вахта заканчивается до ${days} дней`],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              className={view === 'workspace' ? `link-button ${w.summaryLink}` : undefined}
-              onClick={() =>
-                onList({ ...criteria, filter: id, query: '', scope: [], column_filters: [] })
-              }
-            >
-              {view === 'workspace' &&
-                (id === 'current' ? (
-                  <i aria-hidden="true" />
-                ) : (
-                  <PersonnelBlockIcon name="ending" />
-                ))}
-              <strong>{summary(id)}</strong>
-              <span>{label}</span>
-            </button>
-          ))}
-          {view === 'workspace' && (
-            <span className={w.blockCount}>{blocks.length} / 20 блоков</span>
-          )}
-        </div>
-      )}
-      {view === 'workspace' && (
+      {extension?.active ? (
+        extension.content({ onPerson, onList })
+      ) : (
         <>
-          <div className={w.grid}>
-            {blocks.map((block, index) => (
-              <PersonnelWorkspaceBlock
-                key={block.id}
-                block={block}
-                data={data}
-                dormitory={dormitory}
-                configuring={configuring}
-                busy={busy}
-                first={index === 0}
-                last={index === blocks.length - 1}
-                onPerson={onPerson}
-                onList={onList}
-                onPlanning={() => setView('planning')}
-                onEdit={() => setBlockEditor(block)}
-                onMove={(direction) => {
-                  const next = [...blocks];
-                  [next[index], next[index + direction]] = [next[index + direction], next[index]];
-                  void savePreferences({ blocks: next }).catch(() => {});
-                }}
-                onRemove={() =>
-                  void savePreferences({
-                    blocks: blocks.filter((item) => item.id !== block.id),
-                  }).catch(() => {})
-                }
-              />
-            ))}
-          </div>
-          <button
-            type="button"
-            className={`btn btn--outline btn--compact ${w.addCard}`}
-            disabled={blocks.length >= 20 || busy}
-            onClick={() => setBlockEditor('new')}
-          >
-            <PersonnelBlockIcon name="plus" />
-            <span>
-              <strong>{blocks.length >= 20 ? 'Добавлено 20 блоков' : 'Добавить свой блок'}</strong>
-              <small>Список, контакты или отдельное общежитие</small>
-            </span>
-            <img src={plant} alt="" />
-          </button>
-          {configuring && (
-            <div className={s.toolbar}>
-              <span className={s.hint}>
-                До 20 блоков. Расположение и содержимое сохраняются в вашем аккаунте.
-              </span>
-              <button
-                disabled={busy}
-                className="btn btn--outline btn--compact"
-                onClick={() => void savePreferences({ blocks: defaultBlocks }).catch(() => {})}
-              >
-                Вернуть стандартные блоки
-              </button>
+          {view === 'list' && (
+            <div className={f.hero}>
+              <div>
+                <h2>Сотрудники</h2>
+                <p>Люди, проживание и вахты — всё под рукой.</p>
+                <div className={f.stats}>
+                  <span>
+                    <b>{rows.length}</b> В списке
+                  </span>
+                  <span>
+                    <i aria-hidden="true" />
+                    <b>{listSummary('current')}</b> Проживает
+                  </span>
+                  <span>
+                    <PersonnelBlockIcon name="ending" />
+                    <b>{listSummary('ending')}</b> Завершают вахту
+                  </span>
+                </div>
+              </div>
+              <div className={f.heroArt} aria-hidden="true">
+                <img src={resident} alt="" />
+                <img src={personnel} alt="" />
+                <img src={manager} alt="" />
+              </div>
             </div>
           )}
-        </>
-      )}
-      {view === 'planning' && (
-        <ArrivalPlanningBoard data={data} dormitory={dormitory} mutate={mutate} />
-      )}
-      {view === 'list' && (
-        <section className={`${s.board} ${f.employeeBoard}`}>
-          <div className={s.saved}>
-            <span className={s.eyebrow}>МОИ СПИСКИ</span>
-            {data.preferences.lists.map((list) => (
-              <span key={list.id}>
-                <button onClick={() => onList(list)}>
-                  {list.name} <b>{filterPeople(data, list).length}</b>
-                </button>
-                <button
-                  disabled={busy}
-                  aria-label={`Убрать сохранённый список «${list.name}»`}
-                  onClick={() =>
-                    void savePreferences({
-                      lists: data.preferences.lists.filter((item) => item.id !== list.id),
-                    }).catch(() => {})
-                  }
+          <div className={`${s.toolbar} ${w.toolbar}`}>
+            <div className={s.actions}>
+              <label>
+                Общежитие
+                <select
+                  aria-label="Общежитие на странице"
+                  value={dormitory ?? 'all'}
+                  onChange={(event) => {
+                    setDormitory(event.target.value === 'all' ? null : Number(event.target.value));
+                    setScope([]);
+                  }}
                 >
-                  ×
-                </button>
-              </span>
-            ))}
-            <button
-              disabled={busy || data.preferences.lists.length >= 50}
-              onClick={() => setSavingList(true)}
-            >
-              + Сохранить текущий список
-            </button>
-          </div>
-          <div className={s.toolbar}>
-            <div>
-              <h2>
-                {names[filter]} · {rows.length}
-              </h2>
-              <p className={s.hint}>Карточка связывает вахты и перемещения одного человека.</p>
+                  <option value="all">Все общежития</option>
+                  {data.dormitories
+                    .filter((dorm) => view !== 'planning' || !dorm.is_archived)
+                    .map((dorm) => (
+                      <option key={dorm.id} value={dorm.id}>
+                        {dorm.name}
+                        {dorm.is_archived ? ' · архив' : ''}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {view !== 'planning' && (
+                <label>
+                  Период
+                  <select
+                    aria-label="Период окончания вахты"
+                    value={days}
+                    onChange={(event) => setDays(Number(event.target.value))}
+                  >
+                    {[...new Set([5, 7, 14, 30, days])]
+                      .sort((a, b) => a - b)
+                      .map((days) => (
+                        <option key={days} value={days}>
+                          Вахта: до {days} дней
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
             </div>
-            <input
-              aria-label="Поиск сотрудника"
-              placeholder="Имя, табельный номер, телефон"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-          <div className={s.chips}>
-            {Object.entries(names).map(([id, label]) => (
-              <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id as Filter)}>
-                {label}
+            {view === 'workspace' ? (
+              <button
+                type="button"
+                className={`btn btn--compact ${configuring ? 'btn--primary' : 'btn--outline'}`}
+                aria-pressed={configuring}
+                onClick={() => setConfiguring((value) => !value)}
+              >
+                <PersonnelBlockIcon name="settings" />
+                {configuring ? 'Завершить настройку' : 'Настроить поверхность'}
               </button>
-            ))}
+            ) : view !== 'planning' ? (
+              <span className={s.hint}>Нажмите на имя, чтобы открыть карточку</span>
+            ) : null}
           </div>
-          {scope.length > 0 && (
-            <p className={s.hint}>
-              Общежития списка: {scope.map((id) => dormName(data, id)).join(' · ')}{' '}
-              <button className={s.linkButton} onClick={() => setScope([])}>
-                Сбросить ограничение
-              </button>
+          {error && (
+            <p role="alert" className={s.error}>
+              {error} <button onClick={() => setAttempt((n) => n + 1)}>Обновить данные</button>
             </p>
           )}
-          <EmployeeListFilters
-            data={data}
-            criteria={criteria}
-            fields={listFields}
-            onChange={setColumnFilters}
-          />
-          <div className={s.bulk}>
-            <strong>
-              {selectedRows.length ? `Выбрано: ${selectedRows.length}` : `Список: ${rows.length}`}
-            </strong>
-            <button
-              type="button"
-              className={s.primary}
-              disabled={!selectedRows.length}
-              onClick={() => setSelectedList(selectedRows.map((person) => person.id))}
-            >
-              Список выбранных{selectedRows.length ? ` (${selectedRows.length})` : ''}
-            </button>
-            {selectedRows.length > 0 && (
-              <button onClick={() => setSelected([])}>Снять выбор</button>
-            )}
-            {selectedRows.length > 0 && (
-              <span className={listStyles.selectionHint}>
-                В текущей выборке: {selectedInRows.length} из {selectedRows.length} выбранных. Выбор
-                сохраняется при смене фильтров.
-              </span>
-            )}
-          </div>
-          <PersonnelEmployeeFocus
-            people={visible}
-            rows={rows}
-            selected={selected}
-            onSelection={setSelected}
-            data={data}
-            criteria={criteria}
-            fields={extraFields}
-            onPerson={onPerson}
-          />
-          <div className={s.pagination}>
+          {selectedId && !employee && (
+            <p role="alert" className={s.notice}>
+              Карточка не найдена. <button onClick={closeProfile}>Закрыть</button>
+            </p>
+          )}
+          {!data.dormitories.length && view !== 'planning' && (
+            <p className={s.notice}>
+              Сначала <Link to="/cabinet/dormitories">создайте общежитие</Link>, затем добавьте
+              сотрудника в его таблицу.
+            </p>
+          )}
+          {view === 'workspace' && (
+            <div className={view === 'workspace' ? w.metrics : s.metrics}>
+              {(
+                [
+                  ['current', 'Проживают сейчас'],
+                  ['ending', `Вахта заканчивается до ${days} дней`],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  className={view === 'workspace' ? `link-button ${w.summaryLink}` : undefined}
+                  onClick={() =>
+                    onList({ ...criteria, filter: id, query: '', scope: [], column_filters: [] })
+                  }
+                >
+                  {view === 'workspace' &&
+                    (id === 'current' ? (
+                      <i aria-hidden="true" />
+                    ) : (
+                      <PersonnelBlockIcon name="ending" />
+                    ))}
+                  <strong>{summary(id)}</strong>
+                  <span>{label}</span>
+                </button>
+              ))}
+              {view === 'workspace' && (
+                <span className={w.blockCount}>{blocks.length} / 20 блоков</span>
+              )}
+            </div>
+          )}
+          {view === 'workspace' && (
+            <>
+              <div className={w.grid}>
+                {blocks.map((block, index) => (
+                  <PersonnelWorkspaceBlock
+                    key={block.id}
+                    block={block}
+                    data={data}
+                    dormitory={dormitory}
+                    configuring={configuring}
+                    busy={busy}
+                    first={index === 0}
+                    last={index === blocks.length - 1}
+                    onPerson={onPerson}
+                    onList={onList}
+                    onPlanning={() => setView('planning')}
+                    onEdit={() => setBlockEditor(block)}
+                    onMove={(direction) => {
+                      const next = [...blocks];
+                      [next[index], next[index + direction]] = [
+                        next[index + direction],
+                        next[index],
+                      ];
+                      void savePreferences({ blocks: next }).catch(() => {});
+                    }}
+                    onRemove={() =>
+                      void savePreferences({
+                        blocks: blocks.filter((item) => item.id !== block.id),
+                      }).catch(() => {})
+                    }
+                  />
+                ))}
+              </div>
+              <button
+                type="button"
+                className={`btn btn--outline btn--compact ${w.addCard}`}
+                disabled={blocks.length >= 20 || busy}
+                onClick={() => setBlockEditor('new')}
+              >
+                <PersonnelBlockIcon name="plus" />
+                <span>
+                  <strong>
+                    {blocks.length >= 20 ? 'Добавлено 20 блоков' : 'Добавить свой блок'}
+                  </strong>
+                  <small>Список, контакты или отдельное общежитие</small>
+                </span>
+                <img src={plant} alt="" />
+              </button>
+              {configuring && (
+                <div className={s.toolbar}>
+                  <span className={s.hint}>
+                    До 20 блоков. Расположение и содержимое сохраняются в вашем аккаунте.
+                  </span>
+                  <button
+                    disabled={busy}
+                    className="btn btn--outline btn--compact"
+                    onClick={() => void savePreferences({ blocks: defaultBlocks }).catch(() => {})}
+                  >
+                    Вернуть стандартные блоки
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+          {view === 'planning' && (
+            <ArrivalPlanningBoard data={data} dormitory={dormitory} mutate={mutate} />
+          )}
+          {view === 'list' && (
+            <section className={`${s.board} ${f.employeeBoard}`}>
+              <div className={s.saved}>
+                <span className={s.eyebrow}>МОИ СПИСКИ</span>
+                {data.preferences.lists.map((list) => (
+                  <span key={list.id}>
+                    <button onClick={() => onList(list)}>
+                      {list.name} <b>{filterPeople(data, list).length}</b>
+                    </button>
+                    <button
+                      disabled={busy}
+                      aria-label={`Убрать сохранённый список «${list.name}»`}
+                      onClick={() =>
+                        void savePreferences({
+                          lists: data.preferences.lists.filter((item) => item.id !== list.id),
+                        }).catch(() => {})
+                      }
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <button
+                  disabled={busy || data.preferences.lists.length >= 50}
+                  onClick={() => setSavingList(true)}
+                >
+                  + Сохранить текущий список
+                </button>
+              </div>
+              <div className={s.toolbar}>
+                <div>
+                  <h2>
+                    {names[filter]} · {rows.length}
+                  </h2>
+                  <p className={s.hint}>Карточка связывает вахты и перемещения одного человека.</p>
+                </div>
+                <input
+                  aria-label="Поиск сотрудника"
+                  placeholder="Имя, табельный номер, телефон"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </div>
+              <div className={s.chips}>
+                {Object.entries(names).map(([id, label]) => (
+                  <button
+                    key={id}
+                    aria-pressed={filter === id}
+                    onClick={() => setFilter(id as Filter)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {scope.length > 0 && (
+                <p className={s.hint}>
+                  Общежития списка: {scope.map((id) => dormName(data, id)).join(' · ')}{' '}
+                  <button className={s.linkButton} onClick={() => setScope([])}>
+                    Сбросить ограничение
+                  </button>
+                </p>
+              )}
+              <EmployeeListFilters
+                data={data}
+                criteria={criteria}
+                fields={listFields}
+                onChange={setColumnFilters}
+              />
+              <div className={s.bulk}>
+                <strong>
+                  {selectedRows.length
+                    ? `Выбрано: ${selectedRows.length}`
+                    : `Список: ${rows.length}`}
+                </strong>
+                <button
+                  type="button"
+                  className={s.primary}
+                  disabled={!selectedRows.length}
+                  onClick={() => setSelectedList(selectedRows.map((person) => person.id))}
+                >
+                  Список выбранных{selectedRows.length ? ` (${selectedRows.length})` : ''}
+                </button>
+                {selectedRows.length > 0 && (
+                  <button onClick={() => setSelected([])}>Снять выбор</button>
+                )}
+                {selectedRows.length > 0 && (
+                  <span className={listStyles.selectionHint}>
+                    В текущей выборке: {selectedInRows.length} из {selectedRows.length} выбранных.
+                    Выбор сохраняется при смене фильтров.
+                  </span>
+                )}
+              </div>
+              <PersonnelEmployeeFocus
+                people={visible}
+                rows={rows}
+                selected={selected}
+                onSelection={setSelected}
+                data={data}
+                criteria={criteria}
+                fields={extraFields}
+                onPerson={onPerson}
+              />
+              <div className={s.pagination}>
+                <span>
+                  {rows.length ? actualPage * 20 + 1 : 0}–
+                  {Math.min(rows.length, (actualPage + 1) * 20)} из {rows.length}
+                </span>
+                <button disabled={actualPage === 0} onClick={() => setPage(actualPage - 1)}>
+                  Назад
+                </button>
+                <button disabled={actualPage >= pages - 1} onClick={() => setPage(actualPage + 1)}>
+                  Далее
+                </button>
+              </div>
+            </section>
+          )}
+          <div className={s.footer}>
+            <span>Сведения из таблиц общежитий · {dateLabel(data.today, true)}</span>
             <span>
-              {rows.length ? actualPage * 20 + 1 : 0}–{Math.min(rows.length, (actualPage + 1) * 20)}{' '}
-              из {rows.length}
+              {busy
+                ? 'Сохраняем изменения…'
+                : 'Настройки рабочей поверхности сохраняются в аккаунте'}
             </span>
-            <button disabled={actualPage === 0} onClick={() => setPage(actualPage - 1)}>
-              Назад
-            </button>
-            <button disabled={actualPage >= pages - 1} onClick={() => setPage(actualPage + 1)}>
-              Далее
-            </button>
           </div>
-        </section>
+        </>
       )}
-      <div className={s.footer}>
-        <span>Сведения из таблиц общежитий · {dateLabel(data.today, true)}</span>
-        <span>
-          {busy ? 'Сохраняем изменения…' : 'Настройки рабочей поверхности сохраняются в аккаунте'}
-        </span>
-      </div>
       {selectedList !== null && (
         <SelectedEmployeesDialog
           people={data.employees.filter((person) => selectedList.includes(person.id))}

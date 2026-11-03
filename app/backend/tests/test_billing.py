@@ -582,8 +582,10 @@ def test_future_period_starts_at_the_current_end(client: TestClient, db_session:
     organization = owner(client, db_session)
     monthly = add_tariff(db_session, name="Старт")
     quarter = add_tariff(db_session, name="Квартал", amount="13200.00", period="quarter")
-    # Текущий период задан явно: так проверяется именно календарная арифметика.
-    current_end = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
+    # Будущий год сохраняет период действующим при запуске в любую дату;
+    # фиксированные месяц и день проверяют календарную арифметику.
+    current_year = datetime.now(UTC).year + 1
+    current_end = datetime(current_year, 11, 2, 12, 0, tzinfo=UTC)
     organization.tariff_id = monthly.id
     organization.tariff_ends_at = current_end
     db_session.commit()
@@ -596,7 +598,9 @@ def test_future_period_starts_at_the_current_end(client: TestClient, db_session:
     assert as_utc(organization.tariff_ends_at) == current_end
     assert organization.next_tariff_id == quarter.id
     assert organization.next_tariff_ends_at is not None
-    assert as_utc(organization.next_tariff_ends_at) == datetime(2027, 2, 2, 12, 0, tzinfo=UTC)
+    assert as_utc(organization.next_tariff_ends_at) == datetime(
+        current_year + 1, 2, 2, 12, 0, tzinfo=UTC
+    )
 
 
 def test_paid_invoice_cannot_be_paid_twice(client: TestClient, db_session: Session) -> None:

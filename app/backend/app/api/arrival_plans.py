@@ -13,14 +13,19 @@ from app import arrival_workflow as workflow
 from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser, own_dormitory, scoped_dormitories
 from app.api.organization import Membership
 from app.arrival_plans import active_arrivals, plan_response
-from app.arrival_settings import lock_configuration, plan_values, save_settings, settings_response
+from app.arrival_settings import (
+    effective_people,
+    lock_configuration,
+    plan_values,
+    save_settings,
+    settings_response,
+)
 from app.db import get_db
-from app.models.arrival_plan import ArrivalPlan, ArrivalSettings
+from app.models.arrival_plan import ArrivalPlan
 from app.models.dormitory import Dormitory
-from app.models.hostel import Hostel
 from app.personnel import today
 from app.schemas.arrival_settings import ArrivalSettingsInput
-from app.schemas.arrival_workflow import VisitMark, VisitMove, VisitSettle, VisitVersion
+from app.schemas.arrival_workflow import VisitMark, VisitMove, VisitVersion
 from app.schemas.personnel import ArrivalInput, ArrivalUpdate
 from app.table_data import lock_dormitory
 
@@ -160,6 +165,13 @@ def update_arrival(
         raise HTTPException(409, "План уже изменён. Закройте окно и откройте запись заново.")
     values = plan_values(payload, plan, config)
     workflow.guard_edit(plan, values)
+    # Скрытые исходные строки нужны только для истории и повтора запроса переноса.
+    moved_ids = {visit.person_id for visit in plan.visits if visit.status == "moved"}
+    values["people"].extend(
+        person for person in effective_people(plan) if person["id"] in moved_ids
+    )
+    values["count"] = len(values["people"])
+    values["names"] = [person["full_name"] for person in values["people"] if person["full_name"]]
     for field, value in values.items():
         setattr(plan, field, value)
     plan.revision += 1
@@ -211,28 +223,6 @@ def workflow_plan(db: Session, plan_id: UUID, membership: Membership) -> Arrival
     return plan
 
 
-@router.get("/{plan_id}/settlement-options")
-def settlement_options(
-    plan_id: UUID, date: date, _user: SubscribedUser, membership: Membership, db: DbSession
-) -> dict[str, Any]:
-    plan = get_plan(db, plan_id, membership)
-    month = date.replace(day=1)
-    return {
-        "hostels": [
-            {"id": hostel.id, "name": hostel.name}
-            for hostel in db.scalars(
-                select(Hostel)
-                .where(
-                    Hostel.dormitory_id == plan.dormitory_id,
-                    Hostel.active_from_month <= month,
-                    (Hostel.active_until_month.is_(None)) | (Hostel.active_until_month > month),
-                )
-                .order_by(Hostel.name, Hostel.id)
-            )
-        ]
-    }
-
-
 @router.post("/{plan_id}/people/{person_id}/status")
 def mark_person(
     plan_id: UUID,
@@ -280,25 +270,3 @@ def undo_person_move(
         "plans": [plan_response(plan)] + ([] if deleted else [plan_response(target)]),
         "deleted_plan_ids": [target_id] if deleted else [],
     }
-
-
-@router.post("/{plan_id}/people/{person_id}/settle")
-def settle_person(
-    plan_id: UUID,
-    person_id: UUID,
-    payload: VisitSettle,
-    user: SubscribedUser,
-    membership: Membership,
-    db: DbSession,
-) -> dict[str, Any]:
-    plan = workflow_plan(db, plan_id, membership)
-    config = db.get(ArrivalSettings, membership.organization_id)
-    scope = [dorm.id for dorm in scoped_dormitories(db, membership.organization_id)]
-    try:
-        workflow.settle(db, plan, str(person_id), payload, config, scope, user.id)
-        db.commit()
-    except Exception:
-        # Отмена включает новую карточку сотрудника, связь, проживание и журнал.
-        db.rollback()
-        raise
-    return {"plans": [plan_response(plan)], "deleted_plan_ids": []}

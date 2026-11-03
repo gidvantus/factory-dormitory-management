@@ -9,6 +9,7 @@ import type {
   SettingsColumn,
   SettingsInput,
   TableKey,
+  CellFillSource,
 } from '../../api/client';
 import { personnelApi } from '../../api/personnel';
 import { statisticsApi } from '../../api/statistics';
@@ -16,6 +17,7 @@ import type { ReportInput, StatisticsBlock } from '../../api/statistics';
 import type { WidgetConfig } from '../../api/dashboardBlocks';
 import { defaultTabOptions } from '../../workspace/dormitories/customTabOptions';
 import { standardTabs } from '../../workspace/dormitories/tabStructure';
+import { personnelFillSource, sourceFields } from '../../workspace/dormitories/cellFill';
 import { copy, fail, RANGE, requiredNames, Sandbox } from './store';
 import type { DemoDorm } from './store';
 import { references } from './formula';
@@ -174,6 +176,20 @@ export function installSandboxApis(store: Sandbox): () => void {
     dormitorySettings: ([id]) => store.settings(String(id)),
     saveDormitorySettings: ([id, input]) => store.saveSettings(String(id), input as SettingsInput),
     tableColumns: ([id, key]) => store.settings(String(id)).tables[String(key)] ?? [],
+    cellFillSources: ([id]) => {
+      const settings = store.settings(String(id));
+      return [
+        personnelFillSource,
+        ...Object.entries(settings.tables).map(([key, columns]) => ({
+          key: key as CellFillSource['key'],
+          name:
+            settings.tabs.find((tab) => tab.table_key === key)?.name ??
+            settings.sections.find((section) => section.key === key)?.name ??
+            key,
+          fields: sourceFields(columns),
+        })),
+      ];
+    },
     createColumn: ([id, key, input]) => {
       const dorm = store.dorm(String(id));
       const table = String(key) as TableKey;

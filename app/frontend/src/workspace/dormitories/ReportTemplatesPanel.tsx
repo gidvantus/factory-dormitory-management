@@ -43,7 +43,11 @@ function TemplatePreview({
       {status === 'error' && (
         <p role="alert">
           {error}{' '}
-          <button type="button" onClick={() => setAttempt((value) => value + 1)}>
+          <button
+            className="link-button"
+            type="button"
+            onClick={() => setAttempt((value) => value + 1)}
+          >
             Повторить
           </button>
         </p>
@@ -134,7 +138,11 @@ export function ReportTemplatesPanel(): JSX.Element {
       {status === 'error' && (
         <p>
           Не удалось загрузить шаблоны.{' '}
-          <button type="button" onClick={() => setAttempt((value) => value + 1)}>
+          <button
+            className="link-button"
+            type="button"
+            onClick={() => setAttempt((value) => value + 1)}
+          >
             Повторить загрузку шаблонов
           </button>
         </p>

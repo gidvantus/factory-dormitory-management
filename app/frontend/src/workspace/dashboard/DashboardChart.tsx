@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import { CHART, chartSegments, chartX, chartY, filteredDays } from './chart';
@@ -16,6 +16,8 @@ interface Props {
   dormitories: DormitoryMetrics[];
   dormitoryId: string;
   onDormitoryChange: (id: string) => void;
+  loading?: boolean;
+  failed?: boolean;
 }
 
 export function DashboardChart({
@@ -26,7 +28,10 @@ export function DashboardChart({
   dormitories,
   dormitoryId,
   onDormitoryChange,
+  loading = false,
+  failed = false,
 }: Props): JSX.Element {
+  const gradientId = useId().replace(/:/g, '');
   const containerRef = useRef<HTMLDivElement>(null);
   const [chartWidth, setChartWidth] = useState(CHART.width);
 
@@ -53,7 +58,7 @@ export function DashboardChart({
   );
 
   return (
-    <section className={styles.card} aria-labelledby="dynamics-title">
+    <section className={styles.card} aria-labelledby="dynamics-title" aria-busy={loading}>
       <div className={styles.cardHead}>
         <div>
           <h2 className={styles.cardTitle} id="dynamics-title">
@@ -122,6 +127,21 @@ export function DashboardChart({
             <title>
               Показатели с {formatDate(range.from)} по {formatDate(range.to)}
             </title>
+            <defs>
+              {series.map((metric) => (
+                <linearGradient
+                  key={metric.key}
+                  id={`${gradientId}-${metric.key}`}
+                  x1="0"
+                  x2="0"
+                  y1="0"
+                  y2="1"
+                >
+                  <stop offset="0%" stopColor={metric.color} stopOpacity=".17" />
+                  <stop offset="100%" stopColor={metric.color} stopOpacity=".01" />
+                </linearGradient>
+              ))}
+            </defs>
             {[0, 1, 2, 3, 4].map((tick) => {
               const value = (max * tick) / 4;
               const y = chartY(value, max);
@@ -153,6 +173,16 @@ export function DashboardChart({
             ))}
             {series.map((metric) => (
               <g key={metric.key} data-testid={`chart-series-${metric.key}`}>
+                {chartSegments(days, metric.key, range, max, chartWidth, true).map(
+                  (path, index) => (
+                    <path
+                      key={`area-${index}`}
+                      d={path}
+                      fill={`url(#${gradientId}-${metric.key})`}
+                      stroke="none"
+                    />
+                  ),
+                )}
                 {chartSegments(days, metric.key, range, max, chartWidth).map((path, index) => (
                   <path
                     key={index}
@@ -191,12 +221,22 @@ export function DashboardChart({
               <WorkspaceIcon name="chart" />
             </span>
             <strong>
-              {selected.length ? 'За этот период пока нет данных' : 'Выберите показатели'}
+              {loading
+                ? 'Загружаем график…'
+                : failed
+                  ? 'График временно недоступен'
+                  : selected.length
+                    ? 'За этот период пока нет данных'
+                    : 'Выберите показатели'}
             </strong>
             <p>
-              {selected.length
-                ? 'График появится после заполнения отчётов.'
-                : 'Включите один или несколько показателей над графиком.'}
+              {loading
+                ? 'Получаем показатели за выбранный период.'
+                : failed
+                  ? 'Повторите загрузку, чтобы увидеть показатели.'
+                  : selected.length
+                    ? 'График появится после заполнения отчётов.'
+                    : 'Включите один или несколько показателей над графиком.'}
             </p>
           </div>
         )}

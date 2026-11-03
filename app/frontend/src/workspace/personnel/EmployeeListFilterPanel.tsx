@@ -32,6 +32,7 @@ export function EmployeeListFilters({
         <strong>Фильтры по столбцам</strong>
         <button
           type="button"
+          className="btn btn--outline btn--compact"
           disabled={rules.length >= 10}
           onClick={() =>
             onChange([...rules, { field: 'residence_status', operator: 'equals', value: '' }])
@@ -40,7 +41,11 @@ export function EmployeeListFilters({
           + Добавить фильтр
         </button>
         {!!rules.length && (
-          <button type="button" onClick={() => onChange([])}>
+          <button
+            type="button"
+            className="btn btn--quiet btn--compact"
+            onClick={() => onChange([])}
+          >
             Сбросить условия
           </button>
         )}
@@ -165,8 +170,9 @@ export function EmployeeListFilters({
             )}
             <button
               type="button"
-              className={styles.remove}
+              className={`btn btn--ghost btn--compact ${styles.remove}`}
               aria-label={`Удалить фильтр ${index + 1}`}
+              title="Удалить фильтр"
               onClick={() => onChange(rules.filter((_, i) => i !== index))}
             >
               ×

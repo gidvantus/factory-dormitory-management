@@ -11,8 +11,11 @@ import type { Mutate } from './Forms';
 import s from './Personnel.module.css';
 import w from './PersonnelWorkspace.module.css';
 import f from './PersonnelFocus.module.css';
+import type { PersonnelPageExtension } from './PersonnelPageExtension';
 
-export function ArrivalPlanningPage(): JSX.Element {
+export function ArrivalPlanningPage({
+  extension,
+}: { extension?: PersonnelPageExtension } = {}): JSX.Element {
   const { user } = useSession();
   const [params, setParams] = useSearchParams();
   const rawId = Number(params.get('dormitory'));
@@ -111,6 +114,7 @@ export function ArrivalPlanningPage(): JSX.Element {
           <h1>Персонал</h1>
           <p>Планирование заездов по общежитиям.</p>
         </div>
+        {extension && <div className={s.actions}>{extension.actions}</div>}
       </div>
       <div className={`${s.tabs} ${w.tabs}`} role="tablist" aria-label="Раздел персонала">
         {(
@@ -127,12 +131,14 @@ export function ArrivalPlanningPage(): JSX.Element {
             onClick={() => {
               const next = new URLSearchParams(params);
               next.set('view', id);
+              if (extension) next.delete('tab');
               setParams(next);
             }}
           >
             {label}
           </button>
         ))}
+        {extension?.tabs}
       </div>
       <div className={s.toolbar}>
         <label>

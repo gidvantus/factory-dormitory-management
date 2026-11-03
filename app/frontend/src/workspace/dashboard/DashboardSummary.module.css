@@ -1,0 +1,259 @@
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 32px;
+  padding: 32px;
+  background: #233f44;
+  border-radius: 18px;
+  color: #fffdf5;
+  min-width: 0;
+}
+.hero .date {
+  font-size: 12px;
+  color: #c1d8d1;
+}
+.hero .intro h2 {
+  margin: 12px 0 23px;
+  font: 850 clamp(26px, 2.8vw, 36px)/1.2 var(--font-display);
+  color: #fffdf5;
+  letter-spacing: -0.6px;
+}
+.hero .residentsLabel {
+  font-size: 12px;
+  color: #c1d8d1;
+  margin-bottom: 4px;
+}
+.residents {
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  flex-wrap: wrap;
+}
+.residents strong {
+  font: 900 clamp(46px, 5vw, 64px)/1.15 var(--font-display);
+  letter-spacing: -1.6px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.residents > span {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #c1d8d1;
+}
+.people {
+  display: flex;
+  align-items: center;
+  margin-top: 22px;
+  padding-left: 6px;
+}
+.people img {
+  width: 38px;
+  height: 41px;
+  object-fit: contain;
+  border: 2px solid #233f44;
+  background: #fffdf5;
+  border-radius: 50%;
+  margin-left: -6px;
+}
+.hero .scope {
+  font-size: 11px;
+  color: #c1d8d1;
+  margin-top: 9px;
+}
+.cells {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+  min-width: 0;
+}
+.cell {
+  border: 1px solid #ffffff26;
+  border-radius: 11px;
+  background: #ffffff07;
+  padding: 19px;
+  min-width: 0;
+}
+.hero .cell > svg:not(.sparkline),
+.hero .reportHeading > svg {
+  width: 21px;
+  height: 21px;
+  color: #c1d8d1;
+}
+.hero .cell h3 {
+  margin-top: 10px;
+  font: 600 12px/1.5 var(--font-body);
+  color: #d5e5e0;
+}
+.hero .value {
+  font: 850 clamp(28px, 3vw, 38px)/1.4 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+  overflow-wrap: anywhere;
+}
+.value span {
+  margin-left: 6px;
+  font: 400 11px var(--font-body);
+  color: #c1d8d1;
+  letter-spacing: 0;
+}
+.sparkline {
+  width: 100%;
+  height: 50px;
+  display: block;
+  margin-top: 10px;
+  overflow: visible;
+}
+.noTrend {
+  display: block;
+  min-height: 50px;
+  margin-top: 10px;
+  color: #c1d8d1;
+  font-size: 10px;
+  padding-top: 15px;
+}
+.reportCell {
+  grid-column: 1 / -1;
+}
+.reportHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.hero .reportHeading h3 {
+  margin: 0;
+}
+.reportHeading > span {
+  margin-left: auto;
+  color: #c1d8d1;
+  font-size: 10px;
+}
+.reportProgress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(50px, 0.7fr);
+  align-items: center;
+  gap: 8px 20px;
+  padding: 0 24px 18px;
+  color: var(--color-text);
+}
+.reportProgress[data-dark='true'] {
+  padding: 12px 0 0;
+  color: #fffdf5;
+}
+.reportCount {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.reportCount strong {
+  font: 850 29px/1.2 var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+.reportCount > span {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.reportProgress[data-dark='true'] .reportCount > span {
+  color: #c1d8d1;
+}
+.reportTrack {
+  display: flex;
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: #e5dfd3;
+}
+.reportTrack span {
+  height: 100%;
+  background: #2d8069;
+}
+.reportTrack i {
+  height: 100%;
+  background: repeating-linear-gradient(120deg, #a7b2b0 0 3px, #d9e0de 3px 6px);
+}
+.reportProgress[data-dark='true'] .reportTrack {
+  background: #ffffff20;
+}
+.reportProgress[data-dark='true'] .reportTrack span {
+  background: #9ad3ba;
+}
+.unknownReports {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+.reportProgress[data-dark='true'] .unknownReports {
+  color: #c1d8d1;
+}
+@media (max-width: 1100px) {
+  .hero {
+    gap: 24px;
+    padding: 26px;
+  }
+  .cell {
+    padding: 16px;
+  }
+  .residents {
+    gap: 12px;
+  }
+}
+@media (max-width: 850px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+  }
+  .hero .intro h2 {
+    font-size: 32px;
+    margin-bottom: 17px;
+  }
+  .hero .people,
+  .hero .scope {
+    display: none;
+  }
+  .residents strong {
+    font-size: 60px;
+  }
+}
+@media (max-width: 760px) {
+  .hero {
+    padding: 24px 20px;
+    border-radius: 16px;
+  }
+  .cell {
+    padding: 15px;
+  }
+  .hero .cell h3 {
+    font-size: 11px;
+  }
+  .hero .value {
+    font-size: 31px;
+  }
+  .hero .date {
+    font-size: 11px;
+  }
+  .residents > span {
+    font-size: 11px;
+  }
+  .reportProgress {
+    padding-inline: 18px;
+    gap: 8px 12px;
+  }
+}
+@media (max-width: 380px) {
+  .hero {
+    padding: 20px 15px;
+  }
+  .cells {
+    gap: 10px;
+  }
+  .cell {
+    padding: 12px;
+  }
+  .reportHeading > span {
+    width: 100%;
+    margin-left: 30px;
+  }
+}

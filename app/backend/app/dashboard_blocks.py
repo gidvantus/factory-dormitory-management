@@ -180,10 +180,12 @@ def validate_config(db: Session, config: WidgetConfig, organization_id: int) -> 
 
 
 def source_catalog(db: Session, organization_id: int) -> list[CatalogDormitory]:
-    """Каталог источников: только общежития организации."""
+    """Каталог источников: только действующие общежития организации."""
     result = []
     for dorm in db.scalars(
-        select(Dormitory).where(Dormitory.organization_id == organization_id).order_by(Dormitory.id)
+        select(Dormitory)
+        .where(Dormitory.organization_id == organization_id, Dormitory.is_archived.is_(False))
+        .order_by(Dormitory.id)
     ):
         sources = [CatalogSource(key="arrival_plan", name="План заездов", kind="arrival_plan")]
 
@@ -251,7 +253,7 @@ def source_catalog(db: Session, organization_id: int) -> list[CatalogDormitory]:
         )
         by_id = {tab.id: tab for tab in tabs}
         for tab in tabs:
-            if not tab.table_created or tab.is_group:
+            if not tab.table_created or tab.is_group or tab.kind == "archive":
                 continue
             chain = [tab]
             while chain[0].parent_id in by_id:
@@ -311,17 +313,24 @@ def table_daily_groups(
         checked_column(db, source, source.group_column_id) if config.grouping == "value" else None
     )
     filter_col = checked_column(db, source, source.filter.column_id) if source.filter else None
+    from app.cell_fill import FillResolver
+
+    resolver = (
+        FillResolver(db, source.dormitory_id)
+        if any(col and col.fill for col in (value_col, date_col, group_col, filter_col))
+        else None
+    )
     daily: dict[date, dict[str, Decimal]] = {}
     errors: dict[date, str] = {}
     for row in records_for(db, source.dormitory_id, source.table_key):
         if filter_col and source.filter:
-            value = record_value(row, filter_col)
+            value = record_value(row, filter_col, resolver)
             if source.filter.operator == "equals" and value != source.filter.value:
                 continue
             if source.filter.operator == "not_empty" and (value is None or value == ""):
                 continue
         if date_col:
-            raw_date = record_value(row, date_col)
+            raw_date = record_value(row, date_col, resolver)
             if not raw_date:
                 continue
             day = date.fromisoformat(raw_date)
@@ -334,7 +343,7 @@ def table_daily_groups(
             continue
         label = ""
         if group_col:
-            value = record_value(row, group_col)
+            value = record_value(row, group_col, resolver)
             if group_col.kind == "select":
                 value = next(
                     (item["label"] for item in group_col.options if item["id"] == value), value
@@ -344,7 +353,7 @@ def table_daily_groups(
             label = str(value) if value is not None and value != "" else "Не указано"
         number = Decimal(1)
         if value_col:
-            raw_number = record_value(row, value_col)
+            raw_number = record_value(row, value_col, resolver)
             if raw_number is None:
                 errors[day] = f"Есть строки без значения «{value_col.name}»"
                 continue
@@ -528,7 +537,8 @@ def calculate_widget(
     included = [
         dorm
         for dorm in dormitories
-        if dorm.id not in config.excluded_dormitory_ids
+        if not dorm.is_archived
+        and dorm.id not in config.excluded_dormitory_ids
         and (config.all_dormitories or dorm.id in sources)
     ]
     items: list[WidgetValue] = []

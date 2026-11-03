@@ -12,6 +12,7 @@ import { OutflowReasonInput } from './OutflowReasonInput';
 import styles from './ReportTable.module.css';
 import { customChain, customLabel, standardChain } from './tabStructure';
 import { PlaceLinkEditor } from './PlaceLinkEditor';
+import { EditorSection } from '../../components/EditorSection';
 
 interface Source {
   key: string;
@@ -270,185 +271,206 @@ export function ReportLinkEditor({
   return (
     <fieldset disabled={disabled} className={styles.linkFields}>
       <legend>Связь с таблицей</legend>
-      <label className={styles.field}>
-        Раздел
-        <select
-          value={section}
-          onChange={(event) => {
-            const next = sources.find((item) => item.key === event.target.value);
-            setSection(next?.key ?? '');
-            selectTable(next?.tables.length === 1 ? next.tables[0].key : '');
-            if (next?.key === 'arrival_plan') onChange({ table_key: 'arrival_plan' });
-          }}
-        >
-          <option value="">Выберите раздел</option>
-          <option value="report" disabled>
-            Общий отчёт — связь через формулу
-          </option>
-          {sources.map((item) => (
-            <option key={item.key} value={item.key}>
-              {item.name}
-              {item.empty ? ' (таблица не создана)' : ''}
-            </option>
-          ))}
-        </select>
-      </label>
-      {tabsLoading && <p role="status">Загружаем пользовательские вкладки…</p>}
-      {tabsError && (
-        <p role="alert" className={styles.formError}>
-          {tabsError}{' '}
-          <button type="button" onClick={() => setTabsAttempt((n) => n + 1)}>
-            Повторить загрузку вкладок
-          </button>
-        </p>
-      )}
-      {source?.empty && <p>Сначала создайте таблицу во вкладке «{source.name}».</p>}
-      {section === 'arrival_plan' && (
-        <p className={styles.linkSummary}>
-          Брать количество приезжающих из «Плана заездов» этого общежития за каждую дату отчёта. ФИО
-          на расчёт не влияют.
-        </p>
-      )}
-      {section === 'places' && (
-        <PlaceLinkEditor
-          dormitoryId={dormitoryId}
-          initial={initial?.table_key === 'places' ? initial : null}
-          onChange={onChange}
-        />
-      )}
-      {source && source.tables.length > 1 && (
+      <EditorSection
+        title="Источник записей"
+        description="Раздел и, при необходимости, конкретная подвкладка."
+      >
         <label className={styles.field}>
-          Подвкладка
+          Раздел
           <select
-            value={table}
-            onChange={(event) => selectTable(event.target.value as TableKey | '')}
+            value={section}
+            onChange={(event) => {
+              const next = sources.find((item) => item.key === event.target.value);
+              setSection(next?.key ?? '');
+              selectTable(next?.tables.length === 1 ? next.tables[0].key : '');
+              if (next?.key === 'arrival_plan') onChange({ table_key: 'arrival_plan' });
+            }}
           >
-            <option value="">Выберите подвкладку</option>
-            {source.tables.map((item) => (
+            <option value="">Выберите раздел</option>
+            <option value="report" disabled>
+              Общий отчёт — связь через формулу
+            </option>
+            {sources.map((item) => (
               <option key={item.key} value={item.key}>
                 {item.name}
+                {item.empty ? ' (таблица не создана)' : ''}
               </option>
             ))}
           </select>
         </label>
-      )}
-      {loading && <p role="status">Загружаем столбцы…</p>}
-      {error && (
-        <p role="alert" className={styles.formError}>
-          {error}{' '}
-          <button type="button" onClick={() => setAttempt((n) => n + 1)}>
-            Повторить
-          </button>
-        </p>
-      )}
-      {table && !loading && !error && (
-        <>
-          <label className={styles.field}>
-            Столбец
-            <select
-              value={columnId || ''}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                const isDate = columns.find((item) => item.id === next)?.kind === 'date';
-                const nextOperator = isDate ? 'not_empty' : 'equals';
-                const nextDate = isDate ? next : null;
-                setColumnId(next);
-                setOperator(nextOperator);
-                setValue('');
-                setDateId(nextDate);
-                emit(next, '', nextDate, nextOperator);
-              }}
+        {tabsLoading && <p role="status">Загружаем пользовательские вкладки…</p>}
+        {tabsError && (
+          <p role="alert" className={styles.formError}>
+            {tabsError}{' '}
+            <button
+              className="link-button"
+              type="button"
+              onClick={() => setTabsAttempt((n) => n + 1)}
             >
-              <option value="">Выберите столбец</option>
-              {columns
-                .filter((col) => !['action', 'hostel'].includes(col.kind))
-                .map((col) => (
-                  <option value={col.id} key={col.id}>
-                    {col.name}
-                  </option>
-                ))}
+              Повторить загрузку вкладок
+            </button>
+          </p>
+        )}
+        {source?.empty && <p>Сначала создайте таблицу во вкладке «{source.name}».</p>}
+        {section === 'arrival_plan' && (
+          <p className={styles.linkSummary}>
+            Брать количество приезжающих из «Плана заездов» этого общежития за каждую дату отчёта.
+            ФИО на расчёт не влияют.
+          </p>
+        )}
+        {section === 'places' && (
+          <PlaceLinkEditor
+            dormitoryId={dormitoryId}
+            initial={initial?.table_key === 'places' ? initial : null}
+            onChange={onChange}
+          />
+        )}
+        {source && source.tables.length > 1 && (
+          <label className={styles.field}>
+            Подвкладка
+            <select
+              value={table}
+              onChange={(event) => selectTable(event.target.value as TableKey | '')}
+            >
+              <option value="">Выберите подвкладку</option>
+              {source.tables.map((item) => (
+                <option key={item.key} value={item.key}>
+                  {item.name}
+                </option>
+              ))}
             </select>
           </label>
-          {column && (
-            <>
-              <label className={styles.field}>
-                Условие подсчёта
-                <select
-                  value={operator}
-                  onChange={(event) => {
-                    const next = event.target.value as 'equals' | 'not_empty';
-                    const nextDate =
-                      next === 'not_empty' && column.kind === 'date' ? columnId : dateId;
-                    setOperator(next);
-                    setDateId(nextDate);
-                    emit(columnId, value, nextDate, next);
-                  }}
-                >
-                  <option value="equals">Равно выбранному значению</option>
-                  <option value="not_empty">Заполнено — любое значение</option>
-                </select>
-              </label>
-              {operator === 'equals' && (
+        )}
+        {loading && <p role="status">Загружаем столбцы…</p>}
+        {error && (
+          <p role="alert" className={styles.formError}>
+            {error}{' '}
+            <button className="link-button" type="button" onClick={() => setAttempt((n) => n + 1)}>
+              Повторить
+            </button>
+          </p>
+        )}
+      </EditorSection>
+      {table && !loading && !error && (
+        <>
+          <EditorSection
+            title="Какие записи учитывать"
+            description="Выберите столбец и условие. Подходящая запись добавляет 1 к результату."
+          >
+            <label className={styles.field}>
+              Столбец
+              <select
+                value={columnId || ''}
+                onChange={(event) => {
+                  const next = Number(event.target.value);
+                  const isDate = columns.find((item) => item.id === next)?.kind === 'date';
+                  const nextOperator = isDate ? 'not_empty' : 'equals';
+                  const nextDate = isDate ? next : null;
+                  setColumnId(next);
+                  setOperator(nextOperator);
+                  setValue('');
+                  setDateId(nextDate);
+                  emit(next, '', nextDate, nextOperator);
+                }}
+              >
+                <option value="">Выберите столбец</option>
+                {columns
+                  .filter((col) => !['action', 'hostel'].includes(col.kind))
+                  .map((col) => (
+                    <option value={col.id} key={col.id}>
+                      {col.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {column && (
+              <>
                 <label className={styles.field}>
-                  Значение для подсчёта
-                  {column.kind === 'text' && column.id === outflowFields?.reason_column?.id ? (
-                    <OutflowReasonInput
-                      label="Значение для подсчёта"
-                      value={String(value ?? '')}
-                      choices={outflowFields.reasons}
-                      allowCustom
-                      onChange={(next) => {
-                        setValue(next);
-                        emit(columnId, next, dateId);
-                      }}
-                    />
-                  ) : column.kind === 'select' || column.kind === 'checkbox' ? (
-                    <select
-                      value={String(value)}
-                      onChange={(event) => {
-                        const next =
-                          column.kind === 'checkbox' && event.target.value !== ''
-                            ? event.target.value === 'true'
-                            : event.target.value;
-                        setValue(next);
-                        emit(columnId, next, dateId);
-                      }}
-                    >
-                      <option value="">Выберите значение</option>
-                      {column.kind === 'checkbox' ? (
-                        <>
-                          <option value="true">Да — отмечено</option>
-                          <option value="false">Нет — снято</option>
-                        </>
-                      ) : (
-                        column.options.map((option) => (
-                          <option key={option.id} value={option.id ?? ''}>
-                            {option.label}
-                            {option.archived ? ' (в архиве)' : ''}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  ) : (
-                    <input
-                      value={String(value)}
-                      type={
-                        column.kind === 'date'
-                          ? 'date'
-                          : column.kind === 'number'
-                            ? 'number'
-                            : 'text'
-                      }
-                      step="any"
-                      maxLength={5000}
-                      onChange={(event) => {
-                        setValue(event.target.value);
-                        emit(columnId, event.target.value, dateId);
-                      }}
-                    />
-                  )}
+                  Условие подсчёта
+                  <select
+                    value={operator}
+                    onChange={(event) => {
+                      const next = event.target.value as 'equals' | 'not_empty';
+                      const nextDate =
+                        next === 'not_empty' && column.kind === 'date' ? columnId : dateId;
+                      setOperator(next);
+                      setDateId(nextDate);
+                      emit(columnId, value, nextDate, next);
+                    }}
+                  >
+                    <option value="equals">Равно выбранному значению</option>
+                    <option value="not_empty">Заполнено — любое значение</option>
+                  </select>
                 </label>
-              )}
+                {operator === 'equals' && (
+                  <label className={styles.field}>
+                    Значение для подсчёта
+                    {column.kind === 'text' && column.id === outflowFields?.reason_column?.id ? (
+                      <OutflowReasonInput
+                        label="Значение для подсчёта"
+                        value={String(value ?? '')}
+                        choices={outflowFields.reasons}
+                        allowCustom
+                        onChange={(next) => {
+                          setValue(next);
+                          emit(columnId, next, dateId);
+                        }}
+                      />
+                    ) : column.kind === 'select' || column.kind === 'checkbox' ? (
+                      <select
+                        value={String(value)}
+                        onChange={(event) => {
+                          const next =
+                            column.kind === 'checkbox' && event.target.value !== ''
+                              ? event.target.value === 'true'
+                              : event.target.value;
+                          setValue(next);
+                          emit(columnId, next, dateId);
+                        }}
+                      >
+                        <option value="">Выберите значение</option>
+                        {column.kind === 'checkbox' ? (
+                          <>
+                            <option value="true">Да — отмечено</option>
+                            <option value="false">Нет — снято</option>
+                          </>
+                        ) : (
+                          column.options.map((option) => (
+                            <option key={option.id} value={option.id ?? ''}>
+                              {option.label}
+                              {option.archived ? ' (в архиве)' : ''}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    ) : (
+                      <input
+                        value={String(value)}
+                        type={
+                          column.kind === 'date'
+                            ? 'date'
+                            : column.kind === 'number'
+                              ? 'number'
+                              : 'text'
+                        }
+                        step="any"
+                        maxLength={5000}
+                        onChange={(event) => {
+                          setValue(event.target.value);
+                          emit(columnId, event.target.value, dateId);
+                        }}
+                      />
+                    )}
+                  </label>
+                )}
+              </>
+            )}
+          </EditorSection>
+          {column && (
+            <EditorSection
+              title="По какой дате считать"
+              description="Выберите дату события или используйте дату создания записи."
+            >
               <label className={styles.field}>
                 Распределять по дате
                 <select
@@ -484,7 +506,7 @@ export function ReportLinkEditor({
                   {dateColumn?.name ?? 'создания записи'}.
                 </p>
               )}
-            </>
+            </EditorSection>
           )}
           {columns.every((col) => ['action', 'hostel'].includes(col.kind)) && (
             <p>Сначала добавьте столбец в выбранную таблицу.</p>

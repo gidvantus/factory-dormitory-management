@@ -129,7 +129,7 @@ export function DashboardBlocks({
       {error && (
         <p role="alert" className={styles.loadError}>
           {error}{' '}
-          <button type="button" onClick={onChange}>
+          <button className="link-button" type="button" onClick={onChange}>
             Обновить дашборд
           </button>
         </p>

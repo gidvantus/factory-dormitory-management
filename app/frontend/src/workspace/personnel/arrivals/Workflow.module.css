@@ -136,3 +136,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.transferNote {
+  display: block;
+  margin-top: var(--gap-6);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}

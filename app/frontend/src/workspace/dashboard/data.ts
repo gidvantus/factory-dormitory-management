@@ -67,9 +67,9 @@ export const loadDashboard: DashboardLoader = async (range, signal, dormitoryId)
 };
 
 export const METRICS: { key: Metric; label: string; color: string }[] = [
-  { key: 'attendance', label: 'Выход', color: '#2f7d62' },
-  { key: 'residents', label: 'Проживающие', color: '#34679e' },
-  { key: 'turnover', label: 'Текучка', color: '#9a6531' },
+  { key: 'attendance', label: 'Выход', color: '#427caf' },
+  { key: 'residents', label: 'Проживающие', color: '#2d8069' },
+  { key: 'turnover', label: 'Текучка', color: '#9b6544' },
 ];
 
 export function formatCount(value: number | null): string {

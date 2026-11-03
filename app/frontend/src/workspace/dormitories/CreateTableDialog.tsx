@@ -4,9 +4,13 @@ import { api, ApiError } from '../../api/client';
 import type { ColumnInput, ColumnKind, CustomTab } from '../../api/client';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { useEditorPreview } from '../../components/EditorSurface';
+import { EditorSection } from '../../components/EditorSection';
+import { useOrganizedEditor } from '../../components/useOrganizedEditor';
 import { columnKinds } from './columnKinds';
 import formStyles from './ConfigurableColumns.module.css';
 import styles from './CreateTableDialog.module.css';
+import { CellFillEditor } from './CellFillEditor';
+import { cellFillError, supportsCellFill, useCellFillSources } from './cellFill';
 
 interface DraftColumn extends ColumnInput {
   key: number;
@@ -29,9 +33,12 @@ export function CreateTableDialog({
   onClose: () => void;
   onCreated: (tab: CustomTab) => void;
 }): JSX.Element {
+  const organized = useOrganizedEditor();
   const id = useId();
   const nextKey = useRef(1);
   const [columns, setColumns] = useState<DraftColumn[]>([emptyColumn(0)]);
+  const fillSources = useCellFillSources(dormitoryId);
+  const fillColumns = columns.map((column) => ({ ...column, id: -(column.key + 1) }));
   useEditorPreview('create-table', { columns });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -62,17 +69,24 @@ export function CreateTableDialog({
         setError(`Столбец ${index + 1}: ${message}`);
         return;
       }
+      const fillError = cellFillError(column.fill, column.kind, fillColumns, fillSources.sources);
+      if (fillError) {
+        setError(`Столбец ${index + 1}: ${fillError}`);
+        return;
+      }
     }
     setSaving(true);
     setError('');
     try {
-      const payload = columns.map(({ name, kind, options }) => ({
+      const hasFill = columns.some((column) => column.fill);
+      const payload = columns.map(({ key, name, kind, options, fill }) => ({
         name: name.trim(),
         kind,
         options:
           kind === 'select'
             ? options.map((option) => ({ ...option, label: option.label.trim() }))
             : [],
+        ...(hasFill ? { client_id: -(key + 1), fill: fill ?? null } : {}),
       }));
       const updated = await api.createCustomTabTable(dormitoryId, tab.id, payload);
       onCreated(updated);
@@ -95,118 +109,182 @@ export function CreateTableDialog({
           Добавьте нужные столбцы и выберите тип данных для каждого. После создания таблицы столбцы
           можно будет добавлять и удалять.
         </p>
-        <div className={styles.columns}>
-          {columns.map((column, index) => (
-            <fieldset
-              className={styles.column}
-              key={column.key}
-              disabled={saving}
-              aria-labelledby={`${id}-${column.key}`}
-            >
-              <div className={styles.heading}>
-                <h3 id={`${id}-${column.key}`}>Столбец {index + 1}</h3>
-                <button
-                  className={styles.remove}
-                  type="button"
-                  aria-label={`Удалить столбец ${index + 1}`}
-                  onClick={() => {
-                    setColumns((current) => current.filter((item) => item.key !== column.key));
-                    setError('');
-                  }}
-                >
-                  Удалить
+        <EditorSection
+          title="Столбцы таблицы"
+          description="У каждого столбца — название и тип. Порядок карточек определяет порядок в таблице."
+        >
+          <div className={styles.columns}>
+            {fillSources.loading && <p role="status">Загружаем источники заполнения…</p>}
+            {fillSources.error && (
+              <p className={formStyles.help}>
+                {fillSources.error}{' '}
+                <button className="link-button" type="button" onClick={fillSources.retry}>
+                  Повторить
                 </button>
-              </div>
-              <div className={styles.fields}>
-                <label>
-                  Название столбца
-                  <input
-                    value={column.name}
-                    maxLength={120}
-                    required
-                    onChange={(event) => update(column.key, { name: event.target.value })}
-                  />
-                </label>
-                <label>
-                  Тип столбца
-                  <select
-                    value={column.kind}
-                    onChange={(event) =>
-                      update(column.key, { kind: event.target.value as ColumnKind })
-                    }
-                  >
-                    {Object.entries(columnKinds)
-                      .filter(([key]) => !['action', 'hostel'].includes(key))
-                      .map(([kind, label]) => (
-                        <option value={kind} key={kind}>
-                          {label}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-              </div>
-              {column.kind === 'select' && (
-                <fieldset className={formStyles.options}>
-                  <legend>Варианты списка</legend>
-                  {column.options.map((option, optionIndex) => (
-                    <div className={formStyles.option} key={optionIndex}>
-                      <input
-                        aria-label={`Вариант ${optionIndex + 1}`}
-                        value={option.label}
-                        maxLength={120}
-                        required
-                        onChange={(event) =>
-                          update(column.key, {
-                            options: column.options.map((item, i) =>
-                              i === optionIndex ? { ...item, label: event.target.value } : item,
-                            ),
-                          })
-                        }
-                      />
+              </p>
+            )}
+            {columns.map((column, index) => (
+              <fieldset
+                className={styles.column}
+                key={column.key}
+                disabled={saving}
+                aria-labelledby={`${id}-${column.key}`}
+              >
+                <div className={styles.heading}>
+                  <h3 id={`${id}-${column.key}`}>
+                    {organized
+                      ? `${index + 1}. ${column.name || 'Новый столбец'}`
+                      : `Столбец ${index + 1}`}
+                  </h3>
+                  {organized && (
+                    <div>
                       <button
                         type="button"
-                        aria-label={`Удалить вариант ${optionIndex + 1}`}
+                        className="btn btn--ghost btn--compact"
+                        aria-label={`Поднять столбец ${index + 1}`}
+                        disabled={saving || index === 0}
                         onClick={() =>
-                          update(column.key, {
-                            options: column.options.filter((_, i) => i !== optionIndex),
+                          setColumns((current) => {
+                            const next = [...current];
+                            [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                            return next;
                           })
                         }
                       >
-                        Убрать
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--compact"
+                        aria-label={`Опустить столбец ${index + 1}`}
+                        disabled={saving || index === columns.length - 1}
+                        onClick={() =>
+                          setColumns((current) => {
+                            const next = [...current];
+                            [next[index + 1], next[index]] = [next[index], next[index + 1]];
+                            return next;
+                          })
+                        }
+                      >
+                        ↓
                       </button>
                     </div>
-                  ))}
+                  )}
                   <button
+                    className={styles.remove}
                     type="button"
-                    disabled={column.options.length >= 200}
-                    onClick={() =>
-                      update(column.key, {
-                        options: [...column.options, { id: null, label: '', archived: false }],
-                      })
-                    }
+                    aria-label={`Удалить столбец ${index + 1}`}
+                    onClick={() => {
+                      setColumns((current) => current.filter((item) => item.key !== column.key));
+                      setError('');
+                    }}
                   >
-                    + Вариант
+                    Удалить
                   </button>
-                </fieldset>
-              )}
-            </fieldset>
-          ))}
-          {!columns.length && <p className={formStyles.help}>Добавьте хотя бы один столбец.</p>}
-        </div>
-        <div>
-          <button
-            type="button"
-            className={styles.add}
-            disabled={saving}
-            onClick={() => {
-              const column = emptyColumn(nextKey.current++);
-              setColumns((current) => [...current, column]);
-              setError('');
-            }}
-          >
-            + Добавить столбец
-          </button>
-        </div>
+                </div>
+                <div className={styles.fields}>
+                  <label>
+                    Название столбца
+                    <input
+                      value={column.name}
+                      maxLength={120}
+                      required
+                      onChange={(event) => update(column.key, { name: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Тип столбца
+                    <select
+                      value={column.kind}
+                      onChange={(event) =>
+                        update(column.key, { kind: event.target.value as ColumnKind, fill: null })
+                      }
+                    >
+                      {Object.entries(columnKinds)
+                        .filter(([key]) => !['action', 'hostel'].includes(key))
+                        .map(([kind, label]) => (
+                          <option value={kind} key={kind}>
+                            {label}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                </div>
+                {supportsCellFill(column.kind) && (
+                  <CellFillEditor
+                    value={column.fill}
+                    kind={column.kind}
+                    columnId={-(column.key + 1)}
+                    columns={fillColumns}
+                    sources={fillSources.sources}
+                    table={tab.table_key}
+                    disabled={saving || fillSources.loading}
+                    onChange={(fill) => update(column.key, { fill })}
+                  />
+                )}
+                {column.kind === 'select' && (
+                  <fieldset className={formStyles.options}>
+                    <legend>Варианты списка</legend>
+                    {column.options.map((option, optionIndex) => (
+                      <div className={formStyles.option} key={optionIndex}>
+                        <input
+                          aria-label={`Вариант ${optionIndex + 1}`}
+                          value={option.label}
+                          maxLength={120}
+                          required
+                          onChange={(event) =>
+                            update(column.key, {
+                              options: column.options.map((item, i) =>
+                                i === optionIndex ? { ...item, label: event.target.value } : item,
+                              ),
+                            })
+                          }
+                        />
+                        <button
+                          type="button"
+                          aria-label={`Удалить вариант ${optionIndex + 1}`}
+                          onClick={() =>
+                            update(column.key, {
+                              options: column.options.filter((_, i) => i !== optionIndex),
+                            })
+                          }
+                        >
+                          Убрать
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      disabled={column.options.length >= 200}
+                      onClick={() =>
+                        update(column.key, {
+                          options: [...column.options, { id: null, label: '', archived: false }],
+                        })
+                      }
+                    >
+                      + Вариант
+                    </button>
+                  </fieldset>
+                )}
+              </fieldset>
+            ))}
+            {!columns.length && <p className={formStyles.help}>Добавьте хотя бы один столбец.</p>}
+          </div>
+          <div>
+            <button
+              type="button"
+              className={styles.add}
+              disabled={saving}
+              onClick={() => {
+                const column = emptyColumn(nextKey.current++);
+                setColumns((current) => [...current, column]);
+                setError('');
+              }}
+            >
+              + Добавить столбец
+            </button>
+          </div>
+        </EditorSection>
         {error && (
           <p role="alert" className={formStyles.error}>
             {error}
