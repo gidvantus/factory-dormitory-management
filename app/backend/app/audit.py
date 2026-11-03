@@ -86,7 +86,9 @@ ACTION_LIMIT = 64
 
 # Разделы API, которые меняют доступ, деньги или состав кабинета. Строки этих
 # действий хранятся два года: по ним разбираются спорные входы и оплаты.
-SECURITY_SECTIONS = frozenset({"auth", "organization", "billing", "tariffs", "users"})
+# `platform` — платформенный контур кабинета оператора: действия оператора над
+# организациями тоже меняют состав и права кабинета, пусть и чужого.
+SECURITY_SECTIONS = frozenset({"auth", "organization", "billing", "tariffs", "users", "platform"})
 # Настройки общежития (`/api/dormitories/{...}/settings`) меняют права и тарифы
 # этого общежития, поэтому тоже считаются действием безопасности.
 DORMITORIES_SECTION = "dormitories"
@@ -111,7 +113,20 @@ PHONE_KEYS = frozenset({"phone"})
 EMAIL_KEYS = frozenset({"email"})
 # Свободный текст: содержимое не хранится ни в каком виде — ПДн в свободном
 # тексте шаблоном надёжно не ловится, поэтому остаются длина и отпечаток.
-FREE_TEXT_KEYS = frozenset({"notes", "reason", "additional_info", "text", "comment", "description"})
+FREE_TEXT_KEYS = frozenset(
+    {
+        "notes",
+        "reason",
+        "additional_info",
+        "text",
+        "comment",
+        "description",
+        "custom_values",
+        "personal_values",
+        "arrival_values",
+        "names",
+    }
+)
 MASKED_KEYS = NAME_KEYS | PHONE_KEYS | EMAIL_KEYS | FREE_TEXT_KEYS
 
 MASKED_KEY = "_masked"
@@ -556,6 +571,12 @@ def _masked_field(name: str, value: Any) -> Any:
 
     Не строка и пустая строка маскировать нечего — значение возвращается как есть.
     """
+    # Пользовательские поля имеют произвольные ключи: маскируем весь JSON,
+    # включая снимки колонок, а не пытаемся угадывать ФИО или контакты по ID.
+    if name in {"custom_values", "names", "personal_values", "arrival_values"} and isinstance(
+        value, (dict, list)
+    ):
+        value = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     if not isinstance(value, str) or not value:
         return value
     if name in NAME_KEYS:

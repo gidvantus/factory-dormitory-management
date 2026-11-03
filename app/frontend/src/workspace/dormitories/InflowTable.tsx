@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 
 import { api, ApiError } from '../../api/client';
 import type { InflowAction, InflowField, InflowRow } from '../../api/client';
@@ -35,6 +36,7 @@ function InflowEntry({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const saved = useRef(row);
+  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(saved.current));
   const { trackSave, waitForRowSaves } = useTableSaves();
   const [preparing, setPreparing] = useState(false);
   const preparingRef = useRef(false);

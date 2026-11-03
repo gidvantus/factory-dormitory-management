@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { personnelApi } from '../../api/personnel';
+import { downloadBlob } from '../../api/download';
 import type { Employee, PersonnelData } from '../../api/personnel';
 import { Modal } from '../../components/Modal';
 import type { EmployeeListField, ListCriteria } from './employeeListFilters';
 import { employeeFieldValues } from './employeeListFilters';
-import { dateLabel, dormName, personName, value } from './helpers';
+import { dateLabel, dormName, personName, value, message } from './helpers';
 import s from './Personnel.module.css';
 import styles from './EmployeeList.module.css';
 
@@ -23,11 +25,33 @@ export function SelectedEmployeesDialog({
   onClose: () => void;
 }): JSX.Element {
   const [name, setName] = useState('Выбранные сотрудники');
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState('');
+  async function exportList(): Promise<void> {
+    if (exporting || !people.length) return;
+    setExporting(true);
+    setError('');
+    try {
+      const blob = await personnelApi.exportSelected(
+        name.trim() || 'Выбранные сотрудники',
+        people.map((person) => person.id),
+        fields
+          .filter((field) => field.columns?.length)
+          .map((field) => field.columns!.map((column) => column.id)),
+      );
+      downloadBlob(blob, `Сотрудники-${data.today}.xlsx`);
+    } catch (caught) {
+      setError(message(caught));
+    } finally {
+      setExporting(false);
+    }
+  }
   return (
     <Modal
       title="Список выбранных сотрудников"
       testId="personnel-selected-list"
       onClose={onClose}
+      closeDisabled={exporting}
       panelClassName={`${s.modal} ${styles.selectedDialog}`}
     >
       <div className={styles.selectedToolbar}>
@@ -38,13 +62,14 @@ export function SelectedEmployeesDialog({
         <button
           type="button"
           className="btn btn--primary btn--compact"
-          disabled
-          title="Выгрузка будет добавлена позже"
-          aria-describedby="personnel-selected-export-hint"
+          disabled={exporting || !people.length}
+          onClick={() => void exportList()}
+          aria-busy={exporting}
         >
-          Выгрузить
+          {exporting ? 'Выгружаем…' : 'Выгрузить'}
         </button>
       </div>
+      {error && <p role="alert">{error}</p>}
       <div className={s.tableScroll}>
         <table className={`${s.table} ${styles.selectedTable}`}>
           <caption className={styles.selectedTableCaption}>
@@ -115,9 +140,6 @@ export function SelectedEmployeesDialog({
       {!people.length && <p className={s.empty}>В списке больше нет доступных сотрудников.</p>}
       <p className={styles.hint}>
         В список включены все отмеченные сотрудники, в том числе выбранные при других фильтрах.
-      </p>
-      <p className={styles.hint} id="personnel-selected-export-hint">
-        Выгрузка будет добавлена позже.
       </p>
     </Modal>
   );

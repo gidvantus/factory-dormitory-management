@@ -1,0 +1,255 @@
+import { Link } from 'react-router-dom';
+import type { ArrivalVisit } from '../../../api/personnel';
+import type { Field, Person } from './data';
+import { isEmpty, printable } from './data';
+import { dateLabel } from '../helpers';
+import s from './Workflow.module.css';
+
+export type WorkflowAction =
+  | 'arrived'
+  | 'no_show'
+  | 'expected'
+  | 'move'
+  | 'undo'
+  | 'destination'
+  | 'origin'
+  | 'settle'
+  | 'details';
+export type WorkflowActionHandler = (action: WorkflowAction, personId: string) => void;
+const labels = {
+  expected: 'Ожидается',
+  arrived: 'Прибыл',
+  no_show: 'Не приехал',
+  moved: 'Перенесён',
+  settled: 'В проживающих',
+};
+const historyLabels: Record<string, string> = {
+  ...labels,
+  rescheduled_from: 'Перенесён из другой даты',
+  undo_move: 'Перенос отменён',
+};
+
+export function WorkflowValues({
+  fields,
+  values,
+  hideEmpty = true,
+}: {
+  fields: Field[];
+  values: Record<string, string | boolean>;
+  hideEmpty?: boolean;
+}): JSX.Element {
+  return (
+    <dl className={s.values}>
+      {fields
+        .filter((field) => !hideEmpty || !isEmpty(values[field.id]))
+        .map((field) => (
+          <div key={field.id}>
+            <dt>{field.label}</dt>
+            <dd>{printable(field, values[field.id])}</dd>
+          </div>
+        ))}
+    </dl>
+  );
+}
+export function WorkflowPeople({
+  people,
+  fields,
+  workflow,
+  onAction,
+  busy = false,
+  showNames = true,
+  hideEmpty = true,
+  full = false,
+}: {
+  people: Person[];
+  fields: Field[];
+  workflow: Record<string, ArrivalVisit>;
+  onAction: WorkflowActionHandler;
+  busy?: boolean;
+  showNames?: boolean;
+  hideEmpty?: boolean;
+  full?: boolean;
+}): JSX.Element {
+  return (
+    <ul className={s.people}>
+      {people.map((person, index) => {
+        const visit = workflow[person.id];
+        const status = visit?.status ?? 'expected';
+        const invoke = (action: WorkflowAction): void => onAction(action, person.id);
+        const locked = busy || !person.name.trim();
+        return (
+          <li
+            className={s.person}
+            key={person.id}
+            data-testid={`arrival-person-${person.id}`}
+            data-status={status}
+          >
+            <div className={s.personHeading}>
+              <button
+                type="button"
+                className={`btn link-button ${s.textAction}`}
+                disabled={busy}
+                onClick={() => invoke('details')}
+              >
+                {showNames
+                  ? person.name || `Человек ${index + 1} — ФИО не указано`
+                  : `Человек ${index + 1}`}
+              </button>
+              <span className={s.badge} data-state={status}>
+                {status === 'settled' && !visit?.resident ? 'Проживание оформлено' : labels[status]}
+              </span>
+            </div>
+            <WorkflowValues fields={fields} values={person.values} hideEmpty={hideEmpty} />
+            {visit?.origin && (
+              <button
+                type="button"
+                className={`btn link-button ${s.textAction}`}
+                disabled={busy}
+                onClick={() => invoke('origin')}
+              >
+                Перенесён с {dateLabel(visit.origin.date)}
+              </button>
+            )}
+            <div className={s.actions}>
+              {status === 'expected' && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--compact"
+                    disabled={locked}
+                    onClick={() => invoke('arrived')}
+                  >
+                    Прибыл
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--compact"
+                    disabled={locked}
+                    onClick={() => invoke('no_show')}
+                  >
+                    Не приехал
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--compact"
+                    disabled={locked}
+                    onClick={() => invoke('move')}
+                  >
+                    Перенести
+                  </button>
+                </>
+              )}
+              {status === 'arrived' && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--compact"
+                    disabled={busy}
+                    onClick={() => invoke('settle')}
+                  >
+                    В проживающие
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--compact"
+                    disabled={busy}
+                    onClick={() => invoke('expected')}
+                  >
+                    Исправить отметку
+                  </button>
+                </>
+              )}
+              {status === 'no_show' && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--compact"
+                    disabled={busy}
+                    onClick={() => invoke('expected')}
+                  >
+                    Вернуть в ожидаемые
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--compact"
+                    disabled={busy}
+                    onClick={() => invoke('move')}
+                  >
+                    Перенести
+                  </button>
+                </>
+              )}
+              {status === 'moved' && visit?.destination && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--compact"
+                    disabled={busy}
+                    onClick={() => invoke('destination')}
+                  >
+                    Открыть {dateLabel(visit.destination.date)}
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn link-button ${s.textAction}`}
+                    disabled={busy}
+                    onClick={() => invoke('undo')}
+                  >
+                    Отменить перенос
+                  </button>
+                </>
+              )}
+              {status === 'settled' && visit?.resident && (
+                <Link
+                  className="btn btn--ghost btn--compact"
+                  to={`/cabinet/dormitories/${visit.resident.dormitory_id}/residents`}
+                >
+                  Открыть проживание
+                </Link>
+              )}
+              {status === 'settled' && !visit?.resident && (
+                <span className={s.muted}>
+                  Проживание завершено или запись удалена. Сведения сохранены в истории заезда.
+                </span>
+              )}
+            </div>
+            {full && visit?.settlement && (
+              <details className={s.history}>
+                <summary>
+                  Сведения на момент заселения · {dateLabel(visit.settlement.settlement_date)}
+                </summary>
+                <p>
+                  {visit.settlement.hostel_name} · {visit.settlement.shift_count ?? '—'} смен · с{' '}
+                  {dateLabel(visit.settlement.shift_start)}
+                  {visit.settlement.shift_end ? ` по ${dateLabel(visit.settlement.shift_end)}` : ''}
+                </p>
+                <WorkflowValues
+                  fields={visit.settlement.fields.filter((field) => field.scope === 'person')}
+                  values={visit.settlement.personal_values}
+                />
+                <WorkflowValues
+                  fields={visit.settlement.fields.filter((field) => field.scope === 'arrival')}
+                  values={visit.settlement.arrival_values}
+                />
+              </details>
+            )}
+            {full && visit && (
+              <details className={s.history}>
+                <summary>История отметок · {visit.history.length}</summary>
+                <ul>
+                  {visit.history.map((item, i) => (
+                    <li key={i}>
+                      {historyLabels[item.action] ?? item.action} · {dateLabel(item.date, true)}
+                      {item.destination ? ` → ${dateLabel(item.destination.date)}` : ''}
+                      {item.origin ? ` · с ${dateLabel(item.origin.date)}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}

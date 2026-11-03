@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 
 import { api, ApiError } from '../../api/client';
 import type { OutflowField, OutflowRow } from '../../api/client';
@@ -33,6 +34,7 @@ function OutflowEntry({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const saved = useRef(row);
+  useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(saved.current));
   const { trackSave, waitForRowSaves, outflowFields, reload } = useColumns();
 
   async function evict(): Promise<void> {

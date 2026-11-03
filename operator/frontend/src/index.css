@@ -1,0 +1,1235 @@
+/* ============================================================================
+   Кабинет оператора — собственные стили приложения.
+
+   Оформление «natural neutral» из макета постановки (`mockups/126/`): мягкий беж,
+   лён, шалфей, тёплый серый, линии 1px, малые радиусы и нейтральный гротеск.
+   Это осознанное расхождение с основным кабинетом: у операторского приложения
+   свои токены, продуктовые `:root` / `.btn` / `.field` из `app/frontend` сюда не
+   копируются. Шрифты — системный стек, по сети ничего не грузится.
+   ========================================================================== */
+
+:root {
+  /* --- Примитивы, снятые с референса --- */
+  --n-beige: #e2d9ca;
+  --n-linen: #e8e1d7;
+  --n-sage: #9ca590;
+  --n-sage-dark: #8c9581;
+  --n-grey: #79726a;
+  --n-grey-deep: #3a362f;
+  --n-ink: #262420;
+
+  /* Ошибки в референсе нет: приглушённый кирпич в той же температуре. */
+  --n-brick: #8a4b33;
+  --n-brick-tint: #f3e6df;
+  --n-brick-line: #e2cdc1;
+
+  /* --- Семантика --- */
+  --color-bg-page: #f0eee8;
+  --color-bg-surface: #ffffff;
+  --color-border: #dedbd3;
+  --color-border-strong: #c9c4b9;
+  --color-text: var(--n-ink);
+  --color-text-body: #55534d;
+  --color-text-muted: #6d6960;
+  --color-text-placeholder: #9a958b;
+  --color-accent: var(--n-sage);
+  --color-accent-hover: var(--n-sage-dark);
+  /* Подпись основной кнопки — тёплый чёрный, а не почти белый из макета.
+      Почти белый `#fbf9f4` на шалфее `#9ca590` даёт 2.43:1 при шрифте 14.5px/600 —
+      ниже AA (1.4.3 требует 4.5:1), axe помечает это как serious. Тёплый чёрный
+      `#262420` на том же шалфее — 6.0:1, палитра «natural neutral» не меняется.
+      Осознанное расхождение с `mockups/126/`: макет нужно синхронизировать. */
+  --color-on-accent: var(--n-ink);
+  --color-focus: var(--n-sage);
+  --color-danger: var(--n-brick);
+
+  /* --- Типографика --- */
+  --font-display: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --text-sm: 0.9375rem;
+
+  /* --- Форма --- */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --control-h: 44px;
+  --control-h-sm: 36px;
+  --shadow-card: 0 1px 2px rgba(58, 54, 47, 0.04);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg-page);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+::selection {
+  background: var(--n-beige);
+  color: var(--n-ink);
+}
+
+/* Подпись для скринридера: колонка действия в реестре и `caption` таблицы. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ============================================================================
+   Каркас: шапка кабинета и тело экрана.
+   ========================================================================== */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--color-bg-page);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+.topbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 68px;
+  padding: 0 40px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: fit-content;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.brand__mark {
+  display: block;
+  width: 34px;
+  height: 34px;
+  flex: none;
+}
+
+.brand__name {
+  font: 600 19px/1.15 var(--font-display);
+  letter-spacing: -0.2px;
+}
+
+.topbar__note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Логин, под которым открыт кабинет: сервер отдаёт только его. */
+.account {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* Навигация кабинета: два раздела в шапке (#132).
+   Подчёркивание активного лежит на линии шапки — это и есть метка «где я»,
+   цвет в ней не участвует. `margin-bottom: -1px` кладёт подчёркивание на линию
+   шапки, а не над ней. */
+.nav {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  margin-left: 32px;
+  margin-right: auto;
+  margin-bottom: -1px;
+}
+
+.nav__link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.nav__link:first-child {
+  padding-left: 0;
+}
+
+.nav__link:hover {
+  color: var(--n-ink);
+}
+
+.nav__link[aria-current='page'] {
+  border-bottom-color: var(--color-accent);
+  color: var(--n-ink);
+}
+
+/* ============================================================================
+   Вход: карточка, поля, кнопка.
+   ========================================================================== */
+
+.login {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-height: 0;
+  padding: 40px 40px 56px;
+}
+
+.card {
+  display: grid;
+  gap: 24px;
+  width: min(100%, 25rem);
+  padding: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.card__head {
+  display: grid;
+  gap: 8px;
+}
+
+.card__title {
+  margin: 0;
+  font: 600 22px/1.3 var(--font-display);
+  letter-spacing: -0.2px;
+  color: var(--n-ink);
+}
+
+.lead {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.form {
+  display: grid;
+  gap: 18px;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.field__label {
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  color: var(--color-text-body);
+}
+
+.field__input {
+  width: 100%;
+  min-height: var(--control-h);
+  padding: 11px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.field__input:hover {
+  border-color: var(--n-grey);
+}
+
+.field__input::placeholder {
+  color: var(--color-text-placeholder);
+}
+
+.field__input[aria-invalid='true'] {
+  border-color: var(--color-danger);
+  background: #fdf9f7;
+}
+
+/* Подпись ошибки под полем: своя проверка пустых значений и разбор 422. */
+.field__error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.alert {
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.alert--error {
+  border-color: var(--n-brick-line);
+  background: var(--n-brick-tint);
+  color: var(--color-danger);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: var(--control-h);
+  padding: 10px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  white-space: nowrap;
+  flex: none;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14.5px;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  color: var(--color-on-accent);
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: var(--color-border-strong);
+  color: var(--n-grey-deep);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: #efede7;
+  border-color: var(--n-grey);
+  color: var(--n-ink);
+}
+
+.btn--compact {
+  min-height: var(--control-h-sm);
+  padding: 7px 13px;
+  border-radius: var(--radius-xs);
+  font-size: 13px;
+}
+
+.btn--block {
+  width: 100%;
+}
+
+/* «Идёт запрос»: кнопка неактивна, текст «Вход…», тонкий индикатор. */
+.btn[aria-busy='true'] {
+  cursor: progress;
+}
+
+.btn[aria-busy='true']::after {
+  content: '';
+  width: 0.85em;
+  height: 0.85em;
+  border: 1.5px solid currentcolor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 700ms linear infinite;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================================================
+   После входа: страница кабинета, реестр организаций, карточка и правка.
+   ========================================================================== */
+
+.screen__main {
+  flex: 1;
+  padding: 32px 40px 48px;
+}
+
+/* Страница: реестр шире (1120px), карточка — документ (880px). */
+.page {
+  display: grid;
+  gap: 20px;
+  width: 100%;
+  max-width: 1120px;
+}
+
+.page--card {
+  max-width: 880px;
+}
+
+/* Реестр пользователей шире реестра организаций: колонок больше. */
+.page--list {
+  max-width: 1240px;
+}
+
+.page__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page__head--card {
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.page__head-main {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.page__title {
+  margin: 0;
+  font: 600 26px/1.25 var(--font-display);
+  letter-spacing: -0.4px;
+  color: var(--n-ink);
+  overflow-wrap: anywhere;
+}
+
+.page__meta {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.page__back {
+  margin: 0;
+}
+
+.link {
+  color: var(--color-text-body);
+  font-size: 13.5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--color-border-strong);
+}
+
+.link:hover {
+  color: var(--n-ink);
+  text-decoration-color: var(--n-grey);
+}
+
+/* Реестр: таблица в белой поверхности с волосяными линиями. */
+.list {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.list__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.list__table th {
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font: 600 12.5px/1.4 var(--font-body);
+  letter-spacing: 0.01em;
+  text-align: start;
+}
+
+.list__table td {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+  color: var(--color-text-body);
+}
+
+.list__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.list__id {
+  width: 64px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.list__name {
+  color: var(--n-ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Организация без названия: «Без названия» серым, без жирности. */
+.list__name--empty {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.list__inn,
+.list__date {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.list__inn {
+  letter-spacing: 0.01em;
+}
+
+.list__action {
+  width: 1%;
+  text-align: end;
+}
+
+/* Подписи «ИНН» и «создана» показываются только в узком окне, где таблица
+   перестаёт быть таблицей. */
+.cell__label {
+  display: none;
+}
+
+.list__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.list__shown {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Загрузка: строка состояния в той же рамке, что и таблица. */
+.state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 30px 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 1.5px solid var(--color-border-strong);
+  border-top-color: var(--n-sage);
+  border-radius: 50%;
+  animation: btn-spin 800ms linear infinite;
+}
+
+/* Карточка: реквизиты выпиской, счётчики — подвал. */
+.panel {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.panel__title {
+  margin: 0;
+  font: 600 15px/1.3 var(--font-display);
+  letter-spacing: -0.1px;
+  color: var(--n-ink);
+}
+
+.req {
+  margin: 0;
+  padding: 2px 24px;
+}
+
+.req__row {
+  display: grid;
+  grid-template-columns: 172px minmax(0, 1fr);
+  gap: 16px;
+  align-items: baseline;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.req__row:last-child {
+  border-bottom: 0;
+}
+
+.req__key {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+}
+
+.req__val {
+  margin: 0;
+  color: var(--n-ink);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.counts {
+  display: flex;
+  gap: 56px;
+  padding: 16px 24px 18px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-page);
+}
+
+.counts__item {
+  display: grid;
+  gap: 1px;
+}
+
+.counts__value {
+  font: 600 22px/1.2 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--n-ink);
+}
+
+.counts__label {
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+/* Правка внутри карточки: те же поля, что на входе, но в поверхности панели. */
+.form--panel {
+  padding: 22px 24px 24px;
+  margin: 0;
+}
+
+.form__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 18px;
+}
+
+.field--wide {
+  grid-column: 1 / -1;
+}
+
+.form__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Многострочный адрес: та же рамка поля, но растягивается по вертикали. */
+.field__input--area {
+  min-height: calc(var(--control-h) * 1.4);
+  resize: vertical;
+}
+
+.empty .link {
+  margin-top: 10px;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 252px;
+  padding: 36px 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  text-align: center;
+}
+
+/* Иконка как в референсе: тонкая линия тёплого серого, без плашки. */
+.empty__icon {
+  display: grid;
+  place-items: center;
+  margin-bottom: 8px;
+  color: var(--n-grey);
+}
+
+.empty__icon svg {
+  width: 26px;
+  height: 26px;
+  stroke-width: 1.4;
+}
+
+.empty h2 {
+  margin: 0;
+  font: 600 17px/1.3 var(--font-display);
+  color: var(--n-ink);
+}
+
+.empty p {
+  max-width: 42ch;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.status {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+/* ============================================================================
+   Пользователи платформы (#132): поиск над реестром, колонки учётной записи,
+   флаг активации и карточка с единственной правкой — ФИО.
+   ========================================================================== */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.search {
+  position: relative;
+  width: min(100%, 380px);
+}
+
+.search__icon {
+  position: absolute;
+  top: 50%;
+  left: 13px;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--color-text-placeholder);
+  pointer-events: none;
+}
+
+/* Место под иконку: иначе текст наезжает на лупу. */
+.search .field__input {
+  padding-left: 39px;
+}
+
+/* Ширины колонок заданы только у реестра пользователей: у реестра организаций
+   свои пять колонок, и общие правила сломали бы его. Подобраны под содержимое:
+   ФИО и email — самые длинные, роль и состояние — самые короткие. */
+.page--list .list__table th:nth-child(1) {
+  width: 26%;
+}
+
+.page--list .list__table th:nth-child(2) {
+  width: 24%;
+}
+
+.page--list .list__table th:nth-child(3) {
+  width: 24%;
+}
+
+.page--list .list__table th:nth-child(4) {
+  width: 10%;
+}
+
+.page--list .list__table th:nth-child(5) {
+  width: 12%;
+}
+
+.page--list .list__table td {
+  font-size: 13.5px;
+}
+
+/* Номер учётной записи — не колонка, а тихая строка над ФИО: он нужен для
+   сверки, но строку решает ФИО. */
+.user__id {
+  display: block;
+  margin-bottom: 1px;
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.user__name {
+  display: block;
+  color: var(--n-ink);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.user__email,
+.user__org {
+  overflow-wrap: anywhere;
+}
+
+.user__role {
+  white-space: nowrap;
+}
+
+/* Пустое значение в данных: тире, а не выдуманное слово. */
+.none {
+  color: var(--color-text-placeholder);
+}
+
+/* Флаг активации: точка и слово. Залитая — активирован, контурная — нет;
+   цвет поддерживает слово, а не заменяет его. */
+.flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-body);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.flag__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.flag--off {
+  color: var(--color-text-muted);
+}
+
+.flag--off .flag__dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--color-border-strong);
+}
+
+/* Пустой результат поиска — тот же блок, но ниже: пустая база бывает один раз,
+   а поиск промахивается постоянно. */
+.empty--compact {
+  min-height: 196px;
+  padding: 28px 24px;
+}
+
+/* Подсказка под полем правки: что здесь изменить нельзя. */
+.field__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* Подвал выписки: что здесь правится и что нет. Одна строка, не абзац. */
+.panel__note {
+  margin: 0;
+  padding: 12px 24px 14px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-page);
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* Правка ФИО: одна карточка вместо двух — поле сверху, строки только-чтения
+   следом, кнопки внизу. Отступы задаёт форма, а не её части. */
+.form--edit {
+  gap: 0;
+  padding: 0;
+}
+
+.form--edit .field {
+  gap: 6px;
+  padding: 20px 24px 0;
+}
+
+.form--edit .req--flush {
+  margin-top: 18px;
+  padding: 2px 24px;
+}
+
+.form--edit .alert {
+  margin: 16px 24px 0;
+}
+
+.form--edit .form__actions {
+  padding: 16px 24px 22px;
+}
+
+/* ============================================================================
+   Узкое окно: карточка на всю ширину, подпись «Кабинет оператора» скрывается —
+   она повторяется в заголовке карточки. Логин и «Выйти» остаются в шапке.
+   ========================================================================== */
+
+@media (max-width: 760px) {
+  .topbar {
+    height: 60px;
+    padding: 0 20px;
+  }
+
+  .brand__mark {
+    width: 30px;
+    height: 30px;
+  }
+
+  .brand__name {
+    font-size: 17px;
+  }
+
+  .topbar__note {
+    display: none;
+  }
+
+  .topbar__right {
+    gap: 10px;
+  }
+
+  .login {
+    padding: 24px 20px 32px;
+  }
+
+  .card {
+    gap: 20px;
+    padding: 22px;
+  }
+
+  .card__title {
+    font-size: 19px;
+  }
+
+  .screen__main {
+    padding: 24px 20px 32px;
+  }
+
+  .page {
+    gap: 16px;
+  }
+
+  .page__title {
+    font-size: 21px;
+  }
+
+  .page__head--card {
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .page__head--card .btn {
+    width: 100%;
+  }
+
+  /* Таблица перестаёт быть таблицей: строка — блок с подписями. */
+  .list__table thead {
+    display: none;
+  }
+
+  .list__table,
+  .list__table tbody,
+  .list__table tr,
+  .list__table td {
+    display: block;
+  }
+
+  .list__table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 12px;
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .list__table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .list__table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .list__id {
+    grid-column: 1;
+    grid-row: 1;
+    width: auto;
+    font-size: 12.5px;
+  }
+
+  .list__action {
+    grid-column: 2;
+    grid-row: 1;
+    width: auto;
+    align-self: start;
+  }
+
+  .list__name {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin: 3px 0 0;
+    font-size: 15px;
+  }
+
+  .list__inn {
+    grid-column: 1;
+    grid-row: 3;
+    margin-top: 2px;
+  }
+
+  .list__date {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  .cell__label {
+    display: inline;
+    margin-right: 5px;
+    color: var(--color-text-muted);
+    font-size: 12.5px;
+  }
+
+  .list__foot {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 14px 20px 16px;
+  }
+
+  .list__foot .btn {
+    width: 100%;
+  }
+
+  .list__shown {
+    order: 2;
+    text-align: center;
+  }
+
+  .state {
+    padding: 24px 20px;
+  }
+
+  .req {
+    padding: 2px 20px;
+  }
+
+  .req__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    padding: 12px 0;
+  }
+
+  .req__key {
+    font-size: 12.5px;
+  }
+
+  .counts {
+    gap: 36px;
+    padding: 15px 20px 17px;
+  }
+
+  .form--panel {
+    padding: 20px;
+  }
+
+  .form__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .form__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .empty {
+    padding: 28px 20px;
+  }
+
+  /* Шапка разделов в две строки: марка, логин и «Выйти» — сверху, навигация —
+     под линией на всю ширину. Форма входа остаётся в одну строку. */
+  .topbar--nav {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 0;
+  }
+
+  .topbar--nav .brand {
+    height: 56px;
+    margin-left: 20px;
+  }
+
+  .topbar--nav .topbar__right {
+    height: 56px;
+    margin-left: auto;
+    padding-right: 20px;
+  }
+
+  .topbar--nav .nav {
+    order: 3;
+    flex-basis: 100%;
+    height: 46px;
+    margin: 0;
+    padding: 0 20px;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .topbar--nav .nav__link {
+    flex: 1;
+    justify-content: center;
+    padding: 0 8px;
+  }
+
+  .topbar--nav .nav__link:first-child {
+    padding-left: 8px;
+  }
+
+  .search {
+    width: 100%;
+  }
+
+  /* Строка реестра пользователей: номер и «Открыть» сверху, ФИО на всю ширину,
+     ниже email, организация, роль и состояние — подписями из `cell__label`. */
+  .list__name-cell {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .user__id {
+    font-size: 11.5px;
+  }
+
+  .user__email {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin-top: 4px;
+    color: var(--color-text-muted);
+    font-size: 13px;
+  }
+
+  .user__org {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    margin-top: 6px;
+  }
+
+  .user__role {
+    grid-column: 1;
+    grid-row: 5;
+    margin-top: 4px;
+    white-space: normal;
+  }
+
+  .list__state {
+    grid-column: 1 / -1;
+    grid-row: 6;
+    margin-top: 6px;
+  }
+
+  .panel__note {
+    padding: 12px 20px 14px;
+  }
+
+  .form--edit {
+    padding: 0;
+  }
+
+  .form--edit .field {
+    padding: 18px 20px 0;
+  }
+
+  .form--edit .req--flush {
+    margin: 16px 0 0;
+    padding: 2px 20px;
+  }
+
+  .form--edit .alert {
+    margin: 14px 20px 0;
+  }
+
+  .form--edit .form__actions {
+    padding: 14px 20px 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .btn[aria-busy='true']::after {
+    display: none;
+  }
+
+  .spinner {
+    display: none;
+  }
+}

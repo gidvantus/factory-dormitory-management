@@ -11,7 +11,8 @@ import type {
   WidgetResult,
   WidgetSource,
 } from '../../api/dashboardBlocks';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
+import { useEditorPreview } from '../../components/EditorSurface';
 import type { DateRange } from './dates';
 import { formatCount } from './data';
 import { WidgetChart } from './WidgetChart';
@@ -124,6 +125,7 @@ export function WidgetDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [preview, setPreview] = useState<WidgetResult | null>(null);
+  useEditorPreview('dashboard-block', config);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -839,9 +841,9 @@ export function WidgetDialog({
           </p>
         )}
         <div className={styles.actions}>
-          <button type="button" disabled={busy} onClick={onClose}>
+          <ModalCancelButton onClick={onClose} type="button" disabled={busy}>
             Отмена
-          </button>
+          </ModalCancelButton>
           <button
             type="button"
             disabled={busy || loading || !!loadError}

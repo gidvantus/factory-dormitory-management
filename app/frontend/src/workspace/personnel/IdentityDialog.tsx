@@ -8,7 +8,7 @@ import type {
   IdentityFields,
   SourceTable,
 } from '../../api/personnel';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
 import s from './Personnel.module.css';
 
 export function IdentityDialog({
@@ -23,6 +23,7 @@ export function IdentityDialog({
   renderFields,
   saveRecord,
   panelClassName,
+  submitLabel,
 }: {
   dormitoryId: string;
   tableKey: SourceTable;
@@ -39,6 +40,7 @@ export function IdentityDialog({
   ) => ReactNode;
   saveRecord?: (identity: IdentityChoice) => Promise<string>;
   panelClassName?: string;
+  submitLabel?: string;
 }): JSX.Element {
   const omitPersonnelNumber =
     rowId === undefined && (tableKey === 'residents' || tableKey === 'inflow');
@@ -210,9 +212,9 @@ export function IdentityDialog({
           </button>
         )}
         <div className={s.actions}>
-          <button type="button" disabled={busy} onClick={onClose}>
+          <ModalCancelButton onClick={onClose} type="button" disabled={busy}>
             Отмена
-          </button>
+          </ModalCancelButton>
           <button
             className={s.primary}
             disabled={
@@ -223,9 +225,8 @@ export function IdentityDialog({
           >
             {busy
               ? 'Сохраняем…'
-              : mode === 'existing'
-                ? 'Использовать карточку'
-                : 'Создать новую карточку'}
+              : (submitLabel ??
+                (mode === 'existing' ? 'Использовать карточку' : 'Создать новую карточку'))}
           </button>
         </div>
       </form>

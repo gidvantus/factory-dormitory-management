@@ -4,7 +4,8 @@ import { api, ApiError } from '../../api/client';
 import type { CustomTab, CustomTabTemplate } from '../../api/client';
 import { CustomTabOptionsEditor } from './CustomTabOptionsEditor';
 import { defaultTabOptions } from './customTabOptions';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
+import { useEditorPreview } from '../../components/EditorSurface';
 import styles from './ConfigurableColumns.module.css';
 
 export function CreateCustomTabDialog({
@@ -36,6 +37,7 @@ export function CreateCustomTabDialog({
   const [attempt, setAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  useEditorPreview('create-tab', { name, mode, sourceId, withSubtabs, subtabs, options });
   useEffect(() => {
     onBusyChange?.(saving);
     return () => onBusyChange?.(false);
@@ -230,9 +232,9 @@ export function CreateCustomTabDialog({
         </p>
       )}
       <div className={styles.actions}>
-        <button type="button" disabled={saving} onClick={onClose}>
+        <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
           Отмена
-        </button>
+        </ModalCancelButton>
         <button
           type="submit"
           disabled={saving || (mode === 'template' && (loading || !!loadError || !sourceId))}

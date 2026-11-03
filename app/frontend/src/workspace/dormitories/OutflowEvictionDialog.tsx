@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { OutflowRow } from '../../api/client';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
 import styles from './OutflowTable.module.css';
 
 export function OutflowEvictionDialog({
@@ -92,14 +92,14 @@ export function OutflowEvictionDialog({
         </button>
       )}
       <div className="dialog-actions">
-        <button
+        <ModalCancelButton
+          onClick={onClose}
           type="button"
           className="btn btn--ghost btn--compact"
           disabled={saving}
-          onClick={onClose}
         >
           Отмена
-        </button>
+        </ModalCancelButton>
         <button
           type="button"
           className="btn btn--danger btn--compact"

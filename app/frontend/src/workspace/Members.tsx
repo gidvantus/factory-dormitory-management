@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useUnsavedChanges } from '../components/useUnsavedChanges';
 import type { FormEvent } from 'react';
 
 import { api, ApiError } from '../api/client';
@@ -60,6 +61,7 @@ export function Members(): JSX.Element {
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<InviteRole>(DEFAULT_INVITE_ROLE);
+  useUnsavedChanges(!!email || !!fullName || role !== DEFAULT_INVITE_ROLE);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState('');
   const [sendError, setSendError] = useState('');

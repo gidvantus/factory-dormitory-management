@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useUnsavedChanges } from '../components/useUnsavedChanges';
 import type { FormEvent } from 'react';
 
 import { api, ApiError } from '../api/client';
@@ -64,6 +65,14 @@ export function Organization(): JSX.Element {
   const [kpp, setKpp] = useState('');
   const [ogrn, setOgrn] = useState('');
   const [address, setAddress] = useState('');
+  useUnsavedChanges(
+    !!record &&
+      (name !== (record.name ?? '') ||
+        inn !== (record.inn ?? '') ||
+        kpp !== (record.kpp ?? '') ||
+        ogrn !== (record.ogrn ?? '') ||
+        address !== (record.address ?? '')),
+  );
   const [lookup, setLookup] = useState<LookupState>(IDLE_LOOKUP);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');

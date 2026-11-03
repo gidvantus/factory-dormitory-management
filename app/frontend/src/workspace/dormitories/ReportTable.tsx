@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 import type { FormEvent } from 'react';
 
 import { api, ApiError } from '../../api/client';
 import type { ReportLink, ReportRow } from '../../api/client';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
+import { useEditorPreview } from '../../components/EditorSurface';
 import { dateNumber, formatDate } from '../dashboard/dates';
 import type { DateRange } from '../dashboard/dates';
 import styles from './ReportTable.module.css';
@@ -43,6 +45,7 @@ function ReportCellInput({
   const [state, setState] = useState<'idle' | 'saving' | 'error'>('idle');
   const latest = useRef(value);
   const saved = useRef(value);
+  useUnsavedChanges(draft !== saved.current);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
   const pending = useRef(false);
@@ -149,6 +152,7 @@ export function RowDialog({
   onChanged,
   inline = false,
   onBusyChange,
+  initialLink = null,
 }: {
   dormitoryId: string;
   row: ReportRow | null;
@@ -157,13 +161,14 @@ export function RowDialog({
   onChanged: () => void;
   inline?: boolean;
   onBusyChange?: (busy: boolean) => void;
+  initialLink?: ReportLink | null;
 }): JSX.Element {
   const required = row !== null && requiredRowNames.has(row.name);
   const [name, setName] = useState(row?.name ?? '');
   const [mode, setMode] = useState<'manual' | 'formula' | 'link'>(
-    required || row?.formula ? 'formula' : row?.link ? 'link' : 'manual',
+    required || row?.formula ? 'formula' : row?.link || initialLink ? 'link' : 'manual',
   );
-  const [link, setLink] = useState<ReportLink | null>(row?.link ?? null);
+  const [link, setLink] = useState<ReportLink | null>(row?.link ?? initialLink);
   const [formula, setFormula] = useState(row?.formula ?? (required ? '=0' : '='));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -173,6 +178,7 @@ export function RowDialog({
     return () => onBusyChange?.(false);
   }, [saving, deleting, onBusyChange]);
   const [error, setError] = useState('');
+  useEditorPreview('report-row', { rowId: row?.id ?? null, name, mode, formula, link });
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -362,14 +368,15 @@ export function RowDialog({
               Удалить строку
             </button>
           ))}
-        <button
+        <ModalCancelButton
+          onClick={onClose}
           type="button"
           className="btn btn--ghost btn--compact"
-          onClick={onClose}
+
           disabled={saving || deleting}
         >
           Отмена
-        </button>
+        </ModalCancelButton>
         <button
           type="submit"
           className="btn btn--primary"
@@ -464,14 +471,15 @@ function SaveTemplateDialog({
           </p>
         )}
         <div className="dialog-actions">
-          <button
+          <ModalCancelButton
+            onClick={onClose}
             type="button"
             className="btn btn--ghost btn--compact"
-            onClick={onClose}
+
             disabled={saving}
           >
             Отмена
-          </button>
+          </ModalCancelButton>
           <button type="submit" className="btn btn--primary" aria-busy={saving} disabled={saving}>
             Сохранить шаблон
           </button>

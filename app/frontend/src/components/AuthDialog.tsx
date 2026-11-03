@@ -17,7 +17,7 @@ interface AuthDialogProps {
 /** Формы входа и регистрации показываются в модальном окне, а не отдельной страницей. */
 export function AuthDialog({ mode, onClose }: AuthDialogProps): JSX.Element {
   return (
-    <Modal title={TITLES[mode]} testId="auth-modal" onClose={onClose}>
+    <Modal title={TITLES[mode]} testId="auth-modal" onClose={onClose} protectChanges={false}>
       {mode === 'login' ? <Login /> : <Register />}
     </Modal>
   );

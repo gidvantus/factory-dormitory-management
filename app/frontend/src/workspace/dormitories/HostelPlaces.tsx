@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 import type { FormEvent } from 'react';
 
 import { api, ApiError } from '../../api/client';
 import type { HostelPlaces, PlaceField } from '../../api/client';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
 import { formatDate } from '../dashboard/dates';
 import { ImportPlacesDialog } from './ImportPlacesDialog';
 import styles from './HostelPlaces.module.css';
@@ -71,6 +72,7 @@ function PlaceCell({
   const [state, setState] = useState<'idle' | 'saving' | 'error'>('idle');
   const latest = useRef(initial);
   const saved = useRef(initial);
+  useUnsavedChanges(draft !== saved.current);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
   const pending = useRef(false);
@@ -219,14 +221,15 @@ function AddHostelDialog({
           </p>
         )}
         <div className="dialog-actions">
-          <button
+          <ModalCancelButton
+            onClick={onClose}
             type="button"
             className="btn btn--ghost btn--compact"
-            onClick={onClose}
+
             disabled={saving}
           >
             Отмена
-          </button>
+          </ModalCancelButton>
           <button
             type="submit"
             className="btn btn--primary btn--compact"
@@ -288,14 +291,15 @@ function RemoveHostelDialog({
         </p>
       )}
       <div className="dialog-actions">
-        <button
+        <ModalCancelButton
+          onClick={onClose}
           type="button"
           className="btn btn--ghost btn--compact"
-          onClick={onClose}
+
           disabled={saving}
         >
           Отмена
-        </button>
+        </ModalCancelButton>
         <button
           type="button"
           className="btn btn--danger btn--compact"

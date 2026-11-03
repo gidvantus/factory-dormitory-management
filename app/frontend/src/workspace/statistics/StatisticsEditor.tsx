@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 import type { CellValue, PlaceMetric } from '../../api/client';
 import type { CatalogDormitory, WidgetConfig, WidgetSource } from '../../api/dashboardBlocks';
 import { statisticsApi } from '../../api/statistics';
@@ -300,6 +301,10 @@ export function StatisticsEditor({
   onRefresh: () => void;
 }): JSX.Element {
   const [draft, setDraft] = useState(() => structuredClone(initial));
+  const confirmDiscard = useUnsavedChanges(JSON.stringify(draft) !== JSON.stringify(initial));
+  const cancel = (): void => {
+    if (confirmDiscard()) onCancel();
+  };
   const [preview, setPreview] = useState<StatisticsResult | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -366,7 +371,7 @@ export function StatisticsEditor({
       : undefined);
   return (
     <>
-      <button className={styles.back} disabled={busy} onClick={onCancel}>
+      <button className={styles.back} disabled={busy} onClick={cancel}>
         <Icon name="arrow" />
         Вернуться к отчёту
       </button>
@@ -377,7 +382,7 @@ export function StatisticsEditor({
           <p className={styles.subtitle}>Выберите, что считать и как это показать.</p>
         </div>
         <div className={styles.actions}>
-          <button className={styles.secondary} disabled={busy} onClick={onCancel}>
+          <button className={styles.secondary} disabled={busy} onClick={cancel}>
             Отмена
           </button>
           <button

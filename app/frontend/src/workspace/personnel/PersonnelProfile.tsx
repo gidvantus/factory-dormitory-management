@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { personnelApi } from '../../api/personnel';
 import type { Employee, EmployeeDetail, PersonnelData, Source } from '../../api/personnel';
-import { Modal } from '../../components/Modal';
+import { Modal, ModalCancelButton } from '../../components/Modal';
 import { EmployeeEditForm, NoteForm } from './Forms';
 import type { Mutate } from './Forms';
 import { dateLabel, dormName, message, personName, value } from './helpers';
@@ -127,10 +127,16 @@ export function PersonnelProfile({
             ['notes', 'Заметки'],
           ] as const
         ).map(([id, label]) => (
-          <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
+          <ModalCancelButton
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            when={tab !== id}
+            onClick={() => setTab(id)}
+          >
             {label}
             {id === 'history' && detail && <b>{detail.events.length}</b>}
-          </button>
+          </ModalCancelButton>
         ))}
       </div>
       {refreshError && (
@@ -151,9 +157,9 @@ export function PersonnelProfile({
             <section className={s.softCard}>
               <div className={s.cardHead}>
                 <h4>Основные данные</h4>
-                <button onClick={() => setEditing((value) => !value)}>
+                <ModalCancelButton when={editing} onClick={() => setEditing((value) => !value)}>
                   {editing ? 'Закрыть редактирование' : 'Уточнить данные'}
-                </button>
+                </ModalCancelButton>
               </div>
               {editing ? (
                 <EmployeeEditForm

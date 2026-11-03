@@ -1,6 +1,8 @@
-# Стенд CRM Dormitory: db + api + web + bot.
+# Стенд CRM Dormitory: db + api + web + bot, плюс кабинет оператора —
+# operator-api (operator/backend) и operator-web (operator/frontend).
 #
-# Исходники лежат в app/: app/backend — FastAPI, app/frontend — React + nginx.
+# Исходники лежат в app/: app/backend — FastAPI, app/frontend — React + nginx;
+# кабинет оператора — отдельное приложение в operator/.
 #
 # Стенд этой рабочей копии (клон человека) — имя проекта `crm-dormitory`,
 # рабочая ветка `develop-m`. У отдела разработки свой стенд по этому же
@@ -119,6 +121,51 @@ services:
     depends_on:
       - api
     command: ["python", "-m", "app.bot"]
+
+  # ---------- Кабинет оператора: отдельное приложение operator/ -------------
+  # Свой сервис входа и своя сессия (`operator_session`, секрет
+  # `OPERATOR_TOKEN_SECRET`). Своей базы у кабинета нет, поэтому `db` в
+  # `depends_on` не нужен и нет `alembic`: сервис поднимается сам.
+  # Имя `operator-api` не совпадает с `api`: внутренний адрес `api:8000` основного
+  # кабинета остаётся на месте.
+  operator-api:
+    build: ./operator/backend
+    restart: unless-stopped
+    env_file: *env-files
+    ports:
+      - "${OPERATOR_API_PORT:-8002}:8000"
+    healthcheck:
+      # curl в slim-образе нет: проверяем тем же Python, которым запущен сервис.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Фронтенд кабинета: nginx со статикой SPA и прокси `/api/` в `operator-api`.
+  # Ждёт именно готовности API (`service_healthy`), а не старта контейнера:
+  # иначе первая же загрузка страницы получила бы 502 на `/api/auth/me`.
+  # Имя `operator-web` не совпадает с `web` — внутренние адреса основного
+  # кабинета (`api:8000`, `web:80`) остаются на месте.
+  operator-web:
+    build: ./operator/frontend
+    restart: unless-stopped
+    depends_on:
+      operator-api:
+        condition: service_healthy
+    ports:
+      - "${OPERATOR_FRONTEND_PORT:-8081}:80"
+    healthcheck:
+      # /healthz отдаёт сам nginx кабинета — без прокси и без записей в лог.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
 volumes:
   pgdata:
