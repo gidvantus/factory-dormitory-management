@@ -4,6 +4,7 @@ import type { ChangeEvent, FormEvent } from 'react';
 
 import { ApiError, getOrganization, updateOrganization } from '../api/client';
 import type { OrganizationDetails, OrganizationUpdate } from '../api/client';
+import { OperatorNav } from '../components/OperatorNav';
 import { OperatorTopBar } from '../components/OperatorTopBar';
 import { Screen } from '../components/Screen';
 import { NO_NAME, formatDayLong, plural } from '../lib/format';
@@ -154,7 +155,7 @@ export function OrganizationCard(): JSX.Element {
 
   if (state.status === 'loading') {
     return (
-      <Screen right={<OperatorTopBar />}>
+      <Screen nav={<OperatorNav />} right={<OperatorTopBar />}>
         <main className="screen__main">
           <div className="page page--card">
             <p className="page__back">
@@ -177,7 +178,7 @@ export function OrganizationCard(): JSX.Element {
 
   if (state.status === 'missing') {
     return (
-      <Screen right={<OperatorTopBar />}>
+      <Screen nav={<OperatorNav />} right={<OperatorTopBar />}>
         <main className="screen__main">
           <div className="page">
             <div className="page__head">
@@ -212,7 +213,7 @@ export function OrganizationCard(): JSX.Element {
 
   if (state.status === 'error') {
     return (
-      <Screen right={<OperatorTopBar />}>
+      <Screen nav={<OperatorNav />} right={<OperatorTopBar />}>
         <main className="screen__main">
           <div className="page">
             <div className="page__head">
@@ -239,7 +240,7 @@ export function OrganizationCard(): JSX.Element {
   const data = state.data;
 
   return (
-    <Screen right={<OperatorTopBar />}>
+    <Screen nav={<OperatorNav />} right={<OperatorTopBar />}>
       <main className="screen__main">
         <div className="page page--card" data-testid="operator-organization-card">
           <p className="page__back">

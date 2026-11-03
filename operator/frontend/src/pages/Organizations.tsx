@@ -4,6 +4,7 @@ import type { MouseEvent } from 'react';
 
 import { ApiError, listOrganizations } from '../api/client';
 import type { OrganizationListItem } from '../api/client';
+import { OperatorNav } from '../components/OperatorNav';
 import { OperatorTopBar } from '../components/OperatorTopBar';
 import { Screen } from '../components/Screen';
 import { NO_NAME, formatDay, plural } from '../lib/format';
@@ -97,7 +98,7 @@ export function Organizations(): JSX.Element {
   }
 
   return (
-    <Screen right={<OperatorTopBar />}>
+    <Screen nav={<OperatorNav />} right={<OperatorTopBar />}>
       <main className="screen__main">
         <div className="page">
           <div className="page__head">

@@ -37,6 +37,7 @@ from app.api import (
     payments,
     personnel,
     platform_organizations,
+    platform_users,
     recovery,
     report_readiness,
     report_templates,
@@ -327,6 +328,9 @@ def create_app() -> FastAPI:
     # Платформенный контур кабинета оператора: отдельный префикс и отдельный
     # сервисный токен, cookie основного кабинета его не открывает.
     application.include_router(platform_organizations.router, prefix=API_PREFIX)
+    # Пользователи платформы — второй раздел того же контура: тот же заголовок
+    # `X-Operator-Token` и та же зависимость на роутере.
+    application.include_router(platform_users.router, prefix=API_PREFIX)
     application.include_router(journal_router, prefix=API_PREFIX)
     application.include_router(dashboard.router, prefix=API_PREFIX)
     application.include_router(dashboard_blocks.router, prefix=API_PREFIX)

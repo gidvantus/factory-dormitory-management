@@ -9,6 +9,34 @@
 /** Название организации у пустой заготовки: `name` в API бывает `null`. */
 export const NO_NAME = 'Без названия';
 
+/**
+ * Пустое значение в данных: тире, а не выдуманное слово.
+ *
+ * У пользователя без организации `organization_name` и `role` равны `null`, и
+ * экран говорит именно «—», а не «без организации» и не «нет роли».
+ */
+export const NONE = '—';
+
+/**
+ * Подписи ролей по контракту (`ORGANIZATION_ROLES` в модели организации).
+ *
+ * Неизвестное значение показывается как пришло: придумывать роль экран не
+ * должен, а `null` — это тире, а не «Участник».
+ */
+const ROLE_LABELS: Readonly<Record<string, string>> = {
+  owner: 'Владелец',
+  admin: 'Администратор',
+  manager: 'Менеджер',
+  commandant: 'Комендант',
+  member: 'Участник',
+};
+
+/** Роль словами: `owner` → «Владелец», `null` → «—». */
+export function roleLabel(role: string | null): string {
+  if (role === null) return NONE;
+  return ROLE_LABELS[role] ?? role;
+}
+
 const MONTHS_GENITIVE = [
   'января',
   'февраля',

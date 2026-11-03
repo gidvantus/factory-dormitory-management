@@ -35,6 +35,9 @@ def test_openapi_documents_the_contract(client: TestClient) -> None:
         # Организации платформы: чтение и правка через сервисный контур.
         "/api/organizations",
         "/api/organizations/{organization_id}",
+        # Пользователи платформы: тот же контур, второй раздел кабинета.
+        "/api/users",
+        "/api/users/{user_id}",
     }
     login = schema["paths"]["/api/auth/login"]["post"]
     assert login["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
@@ -63,4 +66,23 @@ def test_openapi_documents_the_platform_contour(client: TestClient) -> None:
         assert operation["responses"]["503"] is not None
     assert details["responses"]["404"] is not None
     assert update["responses"]["409"] is not None
+    assert update["responses"]["422"] is not None
+
+
+def test_openapi_documents_the_users_contour(client: TestClient) -> None:
+    """Отказы пользователей — тоже контракт: `detail` приходит из основного API."""
+    schema = client.get("/openapi.json").json()
+    listing = schema["paths"]["/api/users"]["get"]
+    details = schema["paths"]["/api/users/{user_id}"]["get"]
+    update = schema["paths"]["/api/users/{user_id}"]["patch"]
+
+    assert listing["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "PlatformUserPage"
+    )
+    for operation in (listing, details, update):
+        assert operation["responses"]["401"]["description"] == UNAUTHORIZED_DETAIL
+        assert operation["responses"]["502"] is not None
+        assert operation["responses"]["503"] is not None
+    assert details["responses"]["404"] is not None
+    assert update["responses"]["404"] is not None
     assert update["responses"]["422"] is not None
