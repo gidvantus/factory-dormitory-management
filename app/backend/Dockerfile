@@ -13,11 +13,24 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
-# Сначала зависимости: слой pip переиспользуется, пока не менялся pyproject.toml.
-# Пакет ставится editable, чтобы правки в ./app подхватывались без пересборки.
+# Зависимости ставит отдельный слой, и его содержимое зависит ТОЛЬКО от
+# pyproject.toml: `COPY app ./app` идёт ниже, поэтому правка любого файла в app/
+# не сбрасывает этот слой и не тянет PyPI заново.
+# setuptools считает метаданные пакета на этапе установки (`pip install -e`),
+# то есть ему нужен каталог app/ — имена и версии зависимостей берутся из
+# pyproject.toml, а не из кода. Поэтому вместо настоящих исходников кладётся
+# заглушка app/__init__.py: настоящий `COPY app ./app` ниже перезапишет её.
+# `-e` (editable) остаётся: пакет подключается ссылкой на /app/app, поэтому
+# правки в ./app подхватываются без переустановки зависимостей.
+# Только штатные инструкции и обычный `docker compose build`: ни `--mount`, ни
+# директивы `# syntax` здесь нет, поэтому шагу сборки на сервере BuildKit не
+# нужен сверх того, что уже требуется сегодня.
 COPY pyproject.toml ./
+RUN mkdir -p app && touch app/__init__.py \
+    && pip install --no-cache-dir -e ".[dev]"
+
+# Исходники — после зависимостей: меняется только этот слой и те, что ниже.
 COPY app ./app
-RUN pip install --no-cache-dir -e ".[dev]"
 
 COPY alembic.ini ./
 COPY alembic ./alembic
