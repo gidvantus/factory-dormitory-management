@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Макет #154 — письма приглашения и активации</title>
+<style>
+  /* Токены — из app/frontend/src/index.css (project design tokens, subset).
+     Новых цветов, радиусов и шрифтов макет не вводит. */
+  :root {
+    --cream-50: #fffdf9;
+    --cream-100: #fbf6ec;
+    --cream-200: #f4ebdc;
+    --cream-300: #e8dcc7;
+    --ink-900: #27313d;
+    --ink-500: #4a5a6b;
+    --mint-100: #dceee4;
+    --mint-600: #2f7d62;
+    --color-text-muted: #5c6a78;
+    --color-focus: #34679e;
+    --color-danger: #9c3d24;
+    --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --font-body: 'Nunito Sans', 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --font-mono: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
+    /* Гарнитура письма: системный гротеск без веб-шрифта. Nunito в письмо не попадает —
+       она грузится в кабинете по ссылке, а письмо такой возможности не имеет. */
+    --font-email: 'Segoe UI', system-ui, Arial, Helvetica, sans-serif;
+    --radius-xs: 6px;
+    --radius-3xs: 8px;
+    --radius-sm: 12px;
+    --radius-md: 18px;
+    --shadow-md: 0 10px 24px -14px rgba(39, 49, 61, 0.22);
+    --gap-4: 4px;
+    --gap-8: 8px;
+    --gap-12: 12px;
+    --gap-16: 16px;
+    --gap-24: 24px;
+    --gap-32: 32px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--cream-100);
+    color: var(--ink-900);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 952px;
+    margin: 0 auto;
+    padding: 56px 24px 72px;
+  }
+
+  .page__head { max-width: 720px; }
+
+  h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 34px;
+    line-height: 1.15;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+
+  .page__meta {
+    margin: var(--gap-12) 0 0;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--ink-500);
+  }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    color: var(--ink-900);
+    background: var(--cream-200);
+    border-radius: var(--gap-4);
+    padding: 1px 5px;
+  }
+
+  .frames {
+    margin-top: 48px;
+    display: grid;
+    gap: 64px;
+  }
+
+  .frame {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 600px);
+    gap: var(--gap-32);
+    align-items: start;
+  }
+
+  .frame__label { padding-top: 4px; }
+
+  .frame__name {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 16px;
+    line-height: 1.3;
+    font-weight: 800;
+  }
+
+  .frame__meta {
+    margin: var(--gap-8) 0 0;
+    display: grid;
+    gap: var(--gap-4);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--color-text-muted);
+  }
+
+  .frame__meta code { font-size: 11px; }
+
+  /* Письмо: белая «бумага» на кремовом фоне.
+     Тень — оформление макета, в письме её нет: клиент рисует письмо сам. */
+  .letter {
+    width: 600px;
+    max-width: 100%;
+    background: #ffffff;
+    box-shadow: var(--shadow-md);
+  }
+
+  /* Фрагменты письма (кадр «абзац про организацию») */
+  .fragments { width: 600px; max-width: 100%; }
+
+  .frag {
+    background: #ffffff;
+    box-shadow: var(--shadow-md);
+    padding: 24px 32px;
+  }
+
+  .frag + .frag { margin-top: var(--gap-16); }
+
+  .frag__label {
+    margin: 0 0 var(--gap-8);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-text-muted);
+  }
+
+  .frag__text {
+    margin: 0;
+    font-family: var(--font-email);
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--ink-500);
+  }
+
+  .page__foot {
+    margin-top: 56px;
+    padding-top: var(--gap-24);
+    border-top: 1px solid var(--cream-300);
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+  }
+
+  /* Видимый фокус клавиатуры во всём макете. */
+  a:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 3px;
+    border-radius: 3px;
+  }
+
+  @media (max-width: 860px) {
+    .page { padding: 40px 20px 56px; }
+    h1 { font-size: 28px; }
+    .frames { margin-top: 40px; gap: 48px; }
+    .frame { grid-template-columns: minmax(0, 600px); gap: var(--gap-16); }
+    .frame__label { padding-top: 0; }
+  }
+
+  @media (max-width: 420px) {
+    .page { padding: 32px 16px 48px; }
+    h1 { font-size: 24px; }
+    .page__meta { font-size: 14px; }
+    .frag { padding: 20px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header class="page__head">
+    <h1>Письма приглашения и активации</h1>
+    <p class="page__meta">
+      Макет #154. Письмо — 600&nbsp;px, одна колонка, табличная вёрстка и инлайн-стили: так оно
+      и уйдёт в <code>mail_templates.body_html</code>. Цвета, радиусы и шкала текста — из
+      <code>app/frontend/src/index.css</code>, новых токенов нет. Картинок, внешних CSS и
+      шрифтов по сети в письме нет — домик в логотипе собран рамками и треугольником.
+    </p>
+  </header>
+
+  <section class="frames">
+
+    <!-- ────────────────────── Кадр 1: приглашение ────────────────────── -->
+    <article class="frame" id="invitation">
+      <div class="frame__label">
+        <h2 class="frame__name">Письмо 1 · Приглашение</h2>
+        <div class="frame__meta">
+          <span><code>code = invitation</code></span>
+          <span>Тема: «Приглашение в систему «Домовой»»</span>
+          <span>Организация «Ромашка», получатель Мария Соколова</span>
+          <span>Подстановки: full_name, organization_phrase, activation_url, expires_hours, site_url</span>
+        </div>
+      </div>
+
+      <!-- Содержимое mail_templates.body_html. Обёртка <html lang="ru"> + <meta charset="utf-8">
+           + <title>{subject}</title> в макете не показана: вложенный <html> сломал бы страницу. -->
+      <div class="letter">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+               style="width:100%;border-collapse:collapse;background:#ffffff">
+          <tr>
+            <td align="center" style="padding:0">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600"
+                     style="width:100%;max-width:600px;border-collapse:collapse;font-family:'Segoe UI',system-ui,Arial,Helvetica,sans-serif;color:#27313d">
+                <tr>
+                  <td style="padding:32px 32px 0 32px">
+
+                    <!-- preheader: строка для списка писем, в теле не видна -->
+                    <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;overflow:hidden;opacity:0;color:#ffffff">Для вас открыта дверь</div>
+
+                    <!-- шапка: плашка-логотип и подпись продукта -->
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                           style="width:100%;border-collapse:collapse">
+                      <tr>
+                        <td width="150" valign="middle" style="width:150px;padding:0 0 28px 0">
+                          <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                                 style="border-collapse:collapse">
+                            <tr>
+                              <td width="32" height="32" valign="top"
+                                  style="width:32px;height:32px;padding:6px 0 0 0;background:#dceee4;border-radius:8px;text-align:center">
+                                <div style="width:0;height:0;margin:0 auto;border-left:9px solid #dceee4;border-right:9px solid #dceee4;border-bottom:8px solid #27313d;font-size:0;line-height:0">&nbsp;</div>
+                                <div style="width:13px;height:8px;margin:0 auto;border:2px solid #27313d;border-top:0;font-size:0;line-height:0">&nbsp;</div>
+                              </td>
+                              <td valign="middle" style="padding:0 0 0 10px;font-size:17px;line-height:1.2;font-weight:700;color:#27313d">Домовой</td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="middle" align="right"
+                            style="padding:0 0 28px 0;font-size:12px;line-height:1.4;color:#5c6a78;text-align:right">
+                          Учёт и управление<br>общежитиями
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- плашка-герой: единственный крупный блок письма -->
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                           style="width:100%;border-collapse:collapse">
+                      <tr>
+                        <td style="padding:28px;background:#dceee4;border-radius:18px">
+                          <div style="padding:0 0 8px 0;font-size:12px;line-height:1.4;color:#4a5a6b">Для вас открыта дверь</div>
+                          <div style="font-size:28px;line-height:1.2;font-weight:700;color:#27313d">Добро пожаловать в вашу команду</div>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:28px 0 0 0;padding:0;font-size:16px;line-height:1.5;font-weight:600;color:#27313d">Здравствуйте, Мария Соколова!</p>
+                    <p style="margin:12px 0 0 0;padding:0;font-size:15px;line-height:1.6;color:#4a5a6b">Администратор организации «Ромашка» приглашает вас в кабинет организации в «Домовом». После активации вы сможете работать с общежитиями, персоналом и отчётами в рамках предоставленных вам прав.</p>
+
+                    <p style="margin:32px 0 0 0;padding:0;font-size:16px;line-height:1.4;font-weight:700;color:#27313d">Три простых шага — и вы в команде</p>
+
+                    <!-- шаги: последовательность, поэтому нумерованные -->
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                           style="width:100%;margin:16px 0 0 0;border-collapse:collapse">
+                      <tr>
+                        <td width="34" valign="top" style="width:34px;padding:1px 0 16px 0">
+                          <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                                 style="border-collapse:collapse">
+                            <tr>
+                              <td width="22" height="22" align="center" valign="middle"
+                                  style="width:22px;height:22px;background:#2f7d62;border-radius:11px;font-size:12px;line-height:22px;font-weight:700;color:#ffffff;text-align:center">1</td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="top" style="padding:0 0 16px 0">
+                          <div style="font-size:15px;line-height:1.4;font-weight:600;color:#27313d">Задайте пароль</div>
+                          <div style="padding:2px 0 0 0;font-size:13px;line-height:1.5;color:#4a5a6b">Для безопасного входа в кабинет.</div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td width="34" valign="top" style="width:34px;padding:1px 0 16px 0">
+                          <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                                 style="border-collapse:collapse">
+                            <tr>
+                              <td width="22" height="22" align="center" valign="middle"
+                                  style="width:22px;height:22px;background:#2f7d62;border-radius:11px;font-size:12px;line-height:22px;font-weight:700;color:#ffffff;text-align:center">2</td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="top" style="padding:0 0 16px 0">
+                          <div style="font-size:15px;line-height:1.4;font-weight:600;color:#27313d">Подтвердите согласия</div>
+                          <div style="padding:2px 0 0 0;font-size:13px;line-height:1.5;color:#4a5a6b">Примите правила и обработку данных.</div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td width="34" valign="top" style="width:34px;padding:1px 0 0 0">
+                          <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                                 style="border-collapse:collapse">
+                            <tr>
+                              <td width="22" height="22" align="center" valign="middle"
+                                  style="width:22px;height:22px;background:#2f7d62;border-radius:11px;font-size:12px;line-height:22px;font-weight:700;color:#ffffff;text-align:center">3</td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="top" style="padding:0">
+                          <div style="font-size:15px;line-height:1.4;font-weight:600;color:#27313d">Начните работу</div>
+                          <div style="padding:2px 0 0 0;font-size:13px;line-height:1.5;color:#4a5a6b">Откройте кабинет вашей организации.</div>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- единственное действие письма -->
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                           style="width:100%;margin:28px 0 0 0;border-collapse:separate">
+                      <tr>
+                        <td align="center" bgcolor="#2f7d62"
+                            style="background:#2f7d62;border-radius:12px">
+                          <a href="https://домовой.рф/activate/7Qk2mZ9f4Lx8Rt1V"
+                             style="display:block;padding:18px 24px;border-radius:12px;font-size:16px;line-height:20px;font-weight:700;color:#ffffff;text-decoration:none;text-align:center">Принять приглашение</a>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:14px 0 0 0;padding:0;font-size:12px;line-height:1.5;color:#5c6a78">Если кнопка не работает, скопируйте ссылку в браузер:</p>
+                    <p style="margin:4px 0 0 0;padding:0;font-size:12px;line-height:1.5;color:#2f7d62;word-break:break-all"><a href="https://домовой.рф/activate/7Qk2mZ9f4Lx8Rt1V"
+                       style="color:#2f7d62;text-decoration:underline;word-break:break-all">https://домовой.рф/activate/7Qk2mZ9f4Lx8Rt1V</a></p>
+
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                           style="width:100%;margin:24px 0 0 0;border-collapse:collapse">
+                      <tr>
+                        <td style="padding:18px;background:#f4ebdc;border-radius:12px;font-size:13px;line-height:1.55;color:#4a5a6b">
+                          Ссылка действует 24 ч. и может быть использована один раз.<br>
+                          Если вы не ждали приглашения, просто проигнорируйте это письмо.
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:28px 0 0 0;padding:0;font-size:15px;line-height:1.6;color:#4a5a6b">До встречи в кабинете,<br><strong style="font-weight:700;color:#27313d">команда «Домового»</strong></p>
+
+                    <!-- подвал: тише тела письма, без акцентного цвета -->
+                    <div style="margin:32px 0 0 0;padding:20px 0 0 0;border-top:1px solid #f4ebdc">
+                      <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                             style="border-collapse:collapse">
+                        <tr>
+                          <td width="24" height="24" valign="top"
+                              style="width:24px;height:24px;padding:5px 0 0 0;background:#dceee4;border-radius:6px;text-align:center">
+                            <div style="width:0;height:0;margin:0 auto;border-left:6px solid #dceee4;border-right:6px solid #dceee4;border-bottom:5px solid #27313d;font-size:0;line-height:0">&nbsp;</div>
+                            <div style="width:8px;height:4px;margin:0 auto;border:2px solid #27313d;border-top:0;font-size:0;line-height:0">&nbsp;</div>
+                          </td>
+                          <td valign="middle" style="padding:0 0 0 8px;font-size:14px;line-height:1.2;font-weight:700;color:#27313d">Домовой</td>
+                        </tr>
+                      </table>
+                      <div style="padding:10px 0 0 0;font-size:13px;line-height:1.5;color:#4a5a6b">Порядок в общежитиях. Спокойствие в работе.</div>
+                      <div style="padding:10px 0 0 0;font-size:12px;line-height:1.5;color:#4a5a6b">
+                        <a href="https://домовой.рф/" style="color:#4a5a6b;text-decoration:underline">О сервисе</a>
+                        <span style="padding:0 6px;color:#5c6a78">·</span>
+                        <a href="https://домовой.рф/documents/privacy-policy" style="color:#4a5a6b;text-decoration:underline">Политика конфиденциальности</a>
+                      </div>
+                      <div style="padding:12px 0 0 0;font-size:11px;line-height:1.5;color:#5c6a78">Это автоматическое письмо. Отвечать на него не нужно.<br>© 2026 Домовой</div>
+                    </div>
+
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
+    </article>
+
+    <!-- ───────────── Кадр 2: абзац про организацию в двух видах ───────────── -->
+    <article class="frame" id="organization-phrase">
+      <div class="frame__label">
+        <h2 class="frame__name">Абзац про организацию</h2>
+        <div class="frame__meta">
+          <span>Одна и та же строка письма при заполненном и пустом <code>Organization.name</code></span>
+          <span>Фразу собирает сервер в ключ <code>organization_phrase</code></span>
+          <span>В обоих случаях пробел перед «приглашает» — один</span>
+        </div>
+      </div>
+
+      <div class="fragments">
+        <div class="frag">
+          <p class="frag__label"><code>Organization.name = «Ромашка»</code> → «Администратор организации «Ромашка» приглашает…»</p>
+          <p class="frag__text">Администратор организации «Ромашка» приглашает вас в кабинет организации в «Домовом». После активации вы сможете работать с общежитиями, персоналом и отчётами в рамках предоставленных вам прав.</p>
+        </div>
+        <div class="frag">
+          <p class="frag__label"><code>Organization.name</code> пуст → «Администратор приглашает…»</p>
+          <p class="frag__text">Администратор приглашает вас в кабинет организации в «Домовом». После активации вы сможете работать с общежитиями, персоналом и отчётами в рамках предоставленных вам прав.</p>
+        </div>
+      </div>
+    </article>
+
+    <!-- ────────────────────── Кадр 3: активация ────────────────────── -->
+    <article class="frame" id="activation">
+      <div class="frame__label">
+        <h2 class="frame__name">Письмо 2 · Активация</h2>
+        <div class="frame__meta">
+          <span><code>code = activation</code></span>
+          <span>Тема: «Активация личного кабинета Домовой»</span>
+          <span>Получатель — тот, кто зарегистрировался сам</span>
+          <span>Другие герой, абзац, кнопка и второе примечание; остальное совпадает с приглашением</span>
+        </div>
+      </div>
+
+      <div class="letter">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+               style="width:100%;border-collapse:collapse;background:#ffffff">
+          <tr>
+            <td align="center" style="padding:0">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600"
+                     style="width:100%;max-width:600px;border-collapse:collapse;font-family:'Segoe UI',system-ui,Arial,Helvetica,sans-serif;color:#27313d">
+                <tr>
+                  <td style="padding:32px 32px 0 32px">
+
+                    <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;overflow:hidden;opacity:0;color:#ffffff">Для вас открыта дверь</div>
+
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                           style="width:100%;border-collapse:collapse">
+                      <tr>
+                        <td width="150" valign="middle" style="width:150px;padding:0 0 28px 0">
+                          <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                                 style="border-collapse:collapse">
+                            <tr>
+                              <td width="32" height="32" valign="top"
+                                  style="width:32px;height:32px;padding:6px 0 0 0;background:#dceee4;border-radius:8px;text-align:center">
+                                <div style="width:0;height:0;margin:0 auto;border-left:9px solid #dceee4;border-right:9px solid #dceee4;border-bottom:8px solid #27313d;font-size:0;line-height:0">&nbsp;</div>
+                                <div style="width:13px;height:8px;margin:0 auto;border:2px solid #27313d;border-top:0;font-size:0;line-height:0">&nbsp;</div>
+                              </td>
+                              <td valign="middle" style="padding:0 0 0 10px;font-size:17px;line-height:1.2;font-weight:700;color:#27313d">Домовой</td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="middle" align="right"
+                            style="padding:0 0 28px 0;font-size:12px;line-height:1.4;color:#5c6a78;text-align:right">
+                          Учёт и управление<br>общежитиями
+                        </td>
+                      </tr>
+                    </table>
+
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                           style="width:100%;border-collapse:collapse">
+                      <tr>
+                        <td style="padding:28px;background:#dceee4;border-radius:18px">
+                          <div style="padding:0 0 8px 0;font-size:12px;line-height:1.4;color:#4a5a6b">Для вас открыта дверь</div>
+                          <div style="font-size:28px;line-height:1.2;font-weight:700;color:#27313d">Добро пожаловать в «Домовой»</div>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:28px 0 0 0;padding:0;font-size:16px;line-height:1.5;font-weight:600;color:#27313d">Здравствуйте, Мария Соколова!</p>
+                    <p style="margin:12px 0 0 0;padding:0;font-size:15px;line-height:1.6;color:#4a5a6b">Вы зарегистрировались в системе учёта проживающих «Домовой». Задайте пароль — и кабинет откроется.</p>
+
+                    <p style="margin:32px 0 0 0;padding:0;font-size:16px;line-height:1.4;font-weight:700;color:#27313d">Три простых шага — и вы в команде</p>
+
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                           style="width:100%;margin:16px 0 0 0;border-collapse:collapse">
+                      <tr>
+                        <td width="34" valign="top" style="width:34px;padding:1px 0 16px 0">
+                          <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                                 style="border-collapse:collapse">
+                            <tr>
+                              <td width="22" height="22" align="center" valign="middle"
+                                  style="width:22px;height:22px;background:#2f7d62;border-radius:11px;font-size:12px;line-height:22px;font-weight:700;color:#ffffff;text-align:center">1</td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="top" style="padding:0 0 16px 0">
+                          <div style="font-size:15px;line-height:1.4;font-weight:600;color:#27313d">Задайте пароль</div>
+                          <div style="padding:2px 0 0 0;font-size:13px;line-height:1.5;color:#4a5a6b">Для безопасного входа в кабинет.</div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td width="34" valign="top" style="width:34px;padding:1px 0 16px 0">
+                          <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                                 style="border-collapse:collapse">
+                            <tr>
+                              <td width="22" height="22" align="center" valign="middle"
+                                  style="width:22px;height:22px;background:#2f7d62;border-radius:11px;font-size:12px;line-height:22px;font-weight:700;color:#ffffff;text-align:center">2</td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="top" style="padding:0 0 16px 0">
+                          <div style="font-size:15px;line-height:1.4;font-weight:600;color:#27313d">Подтвердите согласия</div>
+                          <div style="padding:2px 0 0 0;font-size:13px;line-height:1.5;color:#4a5a6b">Примите правила и обработку данных.</div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td width="34" valign="top" style="width:34px;padding:1px 0 0 0">
+                          <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                                 style="border-collapse:collapse">
+                            <tr>
+                              <td width="22" height="22" align="center" valign="middle"
+                                  style="width:22px;height:22px;background:#2f7d62;border-radius:11px;font-size:12px;line-height:22px;font-weight:700;color:#ffffff;text-align:center">3</td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="top" style="padding:0">
+                          <div style="font-size:15px;line-height:1.4;font-weight:600;color:#27313d">Начните работу</div>
+                          <div style="padding:2px 0 0 0;font-size:13px;line-height:1.5;color:#4a5a6b">Откройте кабинет вашей организации.</div>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                           style="width:100%;margin:28px 0 0 0;border-collapse:separate">
+                      <tr>
+                        <td align="center" bgcolor="#2f7d62"
+                            style="background:#2f7d62;border-radius:12px">
+                          <a href="https://домовой.рф/activate/7Qk2mZ9f4Lx8Rt1V"
+                             style="display:block;padding:18px 24px;border-radius:12px;font-size:16px;line-height:20px;font-weight:700;color:#ffffff;text-decoration:none;text-align:center">Активировать кабинет</a>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:14px 0 0 0;padding:0;font-size:12px;line-height:1.5;color:#5c6a78">Если кнопка не работает, скопируйте ссылку в браузер:</p>
+                    <p style="margin:4px 0 0 0;padding:0;font-size:12px;line-height:1.5;color:#2f7d62;word-break:break-all"><a href="https://домовой.рф/activate/7Qk2mZ9f4Lx8Rt1V"
+                       style="color:#2f7d62;text-decoration:underline;word-break:break-all">https://домовой.рф/activate/7Qk2mZ9f4Lx8Rt1V</a></p>
+
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+                           style="width:100%;margin:24px 0 0 0;border-collapse:collapse">
+                      <tr>
+                        <td style="padding:18px;background:#f4ebdc;border-radius:12px;font-size:13px;line-height:1.55;color:#4a5a6b">
+                          Ссылка действует 24 ч. и может быть использована один раз.<br>
+                          Если вы не регистрировались, просто проигнорируйте это письмо.
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:28px 0 0 0;padding:0;font-size:15px;line-height:1.6;color:#4a5a6b">До встречи в кабинете,<br><strong style="font-weight:700;color:#27313d">команда «Домового»</strong></p>
+
+                    <div style="margin:32px 0 0 0;padding:20px 0 0 0;border-top:1px solid #f4ebdc">
+                      <table role="presentation" border="0" cellpadding="0" cellspacing="0"
+                             style="border-collapse:collapse">
+                        <tr>
+                          <td width="24" height="24" valign="top"
+                              style="width:24px;height:24px;padding:5px 0 0 0;background:#dceee4;border-radius:6px;text-align:center">
+                            <div style="width:0;height:0;margin:0 auto;border-left:6px solid #dceee4;border-right:6px solid #dceee4;border-bottom:5px solid #27313d;font-size:0;line-height:0">&nbsp;</div>
+                            <div style="width:8px;height:4px;margin:0 auto;border:2px solid #27313d;border-top:0;font-size:0;line-height:0">&nbsp;</div>
+                          </td>
+                          <td valign="middle" style="padding:0 0 0 8px;font-size:14px;line-height:1.2;font-weight:700;color:#27313d">Домовой</td>
+                        </tr>
+                      </table>
+                      <div style="padding:10px 0 0 0;font-size:13px;line-height:1.5;color:#4a5a6b">Порядок в общежитиях. Спокойствие в работе.</div>
+                      <div style="padding:10px 0 0 0;font-size:12px;line-height:1.5;color:#4a5a6b">
+                        <a href="https://домовой.рф/" style="color:#4a5a6b;text-decoration:underline">О сервисе</a>
+                        <span style="padding:0 6px;color:#5c6a78">·</span>
+                        <a href="https://домовой.рф/documents/privacy-policy" style="color:#4a5a6b;text-decoration:underline">Политика конфиденциальности</a>
+                      </div>
+                      <div style="padding:12px 0 0 0;font-size:11px;line-height:1.5;color:#5c6a78">Это автоматическое письмо. Отвечать на него не нужно.<br>© 2026 Домовой</div>
+                    </div>
+
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
+    </article>
+
+    <!-- ─────────── Кадр 4: восстановление пароля — не меняется ─────────── -->
+    <article class="frame" id="recovery">
+      <div class="frame__label">
+        <h2 class="frame__name">Письмо 3 · Восстановление пароля</h2>
+        <div class="frame__meta">
+          <span><code>code = password_recovery</code></span>
+          <span>Тема: «Восстановление пароля в системе «Домовой»»</span>
+          <span><code>body_html = NULL</code> → прежняя обёртка</span>
+          <span>Кадр для регресса: так письмо уходит и остаётся</span>
+        </div>
+      </div>
+
+      <div class="letter">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"
+               style="width:100%;border-collapse:collapse;background:#ffffff">
+          <tr>
+            <td align="center" style="padding:0">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600"
+                     style="width:100%;max-width:600px;border-collapse:collapse">
+                <tr>
+                  <td style="padding:32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#27313D">Здравствуйте, Мария Соколова!<br><br>Вы запросили письмо для замены пароля в системе учёта проживающих «Домовой».<br>Чтобы задать новый пароль вместо забытого, откройте ссылку:<br><br>https://домовой.рф/activate/7Qk2mZ9f4Lx8Rt1V<br><br>Ссылка действует 24 ч. и срабатывает один раз.<br>Если вы не запрашивали восстановление пароля, просто проигнорируйте это письмо.</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>
+    </article>
+
+  </section>
+
+  <footer class="page__foot">
+    Экраны, состояния, брейкпоинты и границы — в <code>notes.md</code> рядом с макетом.
+    Продуктовый код, стили приложения, схема данных и API этим макетом не меняются.
+  </footer>
+
+</main>
+</body>
+</html>
