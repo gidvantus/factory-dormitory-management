@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -15,13 +14,13 @@ WORKDIR /app
 # pyproject.toml, а не из кода. Поэтому вместо настоящих исходников кладётся
 # заглушка app/__init__.py: настоящий `COPY app ./app` ниже перезапишет её.
 # `-e` (editable) остаётся: пакет подключается ссылкой на /app/app, поэтому
-# правки в ./app подхватываются без переустановки зависимостей. Кэш pip
-# монтируется из билдера (BuildKit): без него `--no-cache-dir` отключал бы ровно
-# тот кэш, который нужен; с маунтом скачивание переживает сброс этого слоя.
+# правки в ./app подхватываются без переустановки зависимостей.
+# Только штатные инструкции и обычный `docker compose build`: ни `--mount`, ни
+# директивы `# syntax` здесь нет, поэтому шагу сборки на сервере BuildKit не
+# нужен сверх того, что уже требуется сегодня.
 COPY pyproject.toml ./
-RUN --mount=type=cache,target=/root/.cache/pip \
-    mkdir -p app && touch app/__init__.py \
-    && pip install -e ".[dev]"
+RUN mkdir -p app && touch app/__init__.py \
+    && pip install --no-cache-dir -e ".[dev]"
 
 # Исходники — после зависимостей: меняется только этот слой и те, что ниже.
 COPY app ./app
