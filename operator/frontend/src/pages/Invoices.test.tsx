@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { Invoices } from './Invoices';
 import { OperatorContext } from '../auth/operatorContext';
 import { mockFetch } from '../test/mockFetch';
-import type { MockStep } from '../test/mockFetch';
+import type { MockResponse, MockStep } from '../test/mockFetch';
 
 /** Строка счёта в форме ответа кабинета: поля ровно по контракту постановки. */
 function invoice(overrides: Record<string, unknown>): Record<string, unknown> {
@@ -408,6 +408,90 @@ describe('раздел «Счета» кабинета оператора', () =
       within(rowByNumber('СЧ-2026-1039')).getByTestId('operator-invoice-download'),
     ).toHaveAttribute('href', '/api/invoices/1039/file');
     expect(patchBodies(network)).toHaveLength(1);
+  });
+
+  it('не блокирует соседние строки: два PATCH уходят независимо', async () => {
+    const secondNew = invoice({
+      id: 1041,
+      number: 'СЧ-2026-1041',
+      organization_name: 'ООО «Северный дом»',
+      amount_label: '12 400 ₽ за 3 месяца',
+    });
+    const network = renderInvoices([
+      { status: 200, body: { items: [NEW_INVOICE, secondNew], total: 2 } },
+      () =>
+        new Promise(() => {
+          // Ответ по первой строке не приходит: вторая команда не должна ждать.
+        }),
+      {
+        status: 200,
+        body: invoice({
+          id: 1041,
+          number: 'СЧ-2026-1041',
+          status: 'cancelled',
+          status_label: 'Отменён',
+          organization_name: 'ООО «Северный дом»',
+        }),
+      },
+    ]);
+    const user = userEvent.setup();
+
+    await screen.findByTestId('operator-invoices');
+    const first = rowByNumber('СЧ-2026-1042');
+    await user.click(within(first).getByTestId('operator-invoice-pay'));
+    await user.click(within(first).getByTestId('operator-invoice-confirm'));
+
+    // Первая оплата ещё в работе — вторая строка остаётся живой.
+    const second = rowByNumber('СЧ-2026-1041');
+    await user.click(within(second).getByTestId('operator-invoice-cancel'));
+    await user.click(within(second).getByTestId('operator-invoice-confirm'));
+
+    await waitFor(() => expect(patchBodies(network)).toHaveLength(2));
+    expect(patchBodies(network)).toEqual(['{"status":"paid"}', '{"status":"cancelled"}']);
+    // Вторая команда дошла до конца, первая всё ещё ждёт своего ответа.
+    await waitFor(() =>
+      expect(within(second).getByTestId('operator-invoice-status')).toHaveTextContent('Отменён'),
+    );
+    expect(within(first).getByTestId('operator-invoice-status')).toHaveTextContent('Новый');
+    expect(within(first).getByTestId('operator-invoice-pay')).toBeDisabled();
+  });
+
+  it('после «Подтвердить» фокус остаётся в строке — до ответа и после', async () => {
+    let resolvePatch: (response: MockResponse) => void = () => {};
+    const pending = new Promise<MockResponse>((resolve) => {
+      resolvePatch = resolve;
+    });
+    renderInvoices([{ status: 200, body: FIRST_PAGE }, () => pending]);
+    const user = userEvent.setup();
+
+    await screen.findByTestId('operator-invoices');
+    const row = rowByNumber('СЧ-2026-1042');
+    await user.click(within(row).getByTestId('operator-invoice-pay'));
+    await user.click(within(row).getByTestId('operator-invoice-confirm'));
+
+    // Кнопка «Подтвердить» исчезла из DOM, но фокус остался в этой же строке.
+    const download = within(row).getByTestId('operator-invoice-download');
+    await waitFor(() => expect(document.activeElement).toBe(download));
+
+    await act(async () => {
+      resolvePatch({
+        status: 200,
+        body: invoice({
+          id: 1042,
+          number: 'СЧ-2026-1042',
+          status: 'paid',
+          status_label: 'Оплачен',
+          has_act: true,
+        }),
+      });
+      await pending;
+    });
+
+    await waitFor(() =>
+      expect(within(row).getByTestId('operator-invoice-status')).toHaveTextContent('Оплачен'),
+    );
+    expect(document.activeElement).toBe(download);
+    expect(row).toContainElement(document.activeElement as HTMLElement);
   });
 
   it('отказ действия показывает detail дословно и не перезагружает список', async () => {

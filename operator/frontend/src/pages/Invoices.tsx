@@ -132,9 +132,16 @@ export function Invoices(): JSX.Element {
   const [loadingMore, setLoadingMore] = useState(false);
   // Какая команда ждёт подтверждения в строке: `paid` или `cancelled`.
   const [confirming, setConfirming] = useState<Record<number, InvoiceStatus>>({});
-  // Строка, по которой сейчас идёт запрос: её кнопки неактивны и `aria-busy`.
-  const [busyId, setBusyId] = useState<number | null>(null);
+  // Строки, по которым сейчас идёт запрос: их кнопки неактивны и помечены
+  // `aria-busy`. Набор, а не одна строка: соседние строки не блокируют друг
+  // друга, и вторая оплата не теряется, пока идёт первая (кадр 3 макета).
+  const [busyIds, setBusyIds] = useState<ReadonlySet<number>>(() => new Set());
   const [actionError, setActionError] = useState<string | null>(null);
+  // Ссылки на документ строки — куда вернуть фокус после «Подтвердить».
+  const rowLinks = useRef<Record<number, HTMLAnchorElement | null>>({});
+  // Строка, которой фокус нужен после ближайшей перерисовки: кнопка
+  // «Подтвердить» исчезает из DOM до ответа, и без этого фокус уехал бы на `body`.
+  const focusAfterRender = useRef<number | null>(null);
   // Номер запроса: ответ на устаревший поиск не должен затирать свежий.
   const requestId = useRef(0);
   // Первая загрузка идёт сразу: пауза нужна поиску, а не открытию раздела.
@@ -174,6 +181,21 @@ export function Invoices(): JSX.Element {
       clearTimeout(timer);
     };
   }, [query, statusFilter]);
+
+  /**
+   * Возврат фокуса в строку после «Подтвердить».
+   *
+   * Пара подтверждения снимается до запроса, поэтому нажатая кнопка исчезает из
+   * DOM и фокус уехал бы на `body` — следующий Tab начал бы обход таблицы
+   * сначала. Ссылка «Скачать счёт» не исчезает ни при успехе, ни при `409`,
+   * поэтому фокус ставится на неё.
+   */
+  useEffect(() => {
+    const id = focusAfterRender.current;
+    if (id === null) return;
+    focusAfterRender.current = null;
+    rowLinks.current[id]?.focus();
+  });
 
   async function handleMore(): Promise<void> {
     if (state.status !== 'ready' || loadingMore) return;
@@ -225,16 +247,20 @@ export function Invoices(): JSX.Element {
   /**
    * Второй шаг: единственное место, откуда уходит `PATCH`.
    *
-   * Пара подтверждения снимается сразу, а кнопки строки на время запроса
+   * Пара подтверждения снимается сразу, а кнопки этой строки на время запроса
    * неактивны с `aria-busy`: повторное нажатие не отправит вторую команду.
+   * Занятость считается по строке, а не по экрану, — соседние строки остаются
+   * живыми, и вторая команда не теряется, пока идёт первая.
    * Успех заменяет строку ответом сервера (`status_label` — оттуда дословно),
    * фильтры и страница остаются на месте; отказ — текст `detail` над реестром.
    */
   async function confirmStatus(item: PlatformInvoice): Promise<void> {
     const next = confirming[item.id];
-    if (next === undefined || busyId !== null) return;
-    setBusyId(item.id);
+    if (next === undefined || busyIds.has(item.id)) return;
+    setBusyIds((current) => new Set(current).add(item.id));
     setActionError(null);
+    // Кнопка, которая сейчас в фокусе, исчезнет на следующей перерисовке.
+    focusAfterRender.current = item.id;
     declineStatus(item.id);
     try {
       const updated = await updateInvoiceStatus(item.id, next);
@@ -249,7 +275,11 @@ export function Invoices(): JSX.Element {
     } catch (error: unknown) {
       setActionError(errorMessage(error, ACTION_ERROR));
     } finally {
-      setBusyId(null);
+      setBusyIds((current) => {
+        const rest = new Set(current);
+        rest.delete(item.id);
+        return rest;
+      });
     }
   }
 
@@ -436,7 +466,7 @@ export function Invoices(): JSX.Element {
                 <tbody>
                   {state.items.map((item) => {
                     const pending = confirming[item.id];
-                    const busy = busyId === item.id;
+                    const busy = busyIds.has(item.id);
                     // Статусные кнопки есть только у нового счёта: из `paid`
                     // дорога одна — в `closed`, а «Закрыть» в кабинете нет.
                     const canChange = item.status === 'new';
@@ -492,6 +522,9 @@ export function Invoices(): JSX.Element {
                               <a
                                 className="doc-link"
                                 href={invoiceFileUrl(item.id, 'invoice')}
+                                ref={(node) => {
+                                  rowLinks.current[item.id] = node;
+                                }}
                                 data-testid="operator-invoice-download"
                               >
                                 Скачать счёт
