@@ -404,7 +404,7 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
       {status === 'error' && (
         <p role="alert">
           {error}{' '}
-          <button type="button" onClick={refresh}>
+          <button className="link-button" type="button" onClick={refresh}>
             Повторить
           </button>
         </p>

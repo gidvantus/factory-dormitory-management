@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app import notification_rules
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
+from app.cell_fill import assign_fill, checked_fill_changes
 from app.db import get_db
 from app.models.custom_tab import CustomTabEntry
 from app.models.inflow import PersonnelInflow
@@ -119,6 +120,10 @@ def create_column(
         options=prepare_options(payload, None),
     )
     db.add(column)
+    db.flush()
+    if payload.fill:
+        assign_fill(column, payload.fill)
+        checked_fill_changes(db, dormitory_id, [column])
     db.commit()
     db.refresh(column)
     return column
@@ -150,6 +155,8 @@ def update_column(
     else:
         column.options = prepare_options(payload, column)
     column.name = payload.name
+    if "fill" in payload.model_fields_set and assign_fill(column, payload.fill):
+        checked_fill_changes(db, dormitory_id, [column])
     db.commit()
     db.refresh(column)
     return column
@@ -170,9 +177,7 @@ def delete_column(
     if names := column_dependencies(db, column):
         raise HTTPException(
             409,
-            "Столбец используется в строках отчёта: "
-            + ", ".join(names)
-            + ". Сначала измените их связь.",
+            "Столбец используется в связях: " + ", ".join(names) + ". Сначала измените их связь.",
         )
     if table_key.startswith("custom_"):
         from app.custom_tab_options import options_for
@@ -199,6 +204,7 @@ def restore_column(
     column = get_column(db, dormitory_id, table_key, column_id)
     check_name(columns, column.name, column.id)
     column.archived = False
+    checked_fill_changes(db, dormitory_id, [])
     db.commit()
     db.refresh(column)
     return column
@@ -218,7 +224,7 @@ def save_custom_cell(
     lock_dormitory(db, dormitory_id)
     require_writable_table(db, dormitory_id, table_key)
     column = get_column(db, dormitory_id, table_key, column_id)
-    if column.archived or column.builtin_key:
+    if column.archived or column.builtin_key or column.fill:
         raise HTTPException(409, "Этот столбец недоступен для записи")
     row = get_record(db, dormitory_id, table_key, row_id)
     old = row.custom_values.get(str(column.id))

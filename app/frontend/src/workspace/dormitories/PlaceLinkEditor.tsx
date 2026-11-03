@@ -67,7 +67,7 @@ export function PlaceLinkEditor({
     return (
       <p role="alert" className={styles.formError}>
         {error}{' '}
-        <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+        <button className="link-button" type="button" onClick={() => setAttempt((n) => n + 1)}>
           Повторить загрузку хостелов
         </button>
       </p>

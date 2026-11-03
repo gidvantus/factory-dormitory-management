@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Modal, ModalCancelButton } from '../../../components/Modal';
+import { EditorSection } from '../../../components/EditorSection';
 import { PersonnelBlockIcon as Icon } from '../PersonnelBlockIcon';
 import { ArrivalCard, FieldControl } from './ArrivalFields';
 import type { Arrival, Field, FieldType, Settings } from './data';
@@ -255,203 +256,240 @@ export function SettingsDialog({
                   </div>
                   {field && (
                     <div className={s.fieldEditor}>
-                      <label className={s.inputField}>
-                        Название поля
-                        <input
-                          maxLength={80}
-                          value={field.label}
-                          onChange={(e) => updateField({ label: e.target.value })}
-                        />
-                      </label>
-                      <label className={s.inputField}>
-                        Где заполнять
-                        <select
-                          value={field.scope}
-                          disabled={!preview && usedFields.includes(field.id)}
-                          onChange={(e) => updateField({ scope: e.target.value as Field['scope'] })}
-                        >
-                          <option value="arrival">Один раз на заезд</option>
-                          <option value="person">Напротив каждого ФИО</option>
-                        </select>
-                        <small>
-                          {field.scope === 'person'
-                            ? 'У каждого человека своя ячейка и своё значение.'
-                            : 'Одно общее значение для всей группы.'}
-                        </small>
-                      </label>
-                      <label className={s.inputField}>
-                        Тип поля
-                        <select
-                          value={field.type}
-                          disabled={!preview && usedFields.includes(field.id)}
-                          onChange={(e) =>
-                            updateField({
-                              type: e.target.value as FieldType,
-                              options: field.options.length
-                                ? field.options
-                                : ['Вариант 1', 'Вариант 2'],
-                            })
-                          }
-                        >
-                          {Object.entries(FIELD_TYPES).map(([value, item]) => (
-                            <option key={value} value={value}>
-                              {item.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {!preview && usedFields.includes(field.id) && (
-                        <p className={s.muted}>
-                          Поле уже содержит значения. Для другого типа или размещения добавьте новое
-                          поле.
-                        </p>
-                      )}
-                      {preview &&
-                        settings.fields.some(
-                          (old) => old.id === field.id && old.type !== field.type,
-                        ) && (
+                      <EditorSection
+                        title="Название поля"
+                        description="Название видно в форме заезда и в карточке."
+                      >
+                        <label className={s.inputField}>
+                          Название поля
+                          <input
+                            maxLength={80}
+                            value={field.label}
+                            onChange={(e) => updateField({ label: e.target.value })}
+                          />
+                        </label>
+                      </EditorSection>
+                      <EditorSection
+                        title="Как заполнять"
+                        description="Определите, одно ли значение у группы или своё у каждого человека, затем выберите формат."
+                      >
+                        <label className={s.inputField}>
+                          Где заполнять
+                          <select
+                            value={field.scope}
+                            disabled={!preview && usedFields.includes(field.id)}
+                            onChange={(e) =>
+                              updateField({ scope: e.target.value as Field['scope'] })
+                            }
+                          >
+                            <option value="arrival">Один раз на заезд</option>
+                            <option value="person">Напротив каждого ФИО</option>
+                          </select>
+                          <small>
+                            {field.scope === 'person'
+                              ? 'У каждого человека своя ячейка и своё значение.'
+                              : 'Одно общее значение для всей группы.'}
+                          </small>
+                        </label>
+                        <label className={s.inputField}>
+                          Тип поля
+                          <select
+                            value={field.type}
+                            disabled={!preview && usedFields.includes(field.id)}
+                            onChange={(e) =>
+                              updateField({
+                                type: e.target.value as FieldType,
+                                options: field.options.length
+                                  ? field.options
+                                  : ['Вариант 1', 'Вариант 2'],
+                              })
+                            }
+                          >
+                            {Object.entries(FIELD_TYPES).map(([value, item]) => (
+                              <option key={value} value={value}>
+                                {item.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {!preview && usedFields.includes(field.id) && (
                           <p className={s.muted}>
-                            При смене типа значения этого поля в макете очистятся.
+                            Поле уже содержит значения. Для другого типа или размещения добавьте
+                            новое поле.
                           </p>
                         )}
-                      {field.type === 'select' && (
-                        <label className={s.inputField}>
-                          Варианты списка
-                          <textarea
-                            rows={4}
-                            value={field.options.join('\n')}
-                            onChange={(e) => updateField({ options: e.target.value.split('\n') })}
+                        {preview &&
+                          settings.fields.some(
+                            (old) => old.id === field.id && old.type !== field.type,
+                          ) && (
+                            <p className={s.muted}>
+                              При смене типа значения этого поля в макете очистятся.
+                            </p>
+                          )}
+                        {field.type === 'select' && (
+                          <label className={s.inputField}>
+                            Варианты списка
+                            <textarea
+                              rows={4}
+                              value={field.options.join('\n')}
+                              onChange={(e) => updateField({ options: e.target.value.split('\n') })}
+                            />
+                            <small>Каждый вариант с новой строки.</small>
+                          </label>
+                        )}
+                      </EditorSection>
+                      <EditorSection
+                        title="Видимость и обязательность"
+                        description="Задайте, где поле будет доступно и обязательно ли его заполнение."
+                      >
+                        <label className={s.checkField}>
+                          <input
+                            type="checkbox"
+                            checked={field.inForm}
+                            onChange={(e) =>
+                              updateField({
+                                inForm: e.target.checked,
+                                required: e.target.checked && field.required,
+                              })
+                            }
                           />
-                          <small>Каждый вариант с новой строки.</small>
+                          Показывать в форме
                         </label>
-                      )}
-                      <label className={s.checkField}>
-                        <input
-                          type="checkbox"
-                          checked={field.inForm}
-                          onChange={(e) =>
-                            updateField({
-                              inForm: e.target.checked,
-                              required: e.target.checked && field.required,
-                            })
-                          }
-                        />
-                        Показывать в форме
-                      </label>
-                      <label className={s.checkField}>
-                        <input
-                          type="checkbox"
-                          checked={field.required}
-                          disabled={!field.inForm}
-                          onChange={(e) => updateField({ required: e.target.checked })}
-                        />
-                        {field.scope === 'person'
-                          ? 'Обязательное у каждого человека'
-                          : 'Обязательное поле'}
-                      </label>
-                      <label className={s.checkField}>
-                        <input
-                          type="checkbox"
-                          checked={display.visible.includes(field.id)}
-                          onChange={(e) => toggleVisible(field.id, e.target.checked)}
-                        />
-                        Показывать справа
-                      </label>
-                      <button className="btn btn--ghost btn--compact" onClick={removeField}>
-                        <Icon name="remove" />
-                        Убрать поле
-                      </button>
+                        <label className={s.checkField}>
+                          <input
+                            type="checkbox"
+                            checked={field.required}
+                            disabled={!field.inForm}
+                            onChange={(e) => updateField({ required: e.target.checked })}
+                          />
+                          {field.scope === 'person'
+                            ? 'Обязательное у каждого человека'
+                            : 'Обязательное поле'}
+                        </label>
+                        <label className={s.checkField}>
+                          <input
+                            type="checkbox"
+                            checked={display.visible.includes(field.id)}
+                            onChange={(e) => toggleVisible(field.id, e.target.checked)}
+                          />
+                          Показывать справа
+                        </label>
+                      </EditorSection>
+                      <EditorSection
+                        title="Убрать поле"
+                        tone="danger"
+                        description="Отдельное действие для поля, которое больше не нужно."
+                      >
+                        <button className="btn btn--ghost btn--compact" onClick={removeField}>
+                          <Icon name="remove" />
+                          Убрать поле
+                        </button>
+                      </EditorSection>
                     </div>
                   )}
                 </div>
               </>
             ) : (
               <>
-                <div className={s.sectionHeading}>
-                  <h3>Что показывать в карточке</h3>
-                </div>
-                <p className={s.muted}>
-                  Личные поля показываются столбцами у человека. Порядок этих полей определяет
-                  порядок столбцов. Общежитие и количество видны всегда.
-                </p>
-                <div className={s.displayList}>
-                  {display.order.map((id, index) => {
-                    const item = draft.fields.find((entry) => entry.id === id);
-                    const label = id === 'names' ? 'ФИО приезжающих' : (item?.label ?? '');
-                    return (
-                      <div className={s.displayListRow} key={id}>
-                        <label className={s.checkField}>
-                          <input
-                            type="checkbox"
-                            checked={display.visible.includes(id)}
-                            onChange={(e) => toggleVisible(id, e.target.checked)}
-                          />
-                          <span>
-                            {label}
-                            {item?.scope === 'person' && (
-                              <small className={s.scopeNote}>Напротив каждого ФИО</small>
-                            )}
-                          </span>
-                        </label>
-                        <div className={s.reorder}>
-                          <button
-                            className="btn btn--ghost btn--compact"
-                            disabled={index === 0}
-                            aria-label={`Поднять в карточке ${label}`}
-                            onClick={() => updateDisplay({ order: move(display.order, index, -1) })}
-                          >
-                            <Icon name="up" />
-                          </button>
-                          <button
-                            className="btn btn--ghost btn--compact"
-                            disabled={index === display.order.length - 1}
-                            aria-label={`Опустить в карточке ${label}`}
-                            onClick={() => updateDisplay({ order: move(display.order, index, 1) })}
-                          >
-                            <Icon name="down" />
-                          </button>
+                <EditorSection
+                  title="Содержание и порядок"
+                  description="Отметьте данные карточки и расположите их в нужном порядке."
+                >
+                  <div className={s.sectionHeading}>
+                    <h3>Что показывать в карточке</h3>
+                  </div>
+                  <p className={s.muted}>
+                    Личные поля показываются столбцами у человека. Порядок этих полей определяет
+                    порядок столбцов. Общежитие и количество видны всегда.
+                  </p>
+                  <div className={s.displayList}>
+                    {display.order.map((id, index) => {
+                      const item = draft.fields.find((entry) => entry.id === id);
+                      const label = id === 'names' ? 'ФИО приезжающих' : (item?.label ?? '');
+                      return (
+                        <div className={s.displayListRow} key={id}>
+                          <label className={s.checkField}>
+                            <input
+                              type="checkbox"
+                              checked={display.visible.includes(id)}
+                              onChange={(e) => toggleVisible(id, e.target.checked)}
+                            />
+                            <span>
+                              {label}
+                              {item?.scope === 'person' && (
+                                <small className={s.scopeNote}>Напротив каждого ФИО</small>
+                              )}
+                            </span>
+                          </label>
+                          <div className={s.reorder}>
+                            <button
+                              className="btn btn--ghost btn--compact"
+                              disabled={index === 0}
+                              aria-label={`Поднять в карточке ${label}`}
+                              onClick={() =>
+                                updateDisplay({ order: move(display.order, index, -1) })
+                              }
+                            >
+                              <Icon name="up" />
+                            </button>
+                            <button
+                              className="btn btn--ghost btn--compact"
+                              disabled={index === display.order.length - 1}
+                              aria-label={`Опустить в карточке ${label}`}
+                              onClick={() =>
+                                updateDisplay({ order: move(display.order, index, 1) })
+                              }
+                            >
+                              <Icon name="down" />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className={s.displayOptions}>
-                  <label className={s.checkField}>
-                    <input
-                      type="checkbox"
-                      checked={display.summary}
-                      onChange={(e) => updateDisplay({ summary: e.target.checked })}
-                    />
-                    Показывать итог за день
-                  </label>
-                  <label className={s.checkField}>
-                    <input
-                      type="checkbox"
-                      checked={display.hideEmpty}
-                      onChange={(e) => updateDisplay({ hideEmpty: e.target.checked })}
-                    />
-                    Скрывать незаполненные поля
-                  </label>
-                  <label className={s.checkField}>
-                    <input
-                      type="checkbox"
-                      checked={display.compact}
-                      onChange={(e) => updateDisplay({ compact: e.target.checked })}
-                    />
-                    Компактные карточки
-                  </label>
-                  <label className={s.inputField}>
-                    Людей в карточке
-                    <select
-                      value={display.namesLimit}
-                      onChange={(e) => updateDisplay({ namesLimit: Number(e.target.value) })}
-                    >
-                      <option value={3}>До 3 человек</option>
-                      <option value={5}>До 5 человек</option>
-                      <option value={10000}>Все люди</option>
-                    </select>
-                  </label>
-                </div>
+                      );
+                    })}
+                  </div>
+                </EditorSection>
+                <EditorSection
+                  title="Плотность и объём карточек"
+                  description="Управляйте итогом дня, пустыми полями и количеством видимых людей."
+                >
+                  <div className={s.displayOptions}>
+                    <label className={s.checkField}>
+                      <input
+                        type="checkbox"
+                        checked={display.summary}
+                        onChange={(e) => updateDisplay({ summary: e.target.checked })}
+                      />
+                      Показывать итог за день
+                    </label>
+                    <label className={s.checkField}>
+                      <input
+                        type="checkbox"
+                        checked={display.hideEmpty}
+                        onChange={(e) => updateDisplay({ hideEmpty: e.target.checked })}
+                      />
+                      Скрывать незаполненные поля
+                    </label>
+                    <label className={s.checkField}>
+                      <input
+                        type="checkbox"
+                        checked={display.compact}
+                        onChange={(e) => updateDisplay({ compact: e.target.checked })}
+                      />
+                      Компактные карточки
+                    </label>
+                    <label className={s.inputField}>
+                      Людей в карточке
+                      <select
+                        value={display.namesLimit}
+                        onChange={(e) => updateDisplay({ namesLimit: Number(e.target.value) })}
+                      >
+                        <option value={3}>До 3 человек</option>
+                        <option value={5}>До 5 человек</option>
+                        <option value={10000}>Все люди</option>
+                      </select>
+                    </label>
+                  </div>
+                </EditorSection>
               </>
             )}
           </div>

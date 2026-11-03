@@ -15,12 +15,13 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from starlette.middleware.base import RequestResponseEndpoint
 
-from app import audit
+from app import audit, dormitory_history
 from app.api import (
     activation,
     arrival_plans,
     auth,
     billing,
+    cell_fill,
     custom_tabs,
     dashboard,
     dashboard_blocks,
@@ -36,6 +37,7 @@ from app.api import (
     outflow,
     payments,
     personnel,
+    personnel_builder,
     platform_organizations,
     platform_users,
     recovery,
@@ -52,6 +54,9 @@ from app.api import (
     telegram,
     trial,
     users,
+)
+from app.api import (
+    dormitory_history as dormitory_history_api,
 )
 
 # Роутер журнала импортируется отдельной строкой: имя `audit` в этом файле уже
@@ -114,6 +119,9 @@ async def read_request_body(request: Request) -> Any | None:
     клиент, а читать вслепую — это тот же импорт на 20 МБ в памяти.
     """
     if request.method not in BODY_METHODS:
+        return None
+    if request.url.path.rstrip("/").startswith(f"{API_PREFIX}/personnel/builder"):
+        # В ячейках произвольные названия полей; журнал хранит действие без их содержимого.
         return None
     if not request.headers.get("content-type", "").startswith(JSON_CONTENT_TYPE):
         return None
@@ -319,6 +327,16 @@ def create_app() -> FastAPI:
         audit.write_best_effort(context, status=response.status_code)
         return response
 
+    @application.middleware("http")
+    async def history_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
+        token = dormitory_history.request_context.set(
+            dormitory_history.HistoryRequest(method=request.method)
+        )
+        try:
+            return await call_next(request)
+        finally:
+            dormitory_history.request_context.reset(token)
+
     application.include_router(health.router, prefix=API_PREFIX)
     application.include_router(auth.router, prefix=API_PREFIX)
     application.include_router(activation.router, prefix=API_PREFIX)
@@ -340,13 +358,16 @@ def create_app() -> FastAPI:
     application.include_router(outflow.router, prefix=API_PREFIX)
     application.include_router(payments.router, prefix=API_PREFIX)
     application.include_router(personnel.router, prefix=API_PREFIX)
+    application.include_router(personnel_builder.router, prefix=API_PREFIX)
     application.include_router(arrival_plans.router, prefix=API_PREFIX)
     application.include_router(residents.router, prefix=API_PREFIX)
     application.include_router(dormitories.router, prefix=API_PREFIX)
     application.include_router(reports.router, prefix=API_PREFIX)
     application.include_router(report_templates.router, prefix=API_PREFIX)
     application.include_router(table_columns.router, prefix=API_PREFIX)
+    application.include_router(cell_fill.router, prefix=API_PREFIX)
     application.include_router(custom_tabs.router, prefix=API_PREFIX)
+    application.include_router(dormitory_history_api.router, prefix=API_PREFIX)
     application.include_router(sections.router, prefix=API_PREFIX)
     application.include_router(statistics_reports.router, prefix=API_PREFIX)
     application.include_router(tab_catalog.router, prefix=API_PREFIX)

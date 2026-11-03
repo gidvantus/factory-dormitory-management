@@ -5,7 +5,6 @@ import type {
   ArrivalConfiguration,
   ArrivalPlan,
   PersonnelData,
-  ArrivalRef,
   ArrivalWorkflowResult,
 } from '../../../api/personnel';
 import { ApiError } from '../../../api/client';
@@ -19,7 +18,7 @@ import { SettingsDialog } from './SettingsDialog';
 import type { ArrivalDraft } from './adapter';
 import { defaultConfiguration, draftOf, inputOf, viewOf } from './adapter';
 import type { Settings, Person } from './data';
-import { ArrivalMoveDialog, ArrivalSettlementDialog } from './WorkflowDialogs';
+import { ArrivalMoveDialog } from './WorkflowDialogs';
 import type { WorkflowAction } from './WorkflowPeople';
 import q from './Workflow.module.css';
 import { isEmpty, newArrival, peopleAtCount, personCount } from './data';
@@ -56,7 +55,6 @@ export function ArrivalPlanningBoard({
   const [draft, setDraft] = useState<ArrivalDraft | null>(null);
   const [detailsId, setDetailsId] = useState<string | null>(initialPlanId ?? null);
   const [workflowDialog, setWorkflowDialog] = useState<{
-    kind: 'move' | 'settle';
     plan: ArrivalPlan;
     person: Person;
   } | null>(null);
@@ -132,12 +130,6 @@ export function ArrivalPlanningBoard({
       setBusy(false);
     }
   }
-  function locate(ref: ArrivalRef): void {
-    setDetailsId(null);
-    setSelectedDate(ref.date);
-    if (!days.includes(ref.date)) setStart(ref.date);
-    setError('');
-  }
   function personAction(plan: ArrivalPlan, action: WorkflowAction, personId: string): void {
     if (busy || loading) return;
     setError('');
@@ -145,35 +137,24 @@ export function ArrivalPlanningBoard({
       (item) => item.id === personId,
     );
     if (!person) return;
-    const visit = plan.workflow?.[personId];
     if (action === 'details') {
       setDetailsId(plan.id);
       return;
     }
-    if (action === 'move' || action === 'settle') {
+    if (action === 'move') {
       setDetailsId(null);
-      setWorkflowDialog({ kind: action, plan, person });
-      return;
-    }
-    if (action === 'destination' && visit?.destination) {
-      locate(visit.destination);
-      return;
-    }
-    if (action === 'origin' && visit?.origin) {
-      locate(visit.origin);
+      setWorkflowDialog({ plan, person });
       return;
     }
     const request =
-      action === 'undo'
-        ? () => personnelApi.undoArrivalMove(plan.id, personId, plan.revision)
-        : action === 'expected' || action === 'arrived' || action === 'no_show'
-          ? () => personnelApi.markArrival(plan.id, personId, action, plan.revision)
-          : null;
+      action === 'expected' || action === 'arrived' || action === 'no_show'
+        ? () => personnelApi.markArrival(plan.id, personId, action, plan.revision)
+        : null;
     if (request)
       void runWorkflow(request)
         .then(() =>
           setNotice(
-            `${person.name}: ${action === 'arrived' ? 'прибытие отмечено. Можно оформить проживание.' : action === 'no_show' ? 'не приехал.' : action === 'undo' ? 'перенос отменён.' : 'снова ожидается.'}`,
+            `${person.name}: ${action === 'arrived' ? 'прибытие отмечено.' : action === 'no_show' ? 'не приехал.' : 'снова ожидается.'}`,
           ),
         )
         .catch((caught) => setError(message(caught)));
@@ -287,7 +268,7 @@ export function ArrivalPlanningBoard({
           <div className={s.actions}>
             <button className="btn btn--ghost btn--compact" onClick={() => settings('fields')}>
               <Icon name="settings" />
-              Поля заезда
+              Настроить вид
             </button>
             <button
               className="btn btn--primary btn--compact"
@@ -385,10 +366,6 @@ export function ArrivalPlanningBoard({
                   <span className={s.hint}>Выбранный день</span>
                   <h3>{dateLabel(activeDay, true)}</h3>
                 </div>
-                <button className="btn btn--ghost btn--compact" onClick={() => settings('display')}>
-                  <Icon name="settings" />
-                  Настроить вид
-                </button>
               </div>
               {configuration.display.summary && (
                 <dl className={q.metrics}>
@@ -411,19 +388,14 @@ export function ArrivalPlanningBoard({
                     </dd>
                   </div>
                   <div>
-                    <dt>В проживающих</dt>
-                    <dd>
-                      {
-                        dayVisits.filter((visit) => visit.status === 'settled' && visit.resident)
-                          .length
-                      }
-                    </dd>
+                    <dt>Не приехали</dt>
+                    <dd>{dayVisits.filter((visit) => visit.status === 'no_show').length}</dd>
                   </div>
                 </dl>
               )}
               {dormitories.map((dorm) => {
                 const plan = dayPlans.find((item) => item.dormitory_id === dorm.id);
-                return plan ? (
+                return plan && plan.count > 0 ? (
                   <ArrivalCard
                     key={dorm.id}
                     arrival={viewOf(plan, dorm.name)}
@@ -441,7 +413,7 @@ export function ArrivalPlanningBoard({
                     <p>Заезд не запланирован</p>
                     <button
                       aria-label={`Добавить заезд: ${dorm.name}, ${activeDay}`}
-                      onClick={() => open(dorm.id)}
+                      onClick={() => open(dorm.id, plan)}
                     >
                       + Добавить заезд
                     </button>
@@ -490,7 +462,7 @@ export function ArrivalPlanningBoard({
           onPersonAction={(action, personId) => personAction(details, action, personId)}
         />
       )}
-      {workflowDialog?.kind === 'move' && (
+      {workflowDialog && (
         <ArrivalMoveDialog
           plan={workflowDialog.plan}
           person={workflowDialog.person}
@@ -506,25 +478,7 @@ export function ArrivalPlanningBoard({
               ),
             );
             setWorkflowDialog(null);
-            setNotice(
-              `${workflowDialog.person.name}: заезд перенесён на ${dateLabel(date, true)} Новая дата доступна в записи человека.`,
-            );
-          }}
-        />
-      )}
-      {workflowDialog?.kind === 'settle' && (
-        <ArrivalSettlementDialog
-          plan={workflowDialog.plan}
-          person={workflowDialog.person}
-          fields={[...configuration.fields, ...configuration.archived_fields]}
-          today={data.today}
-          onClose={() => setWorkflowDialog(null)}
-          onSave={runWorkflow}
-          onSaved={() => {
-            setNotice(
-              `${workflowDialog.person.name}: проживание оформлено. Откройте его по ссылке в записи человека.`,
-            );
-            setWorkflowDialog(null);
+            setNotice('');
           }}
         />
       )}

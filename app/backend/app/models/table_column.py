@@ -28,6 +28,7 @@ class TableColumn(Base):
     position: Mapped[int] = mapped_column(Integer)
     options: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
+    fill: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     __table_args__ = (
         UniqueConstraint("dormitory_id", "table_key", "builtin_key", name="uq_table_builtin"),
     )

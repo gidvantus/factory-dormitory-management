@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Block, BlockKind, PersonnelData, SavedList } from '../../api/personnel';
 import { Modal } from '../../components/Modal';
 import { useEditorPreview } from '../../components/EditorSurface';
+import { EditorSection } from '../../components/EditorSection';
 import { SubmitForm } from './Forms';
 import { blockNames, dormName, filterPeople, names } from './helpers';
 import s from './Personnel.module.css';
@@ -49,110 +50,134 @@ export function BlockDialog({
           })
         }
       >
-        <label>
-          Содержимое
-          <select
-            value={draft.kind}
-            onChange={(event) => {
-              const kind = event.target.value as BlockKind;
-              setDraft({
-                ...draft,
-                kind,
-                title: blockNames[kind],
-                saved_list_id: kind === 'saved' ? (data.preferences.lists[0]?.id ?? null) : null,
-              });
-            }}
-          >
-            {Object.entries(blockNames).map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Название
-          <input
-            key={draft.kind}
-            name="title"
-            required
-            maxLength={120}
-            defaultValue={draft.title}
-          />
-        </label>
-        {draft.kind === 'saved' && (
+        <EditorSection title="Что показать" description="Выберите содержимое блока и его название.">
           <label>
-            Сохранённый список
+            Содержимое
             <select
-              required
-              value={draft.saved_list_id ?? ''}
-              onChange={(event) =>
-                setDraft({ ...draft, saved_list_id: event.target.value || null })
-              }
+              value={draft.kind}
+              onChange={(event) => {
+                const kind = event.target.value as BlockKind;
+                setDraft({
+                  ...draft,
+                  kind,
+                  title: blockNames[kind],
+                  saved_list_id: kind === 'saved' ? (data.preferences.lists[0]?.id ?? null) : null,
+                });
+              }}
             >
-              <option value="">Выберите список</option>
-              {data.preferences.lists.map((list) => (
-                <option key={list.id} value={list.id}>
-                  {list.name}
+              {Object.entries(blockNames).map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
                 </option>
               ))}
             </select>
           </label>
-        )}
-        <div className={s.formGrid}>
           <label>
-            Период, дней
-            <input type="number" name="days" min={1} max={365} required defaultValue={draft.days} />
-          </label>
-          <label>
-            Количество строк
+            Название
             <input
-              type="number"
-              name="limit"
-              min={1}
-              max={20}
+              key={draft.kind}
+              name="title"
               required
-              defaultValue={draft.limit}
+              maxLength={120}
+              defaultValue={draft.title}
             />
           </label>
-        </div>
-        <fieldset className={s.checks}>
-          <legend>Общежития блока</legend>
-          <label>
-            <input
-              type="checkbox"
-              checked={!draft.scope.length}
-              onChange={() => setDraft({ ...draft, scope: [] })}
-            />
-            Все общежития
-          </label>
-          {data.dormitories.map((dorm) => (
-            <label key={dorm.id}>
+          {draft.kind === 'saved' && (
+            <label>
+              Сохранённый список
+              <select
+                required
+                value={draft.saved_list_id ?? ''}
+                onChange={(event) =>
+                  setDraft({ ...draft, saved_list_id: event.target.value || null })
+                }
+              >
+                <option value="">Выберите список</option>
+                {data.preferences.lists.map((list) => (
+                  <option key={list.id} value={list.id}>
+                    {list.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </EditorSection>
+        <EditorSection
+          title="Сколько и за какой период"
+          description="Настройте глубину выборки и количество видимых строк."
+        >
+          <div className={s.formGrid}>
+            <label>
+              Период, дней
+              <input
+                type="number"
+                name="days"
+                min={1}
+                max={365}
+                required
+                defaultValue={draft.days}
+              />
+            </label>
+            <label>
+              Количество строк
+              <input
+                type="number"
+                name="limit"
+                min={1}
+                max={20}
+                required
+                defaultValue={draft.limit}
+              />
+            </label>
+          </div>
+        </EditorSection>
+        <EditorSection
+          title="Общежития блока"
+          description="Выберите все общежития или ограничьте выборку."
+        >
+          <fieldset className={s.checks}>
+            <legend>Общежития блока</legend>
+            <label>
               <input
                 type="checkbox"
-                checked={draft.scope.includes(dorm.id)}
-                onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    scope: event.target.checked
-                      ? [...draft.scope, dorm.id]
-                      : draft.scope.filter((id) => id !== dorm.id),
-                  })
-                }
+                checked={!draft.scope.length}
+                onChange={() => setDraft({ ...draft, scope: [] })}
               />
-              {dorm.name}
-              {dorm.is_archived ? ' · архив' : ''}
+              Все общежития
             </label>
-          ))}
-        </fieldset>
-        <label className={s.radio}>
-          <input
-            type="checkbox"
-            checked={draft.wide}
-            onChange={(event) => setDraft({ ...draft, wide: event.target.checked })}
-          />
-          На всю ширину рабочей поверхности
-        </label>
+            {data.dormitories.map((dorm) => (
+              <label key={dorm.id}>
+                <input
+                  type="checkbox"
+                  checked={draft.scope.includes(dorm.id)}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      scope: event.target.checked
+                        ? [...draft.scope, dorm.id]
+                        : draft.scope.filter((id) => id !== dorm.id),
+                    })
+                  }
+                />
+                {dorm.name}
+                {dorm.is_archived ? ' · архив' : ''}
+              </label>
+            ))}
+          </fieldset>
+        </EditorSection>
+        <EditorSection
+          title="Расположение"
+          description="Определите ширину блока на рабочей поверхности."
+        >
+          <label className={s.radio}>
+            <input
+              type="checkbox"
+              checked={draft.wide}
+              onChange={(event) => setDraft({ ...draft, wide: event.target.checked })}
+            />
+            На всю ширину рабочей поверхности
+          </label>
+        </EditorSection>
         <p className={s.hint}>
           Настройки сохраняются в вашем аккаунте. Фильтр общежития на странице дополнительно
           ограничивает содержимое блока.
@@ -190,21 +215,33 @@ export function SaveListDialog({
           )
         }
       >
-        <label>
-          Название списка
-          <input name="name" maxLength={120} required defaultValue={names[criteria.filter]} />
-        </label>
-        <p>
-          {names[criteria.filter]} · {filterPeople(data, criteria).length} в выборке
-        </p>
-        <p className={s.hint}>
-          {criteria.dormitory == null ? 'Все общежития' : dormName(data, criteria.dormitory)} · до{' '}
-          {criteria.days} дней. Сохраняются условия; состав обновляется автоматически.
-        </p>
-        <label className={s.radio}>
-          <input type="checkbox" name="pin" defaultChecked />
-          Закрепить блоком на рабочей поверхности
-        </label>
+        <EditorSection
+          title="Название списка"
+          description="Условия сохраняются, а состав сотрудников будет обновляться автоматически."
+        >
+          <label>
+            Название списка
+            <input name="name" maxLength={120} required defaultValue={names[criteria.filter]} />
+          </label>
+        </EditorSection>
+        <EditorSection title="Сохраняемые условия">
+          <p>
+            {names[criteria.filter]} · {filterPeople(data, criteria).length} в выборке
+          </p>
+          <p className={s.hint}>
+            {criteria.dormitory == null ? 'Все общежития' : dormName(data, criteria.dormitory)} · до{' '}
+            {criteria.days} дней. Сохраняются условия; состав обновляется автоматически.
+          </p>
+        </EditorSection>
+        <EditorSection
+          title="Быстрый доступ"
+          description="При закреплении список появится отдельным блоком в персонале."
+        >
+          <label className={s.radio}>
+            <input type="checkbox" name="pin" defaultChecked />
+            Закрепить блоком на рабочей поверхности
+          </label>
+        </EditorSection>
       </SubmitForm>
     </Modal>
   );

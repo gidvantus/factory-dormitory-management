@@ -340,10 +340,10 @@ def test_current_tariff_reports_the_paid_future_period(
     organization = member(client, db_session)
     current = add_tariff(db_session, name="Старт")
     future = add_tariff(db_session, name="Квартал", amount="13200.00", period="quarter")
-    ends_at = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
+    ends_at = datetime.now(UTC) + timedelta(days=30)
     bind_tariff(db_session, organization, current, ends_at)
     organization.next_tariff_id = future.id
-    organization.next_tariff_ends_at = datetime(2027, 2, 2, 12, 0, tzinfo=UTC)
+    organization.next_tariff_ends_at = ends_at + timedelta(days=90)
     db_session.commit()
 
     body = client.get("/api/tariffs/current").json()

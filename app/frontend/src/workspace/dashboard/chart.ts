@@ -27,22 +27,34 @@ export function chartSegments(
   range: DateRange,
   max: number,
   width = CHART.width,
+  area = false,
 ): string[] {
   const paths: string[] = [];
   let segment = '';
+  let firstX = 0;
+  let lastX = 0;
+  const finish = (): void => {
+    if (!segment) return;
+    paths.push(
+      area ? `${segment} L${lastX},${chartY(0, max)} L${firstX},${chartY(0, max)} Z` : segment,
+    );
+    segment = '';
+  };
   let previousDate: string | null = null;
   for (const row of rows) {
     const value = row[metric];
     const hasGap =
       previousDate !== null && dateNumber(row.date) - dateNumber(previousDate) !== 86_400_000;
     if (value === null || hasGap) {
-      if (segment) paths.push(segment);
-      segment = '';
+      finish();
     }
-    if (value !== null)
-      segment += `${segment ? ' L' : 'M'}${chartX(row.date, range, width)},${chartY(value, max)}`;
+    if (value !== null) {
+      lastX = chartX(row.date, range, width);
+      if (!segment) firstX = lastX;
+      segment += `${segment ? ' L' : 'M'}${lastX},${chartY(value, max)}`;
+    }
     previousDate = row.date;
   }
-  if (segment) paths.push(segment);
+  finish();
   return paths;
 }

@@ -18,6 +18,7 @@ class CustomTab(Base):
         ForeignKey("dormitories.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(16), default="table", server_default="table")
     parent_id: Mapped[int | None] = mapped_column(
         ForeignKey("custom_tabs.id", ondelete="CASCADE"), nullable=True, index=True
     )
@@ -45,3 +46,5 @@ class CustomTabEntry(CustomValuesMixin, Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     calendar_values: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, server_default="{}")
+    fill_selections: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")
+    fill_copies: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")

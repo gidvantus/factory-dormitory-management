@@ -261,7 +261,11 @@ export function DormitoryDetails(): JSX.Element {
           {tabsError && (
             <p role="alert" className={styles.tabsError}>
               {tabsError}{' '}
-              <button type="button" onClick={() => setTabsAttempt((n) => n + 1)}>
+              <button
+                className="link-button"
+                type="button"
+                onClick={() => setTabsAttempt((n) => n + 1)}
+              >
                 Повторить загрузку вкладок
               </button>
             </p>

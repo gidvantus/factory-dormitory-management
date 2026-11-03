@@ -102,6 +102,6 @@ it('открывает исходный заезд по ссылке из про
   expect(source).toHaveBeenCalledWith('source', expect.any(AbortSignal));
   expect(within(dialog).getByText('Архивное')).toBeInTheDocument();
   expect(within(dialog).getByText(/Общежитие в архиве/)).toBeInTheDocument();
-  expect(within(dialog).getByRole('button', { name: 'В проживающие' })).toBeDisabled();
+  expect(within(dialog).getByRole('button', { name: 'Изменить статус' })).toBeDisabled();
   expect(within(dialog).queryByRole('button', { name: 'Изменить заезд' })).not.toBeInTheDocument();
 });

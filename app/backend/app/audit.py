@@ -122,6 +122,7 @@ FREE_TEXT_KEYS = frozenset(
         "comment",
         "description",
         "custom_values",
+        "fill_copies",
         "personal_values",
         "arrival_values",
         "names",
@@ -168,6 +169,8 @@ EXCLUDED_TABLES = frozenset(
         "employee_aliases",
         "employee_events",
         "audit_events",
+        "dormitory_data_events",
+        "personnel_builders",
     }
 )
 
@@ -448,6 +451,9 @@ def record_actor(actor_id: int | None, organization_id: int | None, actor_name: 
     нет вовсе, а забытый аргумент у нового вызова оставил бы журнал без имени
     молча. Передавать его должен каждый, кто вообще сообщает актора.
     """
+    from app.dormitory_history import record_actor as record_history_actor
+
+    record_history_actor(actor_id, organization_id, actor_name)
     context = audit_context.get()
     if context is None:
         return
@@ -573,9 +579,13 @@ def _masked_field(name: str, value: Any) -> Any:
     """
     # Пользовательские поля имеют произвольные ключи: маскируем весь JSON,
     # включая снимки колонок, а не пытаемся угадывать ФИО или контакты по ID.
-    if name in {"custom_values", "names", "personal_values", "arrival_values"} and isinstance(
-        value, (dict, list)
-    ):
+    if name in {
+        "custom_values",
+        "fill_copies",
+        "names",
+        "personal_values",
+        "arrival_values",
+    } and isinstance(value, (dict, list)):
         value = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     if not isinstance(value, str) or not value:
         return value

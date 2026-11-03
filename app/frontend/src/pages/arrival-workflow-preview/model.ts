@@ -1,67 +1,29 @@
-import type {
-  Arrival,
-  Field,
-  Person,
-  Settings,
-  Value,
-} from '../../workspace/personnel/arrivals/data';
+import type { Arrival, Person, Settings } from '../../workspace/personnel/arrivals/data';
 import { initialSettings } from '../../workspace/personnel/arrivals/data';
 import { addDays } from '../../workspace/personnel/helpers';
 import { DORMITORIES, TODAY } from '../arrival-settings-preview/data';
 
 export { DORMITORIES, TODAY };
-export type VisitStatus = 'expected' | 'arrived' | 'no_show' | 'moved' | 'settled';
+export type VisitStatus = 'expected' | 'arrived' | 'no_show';
 export type VisitRef = { arrivalId: string; personId: string; date: string };
 export type PlannedPerson = Person & {
   personKey: string;
   status: VisitStatus;
   card?: { id: string; number: string; phone: string };
   arrivedOn?: string;
-  residentId?: string;
   from?: VisitRef;
-  to?: VisitRef;
-  previousStatus?: 'expected' | 'no_show';
   history: string[];
 };
 export type PlannedArrival = Omit<Arrival, 'people' | 'count'> & {
   people: PlannedPerson[];
   createdByMove?: boolean;
 };
-export type Residence = {
-  id: string;
-  personKey: string;
-  employeeId: string;
-  name: string;
-  number: string;
-  phone: string;
-  dorm: string;
-  hostel: string;
-  settlementDate: string;
-  start: string;
-  end: string;
-  shifts: string;
-  source?: VisitRef;
-  personalValues: Record<string, Value>;
-  arrivalValues: Record<string, Value>;
-  fields: Field[];
-};
-export type WorkflowState = { arrivals: PlannedArrival[]; residents: Residence[] };
-export type SettlementInput = Pick<
-  Residence,
-  'number' | 'phone' | 'hostel' | 'settlementDate' | 'start' | 'end' | 'shifts'
->;
+export type WorkflowState = { arrivals: PlannedArrival[] };
 
 export const STATUS_LABELS: Record<VisitStatus, string> = {
   expected: 'Ожидается',
   arrived: 'Прибыл',
   no_show: 'Не приехал',
-  moved: 'Перенесён',
-  settled: 'В проживающих',
-};
-export const HOSTELS: Record<string, string[]> = {
-  Северное: ['Корпус А', 'Корпус Б'],
-  Центральное: ['Хостел «Центральный»', 'Корпус у проходной'],
-  Парковое: ['Корпус 1', 'Корпус 2'],
 };
 
 export function workflowSettings(): Settings {
@@ -138,25 +100,6 @@ export function initialWorkflow(): WorkflowState {
         values: { transport: 'Самостоятельно', comment: 'Заезд после 14:00.' },
       },
     ],
-    residents: [
-      {
-        id: 'resident-existing',
-        personKey: 'existing',
-        employeeId: 'employee-existing',
-        name: 'Виктор Елисеев',
-        number: '0038',
-        phone: '+7 (900) 000-00-38',
-        dorm: 'Северное',
-        hostel: 'Корпус А',
-        settlementDate: addDays(TODAY, -5),
-        start: addDays(TODAY, -4),
-        end: '',
-        shifts: '30',
-        personalValues: { brigade: 'Монтажная Б' },
-        arrivalValues: {},
-        fields: workflowSettings().fields,
-      },
-    ],
   };
 }
 
@@ -202,8 +145,6 @@ export function markVisit(
   const { person } = findVisit(state, arrivalId, personId);
   if (person.status === status) return state;
   if (!person.name.trim()) throw new Error('Сначала укажите ФИО человека.');
-  if (person.status === 'moved' || person.status === 'settled')
-    throw new Error('Эта запись уже перенесена или оформлена в проживающие.');
   if (status !== 'expected' && person.status !== 'expected')
     throw new Error('Сначала верните человека в ожидаемые.');
   return replaceVisit(state, arrivalId, {
@@ -238,26 +179,25 @@ export function moveVisit(
     throw new Error('Этот человек уже есть в плане на выбранный день.');
   const targetId = target?.id ?? crypto.randomUUID();
   const visitId = crypto.randomUUID();
-  const moved: PlannedPerson = {
-    ...person,
-    status: 'moved',
-    previousStatus: person.status as 'expected' | 'no_show',
-    to: { arrivalId: targetId, personId: visitId, date },
-    history: [...person.history, `Перенесён с ${arrival.date} на ${date}`],
-  };
   const nextPerson: PlannedPerson = {
     ...person,
     id: visitId,
     status: 'expected',
     values: { ...person.values },
     from: { arrivalId, personId, date: arrival.date },
-    to: undefined,
-    previousStatus: undefined,
     arrivedOn: undefined,
-    residentId: undefined,
-    history: [...person.history, `Заезд перенесён с ${arrival.date} на ${date}`],
+    history: [...person.history],
   };
-  const next = replaceVisit(state, arrivalId, moved);
+  const next = {
+    ...state,
+    arrivals: state.arrivals
+      .map((item) =>
+        item.id === arrivalId
+          ? { ...item, people: item.people.filter((entry) => entry.id !== personId) }
+          : item,
+      )
+      .filter((item) => item.people.length > 0),
+  };
   return {
     ...next,
     arrivals: target
@@ -278,100 +218,6 @@ export function moveVisit(
   };
 }
 
-export function undoMove(state: WorkflowState, arrivalId: string, personId: string): WorkflowState {
-  const { person } = findVisit(state, arrivalId, personId);
-  if (person.status !== 'moved' || !person.to) throw new Error('У этой записи нет переноса.');
-  const target = findVisit(state, person.to.arrivalId, person.to.personId);
-  if (target.person.status !== 'expected')
-    throw new Error(
-      'В новой дате уже отмечено прибытие или выполнено другое действие. Отменить этот перенос нельзя.',
-    );
-  const next = replaceVisit(state, arrivalId, {
-    ...person,
-    status: person.previousStatus ?? 'expected',
-    to: undefined,
-    previousStatus: undefined,
-    history: [...person.history, `Перенос на ${person.to.date} отменён`],
-  });
-  return {
-    ...next,
-    arrivals: next.arrivals
-      .map((item) =>
-        item.id === target.arrival.id
-          ? { ...item, people: item.people.filter((entry) => entry.id !== target.person.id) }
-          : item,
-      )
-      .filter((item) => !item.createdByMove || item.people.length > 0),
-  };
-}
-
-export function settlementDefaults(person: PlannedPerson): SettlementInput {
-  return {
-    number: person.card?.number ?? '',
-    phone: person.card?.phone ?? '',
-    hostel: '',
-    settlementDate: person.arrivedOn ?? TODAY,
-    start: String(person.values.workdate || person.arrivedOn || TODAY),
-    end: '',
-    shifts: String(person.values.shifts ?? ''),
-  };
-}
-
-export function settleVisit(
-  state: WorkflowState,
-  arrivalId: string,
-  personId: string,
-  input: SettlementInput,
-  fields: Field[],
-): WorkflowState {
-  const { arrival, person } = findVisit(state, arrivalId, personId);
-  if (person.status === 'settled') return state;
-  if (person.status !== 'arrived') throw new Error('Сначала отметьте, что человек прибыл.');
-  if (state.residents.some((item) => item.personKey === person.personKey))
-    throw new Error('У этого человека уже есть действующее проживание.');
-  if (!HOSTELS[arrival.dorm]?.includes(input.hostel)) throw new Error('Выберите место проживания.');
-  if (
-    !validDate(input.settlementDate) ||
-    !validDate(input.start) ||
-    (input.end && (!validDate(input.end) || input.end < input.start))
-  )
-    throw new Error('Проверьте даты: окончание вахты не может быть раньше начала.');
-  if (input.shifts && (!/^\d+$/.test(input.shifts) || Number(input.shifts) > 100000))
-    throw new Error('Количество смен должно быть целым числом от 0 до 100 000.');
-  if (
-    input.number.trim() &&
-    state.residents.some(
-      (item) => item.number === input.number.trim() && item.personKey !== person.personKey,
-    )
-  )
-    throw new Error('Такой табельный номер уже есть у другого проживающего.');
-  const id = crypto.randomUUID();
-  const resident: Residence = {
-    ...input,
-    id,
-    personKey: person.personKey,
-    employeeId: person.card?.id ?? crypto.randomUUID(),
-    name: person.name.trim(),
-    dorm: arrival.dorm,
-    number: input.number.trim(),
-    phone: input.phone.trim(),
-    source: { arrivalId, personId, date: arrival.date },
-    personalValues: { ...person.values },
-    arrivalValues: { ...arrival.values },
-    fields: structuredClone(fields),
-  };
-  const next = replaceVisit(state, arrivalId, {
-    ...person,
-    status: 'settled',
-    residentId: id,
-    history: [
-      ...person.history,
-      `Оформлен в проживающие · ${input.settlementDate} · ${input.hostel}`,
-    ],
-  });
-  return { ...next, residents: [resident, ...next.residents] };
-}
-
 export function counts(arrivals: PlannedArrival[]): Record<VisitStatus, number> {
   return arrivals
     .flatMap((arrival) => arrival.people)
@@ -379,7 +225,5 @@ export function counts(arrivals: PlannedArrival[]): Record<VisitStatus, number> 
       expected: 0,
       arrived: 0,
       no_show: 0,
-      moved: 0,
-      settled: 0,
     });
 }

@@ -1,4 +1,6 @@
 import type { CustomTabOptions } from '../../api/client';
+import { EditorSection } from '../../components/EditorSection';
+import { useOrganizedEditor } from '../../components/useOrganizedEditor';
 import styles from './CustomTabOptionsEditor.module.css';
 
 export function CustomTabOptionsEditor({
@@ -16,6 +18,7 @@ export function CustomTabOptionsEditor({
   onDateColumnName?: (name: string | null) => void;
   disabled?: boolean;
 }): JSX.Element {
+  const organized = useOrganizedEditor();
   function patch(next: Partial<CustomTabOptions>): void {
     if (next.period_mode === 'none' || next.table_format === 'calendar') {
       next.date_column_id = null;
@@ -25,88 +28,107 @@ export function CustomTabOptionsEditor({
   }
   const dates = columns?.filter((col) => col.kind === 'date' && !col.archived);
   return (
-    <fieldset className={styles.editor} disabled={disabled}>
+    <fieldset
+      className={styles.editor}
+      disabled={disabled}
+      data-editor-options={organized || undefined}
+    >
       <legend>Возможности вкладки</legend>
       <div className={styles.selects}>
-        <label>
-          Формат таблицы
-          <select
-            aria-label="Формат таблицы"
-            value={value.table_format}
-            onChange={(event) =>
-              patch({
-                table_format: event.target.value as CustomTabOptions['table_format'],
-                ...(event.target.value === 'calendar' && value.period_mode === 'none'
-                  ? { period_mode: 'month' }
-                  : {}),
-              })
-            }
-          >
-            <option value="list">Обычная таблица</option>
-            <option value="calendar">Даты в столбцах, как в общем отчёте</option>
-          </select>
-        </label>
-        <label>
-          Выбор периода
-          <select
-            aria-label="Выбор периода"
-            value={value.period_mode}
-            onChange={(event) =>
-              patch({ period_mode: event.target.value as CustomTabOptions['period_mode'] })
-            }
-          >
-            {value.table_format === 'list' && <option value="none">Без периода</option>}
-            <option value="range">Диапазон дат</option>
-            <option value="month">Переключение месяцев</option>
-          </select>
-        </label>
-        {value.table_format === 'list' && value.period_mode !== 'none' && dates && (
+        <EditorSection
+          title="Вид таблицы"
+          description="Выберите, как будут расположены записи и даты."
+        >
           <label>
-            Столбец для фильтрации
+            Формат таблицы
             <select
-              aria-label="Столбец для фильтрации"
-              value={dateColumnName ? `name:${dateColumnName}` : (value.date_column_id ?? '')}
-              onChange={(event) => {
-                const selected = event.target.value;
-                onDateColumnName?.(selected.startsWith('name:') ? selected.slice(5) : null);
+              aria-label="Формат таблицы"
+              value={value.table_format}
+              onChange={(event) =>
                 patch({
-                  date_column_id:
-                    selected && !selected.startsWith('name:') ? Number(selected) : null,
-                });
-              }}
+                  table_format: event.target.value as CustomTabOptions['table_format'],
+                  ...(event.target.value === 'calendar' && value.period_mode === 'none'
+                    ? { period_mode: 'month' }
+                    : {}),
+                })
+              }
             >
-              <option value="">Выберите столбец даты</option>
-              {dates.map((col, index) => (
-                <option key={col.id ?? index} value={col.id ?? `name:${col.name}`}>
-                  {col.name || 'Новый столбец даты'}
-                </option>
-              ))}
+              <option value="list">Обычная таблица</option>
+              <option value="calendar">Даты в столбцах, как в общем отчёте</option>
             </select>
-            {!dates.length && (
-              <small>Добавьте ниже столбец типа «Дата», затем выберите его здесь.</small>
-            )}
           </label>
-        )}
-      </div>
-      <div className={styles.checks}>
-        {(
-          [
-            ['add_row', 'Добавить строку'],
-            ['clear_list', 'Очистить список'],
-            ['row_actions', 'Действия со строкой — удаление'],
-            ...(value.table_format === 'list' ? [['show_dates', 'Показывать столбцы дат']] : []),
-          ] as [keyof CustomTabOptions, string][]
-        ).map(([key, label]) => (
-          <label key={key}>
-            <input
-              type="checkbox"
-              checked={!!value[key]}
-              onChange={(event) => patch({ [key]: event.target.checked })}
-            />
-            {label}
+        </EditorSection>
+        <EditorSection
+          title="Даты и период"
+          description="Настройте, как пользователь выбирает период и по какой дате отбираются записи."
+        >
+          <label>
+            Выбор периода
+            <select
+              aria-label="Выбор периода"
+              value={value.period_mode}
+              onChange={(event) =>
+                patch({ period_mode: event.target.value as CustomTabOptions['period_mode'] })
+              }
+            >
+              {value.table_format === 'list' && <option value="none">Без периода</option>}
+              <option value="range">Диапазон дат</option>
+              <option value="month">Переключение месяцев</option>
+            </select>
           </label>
-        ))}
+          {value.table_format === 'list' && value.period_mode !== 'none' && dates && (
+            <label>
+              Столбец для фильтрации
+              <select
+                aria-label="Столбец для фильтрации"
+                value={dateColumnName ? `name:${dateColumnName}` : (value.date_column_id ?? '')}
+                onChange={(event) => {
+                  const selected = event.target.value;
+                  onDateColumnName?.(selected.startsWith('name:') ? selected.slice(5) : null);
+                  patch({
+                    date_column_id:
+                      selected && !selected.startsWith('name:') ? Number(selected) : null,
+                  });
+                }}
+              >
+                <option value="">Выберите столбец даты</option>
+                {dates.map((col, index) => (
+                  <option key={col.id ?? index} value={col.id ?? `name:${col.name}`}>
+                    {col.name || 'Новый столбец даты'}
+                  </option>
+                ))}
+              </select>
+              {!dates.length && (
+                <small>Добавьте ниже столбец типа «Дата», затем выберите его здесь.</small>
+              )}
+            </label>
+          )}
+        </EditorSection>
       </div>
+      <EditorSection
+        title="Кнопки и действия"
+        description="Отметьте действия, доступные пользователям этой таблицы."
+      >
+        <div className={styles.checks}>
+          {(
+            [
+              ['add_row', 'Добавить строку'],
+              ['clear_list', 'Очистить список'],
+              ['row_actions', 'Действия со строкой — удаление'],
+              ...(value.table_format === 'list' ? [['show_dates', 'Показывать столбцы дат']] : []),
+            ] as [keyof CustomTabOptions, string][]
+          ).map(([key, label]) => (
+            <label key={key}>
+              <input
+                type="checkbox"
+                checked={!!value[key]}
+                onChange={(event) => patch({ [key]: event.target.checked })}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </EditorSection>
       <p className={styles.hint}>
         {value.table_format === 'calendar'
           ? 'Строки — ваши показатели, столбцы — дни выбранного периода. Значения вводятся вручную.'

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.hostel import Hostel, HostelCell
@@ -115,6 +115,10 @@ def get_custom_tab(
     )
     if tab is None:
         raise HTTPException(404, "Вкладка не найдена")
+    if require_table and tab.kind == "archive":
+        raise HTTPException(
+            409, "Архив действий доступен через историю и не является ручной таблицей"
+        )
     if require_active and not tab.is_active:
         raise HTTPException(
             409, "Вкладка скрыта и доступна только для просмотра. Сначала восстановите её."
@@ -130,9 +134,13 @@ def get_custom_tab(
 
 def require_writable_table(db: Session, dormitory_id: int, table_key: str) -> None:
     if table_key.startswith("custom_"):
-        get_custom_tab(
+        tab = get_custom_tab(
             db, dormitory_id, int(table_key.removeprefix("custom_")), require_active=True
         )
+        if tab.kind == "archive":
+            raise HTTPException(
+                409, "Архив действий заполняется автоматически и доступен только для чтения"
+            )
     else:
         require_section_writable(db, dormitory_id, table_key)
 
@@ -318,7 +326,14 @@ def normalize_value(column: TableColumn, value: Any, *, allow_archived: bool = F
     return value
 
 
-def record_value(row: Record, column: TableColumn) -> Any:
+def record_value(row: Record, column: TableColumn, fill_resolver: Any = None) -> Any:
+    if column.fill and isinstance(row, CustomTabEntry):
+        from app.cell_fill import FillResolver
+
+        db = object_session(row)
+        if db is None:
+            raise HTTPException(409, "Не удалось прочитать источник связанной ячейки")
+        return (fill_resolver or FillResolver(db, row.dormitory_id)).value(row, column)
     value = (
         getattr(row, column.builtin_key, None)
         if column.builtin_key
@@ -377,15 +392,22 @@ def linked_counts(
         else None
     )
     counts: dict[date, int] = {}
+    from app.cell_fill import FillResolver
+
+    resolver = (
+        FillResolver(db, dormitory_id)
+        if column.fill or (date_column and date_column.fill)
+        else None
+    )
     for row in records:
-        source_value = record_value(row, column)
+        source_value = record_value(row, column, resolver)
         if link.operator == "not_empty":
             if source_value is None or (isinstance(source_value, str) and not source_value.strip()):
                 continue
         elif source_value != link.value:
             continue
         if date_column:
-            value = record_value(row, date_column)
+            value = record_value(row, date_column, resolver)
             if not value:
                 continue
             day = date.fromisoformat(value)
@@ -424,16 +446,30 @@ def linked_place_values(
     return result
 
 
-def column_dependencies(db: Session, column: TableColumn) -> list[str]:
-    return [
-        row.name
-        for row in db.scalars(
-            select(ReportRow).where(
-                ReportRow.dormitory_id == column.dormitory_id,
-            )
+def column_dependencies(
+    db: Session, column: TableColumn, *, include_fill: bool = True
+) -> list[str]:
+    from app.cell_fill import fill_dependencies
+    from app.personnel_builder_dependencies import builder_dependencies
+
+    return (
+        builder_dependencies(
+            db,
+            column.dormitory_id,
+            {f"dorm:{column.dormitory_id}:{column.table_key}"},
+            field=str(column.id),
         )
-        if row.link and column.id in (row.link.get("column_id"), row.link.get("date_column_id"))
-    ]
+        + (fill_dependencies(db, column) if include_fill else [])
+        + [
+            row.name
+            for row in db.scalars(
+                select(ReportRow).where(
+                    ReportRow.dormitory_id == column.dormitory_id,
+                )
+            )
+            if row.link and column.id in (row.link.get("column_id"), row.link.get("date_column_id"))
+        ]
+    )
 
 
 def snapshot_link(db: Session, row: ReportRow) -> dict[str, Any] | None:
@@ -456,11 +492,44 @@ def snapshot_link(db: Session, row: ReportRow) -> dict[str, Any] | None:
         }
     if isinstance(link, ArrivalPlanReportLink):
         return {"rule": link.model_dump()}
+    snapshot = snapshot_table(db, row.dormitory_id, link.table_key, link.model_dump())
+    visited = {link.table_key}
+    pending = [snapshot]
+    dependencies: list[dict[str, Any]] = []
+    while pending:
+        current_snapshot = pending.pop()
+        for column in current_snapshot["columns"]:
+            fill = column.get("fill")
+            if not fill or fill["source"] == "personnel" or fill["source"] in visited:
+                continue
+            visited.add(fill["source"])
+            dependency = snapshot_table(
+                db,
+                row.dormitory_id,
+                fill["source"],
+                {
+                    "table_key": fill["source"],
+                    "column_id": int(fill["field"]),
+                    "operator": "not_empty",
+                    "value": None,
+                    "date_column_id": None,
+                },
+            )
+            dependencies.append(dependency)
+            pending.append(dependency)
+    if dependencies:
+        snapshot["fill_sources"] = dependencies
+    return snapshot
+
+
+def snapshot_table(
+    db: Session, dormitory_id: int, table_key: str, rule: dict[str, Any]
+) -> dict[str, Any]:
     # Preserve the full source schema, including removed built-ins. Otherwise a custom
     # replacement named "Причина" would collide with the default field in a new dormitory.
-    columns = columns_for(db, row.dormitory_id, link.table_key)
+    columns = columns_for(db, dormitory_id, table_key)
     snapshot: dict[str, Any] = {
-        "rule": link.model_dump(),
+        "rule": rule,
         "columns": [
             {
                 "id": col.id,
@@ -470,19 +539,20 @@ def snapshot_link(db: Session, row: ReportRow) -> dict[str, Any] | None:
                 "options": col.options,
                 "position": col.position,
                 "archived": col.archived,
+                "fill": col.fill,
             }
             for col in columns
         ],
     }
-    if link.table_key.startswith("custom_"):
+    if table_key.startswith("custom_"):
         tab = get_custom_tab(
-            db, row.dormitory_id, int(link.table_key.removeprefix("custom_")), require_table=True
+            db, dormitory_id, int(table_key.removeprefix("custom_")), require_table=True
         )
         snapshot["tab_name"] = tab.name
         parents: list[dict[str, Any]] = []
         current = tab
         while current.parent_id:
-            current = get_custom_tab(db, row.dormitory_id, current.parent_id)
+            current = get_custom_tab(db, dormitory_id, current.parent_id)
             parents.insert(0, {"id": current.id, "name": current.name})
         snapshot["parent_tabs"] = parents
         snapshot["parent_section"] = current.parent_section
@@ -495,6 +565,8 @@ def restore_link(
     snapshot: dict[str, Any] | None,
     mapped: dict[int, int],
     sources: dict[str, int],
+    *,
+    remap_fill: bool = True,
 ) -> dict[str, Any] | None:
     if snapshot is None:
         return None
@@ -557,6 +629,7 @@ def restore_link(
             existing.table_created = True
         rule["table_key"] = f"custom_{sources[key]}"
     columns = columns_for(db, dormitory_id, rule["table_key"])
+    previously_mapped = set(mapped)
     for source in snapshot["columns"]:
         if source["id"] in mapped:
             continue
@@ -579,6 +652,18 @@ def restore_link(
         else:
             target.name = source["name"]
         mapped[source["id"]] = target.id
+    for dependency in snapshot.get("fill_sources", []):
+        restore_link(db, dormitory_id, dependency, mapped, sources, remap_fill=False)
+    if remap_fill:
+        from app.cell_fill import remap_copied_fills
+
+        remap_copied_fills(
+            db,
+            dormitory_id,
+            mapped,
+            {key: f"custom_{value}" for key, value in sources.items() if key.startswith("custom_")},
+            copied_ids={value for key, value in mapped.items() if key not in previously_mapped},
+        )
     rule["column_id"] = mapped[rule["column_id"]]
     if rule.get("date_column_id") is not None:
         rule["date_column_id"] = mapped[rule["date_column_id"]]

@@ -83,6 +83,7 @@ export function OutflowEvictionDialog({
       {!checking && !token && (
         <button
           type="button"
+          className="btn btn--ghost btn--compact"
           onClick={() => {
             setError('');
             setAttempt((value) => value + 1);

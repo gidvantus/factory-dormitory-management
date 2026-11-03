@@ -1,5 +1,11 @@
 import { createContext, useContext } from 'react';
-import type { CellValue, OutflowFields, TableColumn, TableKey } from '../../api/client';
+import type {
+  CellFillRow,
+  CellValue,
+  OutflowFields,
+  TableColumn,
+  TableKey,
+} from '../../api/client';
 
 export type ColumnsDialog = null | 'manage' | 'new' | TableColumn;
 
@@ -12,11 +18,13 @@ export interface TableColumnsContext {
   reload: () => void;
   edit: (dialog: ColumnsDialog) => void;
   values: Record<string, CellValue>;
+  fillRows?: Record<number, CellFillRow>;
+  fillSaved?: (row: CellFillRow) => void;
   personnelFields?: Record<string, number>;
   outflowFields?: OutflowFields | null;
   saved: (key: string, value: CellValue) => void;
   trackSave: <T>(key: string, promise: Promise<T>) => Promise<T>;
-  waitForRowSaves: (rowId: number) => Promise<void>;
+  waitForRowSaves: (rowId: number, exceptKey?: string) => Promise<void>;
 }
 
 export const ColumnsContext = createContext<TableColumnsContext | null>(null);

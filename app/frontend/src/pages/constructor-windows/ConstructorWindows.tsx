@@ -33,6 +33,7 @@ import { installSandboxApis } from '../constructor-sandbox/api';
 import { WindowDraftContext } from './WindowDraftContext';
 import { WindowIntro } from './WindowIntro';
 import { WindowSplit } from './WindowSplit';
+import { OrganizedWindow } from './OrganizedWindow';
 import s from './Windows.module.css';
 
 const BASE = '/preview/constructors-windows';
@@ -61,9 +62,43 @@ type WindowKind =
   | 'arrival-display'
   | null;
 
-export function ConstructorWindows({ liveResult = false }: { liveResult?: boolean }): JSX.Element {
-  const basePath = liveResult ? '/preview/constructors-windows-live' : BASE;
-  const [store] = useState(() => new Sandbox());
+export function ConstructorWindows({
+  liveResult = false,
+  organizationDemo = false,
+}: {
+  liveResult?: boolean;
+  organizationDemo?: boolean;
+}): JSX.Element {
+  const basePath = organizationDemo
+    ? '/preview/constructors-organized'
+    : liveResult
+      ? '/preview/constructors-windows-live'
+      : BASE;
+  const [organized, setOrganized] = useState(true);
+  const [store] = useState(() => {
+    const data = new Sandbox();
+    if (organizationDemo)
+      for (const dorm of data.dorms)
+        dorm.rows.push({
+          id: data.id(),
+          name: 'Потребность на завтра',
+          formula: '=([Проживает М]+[Проживает Ж])+[Прибыло]-[Выбыло]',
+          link: null,
+          position: dorm.rows.length,
+          values: {},
+          errors: {},
+        });
+    return data;
+  });
+  const [formulaRowIds] = useState(
+    () =>
+      new Map(
+        store.dorms.map((item) => [
+          String(item.info.id),
+          item.rows.find((row) => row.name === 'Потребность на завтра')?.id,
+        ]),
+      ),
+  );
   const [ready, setReady] = useState(false);
   const [params] = useSearchParams();
   const location = useLocation();
@@ -91,12 +126,19 @@ export function ConstructorWindows({ liveResult = false }: { liveResult?: boolea
   const surface = useMemo(
     () => ({
       inline: false,
-      windowed: true,
-      intro: WindowIntro,
-      layout: liveResult ? WindowSplit : undefined,
+      windowed: !organizationDemo || organized,
+      organized: organizationDemo && organized,
+      intro: organizationDemo ? undefined : WindowIntro,
+      layout: organizationDemo
+        ? organized
+          ? OrganizedWindow
+          : undefined
+        : liveResult
+          ? WindowSplit
+          : undefined,
       publish,
     }),
-    [publish, liveResult],
+    [publish, liveResult, organizationDemo, organized],
   );
   useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
   useEffect(() => {
@@ -106,13 +148,15 @@ export function ConstructorWindows({ liveResult = false }: { liveResult?: boolea
   }, [store]);
   useEffect(() => {
     const old = document.title;
-    document.title = liveResult
-      ? 'Настройки + живой результат в окне — Домовой'
-      : 'Конструкторы в отдельных окнах — Домовой';
+    document.title = organizationDemo
+      ? 'Понятная организация конструкторов — Домовой'
+      : liveResult
+        ? 'Настройки + живой результат в окне — Домовой'
+        : 'Конструкторы в отдельных окнах — Домовой';
     return () => {
       document.title = old;
     };
-  }, [liveResult]);
+  }, [liveResult, organizationDemo]);
   const source = store.dorm(dorm);
   const selected = views.find((item) => item.id === view)!;
   function go(next: View): void {
@@ -137,7 +181,9 @@ export function ConstructorWindows({ liveResult = false }: { liveResult?: boolea
     changed(message);
     close();
   }
-  const row = source.rows.find((item) => item.name === 'Проживает Итого')!;
+  const row = organizationDemo
+    ? (source.rows.find((item) => item.id === formulaRowIds.get(dorm)) ?? null)
+    : source.rows.find((item) => item.name === 'Проживает Итого')!;
   const emptyTab = source.settings.tabs.find((item) => !item.table_created);
   const dashboardData = {
     ...EMPTY_DASHBOARD,
@@ -471,12 +517,43 @@ export function ConstructorWindows({ liveResult = false }: { liveResult?: boolea
               <div className={s.notice}>
                 <WorkspaceIcon name="info" />
                 <span>
-                  {liveResult
-                    ? 'Настройки + живой результат внутри одного окна.'
-                    : 'Привычные окна, более понятные настройки.'}
+                  {organizationDemo
+                    ? 'Привычные окна с понятной организацией настроек.'
+                    : liveResult
+                      ? 'Настройки + живой результат внутри одного окна.'
+                      : 'Привычные окна, более понятные настройки.'}
                 </span>
                 <small>Изменения действуют только на тестовые данные до перезагрузки.</small>
               </div>
+              {organizationDemo && (
+                <div className={s.compare}>
+                  <div>
+                    <strong>Сравните на одной и той же форме</strong>
+                    <p>
+                      Выберите вариант и откройте конструктор. Поля, ограничения и данные
+                      одинаковые.
+                    </p>
+                  </div>
+                  <div className={s.compareButtons}>
+                    <button
+                      type="button"
+                      className="btn btn--segment btn--compact"
+                      aria-pressed={!organized}
+                      onClick={() => setOrganized(false)}
+                    >
+                      Сейчас в проекте
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--segment btn--compact"
+                      aria-pressed={organized}
+                      onClick={() => setOrganized(true)}
+                    >
+                      Предлагаемая организация
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className={s.heading}>
                 <div>
                   <p className={s.client}>{source.info.client_name}</p>
@@ -557,9 +634,11 @@ export function ConstructorWindows({ liveResult = false }: { liveResult?: boolea
               <details className={s.changes}>
                 <summary>Что изменилось в окнах</summary>
                 <p>
-                  {liveResult
-                    ? 'Настройки и живой результат видны одновременно внутри окна. Пример справа обновляется при изменении полей до сохранения. На узком экране результат расположен под настройками.'
-                    : 'Настройки открываются поверх текущего раздела. Заголовок и пояснение помогают понять действие. Поля собраны по смыслу, а пример результата можно раскрыть внутри окна.'}{' '}
+                  {organizationDemo
+                    ? 'Поля объединены по смыслу: назначение, источник, поведение и отображение. У длинных форм есть оглавление с переходом к нужной группе. Формулы редактируются целиком, строки вставляются в позицию курсора. Зависимые настройки находятся рядом с управляющим выбором. Удаление отделено от сохранения.'
+                    : liveResult
+                      ? 'Настройки и живой результат видны одновременно внутри окна. Пример справа обновляется при изменении полей до сохранения. На узком экране результат расположен под настройками.'
+                      : 'Настройки открываются поверх текущего раздела. Заголовок и пояснение помогают понять действие. Поля собраны по смыслу, а пример результата можно раскрыть внутри окна.'}{' '}
                   Все существующие типы, связи, шаблоны и проверки сохранены.
                 </p>
               </details>

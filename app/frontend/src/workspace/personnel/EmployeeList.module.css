@@ -15,9 +15,6 @@
   margin-right: auto;
   font-size: 12px;
 }
-.filterHeading button {
-  font-size: 11px;
-}
 .filterRow {
   display: flex;
   flex-wrap: wrap;
@@ -39,6 +36,9 @@
 }
 .remove {
   flex: none;
+  width: var(--control-h-md);
+  height: var(--control-h-md);
+  padding: 0;
 }
 .hint {
   margin-top: 10px !important;

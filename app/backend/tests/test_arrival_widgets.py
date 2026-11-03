@@ -80,8 +80,8 @@ def test_daily_charts_scope_and_archived_history(client: TestClient, db_session:
     response = client.post(f"/api/dashboard/preview?{PERIOD}", json=payload)
     assert response.status_code == 200, response.text
     result = response.json()
-    assert [point["value"] for point in result["daily"]] == [10, 0, 7]
-    assert result["series"][1]["is_archived"] is True
+    assert [point["value"] for point in result["daily"]] == [10, 0, 0]
+    assert [item["dormitory_id"] for item in result["series"]] == [first.id]
     assert [point["value"] for point in result["series"][0]["daily"]] == [10, 0, 0]
     excluded = client.post(
         f"/api/dashboard/preview?{PERIOD}",
