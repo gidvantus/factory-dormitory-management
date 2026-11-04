@@ -1,0 +1,264 @@
+# Обновление локального стенда владельца после мержа PR в develop-m.
+#
+# Отдельный файл, а не job в deploy.yml: deploy.yml — боевой деплой на сервер
+# по SSH с гейтом «только из main» (docs/deploy.md). Здесь ничего не уходит на
+# сервер: job работает на self-hosted раннере в клоне владельца
+# (D:\Development\VideCoding\CRMDormitory) и пересобирает его стенд.
+#
+# Стенд трогается ТОЛЬКО если клон реально обновился: все шаги, начиная с
+# гварда имени проекта, стоят под `steps.clone.outputs.updated == 'true'`.
+# Клон обновляется строго fast-forward — незапушенная работа не затирается.
+#
+# ВАЖНО: в блоках `run:` — только ASCII. Раннер пишет временный .ps1 без BOM,
+# а Windows PowerShell 5.1 читает такой файл как ANSI: кириллица и типографские
+# символы ломают разбор до первого оператора. Названия шагов и комментарии
+# YAML — по-русски, всё исполняемое — по-английски. Проверка:
+#   Select-String -Path .github\workflows\stand.yml -Pattern '[^\x00-\x7F]'
+# Не-ASCII допускается только в строках `#`, `name:` и `- name:`.
+
+name: Обновить локальный стенд
+
+on:
+  # Мерж PR в develop-m — это push в неё. Ручной запуск нужен для первого
+  # прогона и для повторной попытки после сбоя.
+  push:
+    branches: [develop-m]
+  workflow_dispatch:
+
+# Блока pull_request здесь нет и быть не должно: self-hosted раннер исполняет
+# код из репозитория на машине владельца, а PR может прийти из форка.
+permissions:
+  contents: read
+
+# Отмена на середине пересборки оставила бы полуразобранный стек, поэтому
+# прогоны не отменяют друг друга, а встают в очередь.
+concurrency:
+  group: crm-stand
+  cancel-in-progress: false
+
+jobs:
+  stand:
+    name: Обновить локальный стенд
+    runs-on: [self-hosted, Windows, crm-ci]
+    timeout-minutes: 60
+    env:
+      LOCAL_CLONE: 'D:\Development\VideCoding\CRMDormitory'
+      LOCAL_BRANCH: develop-m
+      STAND_PROJECT: crm-dormitory
+      STAND_BACKUP_DIR: 'D:\stand-backups\CRMDormitory'
+    steps:
+      # actions/checkout здесь не нужен: job работает в клоне владельца, а не в
+      # рабочем каталоге раннера `_work`.
+      - name: 'Проверка: клон и ветка'
+        run: |
+          $clone = $env:LOCAL_CLONE
+          $branch = $env:LOCAL_BRANCH
+          if (-not (Test-Path (Join-Path $clone '.git'))) {
+            Write-Host "::error::No git repository at $clone (check LOCAL_CLONE in stand.yml)"
+            exit 1
+          }
+          $current = git -C $clone rev-parse --abbrev-ref HEAD
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::git could not read the current branch in $clone"
+            exit 1
+          }
+          $current = "$current".Trim()
+          if ($current -ne $branch) {
+            Write-Host "::error::Clone is on branch '$current', expected '$branch'. Stand left untouched: switch the clone to $branch and re-run the job."
+            exit 1
+          }
+          git -C $clone log -1 --oneline
+
+      - name: 'Клон: fast-forward до origin/develop-m'
+        # Токен живёт только внутри этого шага: в `env:` шага, не в URL клона,
+        # не в `url.insteadOf` и не в конфиге git. На машине раннера нет
+        # SSH-идентичности, поэтому клон своего remote (git@github.com:...) не
+        # использует: адрес и заголовок передаются одной команде fetch.
+        id: clone
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $clone = $env:LOCAL_CLONE
+          $branch = $env:LOCAL_BRANCH
+          if (-not $env:GH_TOKEN -or -not $env:GITHUB_REPOSITORY) {
+            Write-Host "::error::HTTPS fetch failed: token or repo URL is wrong (GH_TOKEN or GITHUB_REPOSITORY is empty)"
+            exit 1
+          }
+          $repoUrl = "https://github.com/$($env:GITHUB_REPOSITORY).git"
+          $basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$($env:GH_TOKEN)"))
+          $refspec = "+refs/heads/$($branch):refs/remotes/origin/$branch"
+
+          # Never let git ask for credentials interactively: on the owner's
+          # machine that would hang the job behind a credential prompt.
+          $env:GIT_TERMINAL_PROMPT = '0'
+
+          # Only origin/develop-m is refreshed, tags are not fetched and
+          # pruning is off on purpose: other refs in the owner's clone stay.
+          git -C $clone -c credential.helper= -c "http.extraheader=AUTHORIZATION: basic $basic" fetch --no-tags $repoUrl $refspec
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::HTTPS fetch failed: token or repo URL is wrong"
+            exit 1
+          }
+
+          # Local commits ahead of origin are the owner's unpushed work.
+          # Applying origin over them is not allowed, so the stand stays as is
+          # and the run ends with a warning instead of a red cross.
+          $ahead = "$(git -C $clone rev-list --count "origin/$branch..HEAD")".Trim()
+          if ([int]$ahead -gt 0) {
+            Write-Host "::warning::Clone has $ahead local commit(s) ahead of origin/$branch. Stand left untouched: origin cannot be applied over your work. Push or drop them and the next run will update the stand."
+            [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "updated=false`n")
+            exit 0
+          }
+
+          $before = "$(git -C $clone rev-parse --short HEAD)".Trim()
+          git -C $clone merge --ff-only "origin/$branch"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Cannot fast-forward the clone: uncommitted changes in files the merge touches. Stand left untouched. Check git status in the clone, commit or stash, then re-run the job."
+            exit 1
+          }
+          $after = "$(git -C $clone rev-parse --short HEAD)".Trim()
+          Write-Host "clone updated: $before -> $after ($branch)"
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "updated=true`n")
+
+      # ---------------------------------------------------------------------
+      # Шаги стенда. Все до «Итога» стоят под if: updated == 'true'.
+      # ---------------------------------------------------------------------
+      - name: 'Проверка: имя compose-проекта'
+        # Имя проекта и порты живут в `.env` клона, а он не в git. Без
+        # COMPOSE_PROJECT_NAME compose поднял бы ВТОРОЙ стек с пустой базой
+        # вместо обновления существующего — поэтому имя сверяется до любых
+        # действий со стеком. Порты печатаются и уходят в GITHUB_ENV, чтобы не
+        # хардкодить их в файле workflow.
+        if: steps.clone.outputs.updated == 'true'
+        run: |
+          $dir = $env:LOCAL_CLONE
+          $json = docker compose -f "$dir\docker-compose.yml" --project-directory $dir config --format json
+          if ($LASTEXITCODE -ne 0 -or -not $json) {
+            Write-Host "::error::docker compose config failed: check docker-compose.yml and .env in $dir"
+            exit 1
+          }
+          $cfg = ($json -join "`n") | ConvertFrom-Json
+
+          $project = "$($cfg.name)".Trim()
+          if ($project -ne $env:STAND_PROJECT) {
+            Write-Host "::error::Compose project name is '$project', expected '$($env:STAND_PROJECT)'. COMPOSE_PROJECT_NAME is missing or wrong in $dir\.env: without it compose would start a SECOND stack with an empty database instead of updating the existing one. Set COMPOSE_PROJECT_NAME=$($env:STAND_PROJECT) in .env and re-run the job."
+            exit 1
+          }
+          Write-Host "compose project: $project"
+
+          $apiPort = @($cfg.services.api.ports | ForEach-Object { "$($_.published)".Trim() } | Where-Object { $_ }) | Select-Object -First 1
+          $webPort = @($cfg.services.web.ports | ForEach-Object { "$($_.published)".Trim() } | Where-Object { $_ }) | Select-Object -First 1
+          if (-not $apiPort -or -not $webPort) {
+            Write-Host "::error::No published port for api or web in $dir\.env: API_PORT and FRONTEND_PORT must be set, the liveness checks need them."
+            exit 1
+          }
+          Write-Host "published ports: api=$apiPort web=$webPort"
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "STAND_API_PORT=$apiPort`n")
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "STAND_WEB_PORT=$webPort`n")
+
+      - name: 'Стенд: бэкап БД перед обновлением'
+        # Миграции стенда накатывает сам api при старте (app/backend/entrypoint.sh:
+        # alembic upgrade head), отката миграций нет. Дамп снимается ДО
+        # пересборки и лежит вне клона: в клоне он был бы мусором в git status.
+        if: steps.clone.outputs.updated == 'true'
+        run: |
+          $dir = $env:LOCAL_CLONE
+          $file = "$dir\docker-compose.yml"
+          $container = "$(docker compose -f $file --project-directory $dir ps -aq db)".Trim()
+          if (-not $container) {
+            Write-Host "::warning::No db container for project '$($env:STAND_PROJECT)': first run on this stand, nothing to roll back. Skipping the backup."
+            exit 0
+          }
+
+          $running = "$(docker inspect -f '{{.State.Running}}' $container)".Trim()
+          if ($running -ne 'true') {
+            Write-Host "db container exists but is not running: starting it so a dump can be taken"
+            docker compose -f $file --project-directory $dir up -d --wait db
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "::error::Could not start db: no dump was taken, stand left as is."
+              exit 1
+            }
+          }
+
+          # The dump is written INSIDE the container and copied out with
+          # docker cp: redirecting the stream through PowerShell would corrupt
+          # the binary output.
+          docker compose -f $file --project-directory $dir exec -T db sh -c 'pg_dump -U $POSTGRES_USER -d $POSTGRES_DB -Fc -f /tmp/crm_stand.dump'
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::pg_dump failed: no dump was taken, stand left as is."
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force -Path $env:STAND_BACKUP_DIR | Out-Null
+          $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+          $target = Join-Path $env:STAND_BACKUP_DIR "crm_$stamp.dump"
+          docker cp "${container}:/tmp/crm_stand.dump" $target
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $target)) {
+            Write-Host "::error::docker cp of the dump failed: stand left as is."
+            exit 1
+          }
+          docker compose -f $file --project-directory $dir exec -T db rm -f /tmp/crm_stand.dump
+
+          $size = [math]::Round((Get-Item $target).Length / 1KB, 1)
+          Write-Host "backup: $target ($size KB)"
+
+      - name: 'Стенд: пересборка и перезапуск'
+        # -p не передаётся: имя проекта берётся из .env клона (его сверяет шаг
+        # выше), поэтому контейнеры пересоздаются, а не плодится второй стек.
+        # --wait ждёт healthcheck'и db, operator-api и operator-web; у api, web
+        # и bot healthcheck'ов нет, поэтому их живость доказывает следующий шаг.
+        if: steps.clone.outputs.updated == 'true'
+        run: |
+          $dir = $env:LOCAL_CLONE
+          docker compose -f "$dir\docker-compose.yml" --project-directory $dir up -d --build --remove-orphans --wait --wait-timeout 300
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::docker compose up failed: the stand is in an unknown state, see docker compose ps in the clone."
+            exit 1
+          }
+          Write-Host "stand rebuilt: $($env:STAND_PROJECT)"
+
+      - name: 'Проверка: стенд отвечает'
+        # Порты приходят из docker compose config --format json (то есть из
+        # .env клона), в файле workflow они не хардкодятся.
+        if: steps.clone.outputs.updated == 'true'
+        run: |
+          $apiUrl = "http://localhost:$($env:STAND_API_PORT)/api/health"
+          $webUrl = "http://localhost:$($env:STAND_WEB_PORT)/"
+
+          try {
+            $api = Invoke-WebRequest -Uri $apiUrl -UseBasicParsing -TimeoutSec 20
+          }
+          catch {
+            Write-Host "::error::$apiUrl did not respond: $($_.Exception.Message). See docker compose logs api in the clone."
+            exit 1
+          }
+          if ($api.StatusCode -ne 200) {
+            Write-Host "::error::$apiUrl returned $($api.StatusCode), expected 200. See docker compose logs api in the clone."
+            exit 1
+          }
+          if ("$($api.Content)" -notmatch '"status"\s*:\s*"ok"') {
+            Write-Host "::error::$apiUrl answered without status ok: $($api.Content). See docker compose logs api in the clone."
+            exit 1
+          }
+          Write-Host "$apiUrl -> $($api.StatusCode) $($api.Content)"
+
+          try {
+            $web = Invoke-WebRequest -Uri $webUrl -UseBasicParsing -TimeoutSec 20
+          }
+          catch {
+            Write-Host "::error::$webUrl did not respond: $($_.Exception.Message). See docker compose logs web in the clone."
+            exit 1
+          }
+          if ($web.StatusCode -ne 200) {
+            Write-Host "::error::$webUrl returned $($web.StatusCode), expected 200. See docker compose logs web in the clone."
+            exit 1
+          }
+          Write-Host "$webUrl -> $($web.StatusCode)"
+
+      - name: 'Итог: что теперь на стенде'
+        if: always()
+        run: |
+          $dir = $env:LOCAL_CLONE
+          git -C $dir log -1 --oneline
+          docker compose -f "$dir\docker-compose.yml" --project-directory $dir ps
+          docker compose -f "$dir\docker-compose.yml" --project-directory $dir images
