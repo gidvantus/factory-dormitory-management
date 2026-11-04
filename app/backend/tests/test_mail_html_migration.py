@@ -21,7 +21,6 @@
 
 from collections.abc import Iterator
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
@@ -86,23 +85,23 @@ def engine_connection() -> Iterator[Connection]:
     engine.dispose()
 
 
-def migration() -> ModuleType:
+def migration() -> Any:
+    """Модуль ревизии по пути: `alembic/versions` — не пакет, импорта по имени нет.
+
+    `Any`, а не `ModuleType`: SQL и функции ревизии объявлены в самом модуле, а не
+    в типе. `getattr`/`setattr` тут были бы тише для mypy, но их запрещает
+    `ruff check` (`B009`/`B010`), а `# type: ignore` на каждую строку — шум.
+    """
     return load_migration(MIGRATION_PATH)
 
 
-def sqlite_compatible(module: ModuleType) -> ModuleType:
+def sqlite_compatible(module: Any) -> Any:
     """Те же операторы без `IF NOT EXISTS`: такого DDL SQLite не понимает."""
-    add_columns: tuple[str, ...] = getattr(module, "ADD_COLUMNS_SQL")
-    drop_columns: tuple[str, ...] = getattr(module, "DROP_COLUMNS_SQL")
-    setattr(
-        module,
-        "ADD_COLUMNS_SQL",
-        tuple(statement.replace(" IF NOT EXISTS", "") for statement in add_columns),
+    module.ADD_COLUMNS_SQL = tuple(
+        statement.replace(" IF NOT EXISTS", "") for statement in module.ADD_COLUMNS_SQL
     )
-    setattr(
-        module,
-        "DROP_COLUMNS_SQL",
-        tuple(statement.replace(" IF EXISTS", "") for statement in drop_columns),
+    module.DROP_COLUMNS_SQL = tuple(
+        statement.replace(" IF EXISTS", "") for statement in module.DROP_COLUMNS_SQL
     )
     return module
 
