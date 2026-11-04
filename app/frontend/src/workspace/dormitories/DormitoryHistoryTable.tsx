@@ -4,6 +4,7 @@ import type { CustomTab, DormitoryHistoryPage } from '../../api/client';
 import type { DateRange } from '../dashboard/dates';
 import { usePageRefresh } from '../usePageRefresh';
 import s from './DormitoryHistoryTable.module.css';
+import { DormitoryTableFrame } from './DormitoryTableFrame';
 
 const dateTime = new Intl.DateTimeFormat('ru-RU', {
   timeZone: 'Europe/Moscow',
@@ -83,9 +84,11 @@ export function DormitoryHistoryTable({
   }
 
   return (
-    <section className={s.page} aria-label={tab.name}>
-      <div className="toolbar">
-        <h2>{tab.name}</h2>
+    <DormitoryTableFrame
+      className={s.page}
+      aria-label={tab.name}
+      heading={<h2>{tab.name}</h2>}
+      secondary={
         <button
           type="button"
           className="btn btn--ghost btn--compact"
@@ -94,7 +97,8 @@ export function DormitoryHistoryTable({
         >
           Обновить
         </button>
-      </div>
+      }
+    >
       <p className={s.hint}>
         Изменения данных текущего общежития. Новые события сверху, время московское. История
         записывается автоматически с момента включения функции.
@@ -147,6 +151,6 @@ export function DormitoryHistoryTable({
           Показать ещё
         </button>
       )}
-    </section>
+    </DormitoryTableFrame>
   );
 }

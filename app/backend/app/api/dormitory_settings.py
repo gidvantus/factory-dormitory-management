@@ -78,6 +78,12 @@ class TabSetting(BaseModel):
         return CreateTabRequest.name_not_blank(value)
 
 
+class ExchangeOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    import_enabled: bool = True
+    export_enabled: bool = True
+
+
 class SaveSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: str = Field(min_length=64, max_length=64)
@@ -85,6 +91,7 @@ class SaveSettings(BaseModel):
     tabs: list[TabSetting] = Field(default_factory=list)
     sections: dict[str, Literal["active", "hidden"]] = Field(default_factory=dict)
     deleted: list[str] = Field(default_factory=list)
+    exchange_options: dict[str, ExchangeOptions] = Field(default_factory=dict)
 
 
 def settings_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
@@ -119,6 +126,7 @@ def settings_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
         )
     ]
     configuration = {
+        "exchange_options": dorm.exchange_options or {},
         "tables": tables,
         "tabs": [
             {
@@ -142,6 +150,7 @@ def settings_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
         json.dumps(configuration, sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()
     return {
+        "exchange_options": dorm.exchange_options or {},
         "revision": revision,
         "tables": tables,
         "tabs": tab_data,
@@ -252,6 +261,15 @@ def write_settings(
             raise HTTPException(
                 409, "Структуру изменили в другом окне. Обновите настройки и повторите изменения."
             )
+        if any(
+            key not in SECTIONS or key in {"movement", "payments"}
+            for key in payload.exchange_options
+        ):
+            raise HTTPException(422, "Выберите таблицу для настройки импорта и экспорта")
+        dorm.exchange_options = {
+            **(dorm.exchange_options or {}),
+            **{key: value.model_dump() for key, value in payload.exchange_options.items()},
+        }
         if len({item.key for item in payload.tabs}) != len(payload.tabs) or len(
             {item.key for item in payload.tables}
         ) != len(payload.tables):

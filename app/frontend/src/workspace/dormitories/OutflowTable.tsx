@@ -11,6 +11,7 @@ import { useColumns } from './tableColumnsContext';
 import { OutflowReasonInput } from './OutflowReasonInput';
 import { OutflowEvictionDialog } from './OutflowEvictionDialog';
 import styles from './OutflowTable.module.css';
+import { DormitoryTableFrame } from './DormitoryTableFrame';
 import {
   ColumnsControls,
   ConfiguredCells,
@@ -274,7 +275,23 @@ function OutflowContent({
   }
 
   return (
-    <section className={styles.page} data-testid="dormitory-outflow">
+    <DormitoryTableFrame
+      className={styles.page}
+      data-testid="dormitory-outflow"
+      heading={<h2>Отток</h2>}
+      secondary={<ColumnsControls />}
+      primary={
+        <button
+          type="button"
+          className="btn btn--primary btn--compact"
+          aria-busy={adding}
+          disabled={adding || status !== 'ready'}
+          onClick={() => void add()}
+        >
+          {adding ? 'Добавляем…' : '+ Добавить строку'}
+        </button>
+      }
+    >
       {adding && (
         <IdentityDialog
           dormitoryId={dormitoryId}
@@ -286,19 +303,6 @@ function OutflowContent({
           }}
         />
       )}
-      <div className="toolbar">
-        <h2>Отток</h2>
-        <ColumnsControls />
-        <button
-          type="button"
-          className="btn btn--primary btn--compact"
-          aria-busy={adding}
-          disabled={adding || status !== 'ready'}
-          onClick={() => void add()}
-        >
-          {adding ? 'Добавляем…' : '+ Добавить строку'}
-        </button>
-      </div>
       {status === 'loading' && <p role="status">Загружаем отток…</p>}
       {status === 'error' && (
         <p role="alert">
@@ -393,7 +397,7 @@ function OutflowContent({
           }}
         />
       )}
-    </section>
+    </DormitoryTableFrame>
   );
 }
 

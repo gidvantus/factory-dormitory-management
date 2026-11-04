@@ -185,15 +185,15 @@
   transform: rotate(180deg);
 }
 .detailsHeading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--gap-12);
   margin: 26px 0 24px;
 }
 .detailsHeadingCopy {
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .detailsClient {
   margin-bottom: 5px;
@@ -207,14 +207,14 @@
 }
 .periodForm {
   display: grid;
-  justify-items: end;
+  justify-items: start;
   gap: 6px;
   min-width: 0;
 }
 .periodFields {
   display: flex;
   align-items: flex-end;
-  justify-content: flex-end;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 8px;
 }
@@ -454,9 +454,6 @@
   font-weight: 700;
 }
 @media (max-width: 760px) {
-  .detailsHeading {
-    align-items: stretch;
-  }
   .periodForm {
     justify-items: stretch;
     width: 100%;
@@ -494,11 +491,4 @@
   padding: 0;
   margin: 0;
   min-width: 0;
-}
-
-.sectionContent:disabled input,
-.sectionContent:disabled select,
-.sectionContent:disabled textarea {
-  color: var(--text-primary, #263547);
-  opacity: 1;
 }

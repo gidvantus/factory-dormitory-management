@@ -14,6 +14,8 @@ import { useColumns } from './tableColumnsContext';
 import styles from './OutflowTable.module.css';
 import { CreateTableDialog } from './CreateTableDialog';
 import { useSettingsNavigation } from './settingsContext';
+import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { WorkspaceIcon } from '../WorkspaceIcon';
 import { CustomDayCell } from './CustomDayCell';
 import { PersonnelTableCells } from './PersonnelTableCells';
 import { defaultTabOptions } from './customTabOptions';
@@ -153,35 +155,43 @@ function CustomTableContent({
     }
   }
   return (
-    <section className={styles.page} data-testid="custom-tab-table">
-      <div className="toolbar">
-        <h2>{tab.name}</h2>
-        {tab.is_active && <ColumnsControls />}
-        {options.clear_list && (
+    <DormitoryTableFrame
+      className={styles.page}
+      data-testid="custom-tab-table"
+      heading={<h2>{tab.name}</h2>}
+      secondary={
+        <>
+          {tab.is_active && <ColumnsControls />}
+          {options.clear_list && (
+            <button
+              type="button"
+              className="btn btn--danger-text btn--compact"
+              disabled={busy || !tab.is_active || !loaded}
+              onClick={() => {
+                setError('');
+                setClearing(true);
+              }}
+            >
+              <WorkspaceIcon name="trash" />
+              Очистить список
+            </button>
+          )}
+        </>
+      }
+      primary={
+        options.add_row && (
           <button
             type="button"
-            className="btn btn--ghost btn--compact"
-            disabled={busy || !tab.is_active || !loaded}
-            onClick={() => {
-              setError('');
-              setClearing(true);
-            }}
-          >
-            Очистить список
-          </button>
-        )}
-        {options.add_row && (
-          <button
-            type="button"
-            className={`btn btn--primary btn--compact ${optionStyles.add}`}
+            className="btn btn--primary btn--compact"
             aria-busy={busy}
             disabled={!tab.is_active || !loaded || columnsLoading || !!columnsError || busy}
             onClick={() => void add()}
           >
             + Добавить строку
           </button>
-        )}
-      </div>
+        )
+      }
+    >
       {options.table_format === 'list' && options.period_mode !== 'none' && (
         <p className={optionStyles.hint}>
           Показаны строки по выбранному столбцу даты. Строки без даты не входят в период.
@@ -323,7 +333,7 @@ function CustomTableContent({
           </div>
         </Modal>
       )}
-    </section>
+    </DormitoryTableFrame>
   );
 }
 
@@ -362,22 +372,23 @@ export function CustomTabTable({
       </TableColumnsProvider>
     );
   return (
-    <section className={styles.page} data-testid="custom-tab-empty">
-      <div className="toolbar">
-        <h2>{tab.name}</h2>
-        {(tab.options?.add_row ?? true) && (
+    <DormitoryTableFrame
+      className={styles.page}
+      data-testid="custom-tab-empty"
+      heading={<h2>{tab.name}</h2>}
+      secondary={
+        (tab.options?.add_row ?? true) && (
           <button
             type="button"
-            className="btn btn--primary btn--compact"
+            className="btn btn--ghost btn--compact"
             disabled
             title="Сначала создайте таблицу"
           >
             + Добавить строку
           </button>
-        )}
-      </div>
-      <p>Во вкладке пока нет таблицы. Создайте её и настройте столбцы, чтобы добавлять записи.</p>
-      <div>
+        )
+      }
+      primary={
         <button
           type="button"
           className="btn btn--primary btn--compact"
@@ -386,7 +397,9 @@ export function CustomTabTable({
         >
           Создать таблицу
         </button>
-      </div>
+      }
+    >
+      <p>Во вкладке пока нет таблицы. Создайте её и настройте столбцы, чтобы добавлять записи.</p>
       {!tab.is_active && (
         <p>Вкладка скрыта. Для создания таблицы восстановите её через «Управление вкладками».</p>
       )}
@@ -398,6 +411,6 @@ export function CustomTabTable({
           onCreated={onChanged}
         />
       )}
-    </section>
+    </DormitoryTableFrame>
   );
 }

@@ -36,6 +36,9 @@ class Dormitory(Base):
     section_parents: Mapped[dict[str, str | None]] = mapped_column(
         JSON, default=dict, server_default=text("'{}'")
     )
+    exchange_options: Mapped[dict[str, dict[str, bool]]] = mapped_column(
+        JSON, default=dict, server_default=text("'{}'")
+    )
     is_archived: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )

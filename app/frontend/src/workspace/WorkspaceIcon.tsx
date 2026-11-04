@@ -55,6 +55,7 @@ const icons = {
     </>
   ),
   chevron: <path d="m9 5 7 7-7 7" />,
+  trash: <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" />,
   info: (
     <>
       <circle cx="12" cy="12" r="9" />

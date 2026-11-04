@@ -5,6 +5,7 @@ import { api, ApiError, waitForDormitoryWrites } from '../../api/client';
 import type {
   ColumnKind,
   CustomTabOptions,
+  ExchangeOptions,
   DormitorySettings,
   ReportRow,
   SettingsColumn,
@@ -22,6 +23,7 @@ import { BindingDialog } from '../personnel/BindingDialog';
 import type { SourceTable } from '../../api/personnel';
 import styles from './DormitorySettingsDialog.module.css';
 import { CellFillEditor } from './CellFillEditor';
+import { ExchangeOptionsEditor } from './ExchangeOptionsEditor';
 import { cellFillError, personnelFillSource, sourceFields, supportsCellFill } from './cellFill';
 import type { CellFillSource } from '../../api/client';
 
@@ -36,6 +38,7 @@ interface Node {
   kind?: 'table' | 'archive';
   reason: string | null;
   options?: CustomTabOptions;
+  exchange?: ExchangeOptions;
   dateColumnName?: string | null;
 }
 const errorText = (error: unknown): string =>
@@ -89,6 +92,7 @@ export function DormitorySettingsDialog({
         parent: item.parent_key,
         status: item.status,
         custom: false,
+        exchange: data.exchange_options?.[item.key] ?? {},
         reason: item.delete_block_reason,
       })),
       ...data.tabs.map((item) => ({
@@ -259,6 +263,11 @@ export function DormitorySettingsDialog({
         )
         .map((item) => item.key);
       const input: SettingsInput = {
+        exchange_options: Object.fromEntries(
+          nodes
+            .filter((item) => !item.custom && !['movement', 'payments'].includes(item.key))
+            .map((item) => [item.key, item.exchange ?? {}]),
+        ),
         revision: snapshot.revision,
         tables: changedTables
           .filter((key) => {
@@ -610,6 +619,29 @@ export function DormitorySettingsDialog({
                         dateColumnName={node.dateColumnName}
                         onDateColumnName={(dateColumnName) => updateNode({ dateColumnName })}
                         disabled={blocked || busy}
+                      />
+                    )}
+                    {((!node.custom && !['movement', 'payments'].includes(node.key)) ||
+                      node.kind === 'archive') && (
+                      <ExchangeOptionsEditor
+                        value={
+                          node.custom ? (node.options ?? defaultTabOptions) : (node.exchange ?? {})
+                        }
+                        history={node.kind === 'archive'}
+                        disabled={blocked || busy}
+                        onChange={(exchange) =>
+                          updateNode(
+                            node.custom
+                              ? {
+                                  options: {
+                                    ...(node.options ?? defaultTabOptions),
+                                    ...exchange,
+                                    import_enabled: false,
+                                  },
+                                }
+                              : { exchange },
+                          )
+                        }
                       />
                     )}
                     {node.kind === 'archive' ? (

@@ -2,6 +2,7 @@ import type { CustomTabOptions } from '../../api/client';
 import { EditorSection } from '../../components/EditorSection';
 import { useOrganizedEditor } from '../../components/useOrganizedEditor';
 import styles from './CustomTabOptionsEditor.module.css';
+import { ExchangeOptionsEditor } from './ExchangeOptionsEditor';
 
 export function CustomTabOptionsEditor({
   value,
@@ -129,6 +130,7 @@ export function CustomTabOptionsEditor({
           ))}
         </div>
       </EditorSection>
+      <ExchangeOptionsEditor value={value} onChange={(next) => patch(next)} disabled={disabled} />
       <p className={styles.hint}>
         {value.table_format === 'calendar'
           ? 'Строки — ваши показатели, столбцы — дни выбранного периода. Значения вводятся вручную.'

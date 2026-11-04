@@ -93,7 +93,11 @@ def tab_responses(db: Session, dormitory_id: int, tabs: list[CustomTab]) -> list
             reason = "Вкладка используется в персонале: " + ", ".join(used)
         result.append(
             TabResponse.model_validate(tab).model_copy(
-                update={"has_data": bool(ids & populated), "delete_block_reason": reason}
+                update={
+                    "options": options_for(tab),
+                    "has_data": bool(ids & populated),
+                    "delete_block_reason": reason,
+                }
             )
         )
     return result

@@ -117,6 +117,9 @@ it('скрывает стандартную подвкладку отдельн�
   expect(screen.queryByTestId('dormitory-subtab-inflow')).not.toBeInTheDocument();
   expect(screen.getByTestId('dormitory-subtab-outflow')).toBeInTheDocument();
   expect(screen.getByTestId('dormitory-period-from')).toBeEnabled();
+  const actions = within(screen.getByRole('group', { name: 'Действия с таблицей' }));
+  expect(actions.getByRole('button', { name: 'Экспорт в Excel' })).toBeEnabled();
+  expect(actions.queryByRole('button', { name: 'Импорт из Excel' })).not.toBeInTheDocument();
 });
 
 it('возвращает удалённую стандартную вкладку через управление и запрещает удаление данных', async () => {
