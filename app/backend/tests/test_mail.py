@@ -43,6 +43,19 @@ RECOVERY_BODY = (
 FULL_NAME = "Иванов Иван Иванович"
 TOKEN = "raw-activation-token-value"
 SMTP_PASSWORD = "smtp-secret-password"
+# Имя со спецсимволами: в plain-части оно уходит как есть, в HTML — экранированным.
+TRICKY_FULL_NAME = "Иванов <Иван> & Ко"
+# HTML-часть шаблона: мини-копия вёрстки из `0059_mail_html_bodies`, без таблиц —
+# тесту важно поведение подстановки, а не разметка письма.
+HTML_BODY = (
+    '<html lang="ru"><head><meta charset="utf-8"><title>{subject}</title></head>'
+    '<body style="font-family:Arial,Helvetica,sans-serif">'
+    "<p>Здравствуйте, {full_name}!</p>"
+    '<p><a href="{activation_url}">{activation_url}</a></p>'
+    "<p>Ссылка действует {expires_hours} ч.</p>"
+    '<p><a href="{site_url}/">О сервисе</a></p>'
+    "</body></html>"
+)
 
 
 class FakeSMTP:
@@ -132,6 +145,21 @@ def seed_recovery_template(db_session: Session, is_active: bool = True) -> MailT
     return template
 
 
+def seed_html_template(db_session: Session, body_html: str = HTML_BODY) -> MailTemplate:
+    """Шаблон активации с вёрстанной HTML-частью."""
+    template = MailTemplate(
+        code=ACTIVATION_TEMPLATE_CODE,
+        subject=SUBJECT,
+        body=BODY,
+        body_html=body_html,
+        is_active=True,
+    )
+    db_session.add(template)
+    db_session.commit()
+    db_session.refresh(template)
+    return template
+
+
 def test_build_activation_url_is_absolute(smtp_settings: None) -> None:
     assert build_activation_url(TOKEN) == f"https://domovoy.example/activate/{TOKEN}"
 
@@ -144,11 +172,12 @@ def test_build_recovery_url_leads_to_the_same_password_screen(smtp_settings: Non
 def test_render_substitutes_every_placeholder(db_session: Session, smtp_settings: None) -> None:
     seed_template(db_session)
 
-    subject, body = render_activation_email(
+    rendered = render_activation_email(
         db_session,
         full_name=FULL_NAME,
         activation_url="https://domovoy.example/activate/token-value",
     )
+    subject, body = rendered.subject, rendered.body
 
     assert subject == SUBJECT
     assert FULL_NAME in body
@@ -156,6 +185,8 @@ def test_render_substitutes_every_placeholder(db_session: Session, smtp_settings
     assert str(get_settings().activation_token_ttl_hours) in body
     assert "{full_name}" not in body
     assert "{activation_url}" not in body
+    # Разметки у этого шаблона нет: HTML-часть собирается прежней обёрткой.
+    assert rendered.html is None
 
 
 def test_render_raises_when_template_is_missing(db_session: Session) -> None:
@@ -268,11 +299,12 @@ def test_recovery_render_substitutes_every_placeholder(
 ) -> None:
     seed_recovery_template(db_session)
 
-    subject, body = render_password_recovery_email(
+    rendered = render_password_recovery_email(
         db_session,
         full_name=FULL_NAME,
         activation_url="https://domovoy.example/activate/token-value",
     )
+    subject, body = rendered.subject, rendered.body
 
     assert subject == RECOVERY_SUBJECT
     assert FULL_NAME in body
@@ -281,6 +313,8 @@ def test_recovery_render_substitutes_every_placeholder(
     assert "{full_name}" not in body
     assert "{activation_url}" not in body
     assert "{expires_hours}" not in body
+    # Восстановление пароля макет не перерисовывает: HTML-части нет.
+    assert rendered.html is None
 
 
 def test_send_recovery_builds_message_from_its_own_template(
@@ -329,9 +363,10 @@ def test_render_puts_an_empty_string_for_an_unknown_placeholder(
     template.body = "Здравствуйте, {full_name}! Ваша роль: {unknown_role}. {activation_url}"
     db_session.commit()
 
-    subject, body = render_activation_email(
+    rendered = render_activation_email(
         db_session, full_name=FULL_NAME, activation_url="https://example/activate/x"
     )
+    subject, body = rendered.subject, rendered.body
 
     assert subject == "Активация для "
     assert body.startswith(f"Здравствуйте, {FULL_NAME}!")
@@ -355,3 +390,104 @@ def test_send_survives_an_unknown_placeholder(db_session: Session, smtp_settings
     text = plain.get_content()
     assert "Роль:" in text
     assert f"https://domovoy.example/activate/{TOKEN}" in text
+
+
+# --- HTML-часть письма из `mail_templates.body_html` --------------------------
+
+
+def html_part(message: EmailMessage) -> str:
+    """Готовая HTML-часть отправленного письма."""
+    part = message.get_body(preferencelist=("html",))
+    assert part is not None
+    return part.get_content()
+
+
+def test_html_part_is_rendered_from_the_template(db_session: Session, smtp_settings: None) -> None:
+    """HTML-часть берётся из `body_html`: ссылка абсолютная, плейсхолдеров не осталось."""
+    seed_html_template(db_session)
+
+    assert send_activation_email(
+        db_session, to="worker@example.com", full_name=FULL_NAME, token=TOKEN
+    )
+
+    (message,) = FakeSMTP.sent
+    rendered = html_part(message)
+    activation_url = f"https://domovoy.example/activate/{TOKEN}"
+    assert f'href="{activation_url}"' in rendered
+    assert f">{activation_url}</a>" in rendered
+    assert FULL_NAME in rendered
+    assert str(get_settings().activation_token_ttl_hours) in rendered
+    assert "https://domovoy.example/" in rendered
+    # Тема подставлена в `<title>` HTML-части.
+    assert f"<title>{SUBJECT}</title>" in rendered
+    assert "{" not in rendered
+
+    # Plain-часть остаётся plain-текстом и несёт ту же ссылку, что и раньше.
+    plain = message.get_body(preferencelist=("plain",))
+    assert plain is not None
+    text = plain.get_content()
+    assert activation_url in text
+    assert "<a href" not in text
+    content_types = [part.get_content_type() for part in message.walk()]
+    assert content_types.count("text/plain") == 1
+    assert content_types.count("text/html") == 1
+
+
+def test_html_values_are_escaped_and_plain_values_are_not(
+    db_session: Session, smtp_settings: None
+) -> None:
+    """Имя со спецсимволами: в HTML экранировано, в plain-части — как есть."""
+    seed_html_template(db_session)
+
+    assert send_activation_email(
+        db_session, to="worker@example.com", full_name=TRICKY_FULL_NAME, token=TOKEN
+    )
+
+    (message,) = FakeSMTP.sent
+    rendered = html_part(message)
+    assert "Иванов &lt;Иван&gt; &amp; Ко" in rendered
+    assert TRICKY_FULL_NAME not in rendered
+
+    plain = message.get_body(preferencelist=("plain",))
+    assert plain is not None
+    assert TRICKY_FULL_NAME in plain.get_content()
+
+
+def test_template_without_body_html_keeps_the_old_wrapper(
+    db_session: Session, smtp_settings: None
+) -> None:
+    """Шаблон без разметки (`password_recovery` в базе) уходит в прежней обёртке."""
+    seed_recovery_template(db_session)
+
+    assert send_password_recovery_email(
+        db_session, to="worker@example.com", full_name=FULL_NAME, token=TOKEN
+    )
+
+    (message,) = FakeSMTP.sent
+    rendered = html_part(message)
+    assert rendered.startswith('<html><body style="font-family:Arial,Helvetica,sans-serif;')
+    assert "<br>" in rendered
+    assert "<table" not in rendered
+    assert "<a href" not in rendered
+
+
+def test_unknown_placeholder_in_html_gives_an_empty_string(
+    db_session: Session, smtp_settings: None
+) -> None:
+    """Незнакомое имя в `body_html` не ломает отправку: письмо всё равно уходит."""
+    template = seed_html_template(
+        db_session,
+        body_html="<p>Здравствуйте, {full_name}! Роль: {unknown_role}</p>"
+        '<p><a href="{activation_url}">Открыть</a></p>',
+    )
+    assert template.body_html is not None
+
+    assert send_activation_email(
+        db_session, to="worker@example.com", full_name=FULL_NAME, token=TOKEN
+    )
+
+    (message,) = FakeSMTP.sent
+    rendered = html_part(message)
+    assert "Роль: </p>" in rendered
+    assert "{" not in rendered
+    assert f'href="https://domovoy.example/activate/{TOKEN}"' in rendered

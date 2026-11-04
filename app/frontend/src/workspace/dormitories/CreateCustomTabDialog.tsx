@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { CustomTab, CustomTabTemplate } from '../../api/client';
 import { CustomTabOptionsEditor } from './CustomTabOptionsEditor';
+import { ExchangeOptionsEditor } from './ExchangeOptionsEditor';
 import { defaultTabOptions } from './customTabOptions';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { useEditorPreview } from '../../components/EditorSurface';
@@ -91,7 +92,7 @@ export function CreateCustomTabDialog({
               [],
               parentId,
               parentSection,
-              undefined,
+              { ...options, import_enabled: false },
               'archive',
             )
           : await api.createCustomTab(
@@ -278,6 +279,14 @@ export function CreateCustomTabDialog({
       </EditorSection>
       {mode === 'blank' && kind === 'table' && (
         <CustomTabOptionsEditor value={options} onChange={setOptions} disabled={saving} />
+      )}
+      {mode === 'blank' && kind === 'archive' && (
+        <ExchangeOptionsEditor
+          value={options}
+          history
+          disabled={saving}
+          onChange={(next) => setOptions((current) => ({ ...current, ...next }))}
+        />
       )}
       {mode === 'blank' && kind === 'table' && withSubtabs && (
         <p className={styles.help}>

@@ -61,6 +61,7 @@ from app.schemas.user import ErrorResponse
 from app.section_state import require_section_writable
 from app.storage import StorageError, storage
 from app.table_data import lock_dormitory
+from app.table_exchange import exchange_options
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/hostels",
@@ -360,6 +361,8 @@ def download_places_import_template(
     _dormitory: OwnDormitory,
 ) -> Response:
     """Шаблон за месяц: строка на каждое поле каждого действующего хостела."""
+    if not exchange_options(_dormitory, "places", None)["import_enabled"]:
+        raise HTTPException(409, "Импорт отключён в настройках вкладки")
     if month.day != 1:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, NOT_FIRST_DAY_DETAIL)
     hostels = list(
@@ -447,6 +450,8 @@ async def upload_places_import(
     """
     require_section_writable(db, dormitory_id, "places")
     filename = file.filename or ""
+    if not exchange_options(_dormitory, "places", None)["import_enabled"]:
+        raise HTTPException(409, "Импорт отключён в настройках вкладки")
     if not filename.lower().endswith(".xlsx"):
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, IMPORT_FILE_TYPE_DETAIL)
     content = await file.read()
@@ -622,6 +627,8 @@ def confirm_places_import(
     _dormitory: OwnDormitory,
 ) -> PlacesImportApplied:
     """Применить задание: блокировка строки задания исключает двойное применение."""
+    if not exchange_options(_dormitory, "places", None)["import_enabled"]:
+        raise HTTPException(409, "Импорт отключён в настройках вкладки")
     require_section_writable(db, dormitory_id, "places")
     lock_dormitory(db, dormitory_id)
     job = db.scalar(

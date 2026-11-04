@@ -19,6 +19,9 @@ import { DormitoryPeriod } from './DormitoryPeriod';
 import { DormitorySettingsDialog } from './DormitorySettingsDialog';
 import { SettingsContext } from './settingsContext';
 import { ReportReadiness } from './ReportReadiness';
+import { TableExchange } from './TableExchange';
+import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { TableLayoutContext } from './tableLayoutContext';
 
 import {
   standardTabs as sections,
@@ -60,6 +63,8 @@ export function DormitoryDetails(): JSX.Element {
     page?: 'structure' | 'links' | 'templates';
   } | null>(null);
   const [settingsRevision, setSettingsRevision] = useState(0);
+  const [dataRevision, setDataRevision] = useState(0);
+  const [importNotice, setImportNotice] = useState<{ table: string; message: string } | null>(null);
   const waitForTabSaves = useRef<(() => Promise<void>) | null>(null);
   const tabScroller = useRef<HTMLElement>(null);
 
@@ -149,6 +154,21 @@ export function DormitoryDetails(): JSX.Element {
   }, [status, primaryPath, fallbackPath, dormitoryId, navigate]);
 
   const customPeriodMode = selectedCustomTab?.options?.period_mode ?? 'none';
+  const exchangeKey =
+    primaryPath === 'custom'
+      ? selectedCustomTab?.table_key
+      : sectionFound
+        ? standardKey
+        : undefined;
+  const exchangeTable = `${dormitoryId}:${exchangeKey}`;
+  useEffect(() => setImportNotice(null), [exchangeTable]);
+  const placesRange = useMemo(() => {
+    const [year, month] = placesMonth.split('-').map(Number);
+    return {
+      from: `${placesMonth}-01`,
+      to: `${placesMonth}-${new Date(Date.UTC(year, month, 0)).getUTCDate()}`,
+    };
+  }, [placesMonth]);
   const periodMode = primaryPath === 'custom' ? customPeriodMode : 'range';
   const periodRange = useMemo(() => {
     if (periodMode !== 'month') return range;
@@ -164,6 +184,43 @@ export function DormitoryDetails(): JSX.Element {
     if (primaryPath === 'custom') await waitForTabSaves.current?.();
     setRange(next);
   }
+
+  const period =
+    (primaryPath === 'custom' ? selectedCustomTab : section?.path !== 'places') &&
+    periodMode !== 'none' ? (
+      <DormitoryPeriod
+        key={`${dormitoryId}:${selectedCustomTab?.id ?? 'standard'}:${periodMode}`}
+        mode={periodMode}
+        range={periodRange}
+        onChange={changePeriod}
+      />
+    ) : null;
+  const exchange =
+    dormitory &&
+    !standardDeleted &&
+    exchangeKey &&
+    !['movement', 'payments'].includes(exchangeKey) &&
+    (!selectedCustomTab || selectedCustomTab.table_created) ? (
+      <TableExchange
+        key={exchangeTable}
+        dormitoryId={dormitoryId}
+        tableKey={exchangeKey}
+        name={selectedCustomTab?.name ?? section?.label ?? ''}
+        options={selectedCustomTab?.options ?? dormitory.exchange_options?.[exchangeKey] ?? {}}
+        range={exchangeKey === 'places' ? placesRange : periodRange}
+        readOnly={primaryPath === 'custom' ? customReadOnly : standardReadOnly}
+        history={selectedCustomTab?.kind === 'archive'}
+        calendar={['report', 'places'].includes(exchangeKey)}
+        restoreImportFocus={importNotice?.table === exchangeTable}
+        beforeAction={async () => {
+          if (primaryPath === 'custom') await waitForTabSaves.current?.();
+        }}
+        onImported={(message) => {
+          setImportNotice({ table: exchangeTable, message });
+          setDataRevision((value) => value + 1);
+        }}
+      />
+    ) : null;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -215,17 +272,6 @@ export function DormitoryDetails(): JSX.Element {
             >
               Настроить
             </button>
-            {(primaryPath === 'custom'
-              ? selectedCustomTab && customPeriodMode !== 'none'
-              : section?.path !== 'places') &&
-              periodMode !== 'none' && (
-                <DormitoryPeriod
-                  key={`${dormitoryId}:${selectedCustomTab?.id ?? 'standard'}:${periodMode}`}
-                  mode={periodMode}
-                  range={periodRange}
-                  onChange={changePeriod}
-                />
-              )}
           </div>
           <ReportReadiness key={dormitoryId} dormitoryId={dormitoryId} />
           <nav ref={tabScroller} className={styles.tabScroller} aria-label="Разделы общежития">
@@ -354,17 +400,10 @@ export function DormitoryDetails(): JSX.Element {
               отчётах.
             </p>
           )}
-          {section?.path === 'places' && standardReadOnly && !standardDeleted && (
-            <label>
-              Месяц просмотра{' '}
-              <input
-                type="month"
-                value={placesMonth}
-                onChange={(event) => {
-                  if (event.target.value) setPlacesMonth(event.target.value);
-                }}
-              />
-            </label>
+          {importNotice?.table === exchangeTable && !standardDeleted && (
+            <p className={styles.success} role="status">
+              {importNotice.message}
+            </p>
           )}
           <SettingsContext.Provider
             value={{
@@ -379,81 +418,88 @@ export function DormitoryDetails(): JSX.Element {
                 <p>Добавьте её обратно через «Настроить».</p>
               </div>
             ) : (
-              <fieldset disabled={standardReadOnly} className={styles.sectionContent}>
-                {primaryPath === 'custom' ? (
-                  tabsLoading ? (
-                    <p role="status">Загружаем вкладку…</p>
-                  ) : selectedCustomTab ? (
-                    <CustomTabTable
-                      key={`${dormitoryId}:${selectedCustomTab.id}`}
+              <TableLayoutContext.Provider value={{ exchange, period, readOnly: standardReadOnly }}>
+                <div key={dataRevision} className={styles.sectionContent}>
+                  {primaryPath === 'custom' ? (
+                    tabsLoading ? (
+                      <p role="status">Загружаем вкладку…</p>
+                    ) : selectedCustomTab ? (
+                      <CustomTabTable
+                        key={`${dormitoryId}:${selectedCustomTab.id}`}
+                        dormitoryId={dormitoryId}
+                        range={periodRange}
+                        tab={
+                          customReadOnly
+                            ? { ...selectedCustomTab, is_active: false }
+                            : selectedCustomTab
+                        }
+                        waitForSavesRef={waitForTabSaves}
+                        onChanged={(updated) =>
+                          setCustomTabs((tabs) =>
+                            tabs.map((tab) => (tab.id === updated.id ? updated : tab)),
+                          )
+                        }
+                      />
+                    ) : selectedCustomRoot?.is_group ? (
+                      <div className={styles.emptySection}>
+                        <h2>{selectedCustomRoot.name}</h2>
+                        <p>
+                          {selectedCustomRoot.is_active
+                            ? 'Нет активных подвкладок. Добавьте новую или восстановите существующую через «Настроить».'
+                            : 'Раздел скрыт. Подвкладки доступны через «Настроить».'}
+                        </p>
+                      </div>
+                    ) : !tabsError ? (
+                      <div className={styles.emptySection}>
+                        <h2>Вкладка не найдена</h2>
+                        <p>Выберите другую вкладку общежития.</p>
+                      </div>
+                    ) : null
+                  ) : sectionFound && section.path === 'report' ? (
+                    <ReportTable dormitoryId={dormitoryId} range={range} />
+                  ) : sectionFound && section.path === 'places' ? (
+                    <HostelPlaces
+                      legacyImport={false}
                       dormitoryId={dormitoryId}
-                      range={periodRange}
-                      tab={
-                        customReadOnly
-                          ? { ...selectedCustomTab, is_active: false }
-                          : selectedCustomTab
-                      }
-                      waitForSavesRef={waitForTabSaves}
-                      onChanged={(updated) =>
-                        setCustomTabs((tabs) =>
-                          tabs.map((tab) => (tab.id === updated.id ? updated : tab)),
-                        )
-                      }
+                      month={placesMonth}
+                      onMonthChange={setPlacesMonth}
                     />
-                  ) : selectedCustomRoot?.is_group ? (
-                    <div className={styles.emptySection}>
-                      <h2>{selectedCustomRoot.name}</h2>
-                      <p>
-                        {selectedCustomRoot.is_active
-                          ? 'Нет активных подвкладок. Добавьте новую или восстановите существующую через «Настроить».'
-                          : 'Раздел скрыт. Подвкладки доступны через «Настроить».'}
+                  ) : sectionFound && section.path === 'residents' ? (
+                    <ResidentsTable dormitoryId={dormitoryId} />
+                  ) : sectionFound && standardKey === 'inflow' ? (
+                    <InflowTable dormitoryId={dormitoryId} range={range} />
+                  ) : sectionFound && standardKey === 'outflow' ? (
+                    <OutflowTable dormitoryId={dormitoryId} range={range} />
+                  ) : sectionFound &&
+                    (standardKey === 'advance' || standardKey === 'settlement') ? (
+                    <PaymentsTable
+                      dormitoryId={dormitoryId}
+                      kind={standardKey as 'advance' | 'settlement'}
+                      range={range}
+                    />
+                  ) : sectionFound && section.path === 'archive' ? (
+                    <ArchiveTable dormitoryId={dormitoryId} range={range} />
+                  ) : sectionFound ? (
+                    <DormitoryTableFrame
+                      className={styles.emptySection}
+                      data-testid="dormitory-section"
+                      heading={<h2>{section.label}</h2>}
+                    >
+                      <p data-testid="dormitory-period-applied">
+                        Период: {formatDate(range.from)} — {formatDate(range.to)}
                       </p>
-                    </div>
-                  ) : !tabsError ? (
-                    <div className={styles.emptySection}>
-                      <h2>Вкладка не найдена</h2>
-                      <p>Выберите другую вкладку общежития.</p>
-                    </div>
-                  ) : null
-                ) : sectionFound && section.path === 'report' ? (
-                  <ReportTable dormitoryId={dormitoryId} range={range} />
-                ) : sectionFound && section.path === 'places' ? (
-                  <HostelPlaces
-                    dormitoryId={dormitoryId}
-                    month={placesMonth}
-                    onMonthChange={setPlacesMonth}
-                  />
-                ) : sectionFound && section.path === 'residents' ? (
-                  <ResidentsTable dormitoryId={dormitoryId} />
-                ) : sectionFound && standardKey === 'inflow' ? (
-                  <InflowTable dormitoryId={dormitoryId} range={range} />
-                ) : sectionFound && standardKey === 'outflow' ? (
-                  <OutflowTable dormitoryId={dormitoryId} range={range} />
-                ) : sectionFound && (standardKey === 'advance' || standardKey === 'settlement') ? (
-                  <PaymentsTable
-                    dormitoryId={dormitoryId}
-                    kind={standardKey as 'advance' | 'settlement'}
-                    range={range}
-                  />
-                ) : sectionFound && section.path === 'archive' ? (
-                  <ArchiveTable dormitoryId={dormitoryId} range={range} />
-                ) : sectionFound ? (
-                  <div className={styles.emptySection} data-testid="dormitory-section">
-                    <h2>{section.label}</h2>
-                    <p data-testid="dormitory-period-applied">
-                      Период: {formatDate(range.from)} — {formatDate(range.to)}
+                      <p>
+                        Нет активных подвкладок. Восстановите или добавьте их обратно через
+                        «Настроить».
+                      </p>
+                    </DormitoryTableFrame>
+                  ) : (
+                    <p className={styles.error} role="alert">
+                      Раздел не найден.
                     </p>
-                    <p>
-                      Нет активных подвкладок. Восстановите или добавьте их обратно через
-                      «Настроить».
-                    </p>
-                  </div>
-                ) : (
-                  <p className={styles.error} role="alert">
-                    Раздел не найден.
-                  </p>
-                )}
-              </fieldset>
+                  )}
+                </div>
+              </TableLayoutContext.Provider>
             )}
           </SettingsContext.Provider>
           {settings && (
@@ -468,6 +514,7 @@ export function DormitoryDetails(): JSX.Element {
                   current
                     ? {
                         ...current,
+                        exchange_options: data.exchange_options,
                         section_states: Object.fromEntries(
                           data.sections.map((item) => [item.key, item.status]),
                         ),

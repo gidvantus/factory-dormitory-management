@@ -135,16 +135,16 @@ it('переключает месяцы, скрывает ненужные во�
   expect(
     calls.some((url) => url.endsWith(`?from=${currentMonth().from}&to=${currentMonth().to}`)),
   ).toBe(true);
-  const heading = screen.getByTestId('dormitory-details-heading');
-  expect(within(heading).getByRole('form', { name: 'Период общежития' })).toBeInTheDocument();
-  expect(
-    within(screen.getByTestId('custom-tab-table')).queryByRole('form'),
-  ).not.toBeInTheDocument();
-  fireEvent.change(within(heading).getByLabelText('Месяц'), { target: { value: '2026-02' } });
+  const tools = within(screen.getByTestId('dormitory-table-tools'));
+  const filters = within(tools.getByRole('group', { name: 'Фильтры таблицы' }));
+  expect(filters.getByRole('form', { name: 'Период общежития' })).toBeInTheDocument();
+  fireEvent.change(filters.getByLabelText('Месяц'), { target: { value: '2026-02' } });
   await waitFor(() =>
     expect(calls.some((url) => url.endsWith('?from=2026-02-01&to=2026-02-28'))).toBe(true),
   );
-  await user.click(screen.getByRole('button', { name: 'Очистить список' }));
+  const actions = within(tools.getByRole('group', { name: 'Действия с таблицей' }));
+  expect(actions.getByRole('button', { name: 'Экспорт в Excel' })).toBeEnabled();
+  await user.click(actions.getByRole('button', { name: 'Очистить список' }));
   const dialog = screen.getByTestId('clear-custom-tab-modal');
   expect(dialog).toHaveTextContent('за всё время');
   expect(cleared).toBe(false);
@@ -192,7 +192,7 @@ it('сохраняет дневные значения и показывает �
   expect(await screen.findByLabelText('12.02.2026, строка 20')).toHaveValue('42');
 });
 
-it('показывает диапазон в шапке и убирает его при переходе во вкладку без периода', async () => {
+it('показывает диапазон в панели таблицы и убирает его во вкладке без периода', async () => {
   const tab: CustomTab = {
     ...ready,
     options: { ...defaultTabOptions, period_mode: 'range', date_column_id: 103 },
@@ -216,27 +216,27 @@ it('показывает диапазон в шапке и убирает его
   });
   renderApp('/cabinet/dormitories/7/custom/9');
   const heading = await screen.findByTestId('dormitory-details-heading');
-  await within(heading).findByRole('form', { name: 'Период общежития' });
+  expect(within(heading).getByRole('button', { name: 'Настроить' })).toBeEnabled();
+  expect(within(heading).queryByRole('form')).not.toBeInTheDocument();
+  const filters = within(await screen.findByRole('group', { name: 'Фильтры таблицы' }));
   const user = userEvent.setup();
-  fireEvent.change(within(heading).getByTestId('dormitory-period-from'), {
+  fireEvent.change(filters.getByTestId('dormitory-period-from'), {
     target: { value: '2026-02-01' },
   });
-  fireEvent.change(within(heading).getByTestId('dormitory-period-to'), {
+  fireEvent.change(filters.getByTestId('dormitory-period-to'), {
     target: { value: '2026-02-03' },
   });
-  await user.click(within(heading).getByRole('button', { name: 'Применить' }));
+  await user.click(filters.getByRole('button', { name: 'Применить' }));
   await waitFor(() =>
     expect(calls.some((url) => url.endsWith('/tabs/9/rows?from=2026-02-01&to=2026-02-03'))).toBe(
       true,
     ),
   );
-  expect(
-    within(screen.getByTestId('custom-tab-table')).queryByRole('form'),
-  ).not.toBeInTheDocument();
   await user.click(screen.getByTestId('dormitory-custom-tab-10'));
   await waitFor(() =>
     expect(screen.queryByRole('form', { name: 'Период общежития' })).not.toBeInTheDocument(),
   );
+  expect(within(heading).getByRole('button', { name: 'Настроить' })).toBeEnabled();
   await user.click(screen.getByTestId('dormitory-custom-tab-9'));
   expect(await screen.findByTestId('dormitory-period-from')).toHaveValue('2026-02-01');
 });

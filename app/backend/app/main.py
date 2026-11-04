@@ -38,6 +38,7 @@ from app.api import (
     payments,
     personnel,
     personnel_builder,
+    platform_invoices,
     platform_organizations,
     platform_users,
     recovery,
@@ -50,6 +51,7 @@ from app.api import (
     statistics_reports,
     tab_catalog,
     table_columns,
+    table_exchange,
     tariffs,
     telegram,
     trial,
@@ -349,6 +351,10 @@ def create_app() -> FastAPI:
     # Пользователи платформы — второй раздел того же контура: тот же заголовок
     # `X-Operator-Token` и та же зависимость на роутере.
     application.include_router(platform_users.router, prefix=API_PREFIX)
+    # Счета платформы — третий раздел того же контура: тот же заголовок
+    # `X-Operator-Token` и та же зависимость на роутере. Именно здесь оператор
+    # вносит оплату: в кабинете клиента кнопки «Оплатить» нет намеренно (#120).
+    application.include_router(platform_invoices.router, prefix=API_PREFIX)
     application.include_router(journal_router, prefix=API_PREFIX)
     application.include_router(dashboard.router, prefix=API_PREFIX)
     application.include_router(dashboard_blocks.router, prefix=API_PREFIX)
@@ -365,6 +371,7 @@ def create_app() -> FastAPI:
     application.include_router(reports.router, prefix=API_PREFIX)
     application.include_router(report_templates.router, prefix=API_PREFIX)
     application.include_router(table_columns.router, prefix=API_PREFIX)
+    application.include_router(table_exchange.router, prefix=API_PREFIX)
     application.include_router(cell_fill.router, prefix=API_PREFIX)
     application.include_router(custom_tabs.router, prefix=API_PREFIX)
     application.include_router(dormitory_history_api.router, prefix=API_PREFIX)

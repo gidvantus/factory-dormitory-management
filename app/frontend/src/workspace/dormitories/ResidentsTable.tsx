@@ -5,6 +5,7 @@ import type { PaymentKind, Resident, ResidentField, ResidentsResponse } from '..
 import { Modal } from '../../components/Modal';
 import { currentMonth } from '../dashboard/dates';
 import styles from './ResidentsTable.module.css';
+import { DormitoryTableFrame } from './DormitoryTableFrame';
 import {
   ColumnsControls,
   ConfiguredCells,
@@ -492,13 +493,17 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
   const visible = data.residents.filter((resident) => matchesResident(resident, query));
   const visibleIds = new Set(visible.map((resident) => resident.id));
   return (
-    <section className={styles.page} data-testid="dormitory-residents">
-      <div className={styles.heading}>
-        <div>
+    <DormitoryTableFrame
+      className={styles.page}
+      data-testid="dormitory-residents"
+      heading={
+        <div className={styles.heading}>
           <h2>Проживающие</h2>
           <p>Место проживания выбирается из хостелов, действующих в текущем месяце.</p>
         </div>
-        <ColumnsControls />
+      }
+      secondary={<ColumnsControls />}
+      primary={
         <button
           type="button"
           className="btn btn--primary btn--compact"
@@ -508,33 +513,36 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
         >
           {adding ? 'Добавляем…' : '+ Добавить строку'}
         </button>
-      </div>
-      {status === 'ready' && (
-        <div className={styles.searchBar}>
-          <label>
-            Поиск по проживающим
-            <input
-              type="search"
-              value={query}
-              maxLength={255}
-              placeholder="ФИО, телефон или табельный номер"
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
-          {query && (
-            <button
-              type="button"
-              className="btn btn--ghost btn--compact"
-              onClick={() => setQuery('')}
-            >
-              Сбросить поиск
-            </button>
-          )}
-          <span aria-live="polite">
-            Найдено {visible.length} из {data.residents.length}
-          </span>
-        </div>
-      )}
+      }
+      filters={
+        status === 'ready' && (
+          <div className={styles.searchBar}>
+            <label>
+              Поиск по проживающим
+              <input
+                type="search"
+                value={query}
+                maxLength={255}
+                placeholder="ФИО, телефон или табельный номер"
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+            {query && (
+              <button
+                type="button"
+                className="btn btn--ghost btn--compact"
+                onClick={() => setQuery('')}
+              >
+                Сбросить поиск
+              </button>
+            )}
+            <span aria-live="polite">
+              Найдено {visible.length} из {data.residents.length}
+            </span>
+          </div>
+        )
+      }
+    >
       {status === 'loading' && <p role="status">Загружаем проживающих…</p>}
       {status === 'error' && (
         <p role="alert">
@@ -684,7 +692,7 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
           </div>
         </Modal>
       )}
-    </section>
+    </DormitoryTableFrame>
   );
 }
 

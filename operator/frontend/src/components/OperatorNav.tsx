@@ -1,17 +1,19 @@
 import { Link, useLocation } from 'react-router-dom';
 
 /**
- * Навигация кабинета: два раздела — организации и пользователи.
+ * Навигация кабинета: три раздела — организации, счета и пользователи.
  *
  * Активный раздел помечен `aria-current="page"` и подчёркиванием на линии шапки:
  * цвет в метке не участвует, а скринридер читает «текущая страница». Раздел
  * «Организации» — корень кабинета (`/`), его карточки (`/organizations/:id`) тоже
  * относятся к нему, поэтому активность считается по префиксу пути, а не
- * сравнением с `/`.
+ * сравнением с `/`. У счетов своей карточки нет: строка реестра — единственное
+ * место действий, но префикс считается так же, как у остальных разделов.
  */
 export function OperatorNav(): JSX.Element {
   const { pathname } = useLocation();
   const onUsers = pathname === '/users' || pathname.startsWith('/users/');
+  const onInvoices = pathname === '/invoices' || pathname.startsWith('/invoices/');
   const onOrganizations = pathname === '/' || pathname.startsWith('/organizations/');
 
   return (
@@ -23,6 +25,14 @@ export function OperatorNav(): JSX.Element {
         data-testid="operator-nav-organizations"
       >
         Организации
+      </Link>
+      <Link
+        className="nav__link"
+        to="/invoices"
+        aria-current={onInvoices ? 'page' : undefined}
+        data-testid="operator-nav-invoices"
+      >
+        Счета
       </Link>
       <Link
         className="nav__link"

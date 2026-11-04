@@ -47,6 +47,13 @@ BODY = (
     "Вас пригласили в организацию. Задайте пароль: {activation_url}\n"
     "Ссылка живёт {expires_hours} ч.\n"
 )
+# HTML-часть приглашения: проверяется оборот с названием организации, поэтому
+# разметка здесь минимальная.
+INVITATION_HTML = (
+    '<html lang="ru"><head><meta charset="utf-8"><title>{subject}</title></head>'
+    "<body><p>Администратор{organization_phrase} приглашает вас в кабинет организации.</p>"
+    '<p><a href="{activation_url}">Принять приглашение</a></p></body></html>'
+)
 LINK_PATTERN = re.compile(r"https://domovoy\.example/activate/([A-Za-z0-9_\-]+)")
 
 
@@ -111,6 +118,21 @@ def seed_invitation_template(db_session: Session) -> MailTemplate:
     db_session.commit()
     db_session.refresh(template)
     return template
+
+
+def seed_invitation_html_template(db_session: Session) -> MailTemplate:
+    """Шаблон приглашения с вёрстанной HTML-частью."""
+    template = seed_invitation_template(db_session)
+    template.body_html = INVITATION_HTML
+    db_session.commit()
+    return template
+
+
+def html_part(message: EmailMessage) -> str:
+    """HTML-часть отправленного письма."""
+    part = message.get_body(preferencelist=("html",))
+    assert part is not None
+    return part.get_content()
 
 
 def owner_ready(
@@ -270,6 +292,39 @@ def test_invitation_email_skips_an_unknown_placeholder(
     text = plain.get_content()
     assert "Роль:" in text
     assert LINK_PATTERN.search(text) is not None
+
+
+def test_invitation_html_names_the_organization(client: TestClient, db_session: Session) -> None:
+    """Название организации приходит из `Organization.name` в оборот письма."""
+    seed_invitation_html_template(db_session)
+    owner_ready(client, db_session)  # организация «ООО Ромашка»
+
+    assert invite(client).status_code == 201
+
+    (message,) = FakeSMTP.sent
+    rendered = html_part(message)
+    assert "Администратор организации «ООО Ромашка» приглашает вас" in rendered
+    assert "{organization_phrase}" not in rendered
+    assert LINK_PATTERN.search(rendered) is not None
+
+
+def test_invitation_html_without_an_organization_name(
+    client: TestClient, db_session: Session
+) -> None:
+    """Пустое `Organization.name`: один пробел и никаких пустых кавычек."""
+    seed_invitation_html_template(db_session)
+    owner = create_user(db_session, email=OWNER_EMAIL)
+    organizations_for(db_session, owner, name=None)
+    assert login(client, owner.email).status_code == 200
+
+    assert invite(client).status_code == 201
+
+    (message,) = FakeSMTP.sent
+    rendered = html_part(message)
+    assert "Администратор приглашает вас" in rendered
+    assert "Администратор организации" not in rendered
+    assert "«»" not in rendered
+    assert "{" not in rendered
 
 
 def test_invitation_without_template_still_creates_the_employee(

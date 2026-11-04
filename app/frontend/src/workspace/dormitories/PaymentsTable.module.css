@@ -4,30 +4,6 @@
   margin-top: 20px;
   min-width: 0;
 }
-.addButton {
-  margin-left: auto;
-}
-/* Локальный вариант «опасного контура» для «Очистить список»: глобальные
-   `.btn--danger` (заливка) и `.btn--ghost` (нейтральный контур) дают другое
-   значение, а вид менять нельзя. Селектор — класс, а не элемент `button`,
-   поэтому гвард дизайн-системы его не ловит. */
-.clearButton {
-  padding: 9px 13px;
-  border: 1px solid var(--color-danger);
-  border-radius: 9px;
-  background: var(--color-bg-surface);
-  color: var(--color-danger);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.clearButton:hover:not(:disabled) {
-  background: var(--peach-100);
-}
-.clearButton:disabled {
-  opacity: 0.6;
-  cursor: wait;
-}
 .tableScroll {
   max-width: 100%;
   overflow-x: auto;

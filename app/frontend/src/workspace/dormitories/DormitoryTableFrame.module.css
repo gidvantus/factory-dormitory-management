@@ -1,0 +1,58 @@
+.tools {
+  display: grid;
+  gap: var(--gap-10);
+  margin-block-end: var(--gap-8);
+}
+.tools:not(:has(.actions > .secondary :is(button, [role]), .primary > button, .filters)),
+.actions:not(:has(.secondary :is(button, [role]), .primary > button)) {
+  display: none;
+}
+.actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--gap-8) var(--gap-12);
+}
+.secondary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-8);
+  min-width: 0;
+}
+.primary,
+.body {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.primary {
+  display: flex;
+  justify-content: end;
+}
+.body {
+  display: contents;
+}
+.body:disabled :is(input, select, textarea) {
+  color: var(--color-text);
+  opacity: 1;
+}
+.filters {
+  display: grid;
+  gap: var(--gap-8);
+  padding: var(--gap-10) var(--gap-12);
+  min-width: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-3xs);
+  background: var(--color-bg-alt);
+}
+@media (max-width: 760px) {
+  .actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .primary:empty,
+  .secondary:not(:has(button, [role])) {
+    display: none;
+  }
+}

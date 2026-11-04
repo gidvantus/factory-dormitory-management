@@ -10,6 +10,7 @@ import { EmployeeNameCell } from './EmployeeNameCell';
 import { InflowActionDialog } from './InflowActionDialog';
 import { useTableSaves } from './tableColumnsContext';
 import styles from './InflowTable.module.css';
+import { DormitoryTableFrame } from './DormitoryTableFrame';
 import {
   ColumnsControls,
   ConfiguredCells,
@@ -284,7 +285,23 @@ function InflowContent({
   }
 
   return (
-    <section className={styles.page} data-testid="dormitory-inflow">
+    <DormitoryTableFrame
+      className={styles.page}
+      data-testid="dormitory-inflow"
+      heading={<h2>Приток</h2>}
+      secondary={<ColumnsControls />}
+      primary={
+        <button
+          type="button"
+          className="btn btn--primary btn--compact"
+          aria-busy={adding}
+          disabled={adding || status !== 'ready'}
+          onClick={() => void add()}
+        >
+          {adding ? 'Добавляем…' : '+ Добавить строку'}
+        </button>
+      }
+    >
       {processing && (
         <InflowActionDialog
           dormitoryId={dormitoryId}
@@ -308,19 +325,6 @@ function InflowContent({
           }}
         />
       )}
-      <div className="toolbar">
-        <h2>Приток</h2>
-        <ColumnsControls />
-        <button
-          type="button"
-          className="btn btn--primary btn--compact"
-          aria-busy={adding}
-          disabled={adding || status !== 'ready'}
-          onClick={() => void add()}
-        >
-          {adding ? 'Добавляем…' : '+ Добавить строку'}
-        </button>
-      </div>
       {status === 'loading' && <p role="status">Загружаем приток…</p>}
       {status === 'error' && (
         <p role="alert">
@@ -404,7 +408,7 @@ function InflowContent({
           </div>
         </Modal>
       )}
-    </section>
+    </DormitoryTableFrame>
   );
 }
 

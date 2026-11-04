@@ -238,6 +238,7 @@ ACTION_TITLES: dict[str, str] = {
     "post_dormitories_residents_payments": "Записать проживающего на аванс или расчёт",
     "patch_organization": "Изменить название, ИНН и реквизиты организации",
     "post_organization_invitations": "Пригласить сотрудника в организацию",
+    "patch_platform_invoices": "Оплатить или отменить счёт из кабинета оператора",
     "post_report_templates": "Сохранить структуру отчёта как шаблон",
     "delete_report_templates": "Удалить шаблон отчёта",
     "post_telegram_chat": "Привязать чат бота к кабинету по коду",

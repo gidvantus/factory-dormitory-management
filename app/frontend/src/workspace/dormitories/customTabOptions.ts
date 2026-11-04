@@ -8,4 +8,6 @@ export const defaultTabOptions: CustomTabOptions = {
   clear_list: false,
   row_actions: true,
   show_dates: true,
+  import_enabled: true,
+  export_enabled: true,
 };
