@@ -44,7 +44,16 @@ describe('Подвкладка типа Архив', () => {
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Создать вкладку' }));
     await waitFor(() => expect(created).toHaveBeenCalledWith(tab));
-    expect(create).toHaveBeenCalledWith('7', tab.name, null, [], 3, null, undefined, 'archive');
+    expect(create).toHaveBeenCalledWith(
+      '7',
+      tab.name,
+      null,
+      [],
+      3,
+      null,
+      expect.objectContaining({ import_enabled: false, export_enabled: true }),
+      'archive',
+    );
   });
 
   it('показывает три постоянных столбца, контекст изменения, время и автора', async () => {

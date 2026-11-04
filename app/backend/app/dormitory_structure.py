@@ -59,6 +59,13 @@ def initialize_structure(
     dorm.section_states = {key: "active" if key in standards else "deleted" for key in SECTIONS}
     dorm.section_parents = {}
     for key, item in standards.items():
+        if item.dormitory_id:
+            source_dorm = db.get(Dormitory, item.dormitory_id)
+            if source_dorm and key in (source_dorm.exchange_options or {}):
+                dorm.exchange_options = {
+                    **(dorm.exchange_options or {}),
+                    key: deepcopy(source_dorm.exchange_options[key]),
+                }
         parent = by_name.get(normalized_name(item.parent_name)) if item.parent_name else None
         dorm.section_parents[key] = (
             parent.section_key if parent and parent.kind == "standard" else None

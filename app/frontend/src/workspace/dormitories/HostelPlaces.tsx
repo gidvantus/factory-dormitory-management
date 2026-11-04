@@ -7,12 +7,14 @@ import type { HostelPlaces, PlaceField } from '../../api/client';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { formatDate } from '../dashboard/dates';
 import { ImportPlacesDialog } from './ImportPlacesDialog';
+import { DormitoryTableFrame } from './DormitoryTableFrame';
 import styles from './HostelPlaces.module.css';
 
 interface Props {
   dormitoryId: string;
   month: string;
   onMonthChange: (month: string) => void;
+  legacyImport?: boolean;
 }
 
 const rows: { field: string; label: string; editable: boolean; formula?: string }[] = [
@@ -314,7 +316,12 @@ function RemoveHostelDialog({
   );
 }
 
-export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.Element {
+export function HostelPlaces({
+  dormitoryId,
+  month,
+  onMonthChange,
+  legacyImport = true,
+}: Props): JSX.Element {
   const [data, setData] = useState<HostelPlaces>({ months: [] });
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
@@ -363,13 +370,27 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
   }, [dormitoryId, range.from, range.to, rangeKey, attempt]);
 
   return (
-    <section className={styles.page} data-testid="dormitory-places">
-      <div className="toolbar">
+    <DormitoryTableFrame
+      className={styles.page}
+      data-testid="dormitory-places"
+      heading={
         <div>
           <h2>Размещение персонала</h2>
           <p data-testid="places-month-applied">Все дни месяца · {monthTitle(month)}</p>
           <p>Свободных мест = оплачено мест − проживает. Расчёт автоматический.</p>
         </div>
+      }
+      primary={
+        <button
+          type="button"
+          className="btn btn--primary btn--compact"
+          disabled={status !== 'ready' || loadedRange.current !== rangeKey}
+          onClick={() => setAddingMonth(range.from)}
+        >
+          + Добавить хостел
+        </button>
+      }
+      filters={
         <div className={styles.monthFilter} role="group" aria-label="Выбор месяца и года">
           <button
             type="button"
@@ -399,7 +420,8 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
             →
           </button>
         </div>
-      </div>
+      }
+    >
       {status === 'loading' && <p role="status">Загружаем размещение персонала…</p>}
       {status === 'error' && (
         <p role="alert">
@@ -422,15 +444,6 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
                 <h3>{monthTitle(month.month)}</h3>
                 <p>{month.hostels.length} хостелов</p>
               </div>
-              <div className={styles.monthActions}>
-                <button
-                  type="button"
-                  className="btn btn--primary btn--compact"
-                  onClick={() => setAddingMonth(month.month)}
-                >
-                  + Добавить хостел
-                </button>
-              </div>
             </div>
             {month.hostels.length === 0 && (
               <p className={styles.empty}>В этом месяце хостелов пока нет.</p>
@@ -446,15 +459,17 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
                   <div className={styles.hostelActions}>
                     {/* Импорт открывается из строки хостела: шаблон и разбор
                         остаются месячными, но кнопка стоит там, где хостел. */}
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--compact"
-                      data-testid={`places-import-open-${hostel.id}`}
-                      onClick={() => setImportingMonth(month.month)}
-                      aria-label={`Импорт из Excel: ${hostel.name}, ${monthTitle(month.month)}`}
-                    >
-                      Импорт из Excel
-                    </button>
+                    {legacyImport && (
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--compact"
+                        data-testid={`places-import-open-${hostel.id}`}
+                        onClick={() => setImportingMonth(month.month)}
+                        aria-label={`Импорт из Excel: ${hostel.name}, ${monthTitle(month.month)}`}
+                      >
+                        Импорт из Excel
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="btn btn--ghost btn--compact"
@@ -544,6 +559,6 @@ export function HostelPlaces({ dormitoryId, month, onMonthChange }: Props): JSX.
           onImported={refresh}
         />
       )}
-    </section>
+    </DormitoryTableFrame>
   );
 }

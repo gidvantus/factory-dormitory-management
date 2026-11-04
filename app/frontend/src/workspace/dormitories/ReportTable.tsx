@@ -13,6 +13,7 @@ import type { DateRange } from '../dashboard/dates';
 import styles from './ReportTable.module.css';
 import { ReportLinkEditor } from './ReportLinkEditor';
 import { useSettingsNavigation } from './settingsContext';
+import { DormitoryTableFrame } from './DormitoryTableFrame';
 
 interface Props {
   dormitoryId: string;
@@ -686,13 +687,12 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
   }
 
   return (
-    <section
+    <DormitoryTableFrame
       className={styles.report}
       aria-labelledby="report-title"
       data-testid="dormitory-report"
-    >
-      <div className={styles.reportHeading}>
-        <div>
+      heading={
+        <div className={styles.reportHeading}>
           <h2 id="report-title">Общий отчёт</h2>
           <p data-testid="dormitory-period-applied">
             Период: {formatDate(range.from)} — {formatDate(range.to)}
@@ -702,26 +702,29 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
             автоматически.
           </p>
         </div>
-        <div className={styles.headingActions}>
-          <button
-            className="btn btn--ghost btn--compact"
-            type="button"
-            onClick={() => setTemplateDialogOpen(true)}
-            disabled={status !== 'ready' || rows.length === 0}
-            data-testid="report-save-template"
-          >
-            Сохранить как шаблон
-          </button>
-          <button
-            className="btn btn--primary btn--compact"
-            type="button"
-            onClick={() => setEditing('new')}
-            data-testid="report-add-row"
-          >
-            + Добавить строку
-          </button>
-        </div>
-      </div>
+      }
+      secondary={
+        <button
+          className="btn btn--ghost btn--compact"
+          type="button"
+          onClick={() => setTemplateDialogOpen(true)}
+          disabled={status !== 'ready' || rows.length === 0}
+          data-testid="report-save-template"
+        >
+          Сохранить как шаблон
+        </button>
+      }
+      primary={
+        <button
+          className="btn btn--primary btn--compact"
+          type="button"
+          onClick={() => setEditing('new')}
+          data-testid="report-add-row"
+        >
+          + Добавить строку
+        </button>
+      }
+    >
       {templateNotice && (
         <p className={styles.templateNotice} role="status">
           Шаблон «{templateNotice}» сохранён. Его можно выбрать при создании общежития.
@@ -889,6 +892,6 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
           onSaved={setTemplateNotice}
         />
       )}
-    </section>
+    </DormitoryTableFrame>
   );
 }

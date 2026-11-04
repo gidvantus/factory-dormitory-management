@@ -93,6 +93,7 @@ export interface Dormitory {
   is_archived: boolean;
   section_states?: Record<string, 'active' | 'hidden' | 'deleted'>;
   section_parents?: Record<string, string | null>;
+  exchange_options?: Record<string, ExchangeOptions>;
   created_at: string;
 }
 
@@ -745,7 +746,7 @@ async function sendRequest<T>(path: string, init: RequestInit = {}, blob = false
     credentials: 'include',
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       ...(init.headers ?? {}),
     },
   });
@@ -904,7 +905,11 @@ export interface ArchiveRow {
   created_at: string;
   custom_values: Record<string, CellValue>;
 }
-export interface CustomTabOptions {
+export interface ExchangeOptions {
+  import_enabled?: boolean;
+  export_enabled?: boolean;
+}
+export interface CustomTabOptions extends ExchangeOptions {
   table_format: 'list' | 'calendar';
   period_mode: 'none' | 'range' | 'month';
   date_column_id: number | null;
@@ -974,6 +979,7 @@ export interface SettingsColumn extends TableColumn {
   used_by: string[];
 }
 export interface DormitorySettings {
+  exchange_options?: Record<string, ExchangeOptions>;
   revision: string;
   tables: Record<string, SettingsColumn[]>;
   tabs: CustomTab[];
@@ -981,6 +987,7 @@ export interface DormitorySettings {
   rules: Pick<ReportRow, 'id' | 'name' | 'formula' | 'link'>[];
 }
 export interface SettingsInput {
+  exchange_options?: Record<string, ExchangeOptions>;
   revision: string;
   tables: { key: string; columns: (ColumnInput & { id?: number; archived: boolean })[] }[];
   tabs: {

@@ -9,19 +9,28 @@ from app.schemas.custom_tab import TabOptions
 from app.table_data import columns_for
 
 ARCHIVE_OPTIONS = TabOptions(
-    period_mode="range", add_row=False, clear_list=False, row_actions=False, show_dates=True
+    period_mode="range",
+    add_row=False,
+    clear_list=False,
+    row_actions=False,
+    show_dates=True,
+    import_enabled=False,
 )
 
 
 def options_for(tab: CustomTab) -> TabOptions:
     if tab.kind == "archive":
-        return ARCHIVE_OPTIONS.model_copy()
+        return ARCHIVE_OPTIONS.model_copy(
+            update={"export_enabled": (tab.options or {}).get("export_enabled", True)}
+        )
     return TabOptions.model_validate(tab.options or {})
 
 
 def validate_options(db: Session, tab: CustomTab, options: TabOptions) -> None:
     if tab.kind == "archive":
-        if options != ARCHIVE_OPTIONS:
+        if "import_enabled" not in options.model_fields_set:
+            options.import_enabled = False
+        if options.model_copy(update={"export_enabled": True}) != ARCHIVE_OPTIONS:
             raise HTTPException(422, "У архива постоянные столбцы: Дата, Действие и Автор")
         return
     if options.date_column_id is not None:
@@ -46,7 +55,9 @@ def validate_options(db: Session, tab: CustomTab, options: TabOptions) -> None:
 def initialize_options(db: Session, tab: CustomTab, options: TabOptions) -> None:
     """Новая вкладка сразу получает основу для выбранного периода/календаря."""
     if tab.kind == "archive":
-        tab.options = ARCHIVE_OPTIONS.model_dump()
+        tab.options = ARCHIVE_OPTIONS.model_copy(
+            update={"export_enabled": options.export_enabled}
+        ).model_dump()
         tab.table_created = True
         return
     if options.date_column_id is not None:

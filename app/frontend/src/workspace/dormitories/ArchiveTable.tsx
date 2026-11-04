@@ -4,6 +4,7 @@ import type { ArchiveRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { formatDate } from '../dashboard/dates';
 import type { DateRange } from '../dashboard/dates';
+import { DormitoryTableFrame } from './DormitoryTableFrame';
 import {
   ColumnsControls,
   ConfiguredHeaders,
@@ -75,10 +76,12 @@ function ArchiveContent({
     }
   }
   return (
-    <section className={styles.page} data-testid="dormitory-archive">
-      <div className="toolbar">
-        <h2>Архив</h2>
-        <ColumnsControls />
+    <DormitoryTableFrame
+      className={styles.page}
+      data-testid="dormitory-archive"
+      heading={<h2>Архив</h2>}
+      secondary={<ColumnsControls />}
+      primary={
         <button
           type="button"
           className="btn btn--primary btn--compact"
@@ -88,7 +91,8 @@ function ArchiveContent({
         >
           + Добавить строку
         </button>
-      </div>
+      }
+    >
       <p data-testid="dormitory-period-applied">
         Записи по дате создания: {formatDate(range.from)} — {formatDate(range.to)}
       </p>
@@ -173,7 +177,7 @@ function ArchiveContent({
           </div>
         </Modal>
       )}
-    </section>
+    </DormitoryTableFrame>
   );
 }
 

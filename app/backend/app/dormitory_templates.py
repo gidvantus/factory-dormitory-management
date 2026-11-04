@@ -58,6 +58,7 @@ def take_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
         "version": 1,
         "sections": {key: section_status(dorm, key) for key in SECTIONS},
         "parents": section_parents(dorm),
+        "exchange_options": deepcopy(dorm.exchange_options or {}),
         "tabs": [
             {
                 "key": tab.table_key,
@@ -159,6 +160,9 @@ def apply_snapshot(
         for key, state in data["sections"].items()
     }
     dorm.section_parents = data["parents"]
+    dorm.exchange_options = {
+        key: value for key, value in data.get("exchange_options", {}).items() if key in chosen
+    }
     tables: dict[str, str] = {}
     created: list[tuple[CustomTab, bool]] = []
     pending = list(data["tabs"])

@@ -1,0 +1,61 @@
+.container {
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-10);
+}
+
+.dialog {
+  display: grid;
+  gap: var(--gap-24);
+  min-width: 0;
+  font-size: var(--text-xs);
+}
+
+.step {
+  display: grid;
+  align-items: start;
+  gap: var(--gap-12);
+  min-width: 0;
+}
+
+.dialog p {
+  margin: 0;
+  line-height: var(--leading-body);
+}
+
+.dialog label {
+  display: grid;
+  gap: var(--gap-8);
+  min-width: 0;
+  font-weight: 700;
+}
+
+.templateButton {
+  justify-self: start;
+}
+
+.footer {
+  align-items: center;
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--gap-16);
+}
+
+.footer :global(.btn) {
+  max-width: 100%;
+  white-space: normal;
+}
+
+@media (max-width: 540px) {
+  .footer :global(.btn) {
+    flex: 1 1 auto;
+  }
+}
+
+.error {
+  color: var(--color-danger);
+  overflow-wrap: anywhere;
+}

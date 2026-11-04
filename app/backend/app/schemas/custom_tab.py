@@ -16,6 +16,8 @@ class TabOptions(BaseModel):
     clear_list: bool = False
     row_actions: bool = True
     show_dates: bool = True
+    import_enabled: bool = True
+    export_enabled: bool = True
 
     @model_validator(mode="after")
     def calendar_period(self) -> "TabOptions":

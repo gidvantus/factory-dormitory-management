@@ -6,6 +6,8 @@ import type { PaymentField, PaymentKind, PaymentRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
 import styles from './PaymentsTable.module.css';
+import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { WorkspaceIcon } from '../WorkspaceIcon';
 import {
   ColumnsControls,
   ConfiguredCells,
@@ -223,32 +225,40 @@ function PaymentsContent({
   }
 
   return (
-    <section className={styles.page} data-testid={`dormitory-payments-${kind}`}>
-      <div className="toolbar">
-        <h2>{title}</h2>
-        <ColumnsControls />
+    <DormitoryTableFrame
+      className={styles.page}
+      data-testid={`dormitory-payments-${kind}`}
+      heading={<h2>{title}</h2>}
+      secondary={
+        <>
+          <ColumnsControls />
+          <button
+            type="button"
+            className="btn btn--danger-text btn--compact"
+            aria-busy={clearing}
+            disabled={adding || removing || clearing || status !== 'ready'}
+            onClick={() => {
+              setError('');
+              setConfirmClear(true);
+            }}
+          >
+            <WorkspaceIcon name="trash" />
+            {clearing ? 'Очищаем…' : 'Очистить список'}
+          </button>
+        </>
+      }
+      primary={
         <button
           type="button"
-          className={styles.clearButton}
-          aria-busy={clearing}
-          disabled={adding || removing || clearing || status !== 'ready'}
-          onClick={() => {
-            setError('');
-            setConfirmClear(true);
-          }}
-        >
-          {clearing ? 'Очищаем…' : 'Очистить список'}
-        </button>
-        <button
-          type="button"
-          className={`btn btn--primary btn--compact ${styles.addButton}`}
+          className="btn btn--primary btn--compact"
           aria-busy={adding}
           disabled={adding || clearing || status !== 'ready'}
           onClick={() => void add()}
         >
           {adding ? 'Добавляем…' : '+ Добавить строку'}
         </button>
-      </div>
+      }
+    >
       {status === 'loading' && <p role="status">Загружаем список…</p>}
       {status === 'error' && (
         <p role="alert">
@@ -367,7 +377,7 @@ function PaymentsContent({
           </div>
         </Modal>
       )}
-    </section>
+    </DormitoryTableFrame>
   );
 }
 

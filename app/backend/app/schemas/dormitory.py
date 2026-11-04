@@ -67,4 +67,5 @@ class DormitoryResponse(BaseModel):
     is_archived: bool
     section_states: dict[str, str] = Field(default_factory=dict)
     section_parents: dict[str, str | None] = Field(default_factory=dict)
+    exchange_options: dict[str, dict[str, bool]] = Field(default_factory=dict)
     created_at: datetime
