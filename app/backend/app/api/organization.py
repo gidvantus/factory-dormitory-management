@@ -584,10 +584,14 @@ def invite_member(
     db.refresh(member)
     db.refresh(user)
 
+    # Название организации идёт в письмо оборотом «Администратор организации «…»».
+    # Оно nullable: у организации без названия оборот останется пустым.
+    organization = db.get(Organization, membership.organization_id)
     background_tasks.add_task(
         send_invitation_email_task,
         to=user.email,
         full_name=user.full_name,
         token=token,
+        organization_name=organization.name if organization is not None else None,
     )
     return _member_response(member, user)

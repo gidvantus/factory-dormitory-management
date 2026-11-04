@@ -2,14 +2,17 @@
 
 Письмо собирается из строки `mail_templates` с нужным кодом — `activation`,
 `password_recovery` или `invitation`, — поэтому формулировка правится в базе без
-релиза. Открытый токен живёт только в ссылке письма: в логи он не попадает ни
-при успехе, ни при ошибке отправки.
+релиза. Plain-часть письма лежит в `body`, вёрстанная HTML-часть — в `body_html`;
+пустой `body_html` означает прежнюю обёртку из plain-текста. Открытый токен живёт
+только в ссылке письма: в логи он не попадает ни при успехе, ни при ошибке
+отправки.
 """
 
 import html
 import logging
 import smtplib
 from email.message import EmailMessage
+from typing import NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -41,6 +44,18 @@ class MailTemplateNotFound(RuntimeError):
     """Шаблона письма нет в базе: отправлять нечего, письмо не уходит."""
 
 
+class RenderedEmail(NamedTuple):
+    """Готовое письмо: тема, plain-текст и HTML-часть.
+
+    `html` равен `None`, когда у шаблона нет `body_html`: тогда HTML-часть
+    собирается из plain-текста прежней обёрткой (`_html_from_text`).
+    """
+
+    subject: str
+    body: str
+    html: str | None
+
+
 class _EmptyPlaceholders(dict[str, str]):
     """Словарь подстановок, который отдаёт пустую строку на неизвестное имя.
 
@@ -64,6 +79,30 @@ def _substitute(template: str, context: dict[str, str]) -> str:
         # останется сырым — об этом должна знать поддержка, а не пользователь.
         logger.warning("Шаблон письма содержит некорректный плейсхолдер: %s", error)
         return template
+
+
+def _substitute_html(template: str, context: dict[str, str]) -> str:
+    """Подставить значения в HTML-шаблон: разметка остаётся, значения экранируются.
+
+    Экранирование идёт **до** вставки в разметку, иначе имя вида
+    `Иванов <Иван> & Ко` сломало бы письмо. Сама разметка шаблона не
+    экранируется — иначе письмо пришло бы исходником. Незнакомый плейсхолдер
+    даёт пустую строку, как и в plain-части.
+    """
+    escaped = {key: html.escape(value, quote=True) for key, value in context.items()}
+    return _substitute(template, escaped)
+
+
+def _organization_phrase(organization_name: str | None) -> str:
+    """Оборот с названием организации или пустая строка, если названия нет.
+
+    Фраза «Администратор{organization_phrase} приглашает…» собирается здесь, а не
+    в шаблоне: у организации `name` nullable, и пустое имя не должно давать ни
+    двойного пробела, ни пустых кавычек.
+    """
+    if organization_name is None or not organization_name.strip():
+        return ""
+    return f" организации «{organization_name}»"
 
 
 def build_activation_url(token: str) -> str:
@@ -91,28 +130,43 @@ def _active_template(db: Session, code: str) -> MailTemplate | None:
 
 
 def _render_email(
-    db: Session, *, code: str, full_name: str, activation_url: str
-) -> tuple[str, str]:
-    """Тема и текст письма по коду шаблона с подставленными значениями.
+    db: Session,
+    *,
+    code: str,
+    full_name: str,
+    activation_url: str,
+    organization_name: str | None = None,
+) -> RenderedEmail:
+    """Тема, plain-текст и HTML-часть письма по коду шаблона.
 
     Подстановки у писем активации, восстановления пароля и приглашения
     одинаковые. Отсутствие шаблона — это `MailTemplateNotFound`, а не пустое
-    письмо.
+    письмо. HTML-часть равна `None`, когда у шаблона нет `body_html`: тогда
+    `_deliver_email` соберёт прежнюю обёртку из plain-текста.
     """
     template = _active_template(db, code)
     if template is None:
         raise MailTemplateNotFound(f"Шаблон письма {code!r} не найден")
 
+    settings = get_settings()
     context = {
         "full_name": full_name,
         "activation_url": activation_url,
-        "expires_hours": str(get_settings().activation_token_ttl_hours),
+        "expires_hours": str(settings.activation_token_ttl_hours),
+        "organization_phrase": _organization_phrase(organization_name),
+        "site_url": settings.frontend_base_url.rstrip("/"),
     }
-    return _substitute(template.subject, context), _substitute(template.body, context)
+    subject = _substitute(template.subject, context)
+    body = _substitute(template.body, context)
+    # Тема подставляется и в `<title>` HTML-части: он повторяет тему письма.
+    html_body: str | None = None
+    if template.body_html is not None and template.body_html.strip():
+        html_body = _substitute_html(template.body_html, {**context, "subject": subject})
+    return RenderedEmail(subject=subject, body=body, html=html_body)
 
 
-def render_activation_email(db: Session, *, full_name: str, activation_url: str) -> tuple[str, str]:
-    """Тема и текст письма активации.
+def render_activation_email(db: Session, *, full_name: str, activation_url: str) -> RenderedEmail:
+    """Тема, текст и HTML письма активации.
 
     Шаблон берётся из таблицы `mail_templates` по коду `activation`.
     """
@@ -123,8 +177,8 @@ def render_activation_email(db: Session, *, full_name: str, activation_url: str)
 
 def render_password_recovery_email(
     db: Session, *, full_name: str, activation_url: str
-) -> tuple[str, str]:
-    """Тема и текст письма восстановления пароля по коду `password_recovery`."""
+) -> RenderedEmail:
+    """Тема, текст и HTML письма восстановления пароля по коду `password_recovery`."""
     return _render_email(
         db,
         code=PASSWORD_RECOVERY_TEMPLATE_CODE,
@@ -133,14 +187,22 @@ def render_password_recovery_email(
     )
 
 
-def render_invitation_email(db: Session, *, full_name: str, activation_url: str) -> tuple[str, str]:
-    """Тема и текст письма-приглашения по коду `invitation`.
+def render_invitation_email(
+    db: Session, *, full_name: str, activation_url: str, organization_name: str | None = None
+) -> RenderedEmail:
+    """Тема, текст и HTML письма-приглашения по коду `invitation`.
 
     Ссылка ведёт на общий экран активации: задав по ней пароль, приглашённый
-    попадает в организацию приглашающего.
+    попадает в организацию приглашающего. Название организации приходит из
+    `Organization.name` и попадает в оборот «Администратор организации «…»»;
+    без названия оборот пустой.
     """
     return _render_email(
-        db, code=INVITATION_TEMPLATE_CODE, full_name=full_name, activation_url=activation_url
+        db,
+        code=INVITATION_TEMPLATE_CODE,
+        full_name=full_name,
+        activation_url=activation_url,
+        organization_name=organization_name,
     )
 
 
@@ -172,15 +234,22 @@ def _open_smtp(host: str, port: int, use_tls: bool) -> smtplib.SMTP:
     return smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT_SECONDS)
 
 
-def _deliver_email(*, to: str, subject: str, body: str, log_label: str) -> bool:
-    """Отправить готовое письмо. Ошибки связи и аутентификации наружу не поднимаются."""
+def _deliver_email(
+    *, to: str, subject: str, body: str, log_label: str, html: str | None = None
+) -> bool:
+    """Отправить готовое письмо. Ошибки связи и аутентификации наружу не поднимаются.
+
+    `html` — готовая HTML-часть из `mail_templates.body_html`. `None` значит, что
+    разметки у шаблона нет: тогда HTML-часть собирается из plain-текста прежней
+    обёрткой. Plain-часть (`body`) уходит байт-в-байт как раньше.
+    """
     settings = get_settings()
     message = EmailMessage()
     message["From"] = settings.smtp_from
     message["To"] = to
     message["Subject"] = subject
     message.set_content(body)
-    message.add_alternative(_html_from_text(body), subtype="html")
+    message.add_alternative(html if html is not None else _html_from_text(body), subtype="html")
 
     try:
         with _open_smtp(settings.smtp_host, settings.smtp_port, settings.smtp_use_tls) as smtp:
@@ -206,14 +275,20 @@ def send_activation_email(db: Session, *, to: str, full_name: str, token: str) -
         return False
 
     try:
-        subject, body = render_activation_email(
+        rendered = render_activation_email(
             db, full_name=full_name, activation_url=build_activation_url(token)
         )
     except MailTemplateNotFound as error:
         logger.error("Письмо активации не отправлено: %s", error)
         return False
 
-    return _deliver_email(to=to, subject=subject, body=body, log_label="Письмо активации")
+    return _deliver_email(
+        to=to,
+        subject=rendered.subject,
+        body=rendered.body,
+        html=rendered.html,
+        log_label="Письмо активации",
+    )
 
 
 def send_password_recovery_email(db: Session, *, to: str, full_name: str, token: str) -> bool:
@@ -229,7 +304,7 @@ def send_password_recovery_email(db: Session, *, to: str, full_name: str, token:
         return False
 
     try:
-        subject, body = render_password_recovery_email(
+        rendered = render_password_recovery_email(
             db, full_name=full_name, activation_url=build_recovery_url(token)
         )
     except MailTemplateNotFound as error:
@@ -237,17 +312,24 @@ def send_password_recovery_email(db: Session, *, to: str, full_name: str, token:
         return False
 
     return _deliver_email(
-        to=to, subject=subject, body=body, log_label="Письмо восстановления пароля"
+        to=to,
+        subject=rendered.subject,
+        body=rendered.body,
+        html=rendered.html,
+        log_label="Письмо восстановления пароля",
     )
 
 
-def send_invitation_email(db: Session, *, to: str, full_name: str, token: str) -> bool:
+def send_invitation_email(
+    db: Session, *, to: str, full_name: str, token: str, organization_name: str | None = None
+) -> bool:
     """Собрать и отправить письмо-приглашение сотруднику.
 
     Поведение то же, что у остальных писем: `False` вместо исключения, если SMTP
     не настроен или шаблона `invitation` нет в базе. Приглашение при этом
     остаётся созданным — администратор видит сотрудника со статусом
-    «Приглашение отправлено» и может позвать его повторно.
+    «Приглашение отправлено» и может позвать его повторно. `organization_name` —
+    название организации приглашающего (может быть пустым).
     """
     settings = get_settings()
     if not settings.smtp_host or not settings.smtp_from:
@@ -255,14 +337,23 @@ def send_invitation_email(db: Session, *, to: str, full_name: str, token: str) -
         return False
 
     try:
-        subject, body = render_invitation_email(
-            db, full_name=full_name, activation_url=build_activation_url(token)
+        rendered = render_invitation_email(
+            db,
+            full_name=full_name,
+            activation_url=build_activation_url(token),
+            organization_name=organization_name,
         )
     except MailTemplateNotFound as error:
         logger.error("Письмо-приглашение не отправлено: %s", error)
         return False
 
-    return _deliver_email(to=to, subject=subject, body=body, log_label="Письмо-приглашение")
+    return _deliver_email(
+        to=to,
+        subject=rendered.subject,
+        body=rendered.body,
+        html=rendered.html,
+        log_label="Письмо-приглашение",
+    )
 
 
 def send_activation_email_task(*, to: str, full_name: str, token: str) -> None:
@@ -277,11 +368,16 @@ def send_password_recovery_email_task(*, to: str, full_name: str, token: str) ->
         send_password_recovery_email(db, to=to, full_name=full_name, token=token)
 
 
-def send_invitation_email_task(*, to: str, full_name: str, token: str) -> None:
+def send_invitation_email_task(
+    *, to: str, full_name: str, token: str, organization_name: str | None = None
+) -> None:
     """Фоновая отправка письма-приглашения — со своей сессией базы.
 
     К моменту вызова запрос уже закрыт, а шаблон письма лежит в базе: сессию
-    фоновая задача открывает свою.
+    фоновая задача открывает свою. Название организации приходит аргументом —
+    запрос к базе к этому моменту закрыт.
     """
     with SessionLocal() as db:
-        send_invitation_email(db, to=to, full_name=full_name, token=token)
+        send_invitation_email(
+            db, to=to, full_name=full_name, token=token, organization_name=organization_name
+        )

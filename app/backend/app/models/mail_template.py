@@ -2,6 +2,7 @@
 
 Текст письма живёт в базе, а не в коде: правка формулировки не требует релиза.
 Подстановки (`{full_name}`, `{activation_url}`, `{expires_hours}`) выполняет `app.mail`.
+`body` — plain-часть письма, `body_html` — вёрстанная HTML-часть (`NULL` — прежняя обёртка).
 """
 
 from datetime import datetime
@@ -21,6 +22,8 @@ class MailTemplate(Base):
     code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    # Вёрстанная HTML-часть письма. `NULL` — разметки нет, письмо уходит в прежней обёртке.
+    body_html: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )
