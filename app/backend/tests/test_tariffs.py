@@ -24,9 +24,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.organization import Organization
+from app.models.solution import Solution
 from app.models.tariff import Tariff
 from app.pricing import format_amount, format_price
-from tests.conftest import organizations_for, sign_in
+from app.seats import EXTRA_MEMBER_CODE, MAX_SEATS_PER_PURCHASE, SEATS_NOT_FOR_SALE_DETAIL
+from tests.conftest import add_solution, organizations_for, sign_in
 
 # Неразрывный пробел — разделитель разрядов в цене. Обычный пробел здесь был бы
 # ошибкой: строка «5 000 ₽» ломалась бы переносом между «5» и «000».
@@ -486,3 +488,90 @@ def test_removed_routes_are_absent_from_openapi(client: TestClient) -> None:
     assert "/api/tariffs/manage" not in paths
     assert set(paths["/api/tariffs"]) == {"get"}
     assert set(paths["/api/tariffs/current"]) == {"get"}
+
+
+# --- 4. Параметры докупки мест (#177) -----------------------------------------
+
+EXTRA_SEATS_URL = "/api/tariffs/extra-seats"
+
+# Цена места после `0065_license_prices`: база всех ступеней.
+SEAT_BASE = Decimal("1500.00")
+
+
+def add_seats_catalog(db_session: Session, *, is_visible: bool = True) -> Solution:
+    """Строка каталога, по которой продаются места: тот же seed, что `0064`."""
+    return add_solution(
+        db_session,
+        code=EXTRA_MEMBER_CODE,
+        name="Дополнительные сотрудники",
+        period="once",
+        position=900,
+        amount=str(SEAT_BASE),
+        is_visible=is_visible,
+    )
+
+
+def test_extra_seats_is_open_to_anonymous(client: TestClient, db_session: Session) -> None:
+    """Ручка открыта анониму, как сам прайс: страница `/pricing` публичная."""
+    add_seats_catalog(db_session)
+
+    response = client.get(EXTRA_SEATS_URL)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["base_amount"] == "1500.00"
+    assert body["currency"] == "RUB"
+    assert body["max_quantity"] == MAX_SEATS_PER_PURCHASE
+
+
+def test_extra_seats_lists_six_bands(client: TestClient, db_session: Session) -> None:
+    """Шесть ступеней: 1–9, 10–19, 20–29, 30–39, 40–49 и 50 и больше до 100."""
+    add_seats_catalog(db_session)
+
+    bands = client.get(EXTRA_SEATS_URL).json()["bands"]
+
+    assert [(band["from"], band["to"], band["discount_percent"]) for band in bands] == [
+        (1, 9, 0),
+        (10, 19, 10),
+        (20, 29, 20),
+        (30, 39, 30),
+        (40, 49, 40),
+        (50, MAX_SEATS_PER_PURCHASE, 50),
+    ]
+
+
+def test_extra_seats_unit_amounts_are_computed_by_the_server(
+    client: TestClient, db_session: Session
+) -> None:
+    """Цену места ступени считает сервер: экран показывает готовое число."""
+    add_seats_catalog(db_session)
+
+    bands = client.get(EXTRA_SEATS_URL).json()["bands"]
+    units = [band["unit_amount"] for band in bands]
+
+    assert units == [
+        "1500.00",
+        "1350.00",
+        "1200.00",
+        "1050.00",
+        "900.00",
+        "750.00",
+    ]
+
+
+def test_extra_seats_without_a_catalog_row_is_not_found(client: TestClient) -> None:
+    """Строки каталога нет — дополнительные сотрудники не продаются: `404`."""
+    response = client.get(EXTRA_SEATS_URL)
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == SEATS_NOT_FOR_SALE_DETAIL
+
+
+def test_hidden_seats_row_is_not_for_sale(client: TestClient, db_session: Session) -> None:
+    """Скрытая строка каталога — то же состояние: ступеней показывать нечего."""
+    add_seats_catalog(db_session, is_visible=False)
+
+    response = client.get(EXTRA_SEATS_URL)
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == SEATS_NOT_FOR_SALE_DETAIL

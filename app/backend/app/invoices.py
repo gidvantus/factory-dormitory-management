@@ -27,9 +27,14 @@ from sqlalchemy.orm import Session
 
 from app import billing_forms
 from app.invoice_status import ACT_KIND, status_label
-from app.models.invoice import Invoice, InvoiceDocument
+from app.models.invoice import Invoice, InvoiceDocument, InvoiceItem, subject_items
 from app.pricing import format_invoice_amount
-from app.schemas.invoice import InvoiceItemKind, InvoiceResponse, InvoiceStatus
+from app.schemas.invoice import (
+    InvoiceItemKind,
+    InvoiceItemResponse,
+    InvoiceResponse,
+    InvoiceStatus,
+)
 
 # Текст отказа «акта ещё нет» — часть контракта: кабинет передаёт его дословно.
 ACT_NOT_FOUND_DETAIL = "Акт по счёту ещё не сформирован"
@@ -50,6 +55,22 @@ def act_invoice_ids(db: Session, invoice_ids: list[int]) -> set[int]:
         )
     )
     return set(rows)
+
+
+def item_response(item: InvoiceItem) -> InvoiceItemResponse:
+    """Позиция счёта в ответ: набор видов держит `CHECK`, поэтому приведение типа.
+
+    Позиции нет в таблице (исторический счёт без бэкфилла) — `subject_items`
+    собирает её из снимка счёта, и вид у неё тот же, что в `item_kind`.
+    """
+    return InvoiceItemResponse(
+        kind=cast(InvoiceItemKind, item.kind),
+        name=item.name,
+        period=item.period,
+        quantity=item.quantity,
+        unit_amount=item.unit_amount,
+        amount=item.amount,
+    )
 
 
 def invoice_response(invoice: Invoice, has_act: bool, can_manage: bool) -> InvoiceResponse:
@@ -80,6 +101,9 @@ def invoice_response(invoice: Invoice, has_act: bool, can_manage: bool) -> Invoi
         can_manage=can_manage,
         paid_at=invoice.paid_at,
         created_at=invoice.created_at,
+        # Состав счёта отдаёт сервер: экран «Документы» показывает его строкой,
+        # не собирая второй раз то, что уже посчитано при покупке.
+        items=[item_response(item) for item in subject_items(invoice)],
     )
 
 

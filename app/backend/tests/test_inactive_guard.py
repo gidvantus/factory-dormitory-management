@@ -11,7 +11,9 @@ from app.security import ACTIVATION_REQUIRED_DETAIL, issue_activation_token
 from tests.conftest import create_user, login, organizations_for
 
 # Свободные от guard адреса: вход, регистрация, активация, здоровье, /api/me,
-# публичный прайс (`GET /api/tariffs`, страница `/pricing`) и публичные документы
+# публичный прайс (`GET /api/tariffs`, страница `/pricing`) и его параметры
+# докупки мест (`GET /api/tariffs/extra-seats`, #177 — та же публичная страница
+# показывает таблицу ступеней), а также публичные документы
 # (`GET /api/documents`, `/api/documents/{code}`, страница `/documents/<код>`).
 # Всё это открыто анониму, и неактивированный кабинет здесь ничего не меняет.
 EXEMPT_PREFIXES = ("/api/auth", "/api/health")
@@ -19,6 +21,10 @@ EXEMPT_PATHS = frozenset(
     {
         "/api/me",
         "/api/tariffs",
+        # Ступени скидки за места — часть публичного прайса: их читает страница
+        # `/pricing`, открытая анониму. Закрывать их guard'ом кабинета значило бы
+        # спрятать половину витрины от человека без аккаунта.
+        "/api/tariffs/extra-seats",
         "/api/documents",
         "/api/documents/{code}",
         # Ручки бота Telegram: это не операции кабинета, а служебный интерфейс
