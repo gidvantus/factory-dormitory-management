@@ -60,16 +60,18 @@ class Settings(BaseSettings):
     # `Literal`, а не `str`: опечатка (`production`, `Prod`) роняет приложение на
     # старте с внятным отказом. Свободная строка молча давала бы пустые ключи,
     # `s3_enabled = False` и хранилище переключалось бы на локальный диск —
-    # импорты легли бы в `/app/uploads` вместо бакета `crm-prod`.
+    # импорты легли бы в `/app/uploads` вместо бакета `crmdormitory-prod`.
     s3_env: Literal["test", "prod"] = "test"
     # Тестовая среда → префикс crm-agent-test
     s3_access_key_test: str = ""
     s3_secret_key_test: str = ""
     s3_prefix_test: str = "crm-agent-test"
-    # Боевая среда → префикс crm-prod
+    # Боевая среда → префикс crmdormitory-prod. Префикс переопределяется
+    # (`S3_PREFIX_PROD`), поэтому проверка бэкапа читает настройку, а не литерал
+    # (`app/backup_cli.py:check_backup_storage`).
     s3_access_key_prod: str = ""
     s3_secret_key_prod: str = ""
-    s3_prefix_prod: str = "crm-prod"
+    s3_prefix_prod: str = "crmdormitory-prod"
 
     # --- DaData ---
     # Токен подстановки (suggestions). Пустая строка — нормальное состояние:
@@ -162,7 +164,7 @@ class Settings(BaseSettings):
 
     @property
     def s3_prefix(self) -> str:
-        """Префикс среды в бакете: `crm-agent-test` или `crm-prod`."""
+        """Префикс среды в бакете: `crm-agent-test` или `crmdormitory-prod`."""
         return getattr(self, f"s3_prefix_{self.s3_env}", "")
 
     @property

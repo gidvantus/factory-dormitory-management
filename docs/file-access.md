@@ -15,7 +15,7 @@
 
 Среда выбирается `S3_ENV=test|prod`: `test` берёт пару `S3_ACCESS_KEY_TEST` /
 `S3_SECRET_KEY_TEST` и префикс `crm-agent-test`, `prod` — `S3_ACCESS_KEY_PROD` /
-`S3_SECRET_KEY_PROD` и префикс `crm-prod`. Регион подписи — `ru-1`.
+`S3_SECRET_KEY_PROD` и префикс `crmdormitory-prod`. Регион подписи — `ru-1`.
 
 **Ключи доступа кладутся только в `.env`** (он в `.gitignore`). В репозитории
 есть только имена переменных с пустыми значениями — `.env.example`. Ключи не
