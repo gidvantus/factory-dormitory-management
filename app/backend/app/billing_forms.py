@@ -25,6 +25,7 @@ HTTP, без сессии и без файловой системы.
 
 import re
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
@@ -32,8 +33,15 @@ from urllib.parse import quote
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
-from app.models.invoice import Invoice
-from app.pricing import format_invoice_amount
+from app.models.invoice import (
+    SEATS_ITEM_KIND,
+    SOLUTION_ITEM_KIND,
+    TARIFF_ITEM_KIND,
+    Invoice,
+    InvoiceItem,
+    subject_items,
+)
+from app.pricing import CURRENCY_SYMBOLS, format_amount, format_invoice_amount
 
 # Семейство и файлы шрифта. Путь — из пакета образа: бинарники в git не кладём.
 FONT_FAMILY = "DejaVu"
@@ -71,6 +79,20 @@ REPEATED_DASHES = re.compile(r"-{2,}")
 ALIGN_LEFT: Literal["L"] = "L"
 
 
+# Подпись раздела с предметами счёта и подпись итоговой строки. Итог в документе
+# стоит последним: первичный документ обязан показать сумму, которую платят.
+SUBJECT_HEADING = "Предмет"
+TOTAL_LABEL = "Итого"
+
+# Подписи видов позиции. Набор тот же, что у `INVOICE_ITEM_KINDS`: вид вне
+# словаря печатается как есть, а не выпадает из документа.
+SUBJECT_LABELS = {
+    TARIFF_ITEM_KIND: "Тариф",
+    SOLUTION_ITEM_KIND: "Решение",
+    SEATS_ITEM_KIND: "Дополнительные места",
+}
+
+
 def _value(value: str | None) -> str:
     """Значение или прочерк: пустая ячейка читается как пропуск."""
     text = (value or "").strip()
@@ -101,13 +123,43 @@ def _buyer_rows(invoice: Invoice) -> list[tuple[str, str | None]]:
     ]
 
 
-def _subject_rows(invoice: Invoice) -> list[tuple[str, str | None]]:
-    """Предмет счёта: что куплено и за какую сумму."""
-    return [
-        ("Тариф", invoice.tariff_name),
-        ("Номер счёта", invoice.number),
-        ("Сумма", _amount_label(invoice)),
-    ]
+def _money(amount: Decimal, currency: str) -> str:
+    """Сумма позиции без окончания по периоду: «1 350 ₽»."""
+    symbol = CURRENCY_SYMBOLS.get(currency, currency)
+    return f"{format_amount(amount)} {symbol}"
+
+
+def _subject_line(item: InvoiceItem, currency: str) -> str:
+    """Строка позиции в том виде, в каком она читается в документе.
+
+    У тарифа и решения период входит в подпись («60 000 ₽ за 6 месяцев»), у мест
+    рядом с суммой стоит цена места и множитель — «7 500 ₽ (1 500 ₽ × 5)»: иначе
+    сверить платёж с числом мест бухгалтерия клиента не смогла бы, а скидка
+    ступени осталась бы невидимой.
+    """
+    label = SUBJECT_LABELS.get(item.kind, item.kind)
+    if item.kind == SEATS_ITEM_KIND:
+        quantity = item.quantity or 0
+        unit = item.unit_amount if item.unit_amount is not None else item.amount
+        return (
+            f"{label} · {quantity} — {_money(item.amount, currency)} "
+            f"({_money(unit, currency)} × {quantity})"
+        )
+    amount_label = format_invoice_amount(item.amount, currency, item.period)
+    return f"{label} «{_value(item.name)}» — {amount_label}"
+
+
+def _subject_lines(invoice: Invoice) -> list[str]:
+    """Предмет счёта: по строке на позицию и итог последней.
+
+    Позиции берутся из `invoice_items`: у покупки «тариф + места» их две, и
+    документ печатает обе. Счёт без позиций (выставленный до ревизии
+    `0066_invoice_items`) читается по своему снимку одной позицией — форма
+    прежних счетов остаётся той же.
+    """
+    lines = [_subject_line(item, invoice.currency) for item in subject_items(invoice)]
+    lines.append(f"{TOTAL_LABEL}: {_amount_label(invoice)}")
+    return lines
 
 
 def _register_fonts(pdf: FPDF) -> None:
@@ -199,9 +251,9 @@ def _document(heading: str, invoice: Invoice, date: datetime | None) -> bytes:
     for label, value in _buyer_rows(invoice):
         _row(pdf, label, value)
 
-    _heading(pdf, "Предмет")
-    for label, value in _subject_rows(invoice):
-        _row(pdf, label, value)
+    _heading(pdf, SUBJECT_HEADING)
+    for line in _subject_lines(invoice):
+        _paragraph(pdf, line)
 
     return bytes(pdf.output())
 

@@ -66,6 +66,11 @@ INVOICE_FIELDS = {
     "status",
     "status_label",
     "item_kind",
+    # Количество мест (#168): у счёта за тариф и за решение `null`, у счёта за
+    # места — число. Поле есть в контракте обоих кабинетов: `PlatformInvoice`
+    # оператора повторяет его руками (`operator/backend/app/schemas.py`), и без
+    # этой строки там пропало бы количество.
+    "quantity",
     "amount",
     "currency",
     "amount_label",
@@ -80,6 +85,11 @@ INVOICE_FIELDS = {
     "can_manage",
     "paid_at",
     "created_at",
+    # Позиции счёта (#177): список состава покупки. Поле добавилось в ответ
+    # кабинета клиента, а `PlatformInvoice` наследует его целиком, поэтому реестр
+    # оператора получает его тем же контрактом. Ручная копия модели в
+    # `operator/backend` лишнее поле отбрасывает — панель не ломается.
+    "items",
     "organization_id",
     "organization_name",
 }

@@ -19,7 +19,7 @@
 сериализует выдачу прав на решения: два одновременных `PATCH` по счетам за одно
 решение не создадут две строки права.
 
-Предмет счёта бывает двух видов, и оплата у них разная:
+Предмет счёта бывает трёх видов, и оплата у них разная:
 
 * **тариф** (`item_kind = 'tariff'`) — оплата записывает организации оплаченный
   период (`app/subscription.py::record_payment`): свободен текущий слот — он и
@@ -29,7 +29,21 @@
   посреди оплаченного периода покупкой не делается — меняется только срок;
 * **решение** (`item_kind = 'solution'`) — оплата выдаёт или продлевает право
   организации на решение (`app/solutions.py::grant`), а подписку
-  **не трогает**: решение не открывает кабинет и не меняет тариф.
+  **не трогает**: решение не открывает кабинет и не меняет тариф;
+* **места** (`item_kind = 'seats'`) — оплата прибавляет к
+  `organizations.extra_seats` количество из счёта (`app/seats.py::add_seats`), а
+  подписку тоже **не трогает**: место — доплата к уже оплаченному тарифу, своего
+  срока у него нет, и продление тарифа его не сбрасывает. Количество берётся со
+  счёта, а не из каталога: организация получает ровно то, за что заплатила,
+  даже если строку каталога с тех пор поправили или удалили.
+
+**Видов три, а позиций в счёте может быть несколько** (#177). Оплата применяет
+каждую позицию `invoice_items` в одной транзакции: у покупки «тариф + места»
+подписка записывается тарифной позицией, а счётчик мест растёт позицией мест —
+одним нажатием, без второго счёта и второго платежа. Акт по-прежнему один на
+счёт. Счёт без позиций (до ревизии `0066_invoice_items`) читается одной позицией
+из своего снимка (`app/models/invoice.py::subject_items`), поэтому правила
+переходов и прежние счета от этого не меняются.
 """
 
 from datetime import UTC, datetime
@@ -38,9 +52,16 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.invoice import SOLUTION_ITEM_KIND, Invoice, InvoiceDocument
+from app.models.invoice import (
+    SEATS_ITEM_KIND,
+    SOLUTION_ITEM_KIND,
+    Invoice,
+    InvoiceDocument,
+    subject_items,
+)
 from app.models.organization import Organization
 from app.models.solution import Solution
+from app.seats import add_seats
 from app.solutions import grant
 from app.subscription import record_payment
 
@@ -127,22 +148,35 @@ def change_status(db: Session, invoice: Invoice, target: str) -> Invoice:
         raise HTTPException(status.HTTP_409_CONFLICT, INVALID_STATUS_DETAIL)
 
     if target == PAID_STATUS:
-        if invoice.item_kind == SOLUTION_ITEM_KIND:
-            # Право выдаётся из строки каталога: снимок счёта хранит только
-            # название и период, а для срока нужен `period` решения.
-            solution = (
-                db.get(Solution, invoice.solution_id) if invoice.solution_id is not None else None
-            )
-            if solution is not None:
-                grant(db, organization.id, solution, invoice_id=invoice.id)
-            # Строки каталога может уже не быть (`ON DELETE SET NULL` обнуляет
-            # ссылку): тогда выдавать нечего — оплата всё равно фиксируется, а
-            # право не появляется. Молчаливой выдачи «не того» решения нет.
-        else:
-            # Период берётся из снимка счёта: организация получает ровно то, за что
-            # заплатила, даже если прайс с тех пор поменялся. Оба слота заняты —
-            # `record_payment` откажет `409`, и счёт останется неоплаченным.
-            record_payment(organization, invoice.tariff_id, invoice.tariff_period)
+        # Оплата применяет каждую позицию счёта. У покупки «тариф + места» их
+        # две, и обе — одна сделка: подписка записывается тарифной позицией,
+        # счётчик мест растёт позицией мест, и всё это в одной транзакции с датой
+        # оплаты и актом. Акт по-прежнему один на счёт, а не на позицию.
+        for item in subject_items(invoice):
+            if item.kind == SOLUTION_ITEM_KIND:
+                # Право выдаётся из строки каталога: снимок позиции хранит только
+                # название и период, а для срока нужен `period` решения.
+                solution = (
+                    db.get(Solution, item.solution_id) if item.solution_id is not None else None
+                )
+                if solution is not None:
+                    grant(db, organization.id, solution, invoice_id=invoice.id)
+                # Строки каталога может уже не быть (`ON DELETE SET NULL` обнуляет
+                # ссылку): тогда выдавать нечего — оплата всё равно фиксируется, а
+                # право не появляется. Молчаливой выдачи «не того» решения нет.
+            elif item.kind == SEATS_ITEM_KIND:
+                # Количество берётся из позиции, а не из каталога: организация
+                # получает ровно то, за что заплатила. Счётчик растёт только
+                # здесь — покупка и выставление счёта мест не добавляют.
+                # Подписку оплата мест не трогает: место живёт вместе с ней, но
+                # своего срока не имеет.
+                add_seats(organization, item.quantity or 0)
+            else:
+                # Период берётся из снимка позиции: организация получает ровно
+                # то, за что заплатила, даже если прайс с тех пор поменялся. Оба
+                # слота заняты — `record_payment` откажет `409`, и счёт останется
+                # неоплаченным.
+                record_payment(organization, item.tariff_id, item.period)
         invoice.paid_at = datetime.now(UTC)
         db.add(InvoiceDocument(invoice_id=invoice.id, kind=ACT_KIND))
 

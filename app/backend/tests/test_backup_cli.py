@@ -5,13 +5,18 @@
 функции аргументом (`upload`, `rotate`, `check`), а `run` возвращает код выхода,
 который и проверяется: workflow полагается ровно на него.
 
-Что охраняют эти тесты: под префиксом среды (`crm-prod`) лежат не только дампы,
-но и файлы пользователей (`<ГГГГ-ММ-ДД>/<uuid>.xlsx`). Ротация, которая возьмёт
-«все объекты папки» или «всё, что вернул `list_folder("")`», — это тихая потеря
+Что охраняют эти тесты: под префиксом среды лежат не только дампы, но и файлы
+пользователей (`<ГГГГ-ММ-ДД>/<uuid>.xlsx`). Ротация, которая возьмёт «все
+объекты папки» или «всё, что вернул `list_folder("")`», — это тихая потеря
 документов арендатора, а не «лишний дамп».
+
+Префикс боевой среды — настройка (`S3_PREFIX_PROD`), поэтому `check` получает
+не константу, а набор настроек боевого прогона (`PROD`): сравнение с литералом
+отказывало бы на правильно переопределённом префиксе.
 """
 
 from pathlib import Path
+from typing import TypedDict
 
 import pytest
 
@@ -22,7 +27,29 @@ PAYLOAD = b"PGDMP not really a dump"
 FIRST = "crm_20261101_030000.dump"
 SECOND = "crm_20261102_030000.dump"
 THIRD = "crm_20261103_030000.dump"
-PROD_PREFIX = "crm-prod"
+
+
+class BackupSettings(TypedDict):
+    """Настройки, по которым `check` решает, годится ли бэкап."""
+
+    env: str
+    prefix: str
+    test_prefix: str
+
+
+# Боевой прогон: `S3_ENV=prod`, боевой префикс проекта и тестовый префикс.
+PROD: BackupSettings = {
+    "env": "prod",
+    "prefix": "crmdormitory-prod",
+    "test_prefix": "crm-agent-test",
+}
+
+# Тестовый прогон стенда: боевой бэкап от него отличается — это и есть отказ.
+TEST: BackupSettings = {
+    "env": "test",
+    "prefix": "crm-agent-test",
+    "test_prefix": "crm-agent-test",
+}
 
 
 def local_storage(tmp_path: Path) -> LocalStorage:
@@ -156,7 +183,7 @@ def test_upload_of_a_missing_file_exits_with_code_one(
     """Пропавший файл — код 1 и одна строка `ОШИБКА: …` без traceback."""
     storage = local_storage(tmp_path)
 
-    code = run(["upload", str(tmp_path / "nope.dump"), THIRD], storage, PROD_PREFIX)
+    code = run(["upload", str(tmp_path / "nope.dump"), THIRD], storage, **PROD)
 
     assert code == 1
     err = capsys.readouterr().err
@@ -171,7 +198,7 @@ def test_rotate_prints_every_removed_key(
     for name in (FIRST, SECOND):
         put_dump(storage, name)
 
-    code = run(["rotate", "backup/db", "1"], storage, PROD_PREFIX)
+    code = run(["rotate", "backup/db", "1"], storage, **PROD)
 
     assert code == 0
     out = capsys.readouterr().out
@@ -188,27 +215,110 @@ def test_check_refuses_the_local_storage(
     """S3 выключен — job обязан упасть с текстом, называющим хранилище."""
     storage = local_storage(tmp_path)
 
-    code = run(["check"], storage, PROD_PREFIX)
+    code = run(["check"], storage, **PROD)
 
     assert code == 1
     assert "S3Storage" in capsys.readouterr().err
 
 
-def test_check_refuses_the_test_prefix_of_the_same_bucket() -> None:
-    """`S3_ENV=test` на сервере — дамп уедет в `crm-agent-test`, это отказ."""
+def test_check_accepts_the_production_prefix() -> None:
+    """Боевой прогон на префиксе проекта — успех и префикс в выводе."""
+    storage = s3_storage(prefix=PROD["prefix"])
+
+    line = check_backup_storage(storage, **PROD)
+
+    assert line == "Хранилище: S3Storage, S3_ENV=prod, префикс: crmdormitory-prod"
+
+
+def test_check_refuses_when_the_environment_is_not_prod() -> None:
+    """`S3_ENV=test` — дамп уедет в тестовый префикс, это отказ."""
+    storage = s3_storage(prefix=PROD["test_prefix"])
+
+    with pytest.raises(BackupError) as err:
+        check_backup_storage(storage, **TEST)
+
+    message = str(err.value)
+    assert message.startswith("S3_ENV='test'")
+    assert "crm-agent-test" in message
+
+
+def test_check_refuses_an_empty_production_prefix() -> None:
+    """Пустой `S3_PREFIX_PROD` — дамп лёг бы в корень бакета."""
+    storage = s3_storage(prefix="")
+    settings: BackupSettings = {"env": "prod", "prefix": "  ", "test_prefix": "crm-agent-test"}
+
+    with pytest.raises(BackupError) as err:
+        check_backup_storage(storage, **settings)
+
+    assert "S3_PREFIX_PROD" in str(err.value)
+
+
+def test_check_refuses_the_test_prefix_as_the_production_one() -> None:
+    """Боевой префикс, совпавший с тестовым, — тоже отказ."""
+    storage = s3_storage(prefix=TEST["prefix"])
+    settings: BackupSettings = {**TEST, "env": "prod"}
+
+    with pytest.raises(BackupError) as err:
+        check_backup_storage(storage, **settings)
+
+    assert "совпадает с тестовым" in str(err.value)
+
+
+def test_check_puts_the_empty_prefix_before_the_coincidence() -> None:
+    """Пустой префикс отказывает раньше сравнения: порядок отказов из промта."""
+    storage = s3_storage(prefix="")
+    settings: BackupSettings = {"env": "prod", "prefix": "", "test_prefix": ""}
+
+    with pytest.raises(BackupError) as err:
+        check_backup_storage(storage, **settings)
+
+    assert "задайте S3_PREFIX_PROD" in str(err.value)
+
+
+def test_check_names_settings_not_the_old_literal_prefix() -> None:
+    """Проверка идёт по настройкам: старого литерала префикса в тексте нет."""
+    storage = s3_storage(prefix=TEST["prefix"])
+
+    with pytest.raises(BackupError) as err:
+        check_backup_storage(storage, **TEST)
+
+    assert "crm-prod" not in str(err.value)
+
+
+def test_check_follows_a_redefined_production_prefix() -> None:
+    """Переопределённый префикс проходит: истина — настройка, а не литерал."""
+    storage = s3_storage(prefix="other-prod")
+    settings: BackupSettings = {**TEST, "env": "prod", "prefix": "other-prod"}
+
+    line = check_backup_storage(storage, **settings)
+
+    assert "префикс: other-prod" in line
+
+
+def test_check_run_prints_the_success_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Код 0 и ровно строка успеха — на неё смотрит лог workflow."""
+    storage = s3_storage(prefix=PROD["prefix"])
+
+    assert run(["check"], storage, **PROD) == 0
+    out = capsys.readouterr().out
+    assert out.strip() == "Хранилище: S3Storage, S3_ENV=prod, префикс: crmdormitory-prod"
+
+
+def test_run_check_with_a_test_environment_exits_with_code_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`S3_ENV=test` через `run`: код 1 и одна строка `ОШИБКА: S3_ENV='test' …`."""
     storage = s3_storage(prefix="crm-agent-test")
 
-    with pytest.raises(BackupError):
-        check_backup_storage(storage, "crm-agent-test")
+    code = run(["check"], storage, **TEST)
 
-
-def test_check_accepts_the_production_prefix() -> None:
-    storage = s3_storage(prefix=PROD_PREFIX)
-
-    line = check_backup_storage(storage, PROD_PREFIX)
-
-    assert "S3Storage" in line
-    assert PROD_PREFIX in line
+    assert code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("ОШИБКА: S3_ENV='test'")
+    assert err.strip().count("\n") == 0
+    assert "Traceback" not in err
 
 
 def test_a_storage_error_is_one_line_and_code_one(
@@ -224,7 +334,7 @@ def test_a_storage_error_is_one_line_and_code_one(
     storage.put_raw(PAYLOAD, f"backup/db/{FIRST}")
     storage.put_raw(PAYLOAD, f"backup/db/{SECOND}")
 
-    assert run(["rotate", "backup/db", "1"], storage, PROD_PREFIX) == 1
+    assert run(["rotate", "backup/db", "1"], storage, **PROD) == 1
     err = capsys.readouterr().err
     assert err.startswith("ОШИБКА:")
     assert "AccessDenied" in err
@@ -234,13 +344,13 @@ def test_a_storage_error_is_one_line_and_code_one(
 def test_an_unknown_command_is_refused_with_code_one(tmp_path: Path) -> None:
     storage = local_storage(tmp_path)
 
-    assert run(["dump-everything"], storage, PROD_PREFIX) == 1
-    assert run([], storage, PROD_PREFIX) == 1
+    assert run(["dump-everything"], storage, **PROD) == 1
+    assert run([], storage, **PROD) == 1
 
 
 def test_rotate_refuses_a_non_numeric_keep(tmp_path: Path) -> None:
     storage = local_storage(tmp_path)
     put_dump(storage, FIRST)
 
-    assert run(["rotate", "backup/db", "ten"], storage, PROD_PREFIX) == 1
+    assert run(["rotate", "backup/db", "ten"], storage, **PROD) == 1
     assert storage.exists(f"backup/db/{FIRST}")

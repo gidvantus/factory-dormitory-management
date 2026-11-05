@@ -238,7 +238,7 @@ rebase: иначе следующие слияния сломаются), пос
   остаются резервом для SSH-туннеля.
 - 2026-11-03 — добавлен ежедневный бэкап БД в S3
   (`.github/workflows/backup-db.yml`, `app/backend/app/backup_cli.py`) и runbook
-  `docs/backup.md`: `pg_dump` по cron, выгрузка в `crm-prod/backup/db/`,
+  `docs/backup.md`: `pg_dump` по cron, выгрузка в `crmdormitory-prod/backup/db/`,
   ротация последних 10 дампов. Шаг 8 деплоя не изменился.
 - 2026-11-02 — деплой переведён на ветку `main`; шаг 7 проверяет переменные
   кабинета оператора.

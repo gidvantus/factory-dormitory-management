@@ -13,7 +13,7 @@ from app.models.dormitory_template import DormitoryTemplate
 from app.models.hostel import Hostel, HostelCell
 from app.models.import_job import ImportJob
 from app.models.inflow import PersonnelInflow
-from app.models.invoice import Invoice, InvoiceDocument
+from app.models.invoice import Invoice, InvoiceDocument, InvoiceItem
 from app.models.mail_template import MailTemplate
 from app.models.notification_builder import PersonalNotification
 from app.models.organization import Organization, OrganizationMember
@@ -78,6 +78,7 @@ __all__ = [
     "ImportJob",
     "Invoice",
     "InvoiceDocument",
+    "InvoiceItem",
     "MailTemplate",
     "NotificationDelivery",
     "NotificationRule",

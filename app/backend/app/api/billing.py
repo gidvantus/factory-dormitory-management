@@ -1,4 +1,4 @@
-"""Счета организации: покупка тарифа или решения, статусы и печатные формы.
+"""Счета организации: покупка тарифа, решения или мест, статусы и печатные формы.
 
 Роутер закрытого кабинета, но **не** рабочих разделов: на закрытом пробном
 периоде покупка обязана работать (ради неё кабинет и открывается), поэтому
@@ -6,12 +6,21 @@
 требуют роли с правом редактирования (`EditableMembership`), чтение счетов и
 скачивание файлов — любого участия в организации (`Membership`).
 
-Предмет счёта бывает двух видов: тариф (`item_kind = 'tariff'`) и решение
-магазина улучшений (`item_kind = 'solution'`). Вид выбирается телом запроса —
-ровно одно из полей `tariff_id`/`solution_id`, — и определяет и проверки
-покупки, и то, что происходит при оплате (`app/invoice_status.py`). Снимок
-предмета у обоих видов лежит в `tariff_name`/`tariff_period`: печатные формы
-счёта и акта читают эти колонки и о решениях ничего не знают.
+Предмет счёта бывает трёх видов: тариф (`item_kind = 'tariff'`), решение
+магазина улучшений (`item_kind = 'solution'`) и докупленные сверх тарифа места
+(`item_kind = 'seats'`). Но **позиций в счёте может быть несколько**: покупка
+«тариф + места» — это одна сделка и один документ с двумя строками
+`invoice_items` (#177). Поэтому вид выбирает не «ровно одно поле тела», а состав
+запроса: `tariff_id` — тариф, `tariff_id` вместе с `seats` — тариф и места,
+`seats` без тарифа — докупка к живому тарифу, `solution_id` — отдельный счёт.
+Решение несовместимо с остальными полями: у него своё право и свой срок.
+Снимок предмета первой позиции лежит в `tariff_name`/`tariff_period`, полный
+состав отдаёт ответ (`items`) и печатает документ.
+
+Места — не строка каталога решений с количеством: в теле едет количество, а
+цену, сумму и предмет счёта считает сервер по строке каталога `extra_member`
+(`app/seats.py`). Клиент не присылает деньги и не собирает сумму сам, и скидку
+ступени тоже не выводит: её считает `seats_total`.
 
 Коды отказа выбраны так, чтобы не подтверждать существование чужих данных:
 чужой счёт отвечает `404`, а не `403`. `403` остаётся за неактивированным
@@ -22,6 +31,7 @@
 """
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -50,11 +60,14 @@ from app.invoices import (
     pdf_response,
 )
 from app.models.invoice import (
+    SEATS_ITEM_KIND,
     SOLUTION_ITEM_KIND,
     TARIFF_ITEM_KIND,
     Invoice,
+    InvoiceItem,
     invoice_number,
     pending_invoice_number,
+    subject_items,
 )
 from app.models.organization import Organization
 from app.models.solution import Solution
@@ -66,8 +79,21 @@ from app.schemas.invoice import (
     UpdateInvoiceStatusRequest,
 )
 from app.schemas.user import ErrorResponse
+from app.seats import (
+    EXTRA_MEMBER_CODE,
+    SEATS_NOT_FOR_SALE_DETAIL,
+    SEATS_REQUIRE_TARIFF_DETAIL,
+    SEATS_UNLIMITED_TARIFF_DETAIL,
+    catalog_row,
+    seats_total,
+    unit_amount,
+)
 from app.security import ACTIVATION_REQUIRED_DETAIL, ActiveUser
-from app.subscription import TARIFF_ALREADY_BOUGHT_DETAIL, free_slot
+from app.subscription import (
+    TARIFF_ALREADY_BOUGHT_DETAIL,
+    free_slot,
+    organization_subscription,
+)
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -82,7 +108,7 @@ NOT_FOUND_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: {
         "model": ErrorResponse,
         "description": f"{ORGANIZATION_NOT_FOUND_DETAIL}; {INVOICE_NOT_FOUND_DETAIL}; "
-        f"{TARIFF_NOT_FOUND_DETAIL}; {SOLUTION_NOT_FOUND_DETAIL}",
+        f"{TARIFF_NOT_FOUND_DETAIL}; {SOLUTION_NOT_FOUND_DETAIL}; {SEATS_NOT_FOR_SALE_DETAIL}",
     }
 }
 
@@ -116,7 +142,10 @@ BROKEN_JSON_RESPONSES: dict[int | str, dict[str, Any]] = {
 CONFLICT_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_409_CONFLICT: {
         "model": ErrorResponse,
-        "description": f"{TARIFF_ALREADY_BOUGHT_DETAIL}; {BUYER_REQUISITES_DETAIL}",
+        "description": (
+            f"{TARIFF_ALREADY_BOUGHT_DETAIL}; {BUYER_REQUISITES_DETAIL}; "
+            f"{SEATS_REQUIRE_TARIFF_DETAIL}; {SEATS_UNLIMITED_TARIFF_DETAIL}"
+        ),
     }
 }
 
@@ -146,11 +175,104 @@ def _load_own_invoice(db: Session, membership: Membership, invoice_id: int) -> I
     return invoice
 
 
+def _position_key(kind: str, reference_id: int | None, quantity: int | None) -> str:
+    """Ключ позиции для дедупликации: вид, строка каталога и количество.
+
+    Строкой, а не кортежем: у мест количество — часть предмета, а у тарифа и
+    решения его нет, и сравнивать `None` с числом через сортировку нельзя.
+    """
+    return f"{kind}:{reference_id if reference_id is not None else ''}:" + (
+        f"{quantity if quantity is not None else ''}"
+    )
+
+
+def _invoice_key(invoice: Invoice) -> tuple[str, ...]:
+    """Набор предметов счёта. Сравнивается как множество, а не по порядку строк."""
+    return tuple(
+        sorted(
+            _position_key(
+                item.kind,
+                item.tariff_id if item.kind == TARIFF_ITEM_KIND else item.solution_id,
+                item.quantity,
+            )
+            for item in subject_items(invoice)
+        )
+    )
+
+
+def _live_invoice_for(db: Session, organization_id: int, wanted: tuple[str, ...]) -> Invoice | None:
+    """Живой неоплаченный счёт за **тот же набор** предметов, если он есть.
+
+    Сравнивается состав, а не «вид предмета»: у покупки «тариф + пять мест» и
+    «тариф + десять мест» один и тот же тариф, но это разные сделки. Счетов без
+    позиций (выставленных до ревизии `0066_invoice_items`) это тоже касается:
+    `subject_items` собирает их позицию из снимка счёта.
+    """
+    candidates = db.scalars(
+        select(Invoice)
+        .where(
+            Invoice.organization_id == organization_id,
+            Invoice.status == NEW_STATUS,
+        )
+        .order_by(Invoice.id.desc())
+    )
+    for invoice in candidates:
+        if _invoice_key(invoice) == wanted:
+            return invoice
+    return None
+
+
+def _tariff_position(tariff: Tariff, position: int) -> InvoiceItem:
+    """Позиция тарифа: количество неприменимо, цена позиции — цена строки прайса."""
+    return InvoiceItem(
+        position=position,
+        kind=TARIFF_ITEM_KIND,
+        name=tariff.name,
+        period=tariff.period,
+        quantity=None,
+        unit_amount=tariff.amount,
+        amount=tariff.amount,
+        tariff_id=tariff.id,
+    )
+
+
+def _seats_position(line: Solution, quantity: int, position: int) -> InvoiceItem:
+    """Позиция мест: цена места со скидкой ступени и сумма на весь набор.
+
+    `unit_amount × quantity = amount` сходится до копейки: округляется цена
+    места, а не произведение (`app/seats.py`).
+    """
+    return InvoiceItem(
+        position=position,
+        kind=SEATS_ITEM_KIND,
+        name=line.name,
+        period=line.period,
+        quantity=quantity,
+        unit_amount=unit_amount(line.amount, quantity),
+        amount=seats_total(line.amount, quantity),
+        solution_id=line.id,
+    )
+
+
+def _solution_position(solution: Solution, position: int) -> InvoiceItem:
+    """Позиция решения магазина: количество неприменимо, цена — цена каталога."""
+    return InvoiceItem(
+        position=position,
+        kind=SOLUTION_ITEM_KIND,
+        name=solution.name,
+        period=solution.period,
+        quantity=None,
+        unit_amount=solution.amount,
+        amount=solution.amount,
+        solution_id=solution.id,
+    )
+
+
 @router.post(
     "/invoices",
     status_code=status.HTTP_201_CREATED,
     response_model=InvoiceResponse,
-    summary="Выставить счёт за тариф или решение",
+    summary="Выставить счёт за тариф, решение или места",
     responses={
         **UNAUTHORIZED_RESPONSES,
         **FORBIDDEN_RESPONSES,
@@ -164,7 +286,7 @@ def _load_own_invoice(db: Session, membership: Membership, invoice_id: int) -> I
         status.HTTP_422_UNPROCESSABLE_ENTITY: {
             "model": ErrorResponse,
             "description": "Тело запроса не подходит по схеме: предмет не указан или указан "
-            f"дважды, либо тариф покупается без отметки оферты — "
+            "дважды, количество мест вне 1…100, либо тариф покупается без отметки оферты — "
             f"{OFFER_ACCEPTANCE_REQUIRED_DETAIL}",
         },
     },
@@ -176,7 +298,7 @@ def purchase_invoice(
     db: DbSession,
     response: Response,
 ) -> InvoiceResponse:
-    """«Купить»: выставить организации счёт за тариф или за решение.
+    """«Купить»: выставить организации счёт за тариф, решение или места.
 
     Проверки идут в порядке, который задаёт смысл отказа: сначала «продлевать
     некуда» (оба слота подписки заняты — это условие касается только тарифов),
@@ -190,16 +312,42 @@ def purchase_invoice(
     `TARIFF_ALREADY_BOUGHT_DETAIL`. Смены тарифа покупкой по-прежнему нет —
     меняется только срок в том же слоте, когда период истёк.
 
-    Повторное нажатие не плодит счета: живой неоплаченный счёт **за тот же
-    предмет** возвращается как `200` с тем же телом, а новый не создаётся. Счёт
-    за тариф и счёт за решение друг другу не мешают. Строка организации берётся
-    под блокировку, иначе два одновременных клика прошли бы проверку вместе.
+    **Покупка «тариф + места» — одна сделка и один счёт.** Тело с `tariff_id` и
+    `seats` не создаёт второй документ: у счёта две позиции, и сумму
+    (`тариф + места`) считает сервер. Отказ «тариф уже оплачен» касается только
+    тарифной части: докупить места к живому тарифу отдельным запросом `{ "seats":
+    N }` по-прежнему можно, и это один счёт с одной позицией.
+
+    **Места покупаются только сверх тарифа с пределом мест.** Порядок отказов
+    важен и дословен: нет действующего тарифа (запрос без `tariff_id`) — `409
+    SEATS_REQUIRE_TARIFF_DETAIL` (докупать нечего, сначала тариф); тариф
+    безлимитный — `409 SEATS_UNLIMITED_TARIFF_DETAIL` (предела нет, место ничего
+    не добавляет); строки каталога нет или она скрыта — `404
+    SEATS_NOT_FOR_SALE_DETAIL`. Сумма считается здесь: цена места со скидкой
+    ступени × количество (`app/seats.py::seats_total`), и скидка действует на
+    весь набор мест. За места оферта не требуется — это не подписка, а доплата к
+    уже оплаченной.
+
+    **Строка мест не покупается как решение.** Она видима в каталоге (`is_visible
+    = true`) — по ней магазин рисует карточку, — поэтому путь `{ "solution_id":
+    <её id> }` открыт и его надо закрыть: иначе оплата завела бы право на код
+    `extra_member`, которого не читает ни одна ручка, а счётчик мест не вырос бы.
+    Такой `solution_id` получает `404 SOLUTION_NOT_FOUND_DETAIL` — как
+    несуществующее решение; места же покупаются полем `seats`.
+
+    Повторное нажатие не плодит счета: живой неоплаченный счёт **за тот же набор
+    предметов** возвращается как `200` с тем же телом, а новый не создаётся. Набор
+    сравнивается целиком, а не по виду предмета: «тариф + 5 мест» и «тариф + 10
+    мест» — разные сделки, а «тариф» и «решение» друг другу не мешают. Строка
+    организации берётся под блокировку, иначе два одновременных клика прошли бы
+    проверку вместе.
 
     Акцепт оферты пишется в ту же транзакцию, что и счёт: у только что созданного
     тарифного счёта — всегда (без отметки тело не прошло бы схему), у
     возвращаемого существующего — только если он ещё пуст. Здесь человек только
     что нажал «Купить» с отметкой, но подменять прежнюю дату согласия нельзя.
-    Счёт за решение покупается без отметки, и его `offer_*` остаются `NULL`.
+    Счёт за решение и за места покупается без отметки, и его `offer_*` остаются
+    `NULL`.
     """
     organization = db.scalar(
         select(Organization).where(Organization.id == membership.organization_id).with_for_update()
@@ -207,86 +355,138 @@ def purchase_invoice(
     if organization is None:  # pragma: no cover - членство без организации невозможно
         raise HTTPException(status.HTTP_404_NOT_FOUND, ORGANIZATION_NOT_FOUND_DETAIL)
 
-    # Предмет счёта: ровно один из двух, иначе до ручки тело не дошло бы (422).
+    # Состав сделки. `seats` — не отдельный предмет, а количество мест: оно может
+    # ехать вместе с тарифом и тогда у счёта две позиции. Решение с другими
+    # полями несовместимо — это отсекает схема, до ручки такое тело не доходит.
     tariff: Tariff | None = None
     solution: Solution | None = None
+    # Строка каталога, по которой продаются места: `None` — места не покупаются.
+    seats_line: Solution | None = None
+    quantity: int | None = None
+    positions: list[InvoiceItem] = []
     item_kind: str
-    if payload.tariff_id is not None:
-        item_kind = TARIFF_ITEM_KIND
-        # Свободных слотов нет — продлевать некуда, и тариф в счёте неважен.
-        if free_slot(organization) is None:
-            raise HTTPException(status.HTTP_409_CONFLICT, TARIFF_ALREADY_BOUGHT_DETAIL)
-        tariff = db.get(Tariff, payload.tariff_id)
-        if tariff is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, TARIFF_NOT_FOUND_DETAIL)
-    else:
+
+    if payload.solution_id is not None:
         # К решению запрет «тариф уже выбран» не применяется: тариф держит
         # кабинет живым, а решение — отдельное право, и они не исключают друг
         # друга. Скрытая строка каталога списком не продаётся, но по `id`
         # покупается — как у тарифов.
-        item_kind = SOLUTION_ITEM_KIND
         solution = db.get(Solution, payload.solution_id)
         if solution is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, SOLUTION_NOT_FOUND_DETAIL)
+        # Строка «Дополнительные сотрудники» — не решение, а предмет счёта
+        # `seats`: у неё нет периода права, и оплата решения завела бы право на
+        # код `extra_member`, которое не читает ни одна ручка (`app/seats.py`
+        # считает места, а не права), то есть человек заплатил бы и не получил
+        # ничего. Строку нельзя просто спрятать (`is_visible = false`): её
+        # показывает карточка магазина, поэтому закрыт именно этот путь покупки.
+        # Ответ — `404` как у несуществующего решения: подтверждать
+        # существование непродаваемой строки незачем, а мест это не касается —
+        # они покупаются полем `seats`.
+        if solution.code == EXTRA_MEMBER_CODE:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, SOLUTION_NOT_FOUND_DETAIL)
+        item_kind = SOLUTION_ITEM_KIND
+        positions = [_solution_position(solution, 1)]
+    else:
+        if payload.tariff_id is not None:
+            # Свободных слотов нет — продлевать некуда, и тариф в счёте неважен.
+            if free_slot(organization) is None:
+                raise HTTPException(status.HTTP_409_CONFLICT, TARIFF_ALREADY_BOUGHT_DETAIL)
+            tariff = db.get(Tariff, payload.tariff_id)
+            if tariff is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, TARIFF_NOT_FOUND_DETAIL)
+        if payload.seats is not None:
+            # Схема уже проверила 1…100; здесь — состояние организации и
+            # каталога. Порядок отказов — часть контракта: без тарифа «докупить»
+            # нечего, на безлимите предел не нужен вовсе, и только потом «не
+            # продаётся». Проверяется тариф, к которому места докупаются: у
+            # покупки «тариф + места» это покупаемый тариф, у докупки — живой.
+            quantity = payload.seats
+            live = tariff
+            if live is None:
+                state = organization_subscription(db, organization)
+                if state.tariff is None:
+                    raise HTTPException(status.HTTP_409_CONFLICT, SEATS_REQUIRE_TARIFF_DETAIL)
+                live = state.tariff
+            if live.max_members is None:
+                raise HTTPException(status.HTTP_409_CONFLICT, SEATS_UNLIMITED_TARIFF_DETAIL)
+            seats_line = catalog_row(db)
+            if seats_line is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, SEATS_NOT_FOR_SALE_DETAIL)
+        # Тариф идёт первой позицией: по нему заполняются `item_kind`,
+        # `tariff_name` и `tariff_period` — снимок счёта остаётся тарифным, как у
+        # прежних счетов, а места читаются из `items`.
+        if tariff is not None:
+            positions.append(_tariff_position(tariff, len(positions) + 1))
+        if seats_line is not None and quantity is not None:
+            positions.append(_seats_position(seats_line, quantity, len(positions) + 1))
+        item_kind = TARIFF_ITEM_KIND if tariff is not None else SEATS_ITEM_KIND
 
     if not organization.name or not organization.inn:
         raise HTTPException(status.HTTP_409_CONFLICT, BUYER_REQUISITES_DETAIL)
 
-    # Дедупликация — по предмету, а не «любой живой счёт организации»: иначе счёт
-    # за тариф блокировал бы покупку решения и наоборот.
-    if tariff is not None:
-        same_item = (Invoice.tariff_id == tariff.id, Invoice.solution_id.is_(None))
-    else:
-        assert solution is not None  # Предмет проверен выше: до сюда без него не дойти.
-        same_item = (Invoice.solution_id == solution.id, Invoice.tariff_id.is_(None))
-    existing = db.scalar(
-        select(Invoice)
-        .where(
-            Invoice.organization_id == organization.id,
-            Invoice.status == NEW_STATUS,
-            Invoice.item_kind == item_kind,
-            *same_item,
+    # Дедупликация — по набору предметов, а не «любой живой счёт организации»:
+    # иначе счёт за тариф блокировал бы покупку решения и наоборот, а «тариф + 5
+    # мест» совпал бы с «тариф + 10 мест». Один и тот же набор, нажатый дважды,
+    # возвращает тот же счёт.
+    wanted = tuple(
+        sorted(
+            _position_key(
+                position.kind,
+                position.tariff_id if position.kind == TARIFF_ITEM_KIND else position.solution_id,
+                position.quantity,
+            )
+            for position in positions
         )
-        .order_by(Invoice.id.desc())
     )
+    existing = _live_invoice_for(db, organization.id, wanted)
     if existing is not None:
         response.status_code = status.HTTP_200_OK
         # Человек только что нажал «Купить» с отметкой, а счёт за этот тариф уже
         # висит неоплаченным: дописываем пустой акцепт, но не перезаписываем
         # записанный — иначе прежняя дата согласия поехала бы на каждом клике.
-        # У счёта за решение отметки нет, и его акцепт остаётся `NULL`.
+        # У счёта за решение и за места отметки нет, и его акцепт остаётся `NULL`.
         if tariff is not None and not has_acceptance(existing):
             record_acceptance(db, existing, user)
             db.commit()
             db.refresh(existing)
         return _one_response(db, existing, membership)
 
-    item = tariff if tariff is not None else solution
-    assert item is not None  # Предмет проверен выше: до сюда без него не дойти.
+    first = positions[0]
+    source = tariff if tariff is not None else (solution if solution is not None else seats_line)
+    assert source is not None  # Схема гарантирует, что предмет выбран.
     invoice = Invoice(
         organization_id=organization.id,
         item_kind=item_kind,
         tariff_id=tariff.id if tariff is not None else None,
         solution_id=solution.id if solution is not None else None,
+        # Количество есть только у счёта, выставленного за одни места: в счёте
+        # «тариф + места» состав покупки отдаёт `items`, а не эта колонка.
+        quantity=quantity if item_kind == SEATS_ITEM_KIND else None,
         # Номер `СЧ-<год>-<id>` требует `id`, поэтому строка сначала сохраняется
         # с временным номером и получает окончательный в том же коммите.
         number=pending_invoice_number(),
         status=NEW_STATUS,
-        amount=item.amount,
-        currency=item.currency,
-        # Снимок покупателя и предмета на момент покупки.
+        # Сумму считает сервер, и она равна сумме позиций: у мест — цена места со
+        # скидкой ступени × количество, у тарифа и решения — цена их строки.
+        amount=sum((position.amount for position in positions), Decimal("0.00")),
+        currency=source.currency,
+        # Снимок покупателя и предмета первой позиции на момент покупки.
         buyer_name=organization.name,
         buyer_inn=organization.inn,
         buyer_kpp=organization.kpp,
         buyer_ogrn=organization.ogrn,
         buyer_address=organization.address,
-        tariff_name=item.name,
-        tariff_period=item.period,
+        tariff_name=first.name,
+        tariff_period=first.period,
+        # Позиции сохраняются вместе со счётом: каскад `all, delete-orphan`
+        # пишет их в ту же транзакцию, что и саму строку счёта.
+        items=positions,
     )
     db.add(invoice)
     db.flush()
     # Отметка оферты для тарифа обязательна по схеме, поэтому сюда без неё не
-    # дойти; у счёта за решение акцепта нет, и `offer_*` остаются `NULL`.
+    # дойти; у счёта за решение и за одни места акцепта нет, и `offer_*` пусты.
     if tariff is not None:
         record_acceptance(db, invoice, user)
     invoice.number = invoice_number(invoice.id, datetime.now(UTC).year)

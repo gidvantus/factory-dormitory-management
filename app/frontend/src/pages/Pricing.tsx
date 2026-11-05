@@ -2,18 +2,33 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
-import type { OrganizationTariff, Tariff } from '../api/client';
+import type { ExtraSeats, OrganizationTariff, Tariff, TariffPeriod } from '../api/client';
 import { useSession } from '../auth/SessionProvider';
+import { LicenseCalculator } from '../components/LicenseCalculator';
+import type { LicenseOption, LicenseOrder } from '../components/LicenseCalculator';
 import { SiteActions } from '../components/SiteActions';
 import { SiteHeader } from '../components/SiteHeader';
 import { SiteFooter } from '../components/landing/SiteFooter';
 import { siteNav } from '../components/siteNav';
+import { formatTariffDate } from '../components/tariffText';
 import { useAuthDialog } from '../components/useAuthDialog';
-import { PricingPlans } from '../components/PricingPlans';
 import { PurchaseConfirmDialog } from '../components/PurchaseConfirmDialog';
 
 const GENERIC_ERROR = 'Не удалось загрузить тарифы. Проверьте соединение и попробуйте ещё раз.';
 const PURCHASE_ERROR = 'Не удалось выставить счёт. Проверьте соединение и попробуйте ещё раз.';
+
+/**
+ * Сроки словами: сервер держит код в `period`, а подпись для кнопки — данные
+ * страницы. Набор тот же, что `TariffPeriod`: у проданных ранее строк бывают
+ * `quarter`, `month` и `once`.
+ */
+const PERIOD_LABELS: Record<TariffPeriod, string> = {
+  month: '1 месяц',
+  quarter: '3 месяца',
+  half_year: '6 месяцев',
+  year: '12 месяцев',
+  once: 'разово',
+};
 
 /**
  * Меню шапки страницы тарифов: тот же общий публичный список, что на главной и
@@ -35,52 +50,76 @@ function purchaseErrorMessage(error: unknown): string {
 }
 
 /**
- * Публичная страница тарифов: прайс читается из базы анонимной ручкой.
+ * Строки прайса → варианты калькулятора.
+ *
+ * Срок — ключ варианта: сервер уже отдаёт по строке на срок, а калькулятор
+ * выбирает лицензию именно сроком. Повтор срока (если в прайсе осталась вторая
+ * строка того же периода) отбрасывается: переключатель не показывает две
+ * одинаковые кнопки, а берёт первую — её же сервер и поставил выше.
+ */
+function licenseOptions(tariffs: Tariff[]): LicenseOption[] {
+  const seen = new Set<TariffPeriod>();
+  const options: LicenseOption[] = [];
+  for (const tariff of tariffs) {
+    if (seen.has(tariff.period)) continue;
+    seen.add(tariff.period);
+    options.push({
+      id: tariff.id,
+      period: tariff.period,
+      label: PERIOD_LABELS[tariff.period],
+      name: tariff.name,
+      amount: tariff.amount,
+      priceLabel: tariff.price_label,
+      includedMembers: tariff.max_members,
+    });
+  }
+  return options;
+}
+
+/**
+ * Публичная страница тарифов: прайс читается из базы анонимными ручками.
  *
  * Страница доступна без сессии — как лендинг. `SessionProvider` всё равно
  * сходит на `/api/me` и получит 401: для анонима это нормальное состояние, а не
  * ошибка страницы. Скрытые тарифы сюда не приходят вовсе: их отсекает серверная
  * ручка, а не проверка на клиенте.
  *
- * Шапка и подвал — те же, что на главной, чтобы переход на прайс не выглядел
- * уходом с сайта. Вход и регистрация открываются окном на самой странице: уводить
- * человека на главную ради формы незачем. Единственное отличие меню — пункт
- * «Тарифы» здесь лишний: человек уже на прайсе.
+ * Две лицензии (6 и 12 месяцев) и ступени скидки за дополнительные места — тоже
+ * ответы сервера: `GET /api/tariffs` и `GET /api/tariffs/extra-seats`. Цену
+ * места со скидкой считает `app/seats.py`, экран умножает готовое число на
+ * количество и складывает с ценой лицензии; в теле покупки уходят только
+ * `tariff_id`, `seats` и отметка оферты. `404` ручки мест — это состояние
+ * «дополнительные сотрудники не продаются», а не сбой страницы: счётчик просто
+ * не показывается.
  *
- * Если тариф у организации уже есть, список об этом говорит сам: купленная плашка
- * помечена подписью «Куплен», показывает «Оплачен до <дата>» и предлагает
- * «Продлить» — продление занимает следующий период, а не текущий. Отдельного
- * блока с рассказом про купленный тариф на странице нет — он дублировал бы
- * список.
- *
- * Срок и дни считает сервер (`/api/tariffs/current`): страница показывает
- * `ends_at`, `next` и `days_left` как есть и не вычитает дни из даты сама.
+ * Если тариф у организации уже есть, страница называет его над калькулятором и
+ * заранее выбирает его срок: срок и дни считает сервер (`/api/tariffs/current`),
+ * страница показывает `ends_at` как есть и не вычитает дни из даты сама.
  */
 export function Pricing(): JSX.Element {
-  const [tariffs, setTariffs] = useState<Tariff[]>([]);
+  const [licenses, setLicenses] = useState<LicenseOption[]>([]);
+  const [extraSeats, setExtraSeats] = useState<ExtraSeats | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
   // Счётчик повторов: изменение значения перезапускает загрузку.
   const [attempt, setAttempt] = useState(0);
   const [buying, setBuying] = useState(false);
   const [buyError, setBuyError] = useState('');
-  // Тариф, по которому нажали «Купить»: пока он задан, открыто окно подтверждения.
-  const [pending, setPending] = useState<Tariff | null>(null);
-  // Подписка организации: пока её нет, покупка заполнит текущий слот; после
-  // привязки список помечает купленное и предлагает продление.
+  // Заказ из калькулятора: пока он задан, открыто окно подтверждения.
+  const [pending, setPending] = useState<LicenseOrder | null>(null);
+  // Подписка организации: по ней страница называет действующую лицензию.
   const [subscription, setSubscription] = useState<OrganizationTariff | null>(null);
   const { openLogin, openRegister, dialogElement } = useAuthDialog();
   const { status: sessionStatus } = useSession();
   const navigate = useNavigate();
 
   /**
-   * «Купить» открывает окно подтверждения: счёт выставляется не по клику в
-   * карточке, а по кнопке в окне, после отметки оферты.
+   * «Посмотреть заказ» открывает окно подтверждения: счёт выставляется не по
+   * клику в калькуляторе, а по кнопке в окне, после отметки оферты.
    *
-   * Анониму окно не показывается — кнопка по-прежнему открывает регистрацию:
-   * счёт выставляется только вошедшему, а форма на самой странице короче похода
-   * на главную. Вошедшего после покупки ведёт в раздел «Документы» — именно там
-   * виден выставленный счёт.
+   * Анониму окно не показывается — кнопка открывает регистрацию: счёт
+   * выставляется только вошедшему. Вошедшего после покупки ведёт в раздел
+   * «Документы» — именно там виден выставленный счёт.
    *
    * Занятые слоты покупку не гасят: сервер сам решает, куда встанет оплата — в
    * текущий период или в будущий, — а когда заняты оба, он отвечает `409`
@@ -88,23 +127,28 @@ export function Pricing(): JSX.Element {
    * Закрытый пробный период тоже не блокирует: `403` обрабатывает `client.ts`
    * (`notifyTrialExpired`).
    */
-  function startPurchase(tariff: Tariff): void {
+  function startPurchase(order: LicenseOrder): void {
     if (sessionStatus !== 'authenticated') {
       openRegister();
       return;
     }
     if (buying) return;
     setBuyError('');
-    setPending(tariff);
+    setPending(order);
   }
 
   /** Подтверждение в окне: только здесь уходит запрос, уже с отметкой оферты. */
   async function confirmPurchase(): Promise<void> {
-    if (buying || pending === null) return;
+    if (buying || pending === null || pending.tariff.id === null) return;
     setBuying(true);
     setBuyError('');
     try {
-      await api.purchaseInvoice({ tariff_id: pending.id, offer_accepted: true });
+      await api.purchaseInvoice({
+        tariff_id: pending.tariff.id,
+        // Ноль мест — это покупка только лицензии: поля `seats` в теле нет.
+        ...(pending.seats > 0 ? { seats: pending.seats } : {}),
+        offer_accepted: true,
+      });
       navigate('/cabinet/documents', { state: { purchased: true } });
     } catch (caught: unknown) {
       setBuyError(purchaseErrorMessage(caught));
@@ -122,11 +166,16 @@ export function Pricing(): JSX.Element {
   useEffect(() => {
     const controller = new AbortController();
     setStatus('loading');
-    void api
-      .tariffs(controller.signal)
-      .then((value) => {
+    void Promise.all([
+      api.tariffs(controller.signal),
+      // `404` ступеней — места не продаются; это состояние экрана, а не сбой
+      // страницы, поэтому отказ тут не роняет загрузку прайса.
+      api.extraSeats(controller.signal).catch(() => null),
+    ])
+      .then(([price, seats]) => {
         if (controller.signal.aborted) return;
-        setTariffs(value);
+        setLicenses(licenseOptions(price));
+        setExtraSeats(seats);
         setStatus('ready');
       })
       .catch((caught: unknown) => {
@@ -138,8 +187,8 @@ export function Pricing(): JSX.Element {
   }, [attempt]);
 
   /**
-   * Подписка организации — чтобы пометить купленное в самом списке и показать
-   * срок оплаты.
+   * Действующая лицензия организации — чтобы назвать её над калькулятором и
+   * заранее выбрать её срок.
    *
    * Аноним ничего не покупал, и лишний запрос ему ни к чему. У вошедшего без
    * организации ручка отвечает `404`, а не «нет тарифа», — и это тоже просто
@@ -181,7 +230,10 @@ export function Pricing(): JSX.Element {
             <div className="section__head section__head--center">
               <p className="eyebrow">Тарифы</p>
               <h1 id="pricing-title">Сколько стоит «Домовой»</h1>
-              <p>Платите за то, что ведёте: без установки, доплат за отчёты и скрытых условий.</p>
+              <p>
+                Две лицензии — на 6 и на 12 месяцев. Если сотрудников больше, чем включено, докупите
+                места: скидка растёт за каждый полный десяток.
+              </p>
             </div>
 
             {status === 'loading' && (
@@ -204,24 +256,40 @@ export function Pricing(): JSX.Element {
               </div>
             )}
 
-            {status === 'ready' && tariffs.length === 0 && (
+            {status === 'ready' && licenses.length === 0 && (
               <p className="pricing__note" data-testid="pricing-empty">
                 Тарифы ещё не опубликованы
               </p>
             )}
 
-            {status === 'ready' && tariffs.length > 0 && (
-              <PricingPlans
-                tariffs={tariffs}
-                subscription={subscription}
-                buying={buying}
+            {status === 'ready' && subscription?.tariff && (
+              <p className="pricing__note" data-testid="pricing-subscription">
+                Действующая лицензия: «{subscription.tariff.name}»
+                {subscription.ends_at
+                  ? `, оплачена до ${formatTariffDate(subscription.ends_at)}`
+                  : ''}
+              </p>
+            )}
+
+            {status === 'ready' && licenses.length > 0 && (
+              <LicenseCalculator
+                // Срок действующей лицензии приходит асинхронно (`/api/tariffs/current`
+                // стартует после `/api/me`), а калькулятор выбирает срок в своём
+                // состоянии при монтировании. `key` пересоздаёт его, когда подписка
+                // появилась: иначе организация с лицензией на 12 месяцев видела бы
+                // по умолчанию выбранные 6 и «Выставить счёт» предлагал бы не тот срок.
+                key={subscription?.tariff?.period ?? 'default'}
+                licenses={licenses}
+                bands={extraSeats?.bands ?? null}
+                maxQuantity={extraSeats?.max_quantity ?? 0}
+                initialPeriod={subscription?.tariff?.period}
                 onBuy={startPurchase}
               />
             )}
 
             {pending !== null && (
               <PurchaseConfirmDialog
-                tariff={pending}
+                order={pending}
                 submitting={buying}
                 error={buyError}
                 onCancel={cancelPurchase}
