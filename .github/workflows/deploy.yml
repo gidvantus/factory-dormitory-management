@@ -392,23 +392,60 @@ jobs:
             # shellcheck disable=SC2029
             ssh "$SSH_TARGET" "$@"
           }
-          CODE="$(remote "curl -s -o /dev/null -w '%{http_code}' --resolve $DOMAIN:443:$LOOPBACK https://$DOMAIN/api/health")"
-          BODY="$(remote "curl -s --resolve $DOMAIN:443:$LOOPBACK https://$DOMAIN/api/health")"
-          BODY_COMPACT="$(printf '%s' "$BODY" | tr -d '[:space:]')"
-          echo "https://$DOMAIN/api/health -> $CODE, тело: $BODY"
-          if [ "$CODE" != "200" ]; then
-            echo "::error::/api/health по HTTPS отвечает $CODE вместо 200 (домен $DOMAIN). Смотрите шаг запуска стека и caddy reload."
+
+          # Код возврата curl захватываем явно. Под `set -e` присваивание из $(…)
+          # с упавшим curl завершает шаг молча, без текста ошибки — так 3 ноября
+          # и потеряли диагностику на основном домене. Поэтому обе проверки —
+          # основной домен и поддомен кабинета — идут через один механизм.
+          fail_dump() {
+            echo "::error::$1"
+            printf '%s\n' "--- ответ curl: $2"
+            # shellcheck disable=SC2029
+            remote "cd $REMOTE_DIR && docker compose --profile tls logs --tail=20 caddy" || true
             exit 1
-          fi
-          case "$BODY_COMPACT" in
-            *'"status":"ok"'*)
-              echo "API отвечает status=ok."
-              ;;
-            *)
-              echo "::error::/api/health вернул 200, но тело не содержит \"status\":\"ok\": $BODY"
-              exit 1
-              ;;
-          esac
+          }
+
+          # check_host <слой> <хост> <путь> <образец для case; подставляется БЕЗ
+          # кавычек, поэтому «ok» — точное сравнение, «*"status":"ok"*» — подстрока,
+          # «*» — тело не проверяется.>
+          check_host() {
+            local label="$1" host="$2" path="$3" want="$4"
+            local url="https://$host$path"
+            local out code body body_compact
+            # shellcheck disable=SC2029
+            if ! out="$(remote "curl -s -S -w '\n%{http_code}' --resolve $host:443:$LOOPBACK $url" 2>&1)"; then
+              fail_dump "$label: curl не смог выполнить запрос к $url (TLS, резолв или сеть)" "$out"
+            fi
+            code="${out##*$'\n'}"
+            body="${out%$'\n'*}"
+            body_compact="$(printf '%s' "$body" | tr -d '[:space:]')"
+            echo "$url -> $code, тело: $body"
+            if [ "$code" != "200" ]; then
+              fail_dump "$label: $url отвечает $code вместо 200. Смотрите шаг запуска стека и caddy reload." "$body"
+            fi
+            # shellcheck disable=SC2254  # образец приходит из нашего же вызова
+            case "$body_compact" in
+              $want) : ;;
+              *) fail_dump "$label: $url вернул 200, но тело не совпало с образцом «$want»: $body" "$body" ;;
+            esac
+          }
+
+          # Основной домен: 200 и "status":"ok" от API.
+          check_host "основной домен" "$DOMAIN" "/api/health" '*"status":"ok"*'
+
+          # --- Кабинет оператора на поддомене ---
+          # Хост — производная от SITE_DOMAIN: отдельной переменной окружения не
+          # заводим, иначе опечатка в ней роняет и основной Caddyfile.
+          OPERATOR_DOMAIN="operator.$DOMAIN"
+
+          # Первая проверка — маршрут caddy → operator-web, вторая — вся цепочка
+          # до operator-api (у него та же ручка /api/health в healthcheck).
+          # Тело /healthz сверяем ТОЧНО: `location = /healthz` отдаёт ровно `ok`,
+          # а подстрочный «*ok*» совпал бы с SPA-фолбэком — в разметке кабинета
+          # «ok» встречается в `stroke-linecap`, и пропавшая ручка осталась бы
+          # незамеченной.
+          check_host "маршрут caddy → operator-web" "$OPERATOR_DOMAIN" "/healthz" "ok"
+          check_host "цепочка до operator-api" "$OPERATOR_DOMAIN" "/api/health" "*"
 
       - name: "Итог: деплой завершён"
         run: |

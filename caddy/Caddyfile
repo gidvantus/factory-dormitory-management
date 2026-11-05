@@ -14,7 +14,9 @@
 	route {
 		@healthz path /healthz
 		respond @healthz "ok" 200
-		@ourhost host {$SITE_DOMAIN} www.{$SITE_DOMAIN}
+		# Кабинет оператора — тоже наш хост: без него http://operator.<домен>/…
+		# улетал бы на канонический домен, то есть в чужой кабинет.
+		@ourhost host {$SITE_DOMAIN} www.{$SITE_DOMAIN} operator.{$SITE_DOMAIN}
 		redir @ourhost https://{host}{uri} permanent
 		# Запросы по IP и чужому Host — на канонический домен: сертификата на IP не бывает.
 		redir https://{$SITE_DOMAIN}{uri} permanent
@@ -25,4 +27,16 @@
 {$SITE_DOMAIN}, www.{$SITE_DOMAIN} {
 	encode zstd gzip
 	reverse_proxy web:80
+}
+
+# ---- Кабинет оператора: отдельный поддомен ----
+# Отдельный хост, а не путь на основном домене, потому что cookie
+# `operator_session` ставится host-only: на своём поддомене она не
+# пересекается с `crm_session` основного кабинета.
+# Имя собирается из SITE_DOMAIN намеренно: новая обязательная переменная —
+# ещё один способ уронить конфиг (а вместе с ним и основной кабинет) опечаткой.
+# Публикация кабинета на 127.0.0.1:8082 остаётся резервом для SSH-туннеля.
+operator.{$SITE_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy operator-web:80
 }
