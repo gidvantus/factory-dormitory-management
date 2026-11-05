@@ -11,7 +11,9 @@
   не меняет их `subject` и `body`, не создаёт отсутствующий код и не трогает
   `password_recovery`;
 * вёрстка из ревизии после подстановки значений не оставляет плейсхолдеров и
-  не содержит картинок, `<style>`, внешних ресурсов и `flex`/`grid`/`absolute`.
+  не содержит внешних ресурсов, `<style>`, `flex`/`grid`/`absolute`; картинок в
+  ней нет вовсе (домик появился ревизией `0064_mail_hero_house`, см.
+  `test_mail_hero_migration.py`).
 
 `IF NOT EXISTS` у `ADD COLUMN` понимает PostgreSQL, а не SQLite, поэтому тест
 прогоняет те же операторы без него (`_sqlite_compatible`). Настоящий DDL с
@@ -39,10 +41,12 @@ from tests.migration_support import (
     added_columns,
     assert_columns_match_model,
     assert_downgrade_removes_only_added,
+    assert_no_external_resources,
     assert_nullable_without_default,
     assert_on_previous_head,
     assert_single_head,
     load_migration,
+    sqlite_compatible,
     with_operations,
 )
 
@@ -93,17 +97,6 @@ def migration() -> Any:
     `ruff check` (`B009`/`B010`), а `# type: ignore` на каждую строку — шум.
     """
     return load_migration(MIGRATION_PATH)
-
-
-def sqlite_compatible(module: Any) -> Any:
-    """Те же операторы без `IF NOT EXISTS`: такого DDL SQLite не понимает."""
-    module.ADD_COLUMNS_SQL = tuple(
-        statement.replace(" IF NOT EXISTS", "") for statement in module.ADD_COLUMNS_SQL
-    )
-    module.DROP_COLUMNS_SQL = tuple(
-        statement.replace(" IF EXISTS", "") for statement in module.DROP_COLUMNS_SQL
-    )
-    return module
 
 
 def operations_for(connection: Connection) -> Operations:
@@ -239,17 +232,6 @@ def test_downgrade_removes_the_column_and_keeps_the_letters(
 
 
 # --- Вёрстка из ревизии после подстановки -----------------------------------
-
-
-def assert_no_external_resources(html: str) -> None:
-    """В письме нет картинок, стилей блоками и раскладок, которые режут почтовики."""
-    assert html.startswith('<html lang="ru">')
-    assert "<img" not in html
-    assert "<style" not in html
-    assert "<link" not in html
-    assert "display:flex" not in html
-    assert "display:grid" not in html
-    assert "position:absolute" not in html
 
 
 def test_invitation_html_keeps_no_placeholders_and_names_the_organization(

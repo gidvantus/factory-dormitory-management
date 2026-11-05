@@ -8,14 +8,18 @@ import logging
 import smtplib
 from collections.abc import Iterator
 from email.message import EmailMessage
+from pathlib import Path
 from typing import ClassVar
 
 import pytest
 from sqlalchemy.orm import Session
 
+from app import mail as mail_module
 from app.config import get_settings
 from app.mail import (
     ACTIVATION_TEMPLATE_CODE,
+    HOUSE_IMAGE_CID,
+    INVITATION_TEMPLATE_CODE,
     PASSWORD_RECOVERY_TEMPLATE_CODE,
     MailTemplateNotFound,
     activation_email_ready,
@@ -24,9 +28,11 @@ from app.mail import (
     render_activation_email,
     render_password_recovery_email,
     send_activation_email,
+    send_invitation_email,
     send_password_recovery_email,
 )
 from app.models.mail_template import MailTemplate
+from tests.migration_support import load_migration
 
 SUBJECT = "Активация личного кабинета Домовой"
 BODY = (
@@ -55,6 +61,26 @@ HTML_BODY = (
     "<p>Ссылка действует {expires_hours} ч.</p>"
     '<p><a href="{site_url}/">О сервисе</a></p>'
     "</body></html>"
+)
+
+# Та же мини-разметка, но с домиком-вложением: `cid` совпадает с `Content-ID`
+# части, которую `_deliver_email` прикрепляет к HTML-части.
+HTML_BODY_WITH_HOUSE = (
+    '<html lang="ru"><head><meta charset="utf-8"><title>{subject}</title></head>'
+    '<body style="font-family:Arial,Helvetica,sans-serif">'
+    "<p>Здравствуйте, {full_name}!</p>"
+    f'<p><img src="cid:{HOUSE_IMAGE_CID}" width="112" height="112" alt=""></p>'
+    '<p><a href="{activation_url}">{activation_url}</a></p>'
+    "</body></html>"
+)
+
+# Картинка домика на диске: байты вложения обязаны совпадать с файлом.
+HOUSE_IMAGE_PATH = Path(__file__).resolve().parents[1] / "app" / "mail_assets" / "house-hero.png"
+
+# Ревизия, которая проставляет вёрстку с домиком: её вёрстка — настоящая, из базы,
+# а не мини-копия выше. Письмо из неё проверяется целиком, от разметки до MIME.
+HERO_MIGRATION_PATH = (
+    Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0064_mail_hero_house.py"
 )
 
 
@@ -491,3 +517,133 @@ def test_unknown_placeholder_in_html_gives_an_empty_string(
     assert "Роль: </p>" in rendered
     assert "{" not in rendered
     assert f'href="https://domovoy.example/activate/{TOKEN}"' in rendered
+
+
+# --- Домик вложением с `cid` --------------------------------------------------
+
+
+def image_parts(message: EmailMessage) -> list[EmailMessage]:
+    """Части-картинки отправленного письма: вложение, а не ссылка."""
+    return [part for part in message.walk() if part.get_content_type() == "image/png"]
+
+
+def test_html_with_cid_attaches_the_house_image(db_session: Session, smtp_settings: None) -> None:
+    """Разметка со ссылкой на `cid` привозит домик частью `image/png` внутри письма."""
+    seed_html_template(db_session, body_html=HTML_BODY_WITH_HOUSE)
+
+    assert send_activation_email(
+        db_session, to="worker@example.com", full_name=FULL_NAME, token=TOKEN
+    )
+
+    (message,) = FakeSMTP.sent
+    related = [part for part in message.walk() if part.get_content_type() == "multipart/related"]
+    assert len(related) == 1
+
+    (image,) = image_parts(message)
+    assert image["Content-ID"] == f"<{HOUSE_IMAGE_CID}>"
+    assert image.get_filename() == "domovoy-house.png"
+    disposition = image["Content-Disposition"]
+    assert disposition is not None
+    assert disposition.startswith("inline")
+    payload = image.get_payload(decode=True)
+    assert payload is not None
+    assert payload == HOUSE_IMAGE_PATH.read_bytes()
+
+    # HTML-часть осталась на месте и ссылается на вложение по `cid`.
+    rendered = html_part(message)
+    assert f'src="cid:{HOUSE_IMAGE_CID}"' in rendered
+    assert f"<title>{SUBJECT}</title>" in rendered
+
+    # Plain-часть не изменилась: картинка живёт только в HTML-представлении.
+    plain = message.get_body(preferencelist=("plain",))
+    assert plain is not None
+    assert f"https://domovoy.example/activate/{TOKEN}" in plain.get_content()
+    assert "cid:" not in plain.get_content()
+
+
+def test_html_without_cid_has_no_image_part(db_session: Session, smtp_settings: None) -> None:
+    """Шаблон без ссылки на `cid` уходит как раньше — без частей `image/png`."""
+    seed_html_template(db_session)
+
+    assert send_activation_email(
+        db_session, to="worker@example.com", full_name=FULL_NAME, token=TOKEN
+    )
+
+    (message,) = FakeSMTP.sent
+    assert image_parts(message) == []
+    assert "cid:" not in html_part(message)
+
+
+def test_missing_house_image_does_not_stop_the_letter(
+    db_session: Session,
+    caplog: pytest.LogCaptureFixture,
+    smtp_settings: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Файла картинки нет — письмо всё равно уходит, без вложения: письмо важнее."""
+    seed_html_template(db_session, body_html=HTML_BODY_WITH_HOUSE)
+    monkeypatch.setattr(mail_module, "HOUSE_IMAGE_PATH", tmp_path / "house-hero.png")
+
+    with caplog.at_level(logging.ERROR):
+        sent = send_activation_email(
+            db_session, to="worker@example.com", full_name=FULL_NAME, token=TOKEN
+        )
+
+    assert sent is True
+    (message,) = FakeSMTP.sent
+    assert image_parts(message) == []
+    # Ссылка на `cid` в разметке осталась: без картинки на её месте пустое место.
+    assert f'src="cid:{HOUSE_IMAGE_CID}"' in html_part(message)
+    assert "house-hero.png" in caplog.text
+    assert TOKEN not in caplog.text
+
+
+def test_letter_from_the_revision_carries_the_house_attachment(
+    db_session: Session, smtp_settings: None
+) -> None:
+    """Письмо из настоящей вёрстки ревизии уходит с домиком-вложением.
+
+    Мини-разметка выше проверяет поведение отправки, а этот тест — тот самый вид
+    письма, что лежит в `mail_templates` после `0064_mail_hero_house`: ровно одна
+    ссылка `cid:`, ни одного внешнего `src`, вложение — файл с диска.
+    """
+    migration = load_migration(HERO_MIGRATION_PATH)
+    db_session.add(
+        MailTemplate(
+            code=INVITATION_TEMPLATE_CODE,
+            subject=SUBJECT,
+            body=BODY,
+            body_html=migration.INVITATION_HTML,
+            is_active=True,
+        )
+    )
+    db_session.commit()
+
+    assert send_invitation_email(
+        db_session,
+        to="worker@example.com",
+        full_name=FULL_NAME,
+        token=TOKEN,
+        organization_name="Ромашка",
+    )
+
+    (message,) = FakeSMTP.sent
+    rendered = html_part(message)
+    assert rendered.count(f'src="cid:{HOUSE_IMAGE_CID}"') == 1
+    assert 'src="http' not in rendered
+    assert 'src="data:' not in rendered
+    assert "<style" not in rendered
+    assert "display:flex" not in rendered
+    assert "position:absolute" not in rendered
+
+    (image,) = image_parts(message)
+    assert image["Content-ID"] == f"<{HOUSE_IMAGE_CID}>"
+    payload = image.get_payload(decode=True)
+    assert payload is not None
+    assert payload == HOUSE_IMAGE_PATH.read_bytes()
+
+    # Plain-часть прежняя: картинка её не касается.
+    plain = message.get_body(preferencelist=("plain",))
+    assert plain is not None
+    assert "cid:" not in plain.get_content()

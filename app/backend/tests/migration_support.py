@@ -45,6 +45,8 @@ from app.models.base import Base
 
 ADD_PATTERN = re.compile(r"ADD COLUMN IF NOT EXISTS (\w+) (.+)$")
 DROP_PATTERN = re.compile(r"DROP COLUMN IF EXISTS (\w+)$")
+IMG_PATTERN = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+SRC_PATTERN = re.compile(r'src="([^"]*)"', re.IGNORECASE)
 
 # Каталог ревизий: `alembic/versions` рядом с каталогом `tests`, где лежит этот файл.
 VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
@@ -152,6 +154,59 @@ def assert_nullable_without_default(migration: ModuleType, model: type[Base], pr
 def assert_downgrade_removes_only_added(migration: ModuleType) -> None:
     """Забытая в `downgrade` колонка делает ревизию необратимой."""
     assert sorted(dropped_columns(migration)) == sorted(added_columns(migration))
+
+
+def sqlite_compatible(module: ModuleType) -> ModuleType:
+    """Тот же DDL без `IF [NOT] EXISTS`: такого синтаксиса SQLite не понимает.
+
+    Ревизии пишут `ADD COLUMN IF NOT EXISTS`, чтобы пережить повторный запуск после
+    обрыва; SQLite такого не умеет, поэтому тест прогоняет ровно те же операторы без
+    него. Тип и `nullable` колонки всё равно сверяются с объявлением, а настоящий DDL
+    проверяется на стенде (`alembic upgrade head`, `downgrade -1`, снова `upgrade`).
+
+    Читать и писать эти атрибуты приходится через `getattr`/`setattr`: у
+    `ModuleType` объявленных `ADD_COLUMNS_SQL` и `DROP_COLUMNS_SQL` нет, и прямая
+    запись — это ошибка mypy `attr-defined`. У ревизии без DDL таких констант нет
+    вовсе — для неё замена ничего не меняет.
+    """
+    add_columns = getattr(module, "ADD_COLUMNS_SQL", ())
+    drop_columns = getattr(module, "DROP_COLUMNS_SQL", ())
+    setattr(  # noqa: B010 - см. докстринг: прямая запись ломает mypy
+        module,
+        "ADD_COLUMNS_SQL",
+        tuple(statement.replace(" IF NOT EXISTS", "") for statement in add_columns),
+    )
+    setattr(  # noqa: B010 - см. докстринг: прямая запись ломает mypy
+        module,
+        "DROP_COLUMNS_SQL",
+        tuple(statement.replace(" IF EXISTS", "") for statement in drop_columns),
+    )
+    return module
+
+
+def assert_no_external_resources(html: str) -> None:
+    """В письме нет внешних ресурсов: картинка едет вложением с `cid`.
+
+    Ревизия `0064_mail_hero_house` добавила в письма домик, поэтому прежний запрет
+    на `<img>` целиком заменён более точным: у каждого `<img>` источник начинается с
+    `cid:` (часть внутри самого письма), `alt` на месте, а `http`/`data:`-источников,
+    `<style>`/`<link>` и раскладок `flex`/`grid`/`absolute` по-прежнему нет. Внешняя
+    картинка не отрисуется у получателя с выключенными внешними ресурсами, а
+    `data:`-URI режут часть почтовиков.
+    """
+    assert html.startswith('<html lang="ru">')
+    assert 'src="http' not in html
+    assert 'src="data:' not in html
+    for tag in IMG_PATTERN.findall(html):
+        assert "alt=" in tag, tag
+        source = SRC_PATTERN.search(tag)
+        assert source is not None, tag
+        assert source.group(1).startswith("cid:"), tag
+    assert "<style" not in html
+    assert "<link" not in html
+    assert "display:flex" not in html
+    assert "display:grid" not in html
+    assert "position:absolute" not in html
 
 
 # --- Ревизии данных таблицы `documents` --------------------------------------
