@@ -37,19 +37,25 @@ export function Shop(): JSX.Element {
   const navigate = useNavigate();
 
   /**
-   * «Купить» заводит организации счёт за выбранное решение и уводит в
-   * «Документы»: именно там виден выставленный счёт и кнопка оплаты.
+   * «Купить» заводит организации счёт за выбранное решение или за докупленные
+   * места и уводит в «Документы»: именно там виден выставленный счёт и кнопка
+   * оплаты.
+   *
+   * Для мест передаётся только количество: сумму `цена места × N` считает
+   * сервер, и клиент её в теле не отправляет. Отказы (`409` про оплату тарифа,
+   * безлимит или реквизиты, `404` про каталог) показываются текстом сервера как
+   * есть — своих формулировок экран не придумывает.
    *
    * Каталог перечитывается после покупки: право появляется только оплатой, но
    * счёт мог быть уже оплачен на другом устройстве, и признак владения не
    * должен остаться прошлым.
    */
-  async function buySolution(solutionId: number): Promise<void> {
+  async function buySolution(solutionId: number, seats?: number): Promise<void> {
     if (buying !== null) return;
     setBuying(solutionId);
     setBuyError('');
     try {
-      await api.purchaseInvoice({ solution_id: solutionId });
+      await api.purchaseInvoice(seats === undefined ? { solution_id: solutionId } : { seats });
       reload();
       navigate('/cabinet/documents', { state: { purchased: true } });
     } catch (caught: unknown) {
@@ -103,7 +109,7 @@ export function Shop(): JSX.Element {
               <ShopSolutionCard
                 solution={solution}
                 buying={buying}
-                onBuy={(id) => void buySolution(id)}
+                onBuy={(id, seats) => void buySolution(id, seats)}
               />
             </li>
           ))}
