@@ -114,4 +114,8 @@ def read_organization_tariff(membership: Membership, db: DbSession) -> Organizat
         days_left=state.days_left,
         is_expiring=state.is_expiring,
         next=next_period,
+        # Предел и разбивку считает `app/subscription.py`: кабинет показывает
+        # готовые числа и не складывает места сам.
+        member_limit=state.member_limit,
+        extra_seats=state.extra_seats,
     )

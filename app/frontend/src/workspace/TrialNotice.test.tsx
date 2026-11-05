@@ -34,6 +34,8 @@ const NO_TARIFF: OrganizationTariff = {
   days_left: 0,
   is_expiring: false,
   next: null,
+  member_limit: null,
+  extra_seats: 0,
 };
 
 /** Ярус «Рост» месяца: пятнадцать мест и известный конец периода. */
@@ -80,6 +82,8 @@ function subscription(
     days_left: daysLeft,
     is_expiring: daysLeft > 0 && daysLeft <= 14,
     next,
+    member_limit: GROWTH.max_members,
+    extra_seats: 0,
   };
 }
 

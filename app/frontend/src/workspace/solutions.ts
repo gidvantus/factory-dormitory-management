@@ -18,3 +18,22 @@ export const TELEGRAM_NOTIFICATIONS_CODE = 'telegram_notifications';
  * (`app.solutions.JOURNAL`) и seed-строка каталога.
  */
 export const JOURNAL_CODE = 'journal';
+
+/**
+ * Дополнительные сотрудники сверх мест тарифа.
+ *
+ * Это не «решение» с правом доступа, а предмет счёта (поле `seats`): карточка
+ * каталога показывает счётчик количества и стоимость за место, а счётчик мест
+ * растёт только оплатой счёта. Код тот же, что держит бэкенд
+ * (`app.seats.EXTRA_MEMBER_CODE`) и seed-строка каталога `0064_extra_seats`.
+ */
+export const EXTRA_MEMBER_CODE = 'extra_member';
+
+/**
+ * Сколько мест можно докупить одним счётом.
+ *
+ * Число принадлежит контракту (`CreateInvoiceRequest.seats`, `gt=0, le=100`):
+ * клиент ограничивает счётчик тем же пределом, но валидность всё равно проверяет
+ * сервер (`422`), и своего второго правила экран не держит.
+ */
+export const MAX_SEATS_PER_PURCHASE = 100;

@@ -15,6 +15,15 @@
 прежними, а переименование колонок в `item_name`/`item_period` — отдельная
 задача.
 
+**Третий вид предмета — места сверх тарифа (`'seats'`).** Счёт за места — не
+строка каталога решений с количеством: у него есть `quantity` (сколько мест
+докуплено), а сумма равна цене места × количество. `quantity` появился вместе с
+этим видом и остаётся nullable: у тарифных и решенческих счетов количество
+**неприменимо**, и `NULL` — честное «не про количество», а не «один». У счёта за
+места количество всегда `> 0` — это держит `CHECK` `ck_invoices_quantity_positive`.
+Снимок названия и периода у него тоже заполнен (`'Дополнительные сотрудники'`,
+`'once'`), поэтому печатные формы и ответ счёта читают его как любой другой.
+
 Покупательские поля nullable: пустая заготовка организации — нормальное
 состояние (её заполняет поиск по ИНН), а счёт выставляется только у организации
 с названием и ИНН — это проверяет ручка покупки, а не схема таблицы.
@@ -63,14 +72,16 @@ INVOICE_STATUSES = ("new", "paid", "closed", "cancelled")
 INVOICE_STATUSES_SQL = ", ".join(f"'{value}'" for value in INVOICE_STATUSES)
 
 # Виды предмета счёта. `tariff` — подписка организации на кабинет, `solution` —
-# право на одну функцию магазина улучшений. Поле появилось вместе с решениями,
-# поэтому у всех прежних счетов стоит `tariff`: они все тарифные.
-INVOICE_ITEM_KINDS = ("tariff", "solution")
+# право на одну функцию магазина улучшений, `seats` — докупленные места сверх
+# тарифа. Поле появилось вместе с решениями, поэтому у всех прежних счетов стоит
+# `tariff`: они все тарифные.
+INVOICE_ITEM_KINDS = ("tariff", "solution", "seats")
 
 INVOICE_ITEM_KINDS_SQL = ", ".join(f"'{value}'" for value in INVOICE_ITEM_KINDS)
 
 TARIFF_ITEM_KIND = "tariff"
 SOLUTION_ITEM_KIND = "solution"
+SEATS_ITEM_KIND = "seats"
 
 # Виды печатных форм, которые хранятся строками. Счёт сюда не входит: он
 # собирается из самой строки счёта и существует всегда, а акт — только после
@@ -102,12 +113,15 @@ def pending_invoice_number() -> str:
 
 
 class Invoice(Base):
-    """Счёт организации за тариф или за решение магазина улучшений."""
+    """Счёт организации за тариф, за решение магазина улучшений или за места."""
 
     __tablename__ = "invoices"
     __table_args__ = (
         CheckConstraint(f"status IN ({INVOICE_STATUSES_SQL})", name="ck_invoices_status"),
         CheckConstraint(f"item_kind IN ({INVOICE_ITEM_KINDS_SQL})", name="ck_invoices_item_kind"),
+        # Количество неприменимо к тарифу и решению, поэтому `NULL`, но у счёта за
+        # места оно положительное: «счёт за ноль мест» смысла не имеет.
+        CheckConstraint("quantity IS NULL OR quantity > 0", name="ck_invoices_quantity_positive"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -127,6 +141,9 @@ class Invoice(Base):
     solution_id: Mapped[int | None] = mapped_column(
         ForeignKey("solutions.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Сколько мест докуплено: заполняется только у счёта с `item_kind = 'seats'`.
+    # `NULL` у тарифов и решений — количество там неприменимо, а не «один».
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     number: Mapped[str] = mapped_column(String(NUMBER_MAX_LENGTH), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="new")
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
