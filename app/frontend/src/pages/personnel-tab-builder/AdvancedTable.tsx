@@ -379,7 +379,12 @@ export function TableContent({
                 <th key={column.id}>
                   {column.name}
                   {isComputed(column.rule) && (
-                    <small>{column.rule?.mode === 'formula' ? 'Формула' : 'Связь'}</small>
+                    <sup
+                      className="table-rule-mark"
+                      title={column.rule?.mode === 'formula' ? 'Формула' : 'Связь с таблицей'}
+                    >
+                      {column.rule?.mode === 'formula' ? 'ƒ' : '↗'}
+                    </sup>
                   )}
                 </th>
               ))}
@@ -408,10 +413,17 @@ export function TableContent({
                   >
                     {calendar && column.id === columns[0]?.id && row.name ? (
                       <>
-                        <strong>{row.name}</strong>
-                        {isComputed(row.rule) && (
-                          <small>{row.rule?.mode === 'formula' ? 'Формула' : 'Связь'}</small>
-                        )}
+                        <strong>
+                          {row.name}
+                          {isComputed(row.rule) && (
+                            <sup
+                              className="table-rule-mark"
+                              title={row.rule?.mode === 'formula' ? 'Формула' : 'Связь с таблицей'}
+                            >
+                              {row.rule?.mode === 'formula' ? 'ƒ' : '↗'}
+                            </sup>
+                          )}
+                        </strong>
                       </>
                     ) : isComputed(column.rule) ? (
                       <span

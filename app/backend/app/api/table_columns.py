@@ -230,6 +230,10 @@ def save_custom_cell(
     row = get_record(db, dormitory_id, table_key, row_id)
     old = row.custom_values.get(str(column.id))
     value = normalize_value(column, payload.value, allow_archived=old == payload.value)
+    if isinstance(row, Resident):
+        from app.resident_identity import sync_identity_cell
+
+        value = sync_identity_cell(db, row, column, value)
     if isinstance(row, PersonnelOutflow):
         value = sync_outflow_cell(db, row, column, value)
     row.custom_values = {**row.custom_values, str(column.id): value}

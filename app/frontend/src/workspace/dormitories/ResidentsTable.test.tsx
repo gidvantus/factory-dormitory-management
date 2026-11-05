@@ -30,6 +30,49 @@ const blank: Resident = {
   notes: null,
 };
 
+it('показывает назначенные пользовательские поля и ищет по актуальному ФИО после правки', async () => {
+  const columns = defaultColumns('residents').map((column) =>
+    column.builtin_key === 'full_name' || column.builtin_key === 'phone'
+      ? { ...column, archived: true }
+      : column,
+  );
+  columns.push(
+    { ...columns[3], id: 101, name: 'Фамилия', builtin_key: null, archived: false },
+    { ...columns[8], id: 102, name: 'Контакт', builtin_key: null, archived: false },
+  );
+  const resident: Resident = {
+    ...blank,
+    full_name: 'Прежнее имя',
+    phone: '+79001234567',
+    custom_values: { '101': 'Прежнее имя', '102': '+79001234567' },
+  };
+  vi.spyOn(api, 'tableColumns').mockResolvedValue(columns);
+  vi.spyOn(api, 'residents').mockResolvedValue({ residents: [resident], hostels: [] });
+  vi.spyOn(personnelApi, 'binding').mockResolvedValue({
+    fields: { full_name: 101, phone: 102 },
+    columns,
+  });
+  vi.spyOn(api, 'saveCustomCell').mockImplementation(
+    async (_dorm, _table, _row, _column, value) => ({ value }),
+  );
+  const user = userEvent.setup();
+  render(<ResidentsTable dormitoryId="37" />);
+  const row = await screen.findByTestId('resident-3');
+  expect(await within(row).findByRole('link', { name: 'Прежнее имя' })).toBeInTheDocument();
+  await user.click(within(row).getByRole('button', { name: 'Редактировать Фамилия, строка 3' }));
+  const name = within(row).getByRole('textbox', { name: 'Фамилия, строка 3' });
+  await user.clear(name);
+  await user.type(name, 'Новое имя');
+  await user.tab();
+  await waitFor(() => expect(api.saveCustomCell).toHaveBeenCalled());
+  const search = screen.getByRole('searchbox', { name: 'Поиск по проживающим' });
+  await user.type(search, 'Новое имя');
+  expect(row).toBeVisible();
+  await user.clear(search);
+  await user.type(search, 'Прежнее имя');
+  expect(row).not.toBeVisible();
+});
+
 it('ищет ФИО с ё/е, телефон без форматирования и актуальный табельный номер после сохранения', async () => {
   const user = userEvent.setup();
   const resident = {

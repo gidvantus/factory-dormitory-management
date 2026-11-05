@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.reports import read_report
 from app.arrival_plans import report_arrivals
+from app.dashboard_summary import calculate_summary, validate_summary
 from app.models.custom_tab import CustomTab
 from app.models.dashboard_block import DEFAULT_DASHBOARD_ORDER, DashboardBlock, DashboardLayout
 from app.models.dormitory import Dormitory
@@ -174,6 +175,8 @@ def validate_config(db: Session, config: WidgetConfig, organization_id: int) -> 
     Организация обязательна: `None`, означающий «без ограничения», — ловушка,
     из-за которой проверка принадлежности однажды уже потерялась.
     """
+    if config.display == "summary":
+        validate_summary(db, config, organization_id)
     for source in config.sources:
         validate_source(db, config, source, organization_id)
     return config
@@ -278,7 +281,11 @@ def source_catalog(db: Session, organization_id: int) -> list[CatalogDormitory]:
             )
         result.append(
             CatalogDormitory(
-                id=dorm.id, name=dorm.name, is_archived=dorm.is_archived, sources=sources
+                id=dorm.id,
+                name=dorm.name,
+                client_name=dorm.client_name,
+                is_archived=dorm.is_archived,
+                sources=sources,
             )
         )
     return result
@@ -533,6 +540,8 @@ def calculate_widget(
     reports: dict[int, ReportResponse],
 ) -> WidgetResult:
     config = block.config
+    if config.display == "summary" and end is not None:
+        return calculate_summary(db, user, block, dormitories, start, end)
     sources = widget_sources(config, dormitories)
     included = [
         dorm

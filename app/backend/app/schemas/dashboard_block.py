@@ -52,9 +52,33 @@ WidgetSource = Annotated[
 ]
 
 
+class SummaryMetric(StrictModel):
+    name: str = Field(min_length=1, max_length=200)
+    aggregate: Literal["sum", "average", "last"] = "sum"
+    sources: list[ReportWidgetSource] = Field(default_factory=list, max_length=1000)
+
+
+class SummaryConfig(StrictModel):
+    view: Literal["totals", "daily"] = "totals"
+    label: Literal["dormitory", "client"] = "dormitory"
+    dormitory_ids: list[int] = Field(default_factory=list, max_length=1000)
+    metrics: list[SummaryMetric] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def unique_metrics(self) -> "SummaryConfig":
+        names = [" ".join(metric.name.lower().replace("ё", "е").split()) for metric in self.metrics]
+        if any(not name for name in names) or len(names) != len(set(names)):
+            raise ValueError("Выберите разные показатели с непустыми названиями")
+        for metric in self.metrics:
+            ids = [source.dormitory_id for source in metric.sources]
+            if len(ids) != len(set(ids)):
+                raise ValueError("Выберите одну строку показателя на общежитие")
+        return self
+
+
 class WidgetConfig(StrictModel):
     name: str = Field(min_length=1, max_length=120)
-    display: Literal["number", "list", "chart"] = "number"
+    display: Literal["number", "list", "chart", "summary"] = "number"
     chart_mode: Literal["total", "dormitories"] = "total"
     source_kind: Literal["report", "places", "arrival_plan", "table"]
     operation: Literal["count", "sum"] = "sum"
@@ -62,7 +86,8 @@ class WidgetConfig(StrictModel):
     grouping: Literal["dormitory", "value"] = "dormitory"
     all_dormitories: bool = True
     excluded_dormitory_ids: list[int] = Field(default_factory=list, max_length=1000)
-    sources: list[WidgetSource] = Field(min_length=1, max_length=1000)
+    sources: list[WidgetSource] = Field(default_factory=list, max_length=1000)
+    summary: SummaryConfig | None = None
 
     @field_validator("name")
     @classmethod
@@ -74,6 +99,13 @@ class WidgetConfig(StrictModel):
 
     @model_validator(mode="after")
     def consistent_sources(self) -> "WidgetConfig":
+        if self.display == "summary":
+            if self.summary is None or self.source_kind != "report" or self.period != "range":
+                raise ValueError("Для сводного отчёта выберите строки общего отчёта и период")
+            if not self.all_dormitories and not self.summary.dormitory_ids:
+                raise ValueError("Выберите хотя бы одно общежитие")
+        elif not self.sources:
+            raise ValueError("Выберите хотя бы один источник")
         ids = [source.dormitory_id for source in self.sources]
         if len(ids) != len(set(ids)) or set(ids) & set(self.excluded_dormitory_ids):
             raise ValueError("Укажите один источник для каждого выбранного общежития")
@@ -136,6 +168,21 @@ class WidgetResult(BaseModel):
     errors: list[str]
     daily: list[WidgetPoint] = Field(default_factory=list)
     series: list[WidgetSeries] = Field(default_factory=list)
+    summary: "SummaryResult | None" = None
+
+
+class SummaryValue(BaseModel):
+    dormitory_id: int
+    label: str
+    metric: str
+    aggregate: Literal["sum", "average", "last"]
+    value: float | None
+    daily: list[WidgetPoint]
+
+
+class SummaryResult(BaseModel):
+    dates: list[date]
+    rows: list[SummaryValue]
 
 
 class CatalogSource(BaseModel):
@@ -150,5 +197,6 @@ class CatalogSource(BaseModel):
 class CatalogDormitory(BaseModel):
     id: int
     name: str
+    client_name: str | None = None
     is_archived: bool
     sources: list[CatalogSource]

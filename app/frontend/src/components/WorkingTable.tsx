@@ -231,17 +231,15 @@ export function WorkingTable({
       host.className = 'working-table-handle';
       host.dataset.tableTool = 'true';
       host.dataset.axis = axis;
-      if (axis === 'rows') {
-        const position = cell.style.position;
-        if (getComputedStyle(cell).position === 'static' || !getComputedStyle(cell).position)
-          cell.style.position = 'relative';
-        cell.dataset.hasRowTools = 'true';
-        cleanups.push(() => {
-          cell.style.position = position;
-          delete cell.dataset.hasRowTools;
-        });
-      }
-      cell.append(host);
+      const position = cell.style.position;
+      if (getComputedStyle(cell).position === 'static' || !getComputedStyle(cell).position)
+        cell.style.position = 'relative';
+      cell.dataset.hasTableTools = 'true';
+      cleanups.push(() => {
+        cell.style.position = position;
+        delete cell.dataset.hasTableTools;
+      });
+      cell.prepend(host);
       nextHosts.push({ node: host, axis, key, label });
       cleanups.push(() => host.remove());
     };
@@ -350,7 +348,6 @@ export function WorkingTable({
             pixels(spacing.paddingRight) +
             pixels(spacing.borderLeftWidth) +
             pixels(spacing.borderRightWidth);
-          const grip = cell.querySelector<HTMLElement>('[data-axis="columns"]');
           const editorPadding =
             textElement !== cell
               ? pixels(font.paddingLeft) +
@@ -369,7 +366,18 @@ export function WorkingTable({
               pixels(getComputedStyle(node.parentElement!).columnGap),
             0,
           );
-          const line = Math.max(0, ...value.split('\n').map(measureText));
+          const displayValue =
+            font.textTransform === 'uppercase'
+              ? value.toLocaleUpperCase('ru')
+              : font.textTransform === 'lowercase'
+                ? value.toLocaleLowerCase('ru')
+                : value;
+          const line = Math.max(
+            0,
+            ...displayValue
+              .split('\n')
+              .map((text) => measureText(text) + pixels(font.letterSpacing) * text.length),
+          );
           const nativeControlWidth =
             editor instanceof HTMLSelectElement ||
             (editor instanceof HTMLInputElement && editor.type === 'number')
@@ -377,15 +385,7 @@ export function WorkingTable({
               : 0;
           next[index] = Math.max(
             next[index],
-            Math.ceil(
-              line +
-                padding +
-                editorPadding +
-                nativeControlWidth +
-                controlsWidth +
-                (grip?.getBoundingClientRect().width ?? 0) +
-                2,
-            ),
+            Math.ceil(line + padding + editorPadding + nativeControlWidth + controlsWidth + 2),
             editor instanceof HTMLInputElement && editor.type === 'date' ? 132 : 0,
           );
         }),
