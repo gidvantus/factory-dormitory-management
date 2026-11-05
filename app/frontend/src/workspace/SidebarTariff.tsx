@@ -137,7 +137,7 @@ export function SidebarTariffCard({
           <div className={styles['sidebar-tariff-action']}>
             <button
               type="button"
-              className="btn btn--ghost btn--compact btn--block"
+              className="btn btn--ghost btn--compact btn--sidebar btn--block"
               onClick={onRetry}
             >
               Повторить
@@ -162,7 +162,7 @@ export function SidebarTariffCard({
           </p>
           <div className={styles['sidebar-tariff-action']}>
             <Link
-              className="btn btn--primary btn--compact btn--block"
+              className="btn btn--primary btn--compact btn--sidebar btn--block"
               to="/pricing"
               data-testid="sidebar-tariff-choose"
             >
@@ -202,7 +202,7 @@ export function SidebarTariffCard({
           )}
           <div className={styles['sidebar-tariff-action']}>
             <Link
-              className="btn btn--primary btn--compact btn--block"
+              className="btn btn--primary btn--compact btn--sidebar btn--block"
               to="/pricing"
               data-testid="sidebar-tariff-link"
             >
@@ -222,7 +222,7 @@ export function SidebarTariffCard({
           </p>
           <div className={styles['sidebar-tariff-action']}>
             <Link
-              className="btn btn--primary btn--compact btn--block"
+              className="btn btn--primary btn--compact btn--sidebar btn--block"
               to="/pricing"
               data-testid="sidebar-tariff-choose"
             >
@@ -242,7 +242,7 @@ export function SidebarTariffCard({
           </p>
           <div className={styles['sidebar-tariff-action']}>
             <Link
-              className="btn btn--primary btn--compact btn--block"
+              className="btn btn--primary btn--compact btn--sidebar btn--block"
               to="/pricing"
               data-testid="sidebar-tariff-choose"
             >

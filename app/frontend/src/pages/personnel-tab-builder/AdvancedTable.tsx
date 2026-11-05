@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { InlineBuilderCell } from './InlineBuilderCell';
+import { BuilderEnvironmentContext } from './BuilderEnvironment';
+import { WorkingTable } from '../../components/WorkingTable';
+import { useContext, useState } from 'react';
 import type { PersonnelData } from '../../api/personnel';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { addDays, dateLabel, personName } from '../../workspace/personnel/helpers';
@@ -39,6 +42,7 @@ export function TableContent({
   onPerson: (id: string) => void;
   onCopy: () => void;
 }): JSX.Element {
+  const environment = useContext(BuilderEnvironmentContext);
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<RecordRow | null>(null);
   const [removed, setRemoved] = useState<RecordRow[]>([]);
@@ -357,7 +361,18 @@ export function TableContent({
         </div>
       )}
       <div className={s.tableScroll}>
-        <table className={`${s.table} ${calendar ? s.calendarTable : ''}`} aria-label={tab.name}>
+        <WorkingTable
+          revisionKey={`${tab.columns.map((column) => `${column.id}:${column.archived}`).join('|')}:${environment?.structureRevision ?? ''}`}
+          columns={[
+            ...columns.map((column) => ({ id: column.id, label: column.name })),
+            ...dates.map((day) => ({ id: day, label: day })),
+            ...(calendar ? [{ id: '$total', label: 'Итого' }] : []),
+            { id: '$actions', label: 'Действия' },
+          ]}
+          viewKey={environment ? `personnel/table-views/${tab.id}` : undefined}
+          className={`${s.table} ${calendar ? s.calendarTable : ''}`}
+          aria-label={tab.name}
+        >
           <thead>
             <tr>
               {columns.map((column) => (
@@ -408,21 +423,40 @@ export function TableContent({
                       >
                         {label(row, column) || '—'}
                       </span>
-                    ) : column.kind === 'employee' && row.values[column.id] ? (
-                      <button
-                        className="link-button"
-                        onClick={() => onPerson(String(row.values[column.id]))}
-                      >
-                        {label(row, column)}
-                      </button>
-                    ) : column.kind === 'checkbox' ? (
-                      <span className={s.boolean} data-checked={!!row.values[column.id]}>
-                        {row.values[column.id] ? '✓ Да' : 'Нет'}
-                      </span>
-                    ) : column.kind === 'select' && row.values[column.id] ? (
-                      <span className="tag tag--neutral">{label(row, column)}</span>
                     ) : (
-                      label(row, column) || '—'
+                      <InlineBuilderCell
+                        column={column}
+                        value={row.values[column.id]}
+                        label={`${column.name}, строка ${index + 1}`}
+                        data={data}
+                        onCommit={(value) =>
+                          onChange({
+                            ...tab,
+                            rows: tab.rows.map((item) =>
+                              item.id === row.id
+                                ? { ...item, values: { ...item.values, [column.id]: value } }
+                                : item,
+                            ),
+                          })
+                        }
+                      >
+                        {column.kind === 'employee' && row.values[column.id] ? (
+                          <button
+                            className="link-button"
+                            onClick={() => onPerson(String(row.values[column.id]))}
+                          >
+                            {label(row, column)}
+                          </button>
+                        ) : column.kind === 'checkbox' ? (
+                          <span className={s.boolean} data-checked={!!row.values[column.id]}>
+                            {row.values[column.id] ? '✓ Да' : 'Нет'}
+                          </span>
+                        ) : column.kind === 'select' && row.values[column.id] ? (
+                          <span className="tag tag--neutral">{label(row, column)}</span>
+                        ) : (
+                          label(row, column) || '—'
+                        )}
+                      </InlineBuilderCell>
                     )}
                   </td>
                 ))}
@@ -548,7 +582,7 @@ export function TableContent({
               </tr>
             </tfoot>
           )}
-        </table>
+        </WorkingTable>
         {!rows.length && (
           <div className={s.empty}>
             <strong>

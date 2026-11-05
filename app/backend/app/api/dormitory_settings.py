@@ -38,8 +38,10 @@ from app.tab_tree import all_tabs, delete_tabs, descendants
 from app.table_data import (
     DEFAULT_COLUMNS,
     column_dependencies,
+    column_type_change_reason,
     columns_for,
     ensure_columns,
+    require_column_type_change,
     require_writable_table,
 )
 
@@ -112,6 +114,7 @@ def settings_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
             {
                 **ColumnResponse.model_validate(col).model_dump(),
                 "used_by": column_dependencies(db, col),
+                "type_change_reason": column_type_change_reason(db, col),
             }
             for col in columns_for(db, dormitory_id, key)
         ]
@@ -188,10 +191,7 @@ def save_table(
             names.add(name)
         column = existing.get(item.id) if item.id else None
         if column:
-            if item.kind != column.kind:
-                raise HTTPException(
-                    409, "Тип существующего столбца нельзя изменить. Создайте новый."
-                )
+            require_column_type_change(db, column, item.kind)
             if (
                 item.archived
                 and not column.archived
@@ -204,7 +204,7 @@ def save_table(
                 if [option.model_dump() for option in item.options] != column.options:
                     raise HTTPException(409, "Варианты стандартного столбца изменять нельзя")
             else:
-                column.options = prepare_options(item, column)
+                column.options = prepare_options(item, column if item.kind == column.kind else None)
         else:
             if item.kind in ("action", "hostel"):
                 raise HTTPException(422, "Выберите тип данных нового столбца")
@@ -242,6 +242,12 @@ def save_table(
                 )
             )
     db.flush()
+    from app.models.dormitory import Dormitory
+    from app.table_views import clear_view_order
+
+    dorm = db.get(Dormitory, dormitory_id)
+    assert dorm is not None
+    clear_view_order(db, dorm.organization_id, f"dormitory-{dormitory_id}", key, "columns")
     mapping.update({key: column.id for key, column in temporary})
     return fills, mapping
 

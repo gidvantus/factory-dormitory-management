@@ -167,6 +167,35 @@ def test_catalog_lists_working_columns_and_their_operators(
     assert set(by_name["Количество"]["operators"]) == COMPARISON_OPERATORS
 
 
+def test_archive_tab_does_not_block_catalog_or_saved_rules(
+    client: TestClient, db_session: Session
+) -> None:
+    cabinet_user(client, db_session)
+    dorm = create_dormitory(client)
+    archive_response = client.post(
+        f"/api/dormitories/{dorm}/tabs",
+        json={"name": "Архивные данные", "kind": "archive"},
+    )
+    assert archive_response.status_code == 201, archive_response.text
+    archive = archive_response.json()
+    assert archive["table_created"] is True
+    _base, table_key, _columns = custom_table(client, dorm)
+    saved = create_rule(client, dorm, name="Сохранённое правило", table_key=table_key)
+    assert saved.status_code == 201, saved.text
+
+    tables = catalog(client, dorm)
+    assert archive["table_key"] not in tables
+    assert table_key in tables
+    assert "archive" in tables  # Стандартный ручной архив остаётся обычной таблицей.
+    listed = client.get(rules_url(dorm))
+    assert listed.status_code == 200, listed.text
+    assert listed.json() == [saved.json()]
+
+    rejected = create_rule(client, dorm, name="Архив действий", table_key=archive["table_key"])
+    assert rejected.status_code == 422, rejected.text
+    assert rejected.json()["detail"] == notification_rules.COLUMN_UNAVAILABLE_DETAIL
+
+
 # --- Срабатывание, идемпотентность и текст сообщения ---------------------------
 
 

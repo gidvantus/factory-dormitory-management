@@ -19,6 +19,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .heading h3 {
   font-size: 14px;
@@ -34,17 +35,7 @@
 }
 .add,
 .remove {
-  padding: 8px 11px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
-  background: var(--color-bg-surface);
-  color: var(--mint-700);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.remove {
-  color: var(--color-danger);
+  max-width: 100%;
 }
 @media (max-width: 540px) {
   .fields {

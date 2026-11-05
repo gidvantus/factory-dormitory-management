@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { mockFetch } from '../test/mockFetch';
@@ -111,11 +111,17 @@ const DELETED_TABLE_RULE = {
 };
 
 interface MountOptions {
+  initialEntry?: string;
   dormitories?: MockResponse;
   rules?: MockResponse;
   catalog?: MockResponse;
   /** Перехват остальных маршрутов: вызывается перед ответом по умолчанию. */
   extra?: (url: string, init?: RequestInit) => MockResponse | null;
+}
+
+function CurrentLocation(): JSX.Element {
+  const location = useLocation();
+  return <output data-testid="current-location">{location.pathname + location.search}</output>;
 }
 
 function mount(options: MountOptions = {}): ReturnType<typeof mockFetch> {
@@ -141,8 +147,9 @@ function mount(options: MountOptions = {}): ReturnType<typeof mockFetch> {
     return NOT_FOUND;
   });
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[options.initialEntry ?? '/cabinet/notifications']}>
       <NotificationRules />
+      <CurrentLocation />
     </MemoryRouter>,
   );
   return fetchMock;
@@ -154,6 +161,43 @@ afterEach(() => {
 });
 
 describe('блок «Правила уведомлений»', () => {
+  it('сохраняет выбранное общежитие и его правила после обновления страницы', async () => {
+    const user = userEvent.setup();
+    mount({ initialEntry: '/cabinet/notifications?other=value' });
+    await screen.findByTestId('telegram-rule-row-12');
+    await user.selectOptions(screen.getByTestId('telegram-rule-dormitory'), '2');
+    await waitFor(() =>
+      expect(screen.getByTestId('current-location')).toHaveTextContent('dormitory=2'),
+    );
+    const address = screen.getByTestId('current-location').textContent ?? '';
+    expect(address).toContain('other=value');
+
+    cleanup();
+    const fetchMock = mount({ initialEntry: address });
+    await screen.findByTestId('telegram-rule-row-12');
+    expect(screen.getByTestId('telegram-rule-dormitory')).toHaveValue('2');
+    const rulesRequests = fetchMock.mock.calls
+      .map((call) => String(call[0]))
+      .filter((url) => url.endsWith('/telegram-rules') || url.endsWith('/telegram-rules/catalog'));
+    expect(rulesRequests).toEqual([
+      '/api/dormitories/2/telegram-rules',
+      '/api/dormitories/2/telegram-rules/catalog',
+    ]);
+  });
+
+  it.each(['3', '999', 'не-номер'])(
+    'выбирает доступное общежитие вместо недоступного значения %s из адреса',
+    async (id) => {
+      const fetchMock = mount({ initialEntry: `/cabinet/notifications?dormitory=${id}` });
+      await screen.findByTestId('telegram-rule-row-12');
+      expect(screen.getByTestId('telegram-rule-dormitory')).toHaveValue('1');
+      expect(screen.getByTestId('current-location')).toHaveTextContent('dormitory=1');
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).startsWith(`/api/dormitories/${id}/`)),
+      ).toBe(false);
+    },
+  );
+
   it('показывает загрузку, затем правила с условиями, таблицей и пометкой сломанного', async () => {
     mount();
 

@@ -1,4 +1,5 @@
 import { useContext, useLayoutEffect, useRef, useState } from 'react';
+import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
 import type { PersonnelData } from '../../api/personnel';
 import type { PersonnelTab } from './model';
 import type { CalculationRule, CellResult, LinkRule, ReferenceTarget } from './calculationTypes';
@@ -104,7 +105,7 @@ export function CalculationFields({
         <>
           <label>
             Формула
-            <textarea
+            <AutoGrowTextarea
               ref={input}
               rows={3}
               maxLength={1000}

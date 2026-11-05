@@ -148,6 +148,7 @@ export function ImportPlacesDialog({
             Файл шаблона (.xlsx), не больше {MAX_MB} МБ
             <input
               type="file"
+              className="file-input"
               accept=".xlsx"
               data-testid="places-import-file"
               onChange={choose}

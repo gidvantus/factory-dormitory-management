@@ -1,3 +1,5 @@
+import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
+import { WorkingTable } from '../../components/WorkingTable';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 import type { FormEvent } from 'react';
@@ -168,7 +170,7 @@ export function RowDialog({
 }): JSX.Element {
   const organized = useOrganizedEditor();
   const required = row !== null && requiredRowNames.has(row.name);
-  const formulaRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const formulaRef = useRef<HTMLTextAreaElement | null>(null);
   const [referenceQuery, setReferenceQuery] = useState('');
   const [name, setName] = useState(row?.name ?? '');
   const [mode, setMode] = useState<'manual' | 'formula' | 'link'>(
@@ -393,34 +395,19 @@ export function RowDialog({
           >
             <label className={styles.field} htmlFor="report-row-formula">
               Формула
-              {organized ? (
-                <textarea
-                  ref={(element) => {
-                    formulaRef.current = element;
-                  }}
-                  id="report-row-formula"
-                  data-testid="report-row-formula"
-                  value={formula}
-                  onChange={(event) => setFormula(event.target.value)}
-                  maxLength={1000}
-                  required
-                  disabled={saving || deleting}
-                  rows={3}
-                  spellCheck={false}
-                  placeholder="=([Проживает М]+[Проживает Ж])+[Прибыло]-[Выбыло]"
-                />
-              ) : (
-                <input
-                  id="report-row-formula"
-                  data-testid="report-row-formula"
-                  value={formula}
-                  onChange={(event) => setFormula(event.target.value)}
-                  maxLength={1000}
-                  required
-                  disabled={saving || deleting}
-                  placeholder="=[Проживающие]+[Прибывшие]"
-                />
-              )}
+              <AutoGrowTextarea
+                ref={formulaRef}
+                id="report-row-formula"
+                data-testid="report-row-formula"
+                value={formula}
+                onChange={(event) => setFormula(event.target.value)}
+                maxLength={1000}
+                required
+                disabled={saving || deleting}
+                rows={3}
+                spellCheck={false}
+                placeholder="=([Проживает М]+[Проживает Ж])+[Прибыло]-[Выбыло]"
+              />
             </label>
             {organized && (
               <div className={styles.references} aria-label="Действия формулы">
@@ -772,7 +759,20 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
       {status === 'ready' && rows.length > 0 && (
         <div className={styles.tableFrame}>
           <div className={styles.tableScroll}>
-            <table className={styles.table}>
+            <WorkingTable
+              className={styles.table}
+              readOnly={settings?.readOnly}
+              revisionKey={rows.map((row) => `${row.id}:${row.position}`).join('|')}
+              viewKey={
+                location.pathname.startsWith('/preview/')
+                  ? undefined
+                  : `dormitories/${dormitoryId}/table-views/report`
+              }
+              columns={[
+                { id: 'name', label: 'Наименование' },
+                ...days.map((day) => ({ id: day, label: formatDate(day, false) })),
+              ]}
+            >
               <thead>
                 <tr>
                   <th scope="col">Наименование</th>
@@ -809,7 +809,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                             ↗
                           </span>
                         )}
-                        <span className={styles.rowMove}>
+                        <span className={styles.rowMove} data-table-fixed-controls>
                           <button
                             type="button"
                             aria-label={`Переместить строку ${row.name} вверх`}
@@ -865,7 +865,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </WorkingTable>
           </div>
           <div className={styles.tableFooter}>
             <span>

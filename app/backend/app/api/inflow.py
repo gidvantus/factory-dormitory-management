@@ -83,7 +83,7 @@ def list_inflow(
                     PersonnelInflow.settlement_date.between(from_date, to_date),
                 ),
             )
-            .order_by(PersonnelInflow.id.desc())
+            .order_by(PersonnelInflow.id)
         )
     )
 

@@ -15,6 +15,7 @@ from app.models.import_job import ImportJob
 from app.models.inflow import PersonnelInflow
 from app.models.invoice import Invoice, InvoiceDocument
 from app.models.mail_template import MailTemplate
+from app.models.notification_builder import PersonalNotification
 from app.models.organization import Organization, OrganizationMember
 from app.models.outflow import PersonnelOutflow
 from app.models.outflow_reason import OutflowReason
@@ -39,6 +40,7 @@ from app.models.resident import Resident
 from app.models.solution import OrganizationSolution, Solution
 from app.models.statistics_report import StatisticsReport
 from app.models.table_column import ArchiveEntry, TableColumn
+from app.models.table_view import TableView
 from app.models.tariff import Tariff
 from app.models.telegram import (
     NotificationDelivery,
@@ -84,6 +86,7 @@ __all__ = [
     "OrganizationSolution",
     "OutflowReason",
     "PaymentEntry",
+    "PersonalNotification",
     "PersonnelBinding",
     "PersonnelBuilder",
     "PersonnelInflow",
@@ -99,6 +102,7 @@ __all__ = [
     "Solution",
     "StatisticsReport",
     "TableColumn",
+    "TableView",
     "Tariff",
     "TelegramLink",
     "UploadedFile",

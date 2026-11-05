@@ -214,21 +214,41 @@ function CustomTableContent({
       )}
       {loaded && (
         <div className={styles.tableScroll}>
-          <ConfiguredTable className={styles.table} trailingColumns={days.length}>
+          <ConfiguredTable
+            className={styles.table}
+            trailing={days.map((day) => ({ id: day, label: formatDate(day, false) }))}
+          >
             <thead>
               <tr>
-                <ConfiguredHeaders />
-                {days.map((day) => (
-                  <th scope="col" key={day}>
-                    {formatDate(day, false)}
-                  </th>
-                ))}
+                <ConfiguredHeaders
+                  extra={days.map((day) => ({
+                    id: day,
+                    node: (
+                      <th scope="col" key={day}>
+                        {formatDate(day, false)}
+                      </th>
+                    ),
+                  }))}
+                />
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id} data-testid={`custom-row-${row.id}`}>
                   <PersonnelTableCells
+                    extra={days.map((day) => ({
+                      id: day,
+                      node: (
+                        <CustomDayCell
+                          key={day}
+                          tabId={tab.id}
+                          rowId={row.id}
+                          day={day}
+                          initial={row.calendar_values?.[day] ?? ''}
+                          readOnly={!tab.is_active}
+                        />
+                      ),
+                    }))}
                     row={row}
                     readOnly={!tab.is_active}
                     onLinked={(id) =>
@@ -254,16 +274,6 @@ function CustomTableContent({
                       </button>
                     </td>
                   </PersonnelTableCells>
-                  {days.map((day) => (
-                    <CustomDayCell
-                      key={day}
-                      tabId={tab.id}
-                      rowId={row.id}
-                      day={day}
-                      initial={row.calendar_values?.[day] ?? ''}
-                      readOnly={!tab.is_active}
-                    />
-                  ))}
                 </tr>
               ))}
             </tbody>

@@ -856,6 +856,7 @@ export interface TableColumn {
   options: ColumnOption[];
   archived: boolean;
   fill?: CellFillConfig | null;
+  type_change_reason?: string | null;
 }
 export type ColumnInput = Pick<TableColumn, 'name' | 'kind' | 'options' | 'fill'> & {
   client_id?: number;

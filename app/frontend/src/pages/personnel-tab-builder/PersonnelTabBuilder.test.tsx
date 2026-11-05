@@ -225,7 +225,7 @@ describe('Конструктор подвкладок персонала', () =>
       ),
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Настроить подвкладку' }));
-    await user.click(screen.getByText('Скрытые столбцы'));
+    await user.click(screen.getByRole('tab', { name: /Архивные столбцы/ }));
     await user.click(screen.getByRole('button', { name: 'Восстановить столбец' }));
     await user.click(screen.getByRole('button', { name: 'Сохранить настройки' }));
     expect(

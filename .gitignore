@@ -27,3 +27,6 @@ Dadata_key.txt
 *.log
 debug.log
 .DS_Store
+
+# Локальные снимки интерфейса и временные загрузки тестов
+.local/

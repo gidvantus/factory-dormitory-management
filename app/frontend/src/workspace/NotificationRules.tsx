@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
 import type {
@@ -31,8 +31,8 @@ export const RULES_ACTION_ERROR_TEXT = 'Не удалось изменить п�
  * закончиться между загрузками.
  */
 export function NotificationRules(): JSX.Element {
+  const [params, setParams] = useSearchParams();
   const [dormitories, setDormitories] = useState<Dormitory[]>([]);
-  const [dormitoryId, setDormitoryId] = useState<number | null>(null);
   const [rules, setRules] = useState<NotificationRule[]>([]);
   const [catalog, setCatalog] = useState<NotificationRuleCatalog | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,7 +45,9 @@ export function NotificationRules(): JSX.Element {
   /** Подписи вариантов списка для условий: таблица → столбцы (см. `ruleConditionsText`). */
   const [columnsByTable, setColumnsByTable] = useState<Record<string, TableColumn[]>>({});
 
-  const current = dormitories.find((item) => item.id === dormitoryId);
+  const current =
+    dormitories.find((item) => String(item.id) === params.get('dormitory')) ?? dormitories[0];
+  const dormitoryId = current?.id ?? null;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -56,7 +58,6 @@ export function NotificationRules(): JSX.Element {
         // Архивное общежитие правил не принимает: в селекторе ему не место.
         const active = items.filter((item) => !item.is_archived);
         setDormitories(active);
-        setDormitoryId((value) => value ?? active[0]?.id ?? null);
         if (active.length === 0) setLoading(false);
       })
       .catch((caught: unknown) => {
@@ -67,6 +68,19 @@ export function NotificationRules(): JSX.Element {
       });
     return () => controller.abort();
   }, [attempt]);
+
+  // Адрес сохраняет выбор после обновления; недоступное общежитие заменяем доступным.
+  useEffect(() => {
+    if (dormitoryId === null || params.get('dormitory') === String(dormitoryId)) return;
+    setParams(
+      (value) => {
+        const next = new URLSearchParams(value);
+        next.set('dormitory', String(dormitoryId));
+        return next;
+      },
+      { replace: true },
+    );
+  }, [dormitoryId, params, setParams]);
 
   useEffect(() => {
     if (dormitoryId === null) return undefined;
@@ -203,7 +217,11 @@ export function NotificationRules(): JSX.Element {
                 className={styles['rule-control']}
                 value={dormitoryId}
                 data-testid="telegram-rule-dormitory"
-                onChange={(event) => setDormitoryId(Number(event.target.value))}
+                onChange={(event) => {
+                  const next = new URLSearchParams(params);
+                  next.set('dormitory', event.target.value);
+                  setParams(next, { replace: true });
+                }}
               >
                 {dormitories.map((dormitory) => (
                   <option key={dormitory.id} value={dormitory.id}>
