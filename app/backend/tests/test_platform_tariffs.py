@@ -33,7 +33,9 @@ from app.schemas.platform_tariff import (
     AMOUNT_NEGATIVE_MESSAGE,
     AMOUNT_NOT_NUMBER_MESSAGE,
     AMOUNT_TOO_LARGE_MESSAGE,
+    MAX_MEMBERS,
     MEMBERS_NEGATIVE_MESSAGE,
+    MEMBERS_TOO_MANY_MESSAGE,
     NAME_REQUIRED_MESSAGE,
     NAME_TOO_LONG_MESSAGE,
     PERIOD_UNKNOWN_MESSAGE,
@@ -275,18 +277,33 @@ def test_patch_null_description_and_members_are_the_clear_state(
     assert body["max_members"] is None
 
 
+@pytest.mark.parametrize(
+    ("amount", "expected"),
+    [
+        # Число приходит из JSON без кавычек: кабинет шлёт строку, но схема
+        # обещает принимать и то, и другое (`parse_amount`), и оба бранча —
+        # `int` и `float` — проверяются здесь, иначе онемевший бранч остался бы
+        # зелёным.
+        (4900, "4900.00"),
+        (4900.5, "4900.50"),
+    ],
+)
 def test_patch_amount_sent_as_a_number_is_accepted(
-    client: TestClient, db_session: Session, operator_token: None
+    client: TestClient,
+    db_session: Session,
+    operator_token: None,
+    amount: int | float,
+    expected: str,
 ) -> None:
     """Кабинет шлёт строку, но число тоже принимается и приводится к копейкам."""
     tariff = add_tariff(db_session)
 
     response = client.patch(
-        f"{PLATFORM}/{tariff.id}", headers=OPERATOR_HEADERS, json={"amount": "4900"}
+        f"{PLATFORM}/{tariff.id}", headers=OPERATOR_HEADERS, json={"amount": amount}
     )
 
     assert response.status_code == 200, response.text
-    assert response.json()["amount"] == "4900.00"
+    assert response.json()["amount"] == expected
 
 
 def test_patch_publishes_a_hidden_tariff(
@@ -387,6 +404,9 @@ def test_patch_rolls_back_when_the_name_is_rejected_by_the_database(
         ({"period": "week"}, PERIOD_UNKNOWN_MESSAGE),
         ({"period": None}, PERIOD_UNKNOWN_MESSAGE),
         ({"max_members": -1}, MEMBERS_NEGATIVE_MESSAGE),
+        # Потолок колонки `INTEGER`: без него запрос падал бы на `commit`
+        # ошибкой типа данных, и клиент видел бы `500`, а не `422`.
+        ({"max_members": MAX_MEMBERS + 1}, MEMBERS_TOO_MANY_MESSAGE),
     ],
 )
 def test_patch_rejects_invalid_values_with_the_contract_messages(
@@ -403,6 +423,20 @@ def test_patch_rejects_invalid_values_with_the_contract_messages(
 
     assert response.status_code == 422, response.text
     assert error_message(response.json()["detail"]) == f"Value error, {message}"
+
+
+def test_patch_accepts_the_maximum_number_of_members(
+    client: TestClient, db_session: Session, operator_token: None
+) -> None:
+    """Граница включительно: сам потолок колонки — ещё допустимое значение."""
+    tariff = add_tariff(db_session)
+
+    response = client.patch(
+        f"{PLATFORM}/{tariff.id}", headers=OPERATOR_HEADERS, json={"max_members": MAX_MEMBERS}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["max_members"] == MAX_MEMBERS
 
 
 def test_patch_rejects_a_foreign_field(

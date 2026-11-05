@@ -36,11 +36,20 @@ AMOUNT_TOO_LARGE_MESSAGE = "Слишком большая цена"
 AMOUNT_NOT_NUMBER_MESSAGE = "Цена должна быть числом"
 PERIOD_UNKNOWN_MESSAGE = "Неизвестный период оплаты"
 MEMBERS_NEGATIVE_MESSAGE = "Количество пользователей не может быть отрицательным"
+MEMBERS_TOO_MANY_MESSAGE = "Слишком много пользователей"
 IS_VISIBLE_INVALID_MESSAGE = "Состояние должно быть true или false"
 DESCRIPTION_INVALID_MESSAGE = "Описание должно быть строкой"
 
 # Длина колонки `tariffs.name`: тот же предел, что у `VARCHAR(120)` в таблице.
 NAME_MAX_LENGTH = 120
+
+# Потолок числа мест — потолок самой колонки: `tariffs.max_members` объявлена
+# `INTEGER`, то есть 32 бита со знаком. Верхняя граница нужна потому, что
+# большее число не даёт `IntegrityError`: PostgreSQL отвечает `DataError`
+# (`integer out of range`), которого ручка не ловит, и клиент получает `500`
+# вместо `422`. Бизнес-потолка здесь нет намеренно — это предел типа колонки, а
+# не выдуманное правило «не больше N мест».
+MAX_MEMBERS = 2_147_483_647
 
 # Копейки: сумма хранится в `NUMERIC(10, 2)`, и ответ не должен показывать
 # третьего знака после точки.
@@ -144,9 +153,16 @@ class UpdateTariffRequest(BaseModel):
     @field_validator("max_members")
     @classmethod
     def validate_max_members(cls, value: int | None) -> int | None:
-        """`null` — без ограничения; отрицательного числа мест не бывает."""
+        """`null` — без ограничения; мест не бывает отрицательное число и больше колонки.
+
+        Верхняя граница — потолок `INTEGER` (`MAX_MEMBERS`): без неё слишком
+        большое число проходило бы валидатор и падало на `commit` ошибкой типа
+        данных, то есть `500` вместо `422`.
+        """
         if value is not None and value < 0:
             raise ValueError(MEMBERS_NEGATIVE_MESSAGE)
+        if value is not None and value > MAX_MEMBERS:
+            raise ValueError(MEMBERS_TOO_MANY_MESSAGE)
         return value
 
     @field_validator("is_visible")
