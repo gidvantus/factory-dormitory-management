@@ -410,6 +410,46 @@ jobs:
               ;;
           esac
 
+          # --- Кабинет оператора на поддомене ---
+          # Хост — производная от SITE_DOMAIN: отдельной переменной окружения не
+          # заводим, иначе опечатка в ней роняет и основной Caddyfile.
+          OPERATOR_DOMAIN="operator.$DOMAIN"
+
+          # Код возврата curl захватываем явно. Под `set -e` присваивание из $(…)
+          # с упавшим curl завершает шаг молча, без текста ошибки — так 3 ноября
+          # и потеряли диагностику на основном домене.
+          fail_dump() {
+            echo "::error::$1"
+            printf '%s\n' "--- ответ curl: $2"
+            # shellcheck disable=SC2029
+            remote "cd $REMOTE_DIR && docker compose --profile tls logs --tail=20 caddy" || true
+            exit 1
+          }
+
+          check_operator() {
+            local label="$1" path="$2" want_body="$3"
+            local url="https://$OPERATOR_DOMAIN$path"
+            local out code body
+            # shellcheck disable=SC2029
+            if ! out="$(remote "curl -s -S -w '\n%{http_code}' --resolve $OPERATOR_DOMAIN:443:$LOOPBACK $url" 2>&1)"; then
+              fail_dump "$label: curl не смог выполнить запрос к $url (TLS, резолв или сеть)" "$out"
+            fi
+            code="${out##*$'\n'}"
+            body="${out%$'\n'*}"
+            echo "$url -> $code, тело: $body"
+            if [ "$code" != "200" ]; then
+              fail_dump "$label: $url отвечает $code вместо 200" "$body"
+            fi
+            if [ -n "$want_body" ] && [ "$body" != "$want_body" ]; then
+              fail_dump "$label: $url вернул 200, но тело «$body» вместо «$want_body»" "$body"
+            fi
+          }
+
+          # Первая проверка — маршрут caddy → operator-web, вторая — вся цепочка
+          # до operator-api (у него та же ручка /api/health в healthcheck).
+          check_operator "маршрут caddy → operator-web" "/healthz" "ok"
+          check_operator "цепочка до operator-api" "/api/health" ""
+
       - name: "Итог: деплой завершён"
         run: |
           set -euo pipefail
