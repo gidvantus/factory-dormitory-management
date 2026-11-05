@@ -7,18 +7,19 @@
 `status_label` тоже серверный: кабинет, письмо и печатная форма показывают один
 и тот же текст статуса, а словарь подписей живёт в `app/invoice_status.py`.
 
-Предмет покупки объявлен двумя взаимоисключающими полями: тариф (`tariff_id`)
-или решение магазина улучшений (`solution_id`). Ровно одно из двух — иначе
-`422`: запрос «купить сразу и тариф, и решение» не имеет одного предмета счёта,
-а запрос без предмета нечего выставлять.
+Предмет покупки объявлен тремя взаимоисключающими полями: тариф (`tariff_id`),
+решение магазина улучшений (`solution_id`) или докупленные места сверх тарифа
+(`seats` — сколько мест). Ровно одно из трёх — иначе `422`: запрос «купить сразу
+и тариф, и решение» не имеет одного предмета счёта, а запрос без предмета нечего
+выставлять. `seats` — целое от 1 до `MAX_SEATS_PER_PURCHASE`: потолок один и тот
+же у схемы и у магазина.
 
 **Тариф требует отметки согласия с офертой.** Поле `offer_accepted` обязательно
 для тарифа и равно строго `true`; отсутствие поля и `false` дают `422` с текстом
 `OFFER_ACCEPTANCE_REQUIRED_DETAIL`. Значение по умолчанию — `False`, а не
 `True`: согласие должно быть явным действием человека, а не тем, что сервер
-подставил за него. Для решения магазина улучшений поле необязательно и ни на что
-не влияет — решения покупаются без отметки, и поведение магазина эта задача не
-меняет.
+подставил за него. Для решения магазина улучшений и для мест поле необязательно и
+ни на что не влияет — решения и места покупаются без отметки.
 
 Оба тела запроса запрещают лишние поля (`extra="forbid"`): опечатка в имени
 поля должна быть ошибкой ввода, а не молча проигнорированным значением.
@@ -28,9 +29,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.offer import OFFER_ACCEPTANCE_REQUIRED_DETAIL
+from app.seats import MAX_SEATS_PER_PURCHASE
 
 # Статусы, в которые счёт можно перевести вручную. `new` здесь нет: счёт
 # создаётся покупкой, а не сменой статуса.
@@ -38,30 +40,38 @@ InvoiceStatus = Literal["new", "paid", "closed", "cancelled"]
 UpdatableInvoiceStatus = Literal["paid", "closed", "cancelled"]
 
 # Вид предмета счёта — тот же набор, что держит `CHECK` в таблице.
-InvoiceItemKind = Literal["tariff", "solution"]
+InvoiceItemKind = Literal["tariff", "solution", "seats"]
 
 # Текст отказа схемы: он попадает в 422 и объясняет, чего не хватает.
-ITEM_REQUIRED_MESSAGE = "Укажите ровно один предмет счёта: tariff_id или solution_id"
+ITEM_REQUIRED_MESSAGE = "Укажите ровно один предмет счёта: tariff_id, solution_id или seats"
 
 
 class CreateInvoiceRequest(BaseModel):
-    """Покупка: какой предмет покупает организация — тариф или решение.
+    """Покупка: какой предмет покупает организация — тариф, решение или места.
 
     `offer_accepted` — явная отметка согласия с офертой. По умолчанию `False`:
     сервер не подставляет согласие за человека. Для тарифа обязательна, для
-    решения не проверяется.
+    решения и мест не проверяется.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     tariff_id: int | None = None
     solution_id: int | None = None
+    # Сколько мест докупить. Сумму считает сервер по цене строки каталога, а не
+    # клиент: в теле едет количество, а не деньги.
+    seats: int | None = Field(default=None, gt=0, le=MAX_SEATS_PER_PURCHASE)
     offer_accepted: bool = False
 
     @model_validator(mode="after")
     def _exactly_one_item(self) -> Self:
-        """Один предмет на счёт: оба поля или ни одного — ошибка ввода."""
-        if (self.tariff_id is None) == (self.solution_id is None):
+        """Один предмет на счёт: два поля или ни одного — ошибка ввода."""
+        chosen = [
+            self.tariff_id is not None,
+            self.solution_id is not None,
+            self.seats is not None,
+        ]
+        if chosen.count(True) != 1:
             raise ValueError(ITEM_REQUIRED_MESSAGE)
         return self
 
@@ -100,10 +110,13 @@ class InvoiceResponse(BaseModel):
     number: str
     status: InvoiceStatus
     status_label: str
-    # Вид предмета: тариф или решение магазина улучшений. Снимок предмета лежит
-    # в `tariff_name`/`tariff_period` для обоих видов — переименование колонок
-    # вынесено в отдельную задачу.
+    # Вид предмета: тариф, решение магазина улучшений или докупленные места.
+    # Снимок предмета лежит в `tariff_name`/`tariff_period` для всех видов —
+    # переименование колонок вынесено в отдельную задачу.
     item_kind: InvoiceItemKind
+    # Сколько мест докуплено. `null` у тарифа и решения: количество там
+    # неприменимо, а не «одно». У счёта за места — число от 1 до 100.
+    quantity: int | None
     amount: Decimal
     currency: str
     amount_label: str

@@ -167,8 +167,11 @@ class UpdatePlatformUserRequest(ForwardedBody):
 # таблице `invoices`; значение приходит с сервера и уходит в браузер дословно.
 InvoiceStatus = Literal["new", "paid", "closed", "cancelled"]
 
-# Вид предмета счёта: тариф или решение магазина улучшений.
-InvoiceItemKind = Literal["tariff", "solution"]
+# Вид предмета счёта: тариф, решение магазина улучшений или докупленные сверх
+# тарифа места (`seats`, #168). Набор обязан совпадать с основным API: без
+# третьего значения счёт за места не прошёл бы проверку схемы, и кабинет
+# оператора отвечал бы `500` вместо строки реестра.
+InvoiceItemKind = Literal["tariff", "solution", "seats"]
 
 
 class PlatformInvoice(BaseModel):

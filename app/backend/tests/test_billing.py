@@ -21,6 +21,11 @@
   пишет в строку счёта момент, код `offer`, редакцию `documents.updated_at` и
   автора акцепта; повторный клик записанный акцепт не перезаписывает, но
   дозаписывает пустой; решения по-прежнему покупаются без отметки;
+* **места (#168):** отдельный предмет счёта `seats` — сумма считается сервером
+  как цена места × количество, строкой каталога `extra_member`; покупаются только
+  сверх живого небезлимитного тарифа, отказы дословны, дедупликация идёт по
+  количеству, а оплата растит `organizations.extra_seats`, не трогая подписку —
+  после неё приглашение сверх прежнего предела проходит;
 * оба файла — PDF, отдаются вложением и содержат название, ИНН и сумму; акт до
   оплаты — `404`.
 
@@ -46,11 +51,23 @@ from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
 from app.models.document import Document
 from app.models.invoice import Invoice, InvoiceDocument
 from app.models.organization import Organization
-from app.models.solution import OrganizationSolution
+from app.models.solution import OrganizationSolution, Solution
 from app.models.tariff import Tariff
 from app.offer import OFFER_ACCEPTANCE_REQUIRED_DETAIL, OFFER_DOCUMENT_CODE
 from app.pricing import format_invoice_amount
-from app.subscription import TARIFF_ALREADY_BOUGHT_DETAIL
+from app.schemas.invoice import ITEM_REQUIRED_MESSAGE
+from app.seats import (
+    EXTRA_MEMBER_CODE,
+    MAX_SEATS_PER_PURCHASE,
+    SEATS_NOT_FOR_SALE_DETAIL,
+    SEATS_REQUIRE_TARIFF_DETAIL,
+    SEATS_UNLIMITED_TARIFF_DETAIL,
+)
+from app.subscription import (
+    MEMBER_LIMIT_HEADER,
+    MEMBER_LIMIT_HEADER_VALUE,
+    TARIFF_ALREADY_BOUGHT_DETAIL,
+)
 from tests.conftest import add_solution, organizations_for, sign_in
 
 # Неразрывный пробел — разделитель разрядов в подписи суммы.
@@ -141,6 +158,11 @@ def purchase(client: TestClient, tariff_id: int) -> Response:
 def purchase_solution(client: TestClient, solution_id: int) -> Response:
     """POST покупки решения: та же ручка, другое поле предмета."""
     return client.post(INVOICE_URL, json={"solution_id": solution_id})
+
+
+def purchase_seats(client: TestClient, seats: int) -> Response:
+    """POST покупки мест: третье поле предмета — количество, без суммы и оферты."""
+    return client.post(INVOICE_URL, json={"seats": seats})
 
 
 def purchase_id(client: TestClient, tariff_id: int) -> int:
@@ -1186,3 +1208,295 @@ def test_solution_invoice_shows_the_item_in_the_documents_list(
     assert listed["id"] == invoice_id
     assert listed["item_kind"] == "solution"
     assert listed["tariff_name"] == "Уведомления в Telegram"
+
+
+# --- 8. Места сверх тарифа (#168) ---------------------------------------------
+
+EXTRA_MEMBER_NAME = "Дополнительные сотрудники"
+SEATS_PRICE = "900.00"
+
+
+def add_seats_catalog(
+    db_session: Session, *, amount: str = SEATS_PRICE, is_visible: bool = True
+) -> Solution:
+    """Строка каталога, по которой продаются места: тот же seed, что `0063_extra_seats`.
+
+    Юнит-тесты собирают схему из моделей, seed каталога живёт в миграции, поэтому
+    строку заводит тест — как `add_solution` у решений.
+    """
+    return add_solution(
+        db_session,
+        code=EXTRA_MEMBER_CODE,
+        name=EXTRA_MEMBER_NAME,
+        description=(
+            "Каждый дополнительный сотрудник сверх мест тарифа. Место живёт вместе с подпиской."
+        ),
+        amount=amount,
+        period="once",
+        position=900,
+        is_visible=is_visible,
+    )
+
+
+def owner_with_tariff(
+    client: TestClient,
+    db_session: Session,
+    max_members: int | None = 15,
+    name: str = "Рост",
+) -> tuple[Organization, Tariff]:
+    """Владелец с оплаченным тарифом: места покупаются только поверх живого тарифа."""
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session, name=name, max_members=max_members)
+    pay_tariff(client, tariff.id)
+    db_session.refresh(organization)
+    return organization, tariff
+
+
+def invite(client: TestClient, email: str) -> Response:
+    """Приглашение сотрудника: единственный путь, который упирается в предел мест."""
+    return client.post(
+        "/api/organization/invitations",
+        json={"email": email, "full_name": "Петров Пётр", "role": "manager"},
+    )
+
+
+def test_seats_purchase_bills_the_price_times_the_quantity(
+    client: TestClient, db_session: Session
+) -> None:
+    """Сумму считает сервер: `900 ₽ × 3 = 2 700 ₽`, клиент присылает только количество."""
+    owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+
+    response = purchase_seats(client, 3)
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["item_kind"] == "seats"
+    assert body["quantity"] == 3
+    assert body["amount"] == "2700.00"
+    assert body["currency"] == "RUB"
+    assert body["amount_label"] == f"2{NBSP}700 ₽ разово"
+    assert body["tariff_name"] == EXTRA_MEMBER_NAME
+    assert body["tariff_period"] == "once"
+    assert body["status"] == "new"
+
+
+def test_seats_purchase_of_a_single_seat_costs_one_price(
+    client: TestClient, db_session: Session
+) -> None:
+    """Границы: одно место и сто мест — обе покупки проходят."""
+    owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+
+    single = purchase_seats(client, 1)
+    assert single.status_code == 201, single.text
+    assert single.json()["amount"] == "900.00"
+
+    hundred = purchase_seats(client, MAX_SEATS_PER_PURCHASE)
+    assert hundred.status_code == 201, hundred.text
+    assert hundred.json()["amount"] == "90000.00"
+
+
+def test_seats_quantity_outside_the_allowed_range_is_rejected(
+    client: TestClient, db_session: Session
+) -> None:
+    """`0` и `101` — `422`: схема не пускает количество вне 1…100."""
+    owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+
+    assert purchase_seats(client, 0).status_code == 422
+    assert purchase_seats(client, MAX_SEATS_PER_PURCHASE + 1).status_code == 422
+
+
+def test_seats_purchase_without_a_live_tariff_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Без оплаченного тарифа докупать не к чему: отказ дословный."""
+    owner(client, db_session)
+    add_seats_catalog(db_session)
+
+    response = purchase_seats(client, 3)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == SEATS_REQUIRE_TARIFF_DETAIL
+
+
+def test_seats_purchase_on_an_unlimited_tariff_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Безлимитный ярус: предела нет, место ничего не добавляет — `409`."""
+    owner_with_tariff(client, db_session, max_members=None, name="Безлимит")
+    add_seats_catalog(db_session)
+
+    response = purchase_seats(client, 3)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == SEATS_UNLIMITED_TARIFF_DETAIL
+
+
+def test_seats_purchase_without_a_catalog_row_is_not_found(
+    client: TestClient, db_session: Session
+) -> None:
+    """Строки каталога нет или она скрыта — продавать нечего: `404` дословно."""
+    owner_with_tariff(client, db_session)
+
+    missing = purchase_seats(client, 3)
+    assert missing.status_code == 404, missing.text
+    assert missing.json()["detail"] == SEATS_NOT_FOR_SALE_DETAIL
+
+    add_seats_catalog(db_session, is_visible=False)
+    hidden = purchase_seats(client, 3)
+    assert hidden.status_code == 404, hidden.text
+    assert hidden.json()["detail"] == SEATS_NOT_FOR_SALE_DETAIL
+
+
+def test_seats_purchase_without_buyer_requisites_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Счёт выставляется только организации с названием и ИНН — как у тарифа."""
+    organization, _ = owner_with_tariff(client, db_session)
+    organization.name = None
+    db_session.commit()
+    add_seats_catalog(db_session)
+
+    response = purchase_seats(client, 3)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == (
+        "Заполните название и ИНН организации на странице «Организация»"
+    )
+
+
+def test_seats_purchase_with_a_second_item_is_rejected(
+    client: TestClient, db_session: Session
+) -> None:
+    """Тело с количеством и решением сразу — `422`: у счёта один предмет."""
+    owner_with_tariff(client, db_session)
+    solution = add_solution(db_session)
+
+    response = client.post(
+        INVOICE_URL, json={"seats": 3, "solution_id": solution.id, "offer_accepted": False}
+    )
+
+    assert response.status_code == 422, response.text
+    assert ITEM_REQUIRED_MESSAGE in response.text
+
+
+def test_repeat_seats_purchase_deduplicates_by_the_quantity(
+    client: TestClient, db_session: Session
+) -> None:
+    """Повторный клик на то же количество — `200` с тем же счётом, на другое — новый."""
+    organization = owner_with_tariff(client, db_session)[0]
+    add_seats_catalog(db_session)
+    first = purchase_seats(client, 3)
+    assert first.status_code == 201, first.text
+
+    repeated = purchase_seats(client, 3)
+
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["id"] == first.json()["id"]
+    assert len(invoices_of(db_session, organization.id)) == 2  # тариф и одни места
+
+    other = purchase_seats(client, 5)
+
+    assert other.status_code == 201, other.text
+    assert other.json()["id"] != first.json()["id"]
+    assert other.json()["amount"] == "4500.00"
+
+
+def test_paid_seats_grow_the_counter_and_keep_the_subscription(
+    client: TestClient, db_session: Session
+) -> None:
+    """Оплата прибавляет места к `extra_seats` и подписку не трогает."""
+    organization, tariff = owner_with_tariff(client, db_session)
+    ends_at = as_utc(organization.tariff_ends_at) if organization.tariff_ends_at else None
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 3).json()["id"])
+
+    response = set_status(client, invoice_id, PAID)
+
+    assert response.status_code == 200, response.text
+    db_session.refresh(organization)
+    assert organization.extra_seats == 3
+    # Подписка та же: место — доплата к тарифу, а не второй период.
+    assert organization.tariff_id == tariff.id
+    assert organization.tariff_ends_at is not None
+    assert as_utc(organization.tariff_ends_at) == ends_at
+    assert organization.next_tariff_id is None
+
+
+def test_paid_seats_invoice_cannot_be_paid_twice(client: TestClient, db_session: Session) -> None:
+    """Правила переходов не тронуты: второй `paid` — `409`, счётчик не удваивается."""
+    organization, _ = owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 2).json()["id"])
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    second = set_status(client, invoice_id, PAID)
+
+    assert second.status_code == 409
+    assert second.json()["detail"] == INVALID_STATUS_DETAIL
+    db_session.refresh(organization)
+    assert organization.extra_seats == 2
+
+
+def test_paid_seats_invoice_has_no_offer_acceptance(
+    client: TestClient, db_session: Session
+) -> None:
+    """За места оферта не требуется — отметки в счёте нет, как у решения."""
+    owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 3).json()["id"])
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    invoice = db_session.get(Invoice, invoice_id)
+
+    assert invoice is not None
+    assert invoice.offer_accepted_at is None
+    assert invoice.offer_accepted_by is None
+
+
+def test_bought_seats_raise_the_invitation_limit(client: TestClient, db_session: Session) -> None:
+    """Сквозной шов: покупка → оплата → приглашение сверх прежнего предела.
+
+    Тариф с двумя местами, докуплено три — предел становится 5: пять приглашений
+    проходят, шестое получает `409` с дословным текстом и заголовком
+    `X-Member-Limit`. Счётчик растёт оплатой, а не выставлением счёта: до оплаты
+    тот же предел остаётся прежним.
+    """
+    owner_with_tariff(client, db_session, max_members=2, name="Старт")
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 3).json()["id"])
+
+    # Счёт выставлен, но не оплачен: предел ещё 2, третье приглашение упирается.
+    assert invite(client, "before0@example.com").status_code == 201
+    assert invite(client, "before1@example.com").status_code == 201
+    assert invite(client, "before2@example.com").status_code == 409
+
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    assert invite(client, "after0@example.com").status_code == 201
+    assert invite(client, "after1@example.com").status_code == 201
+    assert invite(client, "after2@example.com").status_code == 201
+
+    refused = invite(client, "after3@example.com")
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"] == "Достигнут предел мест (5)"
+    assert refused.headers[MEMBER_LIMIT_HEADER] == MEMBER_LIMIT_HEADER_VALUE
+
+
+def test_current_tariff_shows_the_limit_with_the_bought_seats(
+    client: TestClient, db_session: Session
+) -> None:
+    """`GET /api/tariffs/current` отдаёт предел готовым числом и разбивку рядом."""
+    owner_with_tariff(client, db_session, max_members=15, name="Рост")
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 3).json()["id"])
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    body = client.get("/api/tariffs/current").json()
+
+    assert body["tariff"]["max_members"] == 15
+    assert body["extra_seats"] == 3
+    assert body["member_limit"] == 18

@@ -81,6 +81,11 @@ class SubscriptionState:
     `days_left` — целые сутки до конца, округлённые вверх (неполный последний
     день считается за полный), как у пробного периода. У бессрочного тарифа и у
     закрытого кабинета остаётся `0`: считать нечего.
+
+    `extra_seats` — докупленные сверх тарифа места (`organizations.extra_seats`).
+    Они не привязаны ни к ярусу, ни к сроку: место живёт вместе с подпиской, и в
+    состояние оно попало затем, чтобы предел считался в одном месте — здесь, а не
+    сложением в ручке.
     """
 
     tariff: Tariff | None
@@ -89,6 +94,7 @@ class SubscriptionState:
     is_expiring: bool
     next_tariff: Tariff | None
     next_starts_at: datetime | None
+    extra_seats: int = 0
 
     @property
     def is_active(self) -> bool:
@@ -97,8 +103,15 @@ class SubscriptionState:
 
     @property
     def member_limit(self) -> int | None:
-        """Предел мест действующего тарифа. `None` — без ограничения."""
-        return self.tariff.max_members if self.tariff is not None else None
+        """Предел мест: `max_members` тарифа плюс докупленные места.
+
+        `None` — без ограничения: так продаётся безлимитный ярус, и докупить
+        места на нём нечего. Без действующего тарифа предела по подписке тоже
+        нет — там работает настройка пробного периода (`app/trial.py`).
+        """
+        if self.tariff is None or self.tariff.max_members is None:
+            return None
+        return self.tariff.max_members + self.extra_seats
 
 
 EMPTY_STATE = SubscriptionState(
@@ -223,6 +236,9 @@ def organization_subscription(
         is_expiring=active is not None and ends_at is not None and 0 < days_left <= EXPIRING_DAYS,
         next_tariff=upcoming,
         next_starts_at=next_starts_at,
+        # Докупленные места не зависят от слотов: платили за них отдельно, и
+        # продление тарифа их не сбрасывает.
+        extra_seats=organization.extra_seats or 0,
     )
 
 

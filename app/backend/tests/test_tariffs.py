@@ -227,13 +227,19 @@ def test_public_list_gives_a_half_year_plan_its_own_price(
 
 
 def empty_subscription() -> dict[str, object]:
-    """Ответ `/current` у организации без действующего тарифа."""
+    """Ответ `/current` у организации без действующего тарифа.
+
+    `member_limit` и `extra_seats` появились вместе с докупкой мест: без тарифа
+    предела по подписке нет (`null`), а мест не докуплено (`0`).
+    """
     return {
         "tariff": None,
         "ends_at": None,
         "days_left": 0,
         "is_expiring": False,
         "next": None,
+        "member_limit": None,
+        "extra_seats": 0,
     }
 
 

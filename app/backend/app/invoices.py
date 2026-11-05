@@ -65,6 +65,7 @@ def invoice_response(invoice: Invoice, has_act: bool, can_manage: bool) -> Invoi
         # Набор значений держит `CHECK` по тем же видам, что объявляет
         # `InvoiceItemKind`; приведение говорит об этом типизатору.
         item_kind=cast(InvoiceItemKind, invoice.item_kind),
+        quantity=invoice.quantity,
         amount=invoice.amount,
         currency=invoice.currency,
         amount_label=format_invoice_amount(invoice.amount, invoice.currency, invoice.tariff_period),

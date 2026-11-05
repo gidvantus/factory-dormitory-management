@@ -78,6 +78,13 @@ class OrganizationTariffResponse(BaseModel):
     `0`: конца, до которого можно считать дни, нет. `is_expiring` — осталось
     `EXPIRING_DAYS` суток или меньше; блок предупреждения показывается только по
     этому признаку.
+
+    **Предел мест едет готовым.** `member_limit` — сколько сотрудников допускает
+    действующая подписка: `max_members` тарифа плюс `extra_seats` докупленных
+    мест; `null` — без ограничения (безлимитный ярус или нет действующего
+    тарифа). Экран не складывает `max_members` и `extra_seats` сам и не держит
+    вторую копию правила: числа приходят посчитанными, а `extra_seats` едет
+    рядом, чтобы показать разбивку «сколько по тарифу + сколько докуплено».
     """
 
     tariff: TariffResponse | None
@@ -85,3 +92,7 @@ class OrganizationTariffResponse(BaseModel):
     days_left: int
     is_expiring: bool
     next: NextTariffResponse | None
+    # Предел мест по подписке: `max_members` тарифа плюс докупленные места.
+    member_limit: int | None
+    # Сколько мест докуплено сверх тарифа. `0` — не докупали.
+    extra_seats: int

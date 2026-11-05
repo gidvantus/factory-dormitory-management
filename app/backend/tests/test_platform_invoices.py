@@ -66,6 +66,9 @@ INVOICE_FIELDS = {
     "status",
     "status_label",
     "item_kind",
+    # Количество мест (#168): у счёта за тариф и за решение `null`, у счёта за
+    # места — число. Поле есть в контракте обоих кабинетов, поэтому оно в наборе.
+    "quantity",
     "amount",
     "currency",
     "amount_label",
