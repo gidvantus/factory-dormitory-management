@@ -392,32 +392,11 @@ jobs:
             # shellcheck disable=SC2029
             ssh "$SSH_TARGET" "$@"
           }
-          CODE="$(remote "curl -s -o /dev/null -w '%{http_code}' --resolve $DOMAIN:443:$LOOPBACK https://$DOMAIN/api/health")"
-          BODY="$(remote "curl -s --resolve $DOMAIN:443:$LOOPBACK https://$DOMAIN/api/health")"
-          BODY_COMPACT="$(printf '%s' "$BODY" | tr -d '[:space:]')"
-          echo "https://$DOMAIN/api/health -> $CODE, тело: $BODY"
-          if [ "$CODE" != "200" ]; then
-            echo "::error::/api/health по HTTPS отвечает $CODE вместо 200 (домен $DOMAIN). Смотрите шаг запуска стека и caddy reload."
-            exit 1
-          fi
-          case "$BODY_COMPACT" in
-            *'"status":"ok"'*)
-              echo "API отвечает status=ok."
-              ;;
-            *)
-              echo "::error::/api/health вернул 200, но тело не содержит \"status\":\"ok\": $BODY"
-              exit 1
-              ;;
-          esac
-
-          # --- Кабинет оператора на поддомене ---
-          # Хост — производная от SITE_DOMAIN: отдельной переменной окружения не
-          # заводим, иначе опечатка в ней роняет и основной Caddyfile.
-          OPERATOR_DOMAIN="operator.$DOMAIN"
 
           # Код возврата curl захватываем явно. Под `set -e` присваивание из $(…)
           # с упавшим curl завершает шаг молча, без текста ошибки — так 3 ноября
-          # и потеряли диагностику на основном домене.
+          # и потеряли диагностику на основном домене. Поэтому обе проверки —
+          # основной домен и поддомен кабинета — идут через один механизм.
           fail_dump() {
             echo "::error::$1"
             printf '%s\n' "--- ответ curl: $2"
@@ -426,29 +405,40 @@ jobs:
             exit 1
           }
 
-          check_operator() {
-            local label="$1" path="$2" want_body="$3"
-            local url="https://$OPERATOR_DOMAIN$path"
-            local out code body
+          # check_host <слой> <хост> <путь> <обязательная подстрока тела, «» — любое>
+          check_host() {
+            local label="$1" host="$2" path="$3" want="$4"
+            local url="https://$host$path"
+            local out code body body_compact
             # shellcheck disable=SC2029
-            if ! out="$(remote "curl -s -S -w '\n%{http_code}' --resolve $OPERATOR_DOMAIN:443:$LOOPBACK $url" 2>&1)"; then
+            if ! out="$(remote "curl -s -S -w '\n%{http_code}' --resolve $host:443:$LOOPBACK $url" 2>&1)"; then
               fail_dump "$label: curl не смог выполнить запрос к $url (TLS, резолв или сеть)" "$out"
             fi
             code="${out##*$'\n'}"
             body="${out%$'\n'*}"
+            body_compact="$(printf '%s' "$body" | tr -d '[:space:]')"
             echo "$url -> $code, тело: $body"
             if [ "$code" != "200" ]; then
-              fail_dump "$label: $url отвечает $code вместо 200" "$body"
+              fail_dump "$label: $url отвечает $code вместо 200. Смотрите шаг запуска стека и caddy reload." "$body"
             fi
-            if [ -n "$want_body" ] && [ "$body" != "$want_body" ]; then
-              fail_dump "$label: $url вернул 200, но тело «$body» вместо «$want_body»" "$body"
-            fi
+            case "$body_compact" in
+              *"$want"*) : ;;
+              *) fail_dump "$label: $url вернул 200, но тело не содержит «$want»: $body" "$body" ;;
+            esac
           }
+
+          # Основной домен: 200 и "status":"ok" от API.
+          check_host "основной домен" "$DOMAIN" "/api/health" '"status":"ok"'
+
+          # --- Кабинет оператора на поддомене ---
+          # Хост — производная от SITE_DOMAIN: отдельной переменной окружения не
+          # заводим, иначе опечатка в ней роняет и основной Caddyfile.
+          OPERATOR_DOMAIN="operator.$DOMAIN"
 
           # Первая проверка — маршрут caddy → operator-web, вторая — вся цепочка
           # до operator-api (у него та же ручка /api/health в healthcheck).
-          check_operator "маршрут caddy → operator-web" "/healthz" "ok"
-          check_operator "цепочка до operator-api" "/api/health" ""
+          check_host "маршрут caddy → operator-web" "$OPERATOR_DOMAIN" "/healthz" "ok"
+          check_host "цепочка до operator-api" "$OPERATOR_DOMAIN" "/api/health" ""
 
       - name: "Итог: деплой завершён"
         run: |
