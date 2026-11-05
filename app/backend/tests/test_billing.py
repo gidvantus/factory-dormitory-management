@@ -46,6 +46,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import billing_forms, solutions
+from app.api.billing import SOLUTION_NOT_FOUND_DETAIL
 from app.billing_forms import EMPTY_VALUE
 from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
 from app.models.document import Document
@@ -873,6 +874,43 @@ def test_invoice_file_keeps_the_buyer_name_as_is(client: TestClient, db_session:
     assert "&amp;" not in text
 
 
+def test_seats_invoice_file_shows_the_quantity(client: TestClient, db_session: Session) -> None:
+    """Печатная форма счёта за места (#168): количество и сумма рядом.
+
+    Без строки «Количество» первичный документ показывал бы только
+    «Дополнительные сотрудники» и «2 700 ₽ разово» — сверить платёж с числом мест
+    бухгалтерия клиента не смогла бы.
+    """
+    owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 3).json()["id"])
+    invoice = db_session.get(Invoice, invoice_id)
+    assert invoice is not None
+    assert invoice.quantity == 3
+
+    text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
+
+    assert "Количество" in text
+    assert "3 шт." in text
+    assert EXTRA_MEMBER_NAME in text
+    assert amount_text(invoice) in text
+
+
+def test_tariff_invoice_file_has_no_quantity_row(client: TestClient, db_session: Session) -> None:
+    """У тарифа количество неприменимо: строки нет, прежняя форма не меняется."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    invoice = db_session.get(Invoice, invoice_id)
+    assert invoice is not None
+    assert invoice.quantity is None
+
+    text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
+
+    assert "Количество" not in text
+    assert amount_text(invoice) in text
+
+
 def test_invoice_file_draws_a_dash_for_an_empty_requisite(
     client: TestClient, db_session: Session
 ) -> None:
@@ -1219,7 +1257,7 @@ SEATS_PRICE = "900.00"
 def add_seats_catalog(
     db_session: Session, *, amount: str = SEATS_PRICE, is_visible: bool = True
 ) -> Solution:
-    """Строка каталога, по которой продаются места: тот же seed, что `0063_extra_seats`.
+    """Строка каталога, по которой продаются места: тот же seed, что `0064_extra_seats`.
 
     Юнит-тесты собирают схему из моделей, seed каталога живёт в миграции, поэтому
     строку заводит тест — как `add_solution` у решений.
@@ -1258,6 +1296,30 @@ def invite(client: TestClient, email: str) -> Response:
         "/api/organization/invitations",
         json={"email": email, "full_name": "Петров Пётр", "role": "manager"},
     )
+
+
+def test_seats_catalog_row_is_not_sellable_as_a_solution(
+    client: TestClient, db_session: Session
+) -> None:
+    """Строку мест нельзя купить полем `solution_id`: это платёж без товара.
+
+    Строка видима (`is_visible = true`) — по ней магазин рисует карточку, — и
+    путь покупки решения по `id` для неё открыт. Оплата такого счёта завела бы
+    право на код `extra_member`, которого не читает ни одна ручка, а `extra_seats`
+    не вырос бы: клиент заплатил 900 ₽ и не получил ничего. Ответ — как у
+    несуществующего решения: подтверждать существование непродаваемой строки
+    незачем, и это не мешает покупать места полем `seats`.
+    """
+    organization, _ = owner_with_tariff(client, db_session)
+    seats_row = add_seats_catalog(db_session)
+    assert seats_row.is_visible is True
+
+    response = purchase_solution(client, seats_row.id)
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == SOLUTION_NOT_FOUND_DETAIL
+    assert not [i for i in invoices_of(db_session, organization.id) if i.item_kind == "seats"]
+    assert solutions.owned_codes(db_session, organization.id) == set()
 
 
 def test_seats_purchase_bills_the_price_times_the_quantity(

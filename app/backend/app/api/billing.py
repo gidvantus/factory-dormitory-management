@@ -73,6 +73,7 @@ from app.schemas.invoice import (
 )
 from app.schemas.user import ErrorResponse
 from app.seats import (
+    EXTRA_MEMBER_CODE,
     SEATS_NOT_FOR_SALE_DETAIL,
     SEATS_REQUIRE_TARIFF_DETAIL,
     SEATS_UNLIMITED_TARIFF_DETAIL,
@@ -217,6 +218,13 @@ def purchase_invoice(
     считается здесь: цена места из строки каталога × количество из тела. За
     места оферта не требуется — это не подписка, а доплата к уже оплаченной.
 
+    **Строка мест не покупается как решение.** Она видима в каталоге (`is_visible
+    = true`) — по ней магазин рисует карточку, — поэтому путь `{ "solution_id":
+    <её id> }` открыт и его надо закрыть: иначе оплата завела бы право на код
+    `extra_member`, которого не читает ни одна ручка, а счётчик мест не вырос бы.
+    Такой `solution_id` получает `404 SOLUTION_NOT_FOUND_DETAIL` — как
+    несуществующее решение; места же покупаются полем `seats`.
+
     Повторное нажатие не плодит счета: живой неоплаченный счёт **за тот же
     предмет** возвращается как `200` с тем же телом, а новый не создаётся. У
     мест предмет — «эта строка каталога и это количество»: два клика с разным
@@ -259,6 +267,17 @@ def purchase_invoice(
         item_kind = SOLUTION_ITEM_KIND
         solution = db.get(Solution, payload.solution_id)
         if solution is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, SOLUTION_NOT_FOUND_DETAIL)
+        # Строка «Дополнительные сотрудники» — не решение, а предмет счёта
+        # `seats`: у неё нет периода права, и оплата решения завела бы право на
+        # код `extra_member`, которое не читает ни одна ручка (`app/seats.py`
+        # считает места, а не права), то есть человек заплатил бы 900 ₽ и не
+        # получил ничего. Строку нельзя просто спрятать (`is_visible = false`):
+        # её показывает карточка магазина, поэтому закрыт именно этот путь
+        # покупки. Ответ — `404` как у несуществующего решения: подтверждать
+        # существование непродаваемой строки незачем, а мест это не касается —
+        # они покупаются полем `seats`.
+        if solution.code == EXTRA_MEMBER_CODE:
             raise HTTPException(status.HTTP_404_NOT_FOUND, SOLUTION_NOT_FOUND_DETAIL)
     else:
         # Места: тело без предмета сюда не дошло бы (422), `seats` уже проверен

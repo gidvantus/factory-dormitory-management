@@ -102,12 +102,20 @@ def _buyer_rows(invoice: Invoice) -> list[tuple[str, str | None]]:
 
 
 def _subject_rows(invoice: Invoice) -> list[tuple[str, str | None]]:
-    """Предмет счёта: что куплено и за какую сумму."""
-    return [
-        ("Тариф", invoice.tariff_name),
-        ("Номер счёта", invoice.number),
-        ("Сумма", _amount_label(invoice)),
-    ]
+    """Предмет счёта: что куплено, сколько и за какую сумму.
+
+    Строка «Количество» появляется только у счёта, у которого количество
+    применимо (`invoices.quantity` заполнено): это счёт за места (#168), где
+    сумма — цена места × количество. Без неё первичный документ показывал бы
+    «2 700 ₽ разово» и не давал сверить платёж с числом мест. У тарифа и решения
+    количество неприменимо, и строки нет — их формы не меняются.
+    """
+    rows: list[tuple[str, str | None]] = [("Тариф", invoice.tariff_name)]
+    if invoice.quantity is not None:
+        rows.append(("Количество", f"{invoice.quantity} шт."))
+    rows.append(("Номер счёта", invoice.number))
+    rows.append(("Сумма", _amount_label(invoice)))
+    return rows
 
 
 def _register_fonts(pdf: FPDF) -> None:

@@ -184,6 +184,13 @@ class PlatformInvoice(BaseModel):
     `organization_name` бывает `null` у пустой заготовки организации.
     `can_manage` в платформенном контуре всегда `true`: право даёт сервисный
     токен, ролей организации здесь нет, и фронт на это поле не ветвится.
+
+    **`quantity` — копия поля основного API, а не своё.** У счёта за места
+    (`item_kind = "seats"`) это число докупленных мест, у тарифа и решения —
+    `null` («количество неприменимо»). Поле объявлено здесь явно: модель — ручная
+    копия `PlatformInvoice` основного API, а pydantic лишние для модели поля
+    молча отбрасывает, поэтому без этой строки реестр оператора показывал бы счёт
+    за 100 мест так же, как за одно.
     """
 
     id: int
@@ -191,6 +198,8 @@ class PlatformInvoice(BaseModel):
     status: InvoiceStatus
     status_label: str
     item_kind: InvoiceItemKind
+    # Сколько мест докуплено: `null` у тарифа и решения.
+    quantity: int | None
     amount: str
     currency: str
     amount_label: str

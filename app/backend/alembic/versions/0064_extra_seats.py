@@ -42,10 +42,19 @@ SQL константами: их разбирает `tests/test_seats_migration.
 имеет тип `varchar(32)`. Номер `0064`, а не `0061` из постановки: `0061`–`0063`
 заняты ревизиями, приехавшими в `develop-m` позже текста задачи
 (`0061_merge_local_notifications`, `0062_table_views` и сводящая головы
-`0063_merge_stand_heads` этой же ветки). Родитель — сводящая ревизия, а не
-`0062_table_views` напрямую: без неё дерево остаётся с двумя головами, и
-`alembic upgrade head` падает с `Multiple head revisions`. Идентификаторы не
-перенумеровываются: alembic идёт по `down_revision`, а не по номеру в имени.
+`0063_merge_main_heads`). Родитель — сводящая ревизия, а не `0062_table_views`
+напрямую: без неё дерево остаётся с двумя головами, и `alembic upgrade head`
+падает с `Multiple head revisions`. Идентификаторы не перенумеровываются: alembic
+идёт по `down_revision`, а не по номеру в имени.
+
+**Сводящая ревизия — не своя, а из ветки инструментов миграций (#174, #175).**
+`0063_merge_main_heads` сводит ту же пару голов (`0062_table_views`,
+`0060_merge_stand_heads`), которая понадобилась этой ветке, и лежит здесь
+**байт-в-байт** тем же файлом (blob `ac8ee4a`): две разные сводящие ревизии из
+одних и тех же родителей дают ровно ту развилку, которую проект уже проходил на
+`0058_merge_alembic_heads` / `0058_merge_main_heads` — после слияния веток в
+дереве оказались бы две головы и `alembic upgrade head` упал бы. Одинаковый файл
+git сводит без конфликта в любом порядке слияния.
 """
 
 from collections.abc import Sequence
@@ -53,7 +62,8 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "0064_extra_seats"
-down_revision: str | None = "0063_merge_stand_heads"
+down_revision: str | None = "0063_merge_main_heads"
+
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
