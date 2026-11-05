@@ -156,6 +156,29 @@ jobs:
           [IO.File]::AppendAllText($env:GITHUB_ENV, "STAND_API_PORT=$apiPort`n")
           [IO.File]::AppendAllText($env:GITHUB_ENV, "STAND_WEB_PORT=$webPort`n")
 
+      - name: 'Стенд: одна голова миграций alembic'
+        # api на двух головах уходит в цикл перезапуска на `alembic upgrade
+        # head` (app/backend/entrypoint.sh), и «успешное» обновление стенда
+        # отдаёт 502 на /api/. Проверка стоит ДО бэкапа и пересборки: отказ
+        # дешевле разобранного стека, а починка — одна команда, её печатает
+        # сам скрипт. Тот же скрипт работает в деплое и в проверках PR.
+        if: steps.clone.outputs.updated == 'true'
+        run: |
+          $dir = $env:LOCAL_CLONE
+          $script = Join-Path $dir '_tools\alembic-heads.py'
+          if (-not (Test-Path $script)) {
+            # Клон обновляется fast-forward до develop-m, файл появится в нём
+            # после слияния инструмента. До этого проверять нечего.
+            Write-Host "::warning::No _tools\alembic-heads.py in $dir: alembic head check skipped."
+            exit 0
+          }
+          python $script
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Two alembic heads in $dir: api would restart-loop on 'alembic upgrade head' and the stand would answer 502. Fix: python _tools/alembic-heads.py --merge, then commit the new revision to develop-m. The stand is left as is."
+            exit 1
+          }
+          Write-Host "alembic: single head"
+
       - name: 'Стенд: бэкап БД перед обновлением'
         # Миграции стенда накатывает сам api при старте (app/backend/entrypoint.sh:
         # alembic upgrade head), отката миграций нет. Дамп снимается ДО
@@ -205,7 +228,7 @@ jobs:
       - name: 'Стенд: пересборка и перезапуск'
         # -p не передаётся: имя проекта берётся из .env клона (его сверяет шаг
         # выше), поэтому контейнеры пересоздаются, а не плодится второй стек.
-        # --wait ждёт healthcheck'и db, operator-api и operator-web; у api, web
+        # --wait ждёт healthcheck'и db, api, operator-api и operator-web; у web
         # и bot healthcheck'ов нет, поэтому их живость доказывает следующий шаг.
         if: steps.clone.outputs.updated == 'true'
         run: |
