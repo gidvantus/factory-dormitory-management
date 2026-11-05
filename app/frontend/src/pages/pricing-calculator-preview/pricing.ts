@@ -1,27 +1,28 @@
 export const MAX_USERS = 10_000;
-export const BASE_PRICE = 990;
 
-export const PRICE_BANDS = [
-  { from: 1, to: 5, price: 990, label: 'Первые 5 мест' },
-  { from: 6, to: 10, price: 890, label: 'С 6-го по 10-е' },
-  { from: 11, to: 20, price: 790, label: 'С 11-го по 20-е' },
-  { from: 21, to: MAX_USERS, price: 690, label: 'С 21-го места' },
-] as const;
+export const LICENSES = {
+  halfYear: { label: '6 месяцев', months: 6, price: 60_000, includedUsers: 5, userPrice: 2000 },
+  year: { label: '1 год', months: 12, price: 100_000, includedUsers: 10, userPrice: 1500 },
+} as const;
 
-export type PaymentPeriod = 'month' | 'year';
+export type LicenseTerm = keyof typeof LICENSES;
+
+/** Скидка действует на весь набор дополнительных мест. Одно место стоит базовую цену. */
+export function getUserPrice(extraUsers: number, term: LicenseTerm) {
+  const discount = extraUsers < 2 ? 0 : Math.min(extraUsers, 50);
+  return { discount, unitPrice: (LICENSES[term].userPrice * (100 - discount)) / 100 };
+}
 
 export const ADDONS = [
   {
     id: 'telegram',
     name: 'Telegram-оповещения',
-    monthlyPrice: 500,
-    description: 'Уведомления о выселении проживающих в личный Telegram сотрудников.',
+    description: 'Уведомления по вашим правилам в личный Telegram сотрудников.',
     detail: 'Каждый сотрудник подключает свой Telegram в кабинете.',
   },
   {
     id: 'journal',
     name: 'Журнал действий',
-    monthlyPrice: 990,
     description: 'Кто, когда и что изменил: история действий сотрудников в системе.',
     detail: 'Просмотр журнала доступен владельцу организации.',
   },
@@ -29,46 +30,43 @@ export const ADDONS = [
 
 export type AddonId = (typeof ADDONS)[number]['id'];
 
-/** Год рабочих мест стоит десять месяцев; услуги оплачиваются за все 12 месяцев. */
-export function calculatePrice(
-  users: number,
-  period: PaymentPeriod,
-  selectedAddonIds: readonly AddonId[] = [],
-) {
-  if (!Number.isInteger(users) || users < 1 || users > MAX_USERS) {
-    throw new RangeError(`Количество пользователей должно быть от 1 до ${MAX_USERS}`);
+/** При оформлении дополнительные места доступны на полный срок лицензии. */
+export function calculatePrice(extraUsers: number, term: LicenseTerm) {
+  if (!Number.isInteger(extraUsers) || extraUsers < 0 || extraUsers > MAX_USERS) {
+    throw new RangeError(
+      `Количество дополнительных пользователей должно быть от 0 до ${MAX_USERS}`,
+    );
   }
 
-  const breakdown = PRICE_BANDS.map((band) => {
-    const quantity = Math.max(0, Math.min(users, band.to) - band.from + 1);
-    return { ...band, quantity, subtotal: quantity * band.price };
-  });
-  const monthlyTotal = breakdown.reduce((total, band) => total + band.subtotal, 0);
-  const months = period === 'year' ? 12 : 1;
-  const addons = ADDONS.filter((addon) => selectedAddonIds.includes(addon.id)).map((addon) => ({
-    ...addon,
-    total: addon.monthlyPrice * months,
-  }));
-  const addonsTotal = addons.reduce((total, addon) => total + addon.total, 0);
-  const workplacesTotal = monthlyTotal * (period === 'year' ? 10 : 1);
-  const baseline = users * BASE_PRICE * months + addonsTotal;
-  const volumeSaving = (users * BASE_PRICE - monthlyTotal) * months;
-  const annualSaving = period === 'year' ? monthlyTotal * 2 : 0;
-  const total = workplacesTotal + addonsTotal;
+  const license = LICENSES[term];
+  const { discount, unitPrice } = getUserPrice(extraUsers, term);
+  const extraUsersTotal = extraUsers * unitPrice;
 
   return {
-    breakdown,
-    monthlyTotal,
-    workplacesTotal,
-    addons,
-    addonsTotal,
-    baseline,
-    volumeSaving,
-    annualSaving,
-    total,
-    saving: baseline - total,
-    perUserMonthly: workplacesTotal / months / users,
+    license,
+    totalUsers: license.includedUsers + extraUsers,
+    discount,
+    unitPrice,
+    extraUsersTotal,
+    total: license.price + extraUsersTotal,
+    saving: extraUsers * license.userPrice - extraUsersTotal,
   };
+}
+
+/** Для макета магазина остаток срока задаётся в месяцах. */
+export function calculateTopUp(extraUsers: number, term: LicenseTerm, remainingMonths: number) {
+  const quote = calculatePrice(extraUsers, term);
+  if (
+    !Number.isInteger(remainingMonths) ||
+    remainingMonths < 0 ||
+    remainingMonths > quote.license.months
+  ) {
+    throw new RangeError('Остаток срока должен быть в пределах действующей лицензии');
+  }
+  const remainingShare = remainingMonths / quote.license.months;
+  const unitPrice = Math.round(quote.unitPrice * remainingShare * 100) / 100;
+  const total = Math.round(quote.extraUsersTotal * remainingShare * 100) / 100;
+  return { ...quote, remainingShare, fullTermUnitPrice: quote.unitPrice, unitPrice, total };
 }
 
 export function userLabel(users: number): string {

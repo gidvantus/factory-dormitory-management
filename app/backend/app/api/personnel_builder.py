@@ -62,6 +62,18 @@ def save(
                     409, "Вкладку можно скрыть или перевести в архив с сохранением данных"
                 )
             new = updated[old.id]
+            if [item.id for item in old.rows] != [item.id for item in new.rows] and {
+                item.id for item in old.rows
+            } == {item.id for item in new.rows}:
+                from app.table_views import clear_view_order
+
+                clear_view_order(db, membership.organization_id, "personnel", old.id, "rows")
+            if [(column.id, column.archived) for column in old.columns] != [
+                (column.id, column.archived) for column in new.columns
+            ]:
+                from app.table_views import clear_view_order
+
+                clear_view_order(db, membership.organization_id, "personnel", old.id, "columns")
             columns = {c.id: c for c in new.columns}
             for column in old.columns:
                 if column.id not in columns:

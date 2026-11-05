@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { BuilderEnvironmentContext } from './BuilderEnvironment';
+import { WorkingTable } from '../../components/WorkingTable';
+import { useContext, useState } from 'react';
 import { useBuilderDraft } from './useBuilderDraft';
 import type { Block, PersonnelData } from '../../api/personnel';
 import { Modal } from '../../components/Modal';
@@ -31,6 +33,7 @@ export function PeopleContent({
   onChange: (tab: PersonnelTab) => void;
   onPerson: (id: string) => void;
 }): JSX.Element {
+  const environment = useContext(BuilderEnvironmentContext);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [showSelected, setShowSelected] = useState(false);
@@ -155,7 +158,10 @@ export function PeopleContent({
           onClose={() => setShowSelected(false)}
         >
           <div className={s.tableScroll}>
-            <table className={s.table}>
+            <WorkingTable
+              viewKey={environment ? `personnel/table-views/${tab.id}-selection` : undefined}
+              className={s.table}
+            >
               <thead>
                 <tr>
                   <th>Сотрудник</th>
@@ -188,7 +194,7 @@ export function PeopleContent({
                     </tr>
                   ))}
               </tbody>
-            </table>
+            </WorkingTable>
           </div>
         </Modal>
       )}

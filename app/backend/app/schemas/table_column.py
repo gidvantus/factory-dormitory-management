@@ -52,6 +52,7 @@ class ColumnResponse(BaseModel):
     options: list[dict[str, Any]]
     archived: bool
     fill: "CellFill | None" = None
+    type_change_reason: str | None = None
 
 
 class CellFill(BaseModel):

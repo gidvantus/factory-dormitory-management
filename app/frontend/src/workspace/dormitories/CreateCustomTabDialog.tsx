@@ -252,6 +252,7 @@ export function CreateCustomTabDialog({
                       />
                     </label>
                     <button
+                      className="btn btn--ghost btn--compact"
                       type="button"
                       disabled={saving || subtabs.length === 1}
                       onClick={() => setSubtabs((items) => items.filter((_, i) => i !== index))}
@@ -262,7 +263,7 @@ export function CreateCustomTabDialog({
                 ))}
                 <button
                   type="button"
-                  className={styles.subtabAdd}
+                  className={`btn btn--ghost btn--compact ${styles.subtabAdd}`}
                   disabled={saving}
                   onClick={() => setSubtabs((items) => [...items, ''])}
                 >
@@ -299,10 +300,16 @@ export function CreateCustomTabDialog({
         </p>
       )}
       <div className={styles.actions}>
-        <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
+        <ModalCancelButton
+          className="btn btn--ghost btn--compact"
+          onClick={onClose}
+          type="button"
+          disabled={saving}
+        >
           Отмена
         </ModalCancelButton>
         <button
+          className="btn btn--primary btn--compact"
           type="submit"
           disabled={saving || (mode === 'template' && (loading || !!loadError || !sourceId))}
         >

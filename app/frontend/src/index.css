@@ -12,6 +12,30 @@
    ========================================================================== */
 
 :root {
+  --table-report-scale: 0.8;
+  --table-report-row-height: 46px;
+  --table-report-row-padding: 5.6px;
+  --table-report-button-padding: 3.2px;
+  --table-report-cell-size: 9.6px;
+  --table-report-heading-size: 8.8px;
+  --table-report-name-size: 12.48px;
+  --table-report-badge-size: 12.8px;
+  --table-report-action-width: 17.6px;
+  --table-report-action-height: 20px;
+  --table-report-action-font: 11.2px;
+  --table-fill-mint: var(--mint-100);
+  --table-fill-sage: #e8f2df;
+  --table-fill-sky: var(--sky-100);
+  --table-fill-blue: #ccdff1;
+  --table-fill-lilac: var(--lilac-100);
+  --table-fill-lavender: #f0e6f4;
+  --table-fill-butter: var(--butter-100);
+  --table-fill-sand: var(--cream-200);
+  --table-fill-peach: var(--peach-100);
+  --table-fill-rose: #f5dfe5;
+  --table-grip-size: 24px;
+  --table-palette-size: 36px;
+  --table-formula-min-height: 80px;
   /* --- Слой 1: примитивы ------------------------------------------------ */
   --cream-50: #fffdf9;
   --cream-100: #fbf6ec;
@@ -161,8 +185,45 @@
   --gap-24: 24px;
   --gap-28: 28px;
 
+  /* Вертикальный ритм бокового меню: сначала убираем свободные отступы.
+     Высота плашки cookie вычитается целиком; шрифт и иконки не уменьшаются.
+     Нижняя граница оставляет место для 11 пунктов, длинного названия тарифа
+     и учётной записи. */
+  --sidebar-step: clamp(0px, calc((100dvh - var(--cookie-consent-height, 0px) - 540px) / 50), 10px);
+  --sidebar-padding-top: calc(2px + 2.6 * var(--sidebar-step));
+  --sidebar-padding-bottom: calc(2px + 1.6 * var(--sidebar-step));
+  --sidebar-brand-size: calc(32px + var(--sidebar-step));
+  --sidebar-label-top: calc(2px + 3.2 * var(--sidebar-step));
+  --sidebar-label-bottom: calc(1.6 * var(--sidebar-step));
+  --sidebar-row-height: calc(24px + 2.2 * var(--sidebar-step));
+  --sidebar-row-padding: calc(1.1 * var(--sidebar-step));
+  --sidebar-row-gap: calc(0.5 * var(--sidebar-step));
+  --sidebar-bottom-gap: calc(3.2 * var(--sidebar-step));
+  --sidebar-tariff-gap: calc(1.6 * var(--sidebar-step));
+  --sidebar-tariff-padding: calc(4px + 0.8 * var(--sidebar-step));
+  --sidebar-tariff-name-gap: calc(0.5 * var(--sidebar-step));
+  --sidebar-tariff-note-gap: calc(0.3 * var(--sidebar-step));
+  --sidebar-tariff-term-gap: calc(0.8 * var(--sidebar-step));
+  --sidebar-tariff-action-gap: var(--sidebar-step);
+  --sidebar-action-height: calc(32px + 0.7 * var(--sidebar-step));
+  --sidebar-action-padding: calc(4px + 0.4 * var(--sidebar-step));
+  --sidebar-tariff-loading-height: calc(118px + 3.6 * var(--sidebar-step));
+  --sidebar-account-nav-gap: calc(1.7 * var(--sidebar-step));
+  --sidebar-account-gap: calc(2 * var(--sidebar-step));
+  --sidebar-account-padding-top: calc(1.6 * var(--sidebar-step));
+  --sidebar-account-padding-bottom: calc(0.2 * var(--sidebar-step));
+  --sidebar-account-avatar-size: calc(32px + 0.4 * var(--sidebar-step));
+
   /* Список персонала остаётся рядом с карточкой даже при большом числе строк. */
   --personnel-list-max-height: 40rem;
+
+  /* Тестовый конструктор личных уведомлений: геометрия трёх колонок. */
+  --notification-list-width: 216px;
+  --notification-preview-width: 340px;
+  --notification-source-dialog-width: 860px;
+  --notification-source-card-min-width: 200px;
+  --notification-content-max: 1600px;
+  --notification-chat-min-height: 320px;
 }
 
 /* ==========================================================================
@@ -495,6 +556,18 @@ input {
   padding: 8px var(--control-px-md);
   border-radius: var(--radius-4xs);
   font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+}
+
+.btn--icon {
+  width: var(--control-h-md);
+  min-width: var(--control-h-md);
+  padding: 0;
+}
+
+.btn--sidebar {
+  min-height: var(--sidebar-action-height);
+  padding-block: var(--sidebar-action-padding);
 }
 
 .btn--block {
@@ -597,7 +670,8 @@ input {
   color: var(--color-text-muted);
 }
 
-.btn--tab[aria-pressed='true'] {
+.btn--tab[aria-pressed='true'],
+.btn--tab[aria-selected='true'] {
   border-bottom-color: var(--color-accent);
   color: var(--color-accent-hover);
 }
@@ -1964,6 +2038,7 @@ tbody tr:last-child td {
    `.dialogActions`. Кнопки внутри получают явный вариант `.btn--*`. */
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
 }
@@ -2367,4 +2442,186 @@ tbody tr:last-child td {
   .faq summary::after {
     transition: none;
   }
+}
+
+/* Общие действия рабочих таблиц. */
+.column-archive-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-4);
+  margin-block: var(--gap-12);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--gap-8);
+}
+.column-archive-tabs [aria-selected='true'] {
+  background: var(--mint-100);
+  color: var(--mint-700);
+}
+.column-archive-tabs span {
+  margin-inline-start: var(--gap-8);
+  color: var(--color-text-muted);
+}
+.auto-grow-textarea {
+  display: block;
+  width: 100%;
+  min-height: var(--table-formula-min-height);
+  max-height: none;
+  resize: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: var(--leading-body);
+}
+table.working-table > :is(thead, tbody, tfoot) > tr > :is(th, td) {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  white-space: nowrap;
+}
+table.working-table :is(input, select, textarea) {
+  max-width: 100%;
+}
+table.working-table :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+  width: 100%;
+  min-width: 0;
+}
+.working-table-handle {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-inline-start: var(--gap-4);
+}
+.working-table .working-table-grip {
+  min-width: var(--table-grip-size);
+  width: var(--table-grip-size);
+  height: var(--table-grip-size);
+  min-height: var(--table-grip-size);
+  padding: 0;
+  color: var(--color-text-muted);
+  cursor: grab;
+  font-size: var(--text-xs);
+}
+.working-table-grip:active {
+  cursor: grabbing;
+}
+.working-table-settings {
+  display: grid;
+  gap: var(--gap-12);
+}
+.working-table-settings small {
+  color: var(--color-text-muted);
+}
+.working-table-palette {
+  display: grid;
+  grid-template-columns: repeat(5, var(--table-palette-size));
+  gap: var(--gap-8);
+}
+.working-table-swatch {
+  width: var(--table-palette-size);
+  height: var(--table-palette-size);
+  min-height: var(--table-palette-size);
+  padding: 0;
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+.working-table-swatch[aria-pressed='true'] {
+  outline: var(--focus-outline-width) solid var(--mint-700);
+  outline-offset: var(--gap-2);
+}
+.working-table-move {
+  display: flex;
+  gap: var(--gap-8);
+}
+.working-table-notice {
+  padding: var(--gap-8);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+table.working-table > :is(thead, tbody, tfoot) > tr > [data-table-color='mint'],
+.working-table-swatch[data-table-color='mint'] {
+  background: var(--table-fill-mint);
+  color: var(--color-text);
+}
+table.working-table > :is(thead, tbody, tfoot) > tr > [data-table-color='sage'],
+.working-table-swatch[data-table-color='sage'] {
+  background: var(--table-fill-sage);
+  color: var(--color-text);
+}
+table.working-table > :is(thead, tbody, tfoot) > tr > [data-table-color='sky'],
+.working-table-swatch[data-table-color='sky'] {
+  background: var(--table-fill-sky);
+  color: var(--color-text);
+}
+table.working-table > :is(thead, tbody, tfoot) > tr > [data-table-color='blue'],
+.working-table-swatch[data-table-color='blue'] {
+  background: var(--table-fill-blue);
+  color: var(--color-text);
+}
+table.working-table > :is(thead, tbody, tfoot) > tr > [data-table-color='lilac'],
+.working-table-swatch[data-table-color='lilac'] {
+  background: var(--table-fill-lilac);
+  color: var(--color-text);
+}
+table.working-table > :is(thead, tbody, tfoot) > tr > [data-table-color='lavender'],
+.working-table-swatch[data-table-color='lavender'] {
+  background: var(--table-fill-lavender);
+  color: var(--color-text);
+}
+table.working-table > :is(thead, tbody, tfoot) > tr > [data-table-color='butter'],
+.working-table-swatch[data-table-color='butter'] {
+  background: var(--table-fill-butter);
+  color: var(--color-text);
+}
+table.working-table > :is(thead, tbody, tfoot) > tr > [data-table-color='sand'],
+.working-table-swatch[data-table-color='sand'] {
+  background: var(--table-fill-sand);
+  color: var(--color-text);
+}
+table.working-table > :is(thead, tbody, tfoot) > tr > [data-table-color='peach'],
+.working-table-swatch[data-table-color='peach'] {
+  background: var(--table-fill-peach);
+  color: var(--color-text);
+}
+table.working-table > :is(thead, tbody, tfoot) > tr > [data-table-color='rose'],
+.working-table-swatch[data-table-color='rose'] {
+  background: var(--table-fill-rose);
+  color: var(--color-text);
+}
+
+.working-table-grip::before {
+  content: '⠿';
+}
+
+table.working-table > tbody > tr > [data-has-row-tools] {
+  padding-inline-end: calc(var(--table-grip-size) + var(--gap-8));
+}
+.working-table-handle[data-axis='rows'] {
+  position: absolute;
+  inset-inline-end: var(--gap-4);
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+}
+
+.working-table-editable {
+  display: inline-block;
+  min-width: var(--gap-20);
+  min-height: var(--gap-20);
+  cursor: text;
+}
+.working-table-editable:focus-visible {
+  outline: var(--focus-outline-width) solid var(--color-accent);
+  outline-offset: var(--gap-2);
+}
+.working-table-inline-input {
+  min-height: var(--control-h-sm);
+  padding: var(--gap-4) var(--gap-6);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-4xs);
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.working-table-cell-error {
+  display: block;
+  color: var(--color-danger);
+  white-space: normal;
 }

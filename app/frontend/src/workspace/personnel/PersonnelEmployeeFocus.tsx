@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { BuilderEnvironmentContext } from '../../pages/personnel-tab-builder/BuilderEnvironment';
+import { WorkingTable } from '../../components/WorkingTable';
+import { useContext, useEffect, useRef, useState } from 'react';
 import type { Employee, PersonnelData } from '../../api/personnel';
 import resident from '../../assets/avatar-rezident.svg';
 import { dateLabel, dayDiff, dormName, personName, value } from './helpers';
@@ -25,6 +27,7 @@ export function PersonnelEmployeeFocus({
   fields: EmployeeListField[];
   onPerson: (id: string) => void;
 }): JSX.Element {
+  const environment = useContext(BuilderEnvironmentContext);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const listKey = people.map((person) => person.id).join('|');
@@ -37,7 +40,11 @@ export function PersonnelEmployeeFocus({
     <div className={f.focusLayout}>
       <div className={f.employeeList}>
         <div className={f.tableScroll} ref={listRef}>
-          <table className={f.employeeTable} aria-label="Список сотрудников">
+          <WorkingTable
+            viewKey={environment ? 'personnel/table-views/employees' : undefined}
+            className={f.employeeTable}
+            aria-label="Список сотрудников"
+          >
             <thead>
               <tr>
                 <th>
@@ -127,7 +134,7 @@ export function PersonnelEmployeeFocus({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </WorkingTable>
         </div>
         {!people.length && <p className={f.empty}>Сотрудников по выбранным условиям нет.</p>}
       </div>

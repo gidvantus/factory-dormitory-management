@@ -10,16 +10,6 @@
   font-weight: 700;
 }
 
-.fileField input {
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-5xs);
-  background: var(--color-bg-surface);
-  color: var(--color-text);
-  font: inherit;
-}
-
 .progress {
   display: grid;
   gap: 8px;

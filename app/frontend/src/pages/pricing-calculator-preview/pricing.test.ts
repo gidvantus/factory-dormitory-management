@@ -1,75 +1,68 @@
 import { describe, expect, it } from 'vitest';
 
-import { calculatePrice } from './pricing';
+import { calculatePrice, calculateTopUp } from './pricing';
 
-describe('Расчёт стоимости рабочих мест', () => {
+describe('Стоимость лицензии и дополнительных пользователей', () => {
   it.each([
-    [1, 990],
-    [3, 2970],
-    [5, 4950],
-    [6, 5840],
-    [7, 6730],
-    [10, 9400],
-    [11, 10190],
-    [20, 17300],
-    [21, 17990],
-    [30, 24200],
-  ])('%i пользователей стоят %i рублей в месяц', (users, expected) => {
-    expect(calculatePrice(users, 'month').total).toBe(expected);
+    ['halfYear', 60_000, 5],
+    ['year', 100_000, 10],
+  ] as const)('лицензия %s без дополнительных мест', (term, total, totalUsers) => {
+    expect(calculatePrice(0, term)).toMatchObject({ total, totalUsers, extraUsersTotal: 0 });
   });
 
-  it('за год складывает скидки без повторного вычитания экономии', () => {
-    const quote = calculatePrice(10, 'year');
-    expect(quote.total).toBe(94_000);
-    expect(quote.baseline).toBe(118_800);
-    expect(quote.volumeSaving).toBe(6000);
-    expect(quote.annualSaving).toBe(18_800);
-    expect(quote.saving).toBe(24_800);
-    expect(quote.baseline - quote.volumeSaving - quote.annualSaving).toBe(quote.total);
+  it.each([
+    [1, 0, 2000, 1500],
+    [2, 2, 1960, 1470],
+    [10, 10, 1800, 1350],
+    [20, 20, 1600, 1200],
+    [49, 49, 1020, 765],
+    [50, 50, 1000, 750],
+    [51, 50, 1000, 750],
+  ])('%i дополнительных мест по шкале скидок', (users, discount, halfYearPrice, yearPrice) => {
+    expect(calculatePrice(users, 'halfYear')).toMatchObject({
+      discount,
+      unitPrice: halfYearPrice,
+      extraUsersTotal: users * halfYearPrice,
+      totalUsers: users + 5,
+    });
+    expect(calculatePrice(users, 'year')).toMatchObject({
+      discount,
+      unitPrice: yearPrice,
+      extraUsersTotal: users * yearPrice,
+      totalUsers: users + 10,
+    });
   });
 
-  it('добавление места на границе скидки всегда увеличивает платёж', () => {
-    for (const users of [5, 10, 20]) {
-      for (const period of ['month', 'year'] as const) {
-        expect(calculatePrice(users + 1, period).total).toBeGreaterThan(
-          calculatePrice(users, period).total,
-        );
-      }
+  it('общая стоимость растёт при добавлении каждого места, включая границу скидки', () => {
+    for (let users = 0; users <= 50; users++) {
+      expect(calculatePrice(users + 1, 'halfYear').total).toBeGreaterThan(
+        calculatePrice(users, 'halfYear').total,
+      );
     }
   });
 
-  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 10_001])(
-    'не рассчитывает счёт для недопустимого количества %s',
+  it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 10_001])(
+    'отклоняет недопустимое количество %s',
     (users) => {
-      expect(() => calculatePrice(users, 'month')).toThrow(RangeError);
+      expect(() => calculatePrice(users, 'halfYear')).toThrow(RangeError);
     },
   );
 
   it.each([
-    ['month', ['telegram'], 9900, 500],
-    ['month', ['journal'], 10_390, 990],
-    ['month', ['telegram', 'journal'], 10_890, 1490],
-    ['year', ['telegram'], 100_000, 6000],
-    ['year', ['journal'], 105_880, 11_880],
-    ['year', ['telegram', 'journal'], 111_880, 17_880],
-  ] as const)('услуги за компанию: %s, %s', (period, addons, total, addonsTotal) => {
-    const quote = calculatePrice(10, period, addons);
-    expect(quote.total).toBe(total);
-    expect(quote.addonsTotal).toBe(addonsTotal);
-    expect(quote.baseline - quote.volumeSaving - quote.annualSaving).toBe(total);
-  });
+    [1, 'halfYear', 3, 1000],
+    [10, 'halfYear', 3, 9000],
+    [50, 'year', 6, 18_750],
+    [50, 'year', 3, 9375],
+    [1, 'halfYear', 1, 333.33],
+    [1, 'year', 0, 0],
+  ] as const)(
+    'докупка %i мест с лицензией %s и остатком %i месяцев',
+    (users, term, remainingMonths, total) => {
+      expect(calculateTopUp(users, term, remainingMonths).total).toBe(total);
+    },
+  );
 
-  it('число сотрудников не меняет стоимость услуг и не даёт скидку на них', () => {
-    for (const period of ['month', 'year'] as const) {
-      const small = calculatePrice(1, period, ['telegram', 'journal']);
-      const large = calculatePrice(30, period, ['telegram', 'journal']);
-      expect(small.addonsTotal).toBe(large.addonsTotal);
-      expect(large.saving).toBe(calculatePrice(30, period).saving);
-      expect(large.perUserMonthly).toBe(calculatePrice(30, period).perUserMonthly);
-    }
-  });
-
-  it('одна услуга считается только один раз на организацию', () => {
-    expect(calculatePrice(10, 'month', ['telegram', 'telegram']).addonsTotal).toBe(500);
+  it.each([-1, 7, 1.5, Number.NaN])('отклоняет неверный остаток срока %s', (months) => {
+    expect(() => calculateTopUp(1, 'halfYear', months)).toThrow(RangeError);
   });
 });

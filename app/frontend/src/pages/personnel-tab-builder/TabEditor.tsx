@@ -1,3 +1,4 @@
+import { ColumnArchiveTabs } from '../../components/ColumnArchiveTabs';
 import { useContext, useState } from 'react';
 import type { PersonnelData } from '../../api/personnel';
 import { Modal, ModalCancelButton } from '../../components/Modal';
@@ -43,6 +44,7 @@ export function TabEditor({
   const [section, setSection] = useState('content');
   const [makeDefault, setMakeDefault] = useState(isDefault);
   const [error, setError] = useState('');
+  const [archivedColumns, setArchivedColumns] = useState(false);
   const [withChildren, setWithChildren] = useState(false);
   const [childrenNames, setChildrenNames] = useState(['']);
   const patch = (values: Partial<PersonnelTab>): void => {
@@ -331,8 +333,14 @@ export function TabEditor({
                       Добавьте свои столбцы. Тип «Сотрудник из реестра» связывает запись с
                       существующим человеком.
                     </p>
+                    <ColumnArchiveTabs
+                      archived={archivedColumns}
+                      onChange={setArchivedColumns}
+                      currentCount={draft.columns.filter((column) => !column.archived).length}
+                      archivedCount={draft.columns.filter((column) => column.archived).length}
+                    />
                     {draft.columns
-                      .filter((column) => !column.archived)
+                      .filter((column) => !archivedColumns && !column.archived)
                       .map((column, index) => {
                         const used = draft.rows.some(
                           (row) =>
@@ -498,13 +506,15 @@ export function TabEditor({
                     <button
                       className="btn btn--outline btn--compact"
                       type="button"
-                      onClick={() => patch({ columns: [...draft.columns, newColumn()] })}
+                      onClick={() => {
+                        setArchivedColumns(false);
+                        patch({ columns: [...draft.columns, newColumn()] });
+                      }}
                     >
                       + Добавить столбец
                     </button>
                     {draft.columns.some((column) => column.archived) && (
-                      <details className={s.archived}>
-                        <summary>Скрытые столбцы</summary>
+                      <div className={s.archived} hidden={!archivedColumns}>
                         {draft.columns
                           .filter((column) => column.archived)
                           .map((column) => (
@@ -519,7 +529,7 @@ export function TabEditor({
                               </button>
                             </div>
                           ))}
-                      </details>
+                      </div>
                     )}
                   </>
                 )}

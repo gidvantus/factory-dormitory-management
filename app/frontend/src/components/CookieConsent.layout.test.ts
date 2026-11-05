@@ -16,7 +16,7 @@ afterEach(() => {
  * Страховка от возврата дефекта приёмки: фиксированная плашка согласия накрывала
  * нижний блок бокового меню кабинета — «Личные данные» и кнопку «Выйти», до
  * которых не доходили ни клик, ни Tab. Плашка сама измеряет свою высоту и отдаёт
- * её каркасу кабинета, а список разделов уступает место нижнему блоку.
+ * её каркасу кабинета, а отступы меню сжимаются под оставшуюся высоту.
  *
  * jsdom не считает CSS и геометрию, поэтому проверяются контракт стилей и сама
  * публикация переменной, а раскладка на низких окнах — слой приёмки (Playwright).
@@ -41,18 +41,18 @@ describe('плашка согласия не закрывает нижние э�
   it('каркас кабинета оставляет под плашку её измеренную высоту', () => {
     const sidebarRules = ruleBodies(WORKSPACE_CSS, '.shell .sidebar').join('\n');
     expect(sidebarRules).toContain(
-      'padding-bottom: calc(18px + var(--cookie-consent-height, 0px))',
+      'padding-bottom: calc(var(--sidebar-padding-bottom) + var(--cookie-consent-height, 0px))',
     );
     // Магической константы с clamp-обрезкой, из-за которой дефект вернулся,
     // в запасе быть не должно.
     expect(sidebarRules).not.toContain('clamp');
   });
 
-  it('список разделов уступает высоту нижнему блоку и прокручивается сам', () => {
+  it('сохраняет все разделы без отдельной прокрутки внутри меню', () => {
     const nav = ruleBody(WORKSPACE_CSS, '.shell .sidebar > nav');
-    expect(nav).toContain('flex: 1 1 auto');
-    expect(nav).toContain('min-height: 0');
-    expect(nav).toContain('overflow-y: auto');
+    expect(nav).toContain('flex: 1 0 auto');
+    expect(nav).not.toContain('overflow-y: auto');
+    expect(nav).not.toMatch(/overflow(?:-y)?:\s*(?:hidden|clip)/);
   });
 
   it('держит плашку низкой: компактные отступы и без потолка по ширине текста', () => {

@@ -1,3 +1,4 @@
+import { WorkingTable } from '../../../components/WorkingTable';
 import { FieldControl } from './ArrivalFields';
 import type { Field, Person } from './data';
 import { PEOPLE_PAGE_SIZE } from './data';
@@ -38,7 +39,14 @@ export function PeopleEditor({
           aria-label="ФИО и поля каждого человека"
           tabIndex={0}
         >
-          <table className={s.peopleEditTable}>
+          <WorkingTable
+            className={s.peopleEditTable}
+            columns={[
+              { id: 'number', label: '№' },
+              { id: 'name', label: 'ФИО' },
+              ...fields.map((field) => ({ id: field.id, label: field.label })),
+            ]}
+          >
             <thead>
               <tr>
                 <th scope="col">№</th>
@@ -92,7 +100,7 @@ export function PeopleEditor({
                 );
               })}
             </tbody>
-          </table>
+          </WorkingTable>
         </div>
       ) : (
         <p className={s.empty}>Укажите целое количество человек от 1 до 10 000.</p>

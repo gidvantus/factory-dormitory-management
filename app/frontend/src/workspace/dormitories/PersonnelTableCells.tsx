@@ -13,11 +13,13 @@ export function PersonnelTableCells({
   children,
   readOnly = false,
   onLinked,
+  extra,
 }: {
   row: { id: number; custom_values?: Record<string, CellValue>; employee_id?: string | null };
   children: ReactNode;
   readOnly?: boolean;
   onLinked: (id: string) => void;
+  extra?: { id: string; node: ReactNode }[];
 }): JSX.Element {
   const { dormitoryId, table, columns, personnelFields, values, waitForRowSaves } = useColumns();
   const card = useEmployeeCard({
@@ -35,6 +37,7 @@ export function PersonnelTableCells({
   );
   return (
     <ConfiguredCells
+      extra={extra}
       row={row}
       fields={['action_delete']}
       readOnly={readOnly}

@@ -268,6 +268,43 @@ def records_for(db: Session, dormitory_id: int, table_key: str) -> list[Record]:
     return list(db.scalars(query.order_by(model.id)))
 
 
+def column_type_change_reason(db: Session, column: TableColumn) -> str | None:
+    if column.builtin_key:
+        return "Тип стандартного столбца связан с работой системы"
+    if column.fill:
+        return "Сначала отключите связь заполнения ячеек"
+    if column_dependencies(db, column):
+        return "Столбец используется в формулах, связях или настройках"
+    from app.models.personnel import PersonnelBinding
+
+    binding = db.scalar(
+        select(PersonnelBinding).where(
+            PersonnelBinding.dormitory_id == column.dormitory_id,
+            PersonnelBinding.table_key == column.table_key,
+        )
+    )
+    if binding and column.id in binding.fields.values():
+        return "Столбец связан с карточкой сотрудника"
+    if column.table_key.startswith("custom_"):
+        tab = db.get(CustomTab, int(column.table_key.removeprefix("custom_")))
+        if tab and tab.options.get("date_column_id") == column.id:
+            return "Столбец используется для фильтрации по периоду"
+    for row in records_for(db, column.dormitory_id, column.table_key):
+        value = row.custom_values.get(str(column.id))
+        if value is not None and value != "":
+            return "Тип можно изменить только у полностью пустого столбца"
+    return None
+
+
+def require_column_type_change(db: Session, column: TableColumn, kind: str) -> None:
+    if kind == column.kind:
+        return
+    if kind in ("action", "hostel"):
+        raise HTTPException(422, "Выберите пользовательский тип данных")
+    if reason := column_type_change_reason(db, column):
+        raise HTTPException(409, reason)
+
+
 def get_record(db: Session, dormitory_id: int, table_key: str, row_id: int) -> Record:
     model = CustomTabEntry if table_key.startswith("custom_") else TABLE_MODELS[table_key]
     row = cast(Record | None, db.scalar(select(model).where(model.id == row_id).with_for_update()))

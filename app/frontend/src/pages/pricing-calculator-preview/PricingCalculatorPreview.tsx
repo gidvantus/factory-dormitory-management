@@ -1,15 +1,14 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { Modal } from '../../components/Modal';
 import { SiteHeader } from '../../components/SiteHeader';
 import { CheckIcon, ShieldCheckIcon, UsersIcon } from '../../components/landing/icons';
-import { ADDONS, BASE_PRICE, calculatePrice, MAX_USERS, PRICE_BANDS, userLabel } from './pricing';
-import type { AddonId, PaymentPeriod } from './pricing';
+import { calculatePrice, getUserPrice, LICENSES, MAX_USERS, userLabel } from './pricing';
+import type { LicenseTerm } from './pricing';
+import { ComingSoonAddons, money, PreviewNavigation } from './PreviewShared';
+import { ImprovementsStorePreview } from './ImprovementsStorePreview';
 import styles from './PricingCalculatorPreview.module.css';
-
-const money = (amount: number): string =>
-  `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(amount)} ₽`;
 
 const features = [
   'Учёт проживающих',
@@ -20,54 +19,29 @@ const features = [
   'Отчёты и статистика',
 ];
 
-function AddonIcon({ id }: { id: AddonId }): JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {id === 'telegram' ? (
-        <>
-          <path d="m21 3-6 18-4-8-8-4 18-6Z" />
-          <path d="m11 13 5-5" />
-        </>
-      ) : (
-        <>
-          <rect x="5" y="4" width="14" height="17" rx="2" />
-          <path d="M9 4V2h6v2M9 9h6M9 13h6M9 17h3" />
-        </>
-      )}
-    </svg>
-  );
-}
+const discountExamples = [1, 10, 20, 30, 40, 50] as const;
 
 /** Отдельный интерактивный макет: не обращается к покупке и не меняет тариф организации. */
 export function PricingCalculatorPreview(): JSX.Element {
-  const [draft, setDraft] = useState('10');
-  const [period, setPeriod] = useState<PaymentPeriod>('month');
-  const [showTrial, setShowTrial] = useState(false);
-  const [selectedAddons, setSelectedAddons] = useState<AddonId[]>([]);
+  const [searchParams] = useSearchParams();
+  return searchParams.get('view') === 'store' ? (
+    <ImprovementsStorePreview />
+  ) : (
+    <LicenseCalculatorPreview />
+  );
+}
+
+function LicenseCalculatorPreview(): JSX.Element {
+  const [draft, setDraft] = useState('0');
+  const [term, setTerm] = useState<LicenseTerm>('halfYear');
+  const [showOrder, setShowOrder] = useState(false);
+  const license = LICENSES[term];
   const users = Number(draft);
-  const valid = /^\d+$/.test(draft) && Number.isInteger(users) && users >= 1 && users <= MAX_USERS;
-  const quote = valid ? calculatePrice(users, period, selectedAddons) : null;
-  const yearly = period === 'year';
-  const suffix = yearly ? 'в год' : 'в месяц';
-  const savingsSuffix = yearly ? 'за год' : 'в месяц';
+  const valid = /^\d+$/.test(draft) && Number.isInteger(users) && users >= 0 && users <= MAX_USERS;
+  const quote = valid ? calculatePrice(users, term) : null;
 
   function changeUsers(delta: number): void {
-    setDraft(String(Math.min(MAX_USERS, Math.max(1, (valid ? users : 1) + delta))));
-  }
-
-  function toggleAddon(id: AddonId): void {
-    setSelectedAddons((current) =>
-      current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
-    );
+    setDraft(String(Math.min(MAX_USERS, Math.max(0, (valid ? users : 0) + delta))));
   }
 
   return (
@@ -86,15 +60,14 @@ export function PricingCalculatorPreview(): JSX.Element {
       <main id="calculator-main" className={styles.main}>
         <div className={styles.previewNote}>
           <span className={styles.previewBadge}>Тестовая страница</span>
-          <span>Рабочие места и услуги · цена журнала предварительная</span>
+          <span>Лицензия и дополнительные места для вашей команды</span>
         </div>
+        <PreviewNavigation active="license" />
 
         <header className={styles.intro}>
-          <h1>Одна подписка. Всё для вашей команды.</h1>
+          <h1>Лицензия на «Домовой»</h1>
           <p>
-            Выберите количество сотрудников и дополните тариф нужными услугами.
-            <br className={styles.desktopBreak} /> Рабочие места — для каждого, услуги — для всей
-            компании.
+            Выберите лицензию на 6 месяцев или год и добавьте пользователей, если нужно больше мест.
           </p>
         </header>
 
@@ -105,21 +78,41 @@ export function PricingCalculatorPreview(): JSX.Element {
                 <UsersIcon />
               </span>
               <div>
-                <h2>Сколько вас в команде?</h2>
+                <h2>Настройте лицензию</h2>
               </div>
             </div>
 
             <div className={styles.configuration}>
-              <div className={styles.quantityRow}>
-                <div>
-                  <label htmlFor="pricing-users">Количество пользователей</label>
+              <fieldset className={styles.periodField}>
+                <legend>Срок лицензии</legend>
+                <div className={styles.periodToggle}>
+                  {(['halfYear', 'year'] as const).map((option) => {
+                    const plan = LICENSES[option];
+                    return (
+                      <button
+                        key={option}
+                        className="btn btn--segment"
+                        type="button"
+                        aria-pressed={term === option}
+                        onClick={() => setTerm(option)}
+                      >
+                        <strong>
+                          {plan.label} · {money(plan.price)}
+                        </strong>
+                        <span>{plan.includedUsers} пользователей в цене</span>
+                      </button>
+                    );
+                  })}
                 </div>
+              </fieldset>
+              <div className={styles.quantityRow}>
+                <label htmlFor="pricing-users">Дополнительные пользователи</label>
                 <div className={styles.stepper}>
                   <button
                     className="btn btn--stepper"
                     type="button"
                     aria-label="Уменьшить количество пользователей"
-                    disabled={valid && users === 1}
+                    disabled={valid && users === 0}
                     onClick={() => changeUsers(-1)}
                   >
                     −
@@ -128,7 +121,7 @@ export function PricingCalculatorPreview(): JSX.Element {
                     id="pricing-users"
                     type="number"
                     inputMode="numeric"
-                    min="1"
+                    min="0"
                     max={MAX_USERS}
                     step="1"
                     value={draft}
@@ -147,106 +140,56 @@ export function PricingCalculatorPreview(): JSX.Element {
                   </button>
                 </div>
               </div>
-              <fieldset className={styles.periodField}>
-                <legend>Период оплаты</legend>
-                <div className={styles.periodToggle}>
-                  <button
-                    className="btn btn--segment"
-                    type="button"
-                    aria-pressed={!yearly}
-                    onClick={() => setPeriod('month')}
-                  >
-                    Месяц
-                  </button>
-                  <button
-                    className="btn btn--segment"
-                    type="button"
-                    aria-pressed={yearly}
-                    onClick={() => setPeriod('year')}
-                  >
-                    Год <span>2 месяца в подарок</span>
-                  </button>
-                </div>
-              </fieldset>
             </div>
             {!valid && (
               <p className={styles.error} id="pricing-users-error" role="alert">
-                Введите целое число от 1 до 10 000.
+                Введите целое число от 0 до 10 000.
               </p>
             )}
             <p className={styles.quantityHint}>
-              <span id="pricing-users-help">Проживающие не оплачиваются отдельно.</span>
+              <span id="pricing-users-help">
+                Дополнительное место — {money(quote?.unitPrice ?? license.userPrice)} за полный срок
+                лицензии.
+              </span>
             </p>
 
-            <fieldset className={styles.addonsField}>
-              <legend>Услуги для всей компании</legend>
-              <p className={styles.addonsHint}>
-                Фиксированная цена за компанию, независимо от числа сотрудников.
-              </p>
-              <div className={styles.addonList}>
-                {ADDONS.map((addon) => {
-                  const selected = selectedAddons.includes(addon.id);
-                  return (
-                    <label className={styles.addon} key={addon.id} data-selected={selected}>
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        aria-label={`Добавить ${addon.name}`}
-                        onChange={() => toggleAddon(addon.id)}
-                      />
-                      <span className={styles.addonContent}>
-                        <span className={styles.addonTitle}>
-                          <span className={styles.addonIcon} data-addon={addon.id}>
-                            <AddonIcon id={addon.id} />
-                          </span>
-                          <strong>{addon.name}</strong>
-                        </span>
-                        <span className={styles.addonPrice}>
-                          +{money(addon.monthlyPrice)} <span>в месяц</span>
-                        </span>
-                        <span className={styles.addonDescription}>
-                          {addon.id === 'telegram'
-                            ? 'Выселения — в Telegram сотрудников.'
-                            : 'История изменений. Просмотр — у владельца.'}
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </fieldset>
+            <ComingSoonAddons />
           </div>
 
           <aside className={styles.summary} aria-label="Стоимость для вашей команды">
             <div className={styles.summaryContent}>
               <div className={styles.summaryHeading}>
-                <h2>Ваша подписка</h2>
-                <span>{valid ? `${users} ${userLabel(users)}` : 'Укажите количество'}</span>
+                <h2>Ваш заказ</h2>
+                <span>
+                  {quote
+                    ? `${quote.totalUsers} ${userLabel(quote.totalUsers)}`
+                    : 'Укажите количество'}
+                </span>
               </div>
               <div className={styles.quote} aria-live="polite" aria-atomic="true">
                 <p className={styles.total} data-testid="calculator-total">
                   {quote ? money(quote.total) : '—'}
                 </p>
-                <p className={styles.totalPeriod}>{suffix} за всю подписку</p>
+                <p className={styles.totalPeriod}>За весь срок лицензии · {license.label}</p>
               </div>
 
               <div className={styles.subscriptionItems}>
-                <h3>Состав подписки</h3>
+                <h3>Состав заказа</h3>
                 <dl className={styles.itemLines}>
                   <div>
-                    <dt>Рабочие места{valid ? ` · ${users}` : ''}</dt>
+                    <dt>Лицензия · {license.label}</dt>
+                    <dd>{money(license.price)}</dd>
+                  </div>
+                  <div>
+                    <dt>Пользователи в лицензии · {license.includedUsers}</dt>
+                    <dd>Включены</dd>
+                  </div>
+                  <div>
+                    <dt>Доп. пользователи{valid ? ` · ${users}` : ''}</dt>
                     <dd data-testid="calculator-workplaces">
-                      {quote ? money(quote.workplacesTotal) : '—'}
+                      {quote ? money(quote.extraUsersTotal) : '—'}
                     </dd>
                   </div>
-                  {ADDONS.filter((addon) => selectedAddons.includes(addon.id)).map((addon) => (
-                    <div key={addon.id}>
-                      <dt>{addon.name}</dt>
-                      <dd data-testid={`calculator-addon-${addon.id}`}>
-                        {money(addon.monthlyPrice * (yearly ? 12 : 1))}
-                      </dd>
-                    </div>
-                  ))}
                 </dl>
               </div>
 
@@ -254,49 +197,36 @@ export function PricingCalculatorPreview(): JSX.Element {
                 <CheckIcon />
                 <span>
                   {quote && quote.saving > 0
-                    ? `Экономия ${money(quote.saving)} ${savingsSuffix}`
-                    : 'Скидка на дополнительные места — с 6-го пользователя'}
+                    ? `Скидка ${quote.discount}% на доп. места · экономия ${money(quote.saving)}`
+                    : 'До 50% скидки на дополнительные места'}
                 </span>
               </div>
               <details className={styles.savingsDetails}>
                 <summary>Скидки и условия оплаты</summary>
                 <dl className={styles.savingLines}>
                   <div>
-                    <dt>Без скидок</dt>
-                    <dd>{quote ? money(quote.baseline) : '—'}</dd>
+                    <dt>Цена одного доп. места за весь срок</dt>
+                    <dd>{quote ? money(quote.unitPrice) : '—'}</dd>
                   </div>
-                  <div>
-                    <dt>Скидка за количество</dt>
-                    <dd>{quote ? `−${money(quote.volumeSaving)}` : '—'}</dd>
-                  </div>
-                  {yearly && (
-                    <div>
-                      <dt>Два месяца рабочих мест</dt>
-                      <dd>{quote ? `−${money(quote.annualSaving)}` : '—'}</dd>
-                    </div>
-                  )}
                 </dl>
                 <p className={styles.billingNote}>
-                  {yearly
-                    ? 'Рабочие места — 12 месяцев по цене 10. Услуги для компании оплачиваются за все 12 месяцев.'
-                    : 'Услуги оплачиваются один раз за компанию в каждом периоде. При добавлении сотрудников их цена не меняется.'}
+                  При оформлении дополнительные места оплачиваются за весь срок лицензии.
                 </p>
               </details>
               <button
                 type="button"
                 className={`btn btn--primary ${styles.trialButton}`}
                 disabled={!valid}
-                onClick={() => setShowTrial(true)}
+                onClick={() => setShowOrder(true)}
               >
-                Попробовать «Домовой» бесплатно
+                Посмотреть заказ
               </button>
-              <p className={styles.trialHint}>30 дней бесплатно. Без привязки карты.</p>
             </div>
           </aside>
         </section>
 
         <section className={styles.included} aria-labelledby="included-title">
-          <h2 id="included-title">В каждом рабочем месте уже есть</h2>
+          <h2 id="included-title">Возможности лицензии</h2>
           <ul>
             {features.map((feature) => (
               <li key={feature}>
@@ -310,120 +240,62 @@ export function PricingCalculatorPreview(): JSX.Element {
         <section className={styles.discounts} aria-labelledby="discount-title">
           <div className={styles.discountHeading}>
             <div>
-              <h2 id="discount-title">Как уменьшается цена за место</h2>
-              <p>Каждая сниженная цена действует только на места в своём диапазоне.</p>
+              <h2 id="discount-title">Скидка на дополнительных пользователей</h2>
+              <p>
+                Цены для лицензии на {license.label}. От двух мест скидка в процентах равна их
+                количеству, максимум 50%.
+              </p>
             </div>
-            <span className={styles.discountBadge}>Скидка считается сама</span>
+            <span className={styles.discountBadge}>До 50% на весь набор</span>
           </div>
           <ol className={styles.bandList}>
-            {PRICE_BANDS.map((band) => {
-              const selected = valid && users >= band.from;
+            {discountExamples.map((quantity) => {
+              const { discount, unitPrice } = getUserPrice(quantity, term);
+              const selected = valid && (users === quantity || (quantity === 50 && users > 50));
               return (
-                <li key={band.from} data-used={selected}>
-                  <span className={styles.bandLabel}>{band.label}</span>
-                  <strong>{money(band.price)}</strong>
-                  <span className={styles.bandUnit}>за место в месяц</span>
+                <li key={quantity} data-used={selected}>
+                  <span className={styles.bandLabel}>
+                    {quantity === 50 ? '50+ пользователей' : quantity + ' ' + userLabel(quantity)}
+                  </span>
+                  <strong>{money(unitPrice)}</strong>
+                  <span className={styles.bandUnit}>за пользователя</span>
                   <span className={styles.bandStatus}>
-                    {selected ? (
-                      <>
-                        <CheckIcon /> В вашем расчёте
-                      </>
-                    ) : band.price === BASE_PRICE ? (
-                      'Базовая стоимость'
-                    ) : (
-                      'Для дополнительных мест'
-                    )}
+                    {selected && <CheckIcon />}
+                    {discount ? 'Скидка ' + discount + '%' : 'Базовая цена'}
                   </span>
                 </li>
               );
             })}
           </ol>
-
-          <details className={styles.breakdown}>
-            <summary>Посмотреть подробный расчёт</summary>
-            {quote ? (
-              <div className={styles.breakdownBody}>
-                <p>
-                  Команда: {users} {userLabel(users)}. Расчёт за один месяц:
-                </p>
-                <dl>
-                  {quote.breakdown
-                    .filter((band) => band.quantity > 0)
-                    .map((band) => (
-                      <div key={band.from}>
-                        <dt>
-                          {band.quantity} × {money(band.price)}
-                        </dt>
-                        <dd>{money(band.subtotal)}</dd>
-                      </div>
-                    ))}
-                  <div className={styles.breakdownTotal}>
-                    <dt>Рабочие места за месяц</dt>
-                    <dd>{money(quote.monthlyTotal)}</dd>
-                  </div>
-                  {yearly && (
-                    <div className={styles.breakdownTotal}>
-                      <dt>За год: {money(quote.monthlyTotal)} × 10 месяцев</dt>
-                      <dd>{money(quote.workplacesTotal)}</dd>
-                    </div>
-                  )}
-                  {quote.addons.map((addon) => (
-                    <div key={addon.id}>
-                      <dt>
-                        {addon.name} · за компанию{yearly ? ', 12 месяцев' : ''}
-                      </dt>
-                      <dd>{money(addon.total)}</dd>
-                    </div>
-                  ))}
-                  <div className={styles.breakdownTotal}>
-                    <dt>Вся подписка {suffix}</dt>
-                    <dd>{money(quote.total)}</dd>
-                  </div>
-                </dl>
-              </div>
-            ) : (
-              <p className={styles.breakdownBody}>Укажите количество пользователей для расчёта.</p>
-            )}
-          </details>
         </section>
 
         <section className={styles.questions} aria-labelledby="questions-title">
           <div className={styles.questionsIntro}>
             <ShieldCheckIcon />
-            <h2 id="questions-title">Понятные условия</h2>
-            <p>Вы управляете командой — стоимость подстраивается под её размер.</p>
+            <h2 id="questions-title">Докупка после оформления</h2>
+            <p>Докупайте пользователей в личном кабинете в любой момент действия лицензии.</p>
           </div>
           <div className={styles.faq}>
+            <div className={styles.proration}>
+              <h3>Платите за оставшийся срок</h3>
+              <p>
+                При докупке пользователей стоимость пересчитывается пропорционально оставшемуся
+                сроку действия лицензии с учётом скидки за количество. Вы платите только за время до
+                окончания лицензии.
+              </p>
+            </div>
             <details>
               <summary>Кто считается пользователем?</summary>
               <p>
-                Сотрудник с личным доступом в кабинет организации. Вы выбираете количество рабочих
-                мест и приглашаете коллег. Количество проживающих не увеличивает стоимость подписки.
+                Сотрудник с личным доступом в кабинет организации. Количество проживающих не влияет
+                на стоимость лицензии.
               </p>
             </details>
             <details>
-              <summary>Что делать, если состав команды изменился?</summary>
+              <summary>Когда появятся дополнительные услуги?</summary>
               <p>
-                Место уволившегося сотрудника можно передать новому. Дополнительные места
-                оплачиваются за оставшееся время с учётом скидки. Уменьшение количества действует со
-                следующего оплачиваемого периода.
-              </p>
-            </details>
-            <details>
-              <summary>Как сочетаются скидки за количество и оплату года?</summary>
-              <p>
-                Сначала рассчитываем стоимость месяца с учётом количества пользователей. При оплате
-                за год умножаем её на 10 — доступ действует все 12 месяцев. Эти скидки относятся к
-                рабочим местам. Дополнительные услуги оплачиваются по своей цене за каждый месяц.
-              </p>
-            </details>
-            <details>
-              <summary>Нужно ли покупать услуги каждому сотруднику?</summary>
-              <p>
-                Нет, каждую услугу организация оплачивает один раз за выбранный период. Telegram
-                подключает каждый сотрудник, которому нужны уведомления. Журнал действий относится
-                ко всей организации, а просматривать его может владелец. Права сотрудников
-                сохраняются.
+                Telegram-оповещения и журнал действий скоро будут доступны для подключения на всю
+                компанию.
               </p>
             </details>
           </div>
@@ -435,41 +307,33 @@ export function PricingCalculatorPreview(): JSX.Element {
         </footer>
       </main>
 
-      {showTrial && quote && (
+      {showOrder && quote && (
         <Modal
-          title="Пробный доступ для вашей команды"
-          testId="calculator-trial"
-          onClose={() => setShowTrial(false)}
+          title="Ваш заказ"
+          testId="calculator-order"
+          onClose={() => setShowOrder(false)}
           protectChanges={false}
         >
           <div className={styles.trialDialog}>
             <span className={styles.previewBadge}>Тестовый просмотр</span>
             <h3>
-              {users} {userLabel(users)} · 30 дней бесплатно
+              Лицензия на {license.label} · {quote.totalUsers} {userLabel(quote.totalUsers)}
             </h3>
             <p>
-              Выбранная подписка после подключения стоит{' '}
-              <strong>
-                {money(quote.total)} {suffix}
-              </strong>
-              .{yearly && ' Это единый платёж за 12 месяцев.'}
+              Стоимость за полный срок <strong>{money(quote.total)}</strong>.
             </p>
             <dl className={styles.dialogItems}>
               <div>
-                <dt>Рабочие места</dt>
-                <dd>{money(quote.workplacesTotal)}</dd>
+                <dt>Лицензия с {license.includedUsers} местами</dt>
+                <dd>{money(license.price)}</dd>
               </div>
-              {quote.addons.map((addon) => (
-                <div key={addon.id}>
-                  <dt>{addon.name} · за компанию</dt>
-                  <dd>{money(addon.total)}</dd>
-                </div>
-              ))}
+              <div>
+                <dt>Доп. пользователи · {users}</dt>
+                <dd>{money(quote.extraUsersTotal)}</dd>
+              </div>
             </dl>
-            <p>
-              На этой тестовой странице можно проверить расчёт. Регистрация и оплата не выполняются.
-            </p>
-            <button type="button" className="btn btn--primary" onClick={() => setShowTrial(false)}>
+            <p>Это предварительный расчёт на тестовой странице.</p>
+            <button type="button" className="btn btn--primary" onClick={() => setShowOrder(false)}>
               Вернуться к расчёту
             </button>
           </div>

@@ -47,6 +47,16 @@ const OverviewDesignPreview = lazy(() =>
     default: module.OverviewDesignPreview,
   })),
 );
+const InvitationPreview = lazy(() =>
+  import('./pages/invitation-preview/InvitationPreview').then((module) => ({
+    default: module.InvitationPreview,
+  })),
+);
+const NotificationBuilderPreview = lazy(() =>
+  import('./pages/notification-builder-preview/NotificationBuilderPreview').then((module) => ({
+    default: module.NotificationBuilderPreview,
+  })),
+);
 const SidebarTariffDesignPreview = lazy(() =>
   import('./pages/SidebarTariffDesignPreview').then((module) => ({
     default: module.SidebarTariffDesignPreview,
@@ -140,6 +150,22 @@ export function App(): JSX.Element {
       <CookieConsent />
       <Routes>
         <Route path="/" element={<Landing />} />
+        <Route
+          path="/preview/notification-builder"
+          element={
+            <Suspense fallback={<p role="status">Загрузка конструктора уведомлений…</p>}>
+              <NotificationBuilderPreview />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/invitations"
+          element={
+            <Suspense fallback={<p role="status">Загрузка вариантов приглашения…</p>}>
+              <InvitationPreview />
+            </Suspense>
+          }
+        />
         <Route
           path="/preview/cell-fill"
           element={
