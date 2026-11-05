@@ -16,11 +16,19 @@
 Скрытый тариф (`is_visible = false`) не продаётся и в прайс не попадает, но у
 организации, которой он уже назначен, остаётся видимым: `is_visible` отсекает
 только публичный список, а не привязку.
+
+`/extra-seats` — параметры докупки мест для той же публичной страницы (#177):
+цена места без скидки, потолок продажи и шесть ступеней скидки за каждый полный
+десяток. Ручка тоже открыта анониму, потому что `/pricing` рисует таблицу
+ступеней до входа, а `unit_amount` каждой ступени считает сервер
+(`app/seats.py`) — экран показывает готовые числа и скидку сам не выводит. `404`
+означает, что строки каталога `extra_member` нет или она скрыта: дополнительные
+сотрудники не продаются.
 """
 
 from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -29,12 +37,21 @@ from app.db import get_db
 from app.models.tariff import Tariff
 from app.pricing import format_price
 from app.schemas.tariff import (
+    ExtraSeatsResponse,
     NextTariffResponse,
     OrganizationTariffResponse,
+    SeatBandResponse,
     TariffPeriod,
     TariffResponse,
 )
 from app.schemas.user import ErrorResponse
+from app.seats import (
+    MAX_SEATS_PER_PURCHASE,
+    SEAT_BANDS,
+    SEATS_NOT_FOR_SALE_DETAIL,
+    catalog_row,
+    unit_amount,
+)
 from app.subscription import subscription_state
 
 router = APIRouter(prefix="/tariffs", tags=["tariffs"])
@@ -86,6 +103,53 @@ def list_tariffs(db: DbSession) -> list[TariffResponse]:
         select(Tariff).where(Tariff.is_visible.is_(True)).order_by(Tariff.position, Tariff.id)
     )
     return [_response(tariff) for tariff in visible]
+
+
+# 404 у параметров мест один: строки каталога, по которой продаются места, нет
+# или она скрыта — это одно и то же состояние «не продаются».
+EXTRA_SEATS_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_404_NOT_FOUND: {
+        "model": ErrorResponse,
+        "description": SEATS_NOT_FOR_SALE_DETAIL,
+    }
+}
+
+
+@router.get(
+    "/extra-seats",
+    response_model=ExtraSeatsResponse,
+    summary="Параметры докупки дополнительных мест",
+    responses=EXTRA_SEATS_RESPONSES,
+)
+def read_extra_seats(db: DbSession) -> ExtraSeatsResponse:
+    """Ступени скидки за места: открыто анониму, как сам прайс.
+
+    Экран `/pricing` показывает таблицу ступеней и цену места, но скидку сам не
+    выводит: ступени приходят готовыми, с посчитанным `unit_amount`, и сумма
+    заказа сходится с суммой счёта на сервере.
+
+    `404` — строки каталога нет или она скрыта: дополнительные сотрудники не
+    продаются, и показывать ступени нечего.
+    """
+    line = catalog_row(db)
+    if line is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, SEATS_NOT_FOR_SALE_DETAIL)
+    return ExtraSeatsResponse(
+        base_amount=line.amount,
+        currency=line.currency,
+        max_quantity=MAX_SEATS_PER_PURCHASE,
+        bands=[
+            SeatBandResponse(
+                start=band.start,
+                # Последняя ступень открыта вверх, но продаётся не больше
+                # `MAX_SEATS_PER_PURCHASE`: ответ не обещает того, чего нет.
+                to=band.end if band.end is not None else MAX_SEATS_PER_PURCHASE,
+                discount_percent=band.discount_percent,
+                unit_amount=unit_amount(line.amount, band.start),
+            )
+            for band in SEAT_BANDS
+        ],
+    )
 
 
 @router.get(

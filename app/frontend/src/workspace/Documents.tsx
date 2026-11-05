@@ -14,6 +14,13 @@ const EMPTY_HINT = 'Счёт появится здесь после покупк
 
 const PURCHASE_SUCCESS = 'Счёт выставлен. Он появился в списке документов.';
 
+/**
+ * Запасное название позиции мест. Сервер присылает `name` из строки каталога
+ * («Дополнительные сотрудники»); запасной текст нужен только исторической
+ * строке без имени, чтобы колонка не показала голое «3 места».
+ */
+const SEATS_SUBJECT = 'Дополнительные места';
+
 /** Переходы статуса, доступные кабинету организации: оплата ушла оператору. */
 type CabinetInvoiceStatus = Extract<UpdatableInvoiceStatus, 'cancelled' | 'closed'>;
 
@@ -56,6 +63,50 @@ function purchasedFlag(state: unknown): boolean {
   return (
     !!state && typeof state === 'object' && (state as { purchased?: unknown }).purchased === true
   );
+}
+
+/** «1 место», «5 мест»: количество мест в составе счёта. */
+function seatsLabel(quantity: number): string {
+  const lastTwo = quantity % 100;
+  if (lastTwo >= 11 && lastTwo <= 14) return `${quantity} мест`;
+  const last = quantity % 10;
+  const word = last === 1 ? 'место' : last >= 2 && last <= 4 ? 'места' : 'мест';
+  return `${quantity} ${word}`;
+}
+
+/**
+ * Состав счёта для колонки «Предмет»: «Домовой · 6 месяцев + 5 мест».
+ *
+ * Считает по позициям сервера (`items`), а не по снимку первой позиции:
+ * у счёта за «тариф + места» предмет один документ, но позиций две, и колонка
+ * называет обе. Сумму, статус и файлы экран по-прежнему берёт готовыми.
+ *
+ * **Одиночный счёт за места называет предмет.** У позиции мест сервер присылает
+ * `name` («Дополнительные сотрудники»); без него строка «3 места» не отвечает на
+ * вопрос, что именно куплено, — поэтому при одной позиции имя выводится перед
+ * количеством. У счёта «тариф + места» имя позиции мест не дублируется: тариф
+ * уже назван первой позицией, и «… + 5 мест» читается короче.
+ *
+ * Исторический счёт без позиций (до бэкфилла) отдаётся снимком `tariff_name`:
+ * колонка не ломается на старых документах.
+ */
+function invoiceSubject(invoice: Invoice): string {
+  const items = invoice.items ?? [];
+  if (items.length === 0) return invoice.tariff_name ?? '—';
+
+  const [only] = items;
+  if (items.length === 1 && only !== undefined) {
+    if (only.kind !== 'seats') return only.name ?? invoice.tariff_name ?? '—';
+    return `${only.name ?? SEATS_SUBJECT} · ${seatsLabel(only.quantity ?? 0)}`;
+  }
+
+  return items
+    .map((item) =>
+      item.kind === 'seats'
+        ? seatsLabel(item.quantity ?? 0)
+        : (item.name ?? invoice.tariff_name ?? '—'),
+    )
+    .join(' + ');
 }
 
 /**
@@ -199,7 +250,7 @@ export function Documents(): JSX.Element {
                   <tr key={invoice.id} data-testid="documents-row">
                     <td data-testid="document-number">{invoice.number}</td>
                     <td data-testid="document-date">{formatDate(invoice.created_at)}</td>
-                    <td data-testid="document-tariff">{invoice.tariff_name ?? '—'}</td>
+                    <td data-testid="documents-items">{invoiceSubject(invoice)}</td>
                     <td data-testid="document-amount">{invoice.amount_label}</td>
                     <td>
                       <span
