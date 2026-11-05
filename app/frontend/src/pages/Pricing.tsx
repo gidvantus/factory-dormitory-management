@@ -273,6 +273,12 @@ export function Pricing(): JSX.Element {
 
             {status === 'ready' && licenses.length > 0 && (
               <LicenseCalculator
+                // Срок действующей лицензии приходит асинхронно (`/api/tariffs/current`
+                // стартует после `/api/me`), а калькулятор выбирает срок в своём
+                // состоянии при монтировании. `key` пересоздаёт его, когда подписка
+                // появилась: иначе организация с лицензией на 12 месяцев видела бы
+                // по умолчанию выбранные 6 и «Выставить счёт» предлагал бы не тот срок.
+                key={subscription?.tariff?.period ?? 'default'}
                 licenses={licenses}
                 bands={extraSeats?.bands ?? null}
                 maxQuantity={extraSeats?.max_quantity ?? 0}

@@ -454,6 +454,51 @@ describe('шапка и подвал страницы тарифов', () => {
     );
   });
 
+  it('подставляет срок действующей лицензии, когда подписка пришла позже прайса', async () => {
+    // Проверка про гонку: прайс и ступени приходят сразу, а `/api/tariffs/current`
+    // стартует только после `/api/me` и отвечает позже — калькулятор к этому
+    // моменту уже смонтирован. Отвечаем с задержкой, чтобы порядок был такой же,
+    // как в браузере, а не случайный.
+    const handler = signedInRoutes(undefined, {
+      current: {
+        status: 200,
+        body: {
+          ...NO_SUBSCRIPTION,
+          tariff: LICENSES[1],
+          ends_at: '2027-01-01T00:00:00Z',
+          days_left: 300,
+          is_expiring: false,
+          member_limit: 10,
+        },
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/api/tariffs/current')) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        const { status, body } = handler(url, init);
+        return new Response(JSON.stringify(body), {
+          status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+    renderApp('/pricing');
+
+    expect(await screen.findByTestId('license-calculator')).toBeInTheDocument();
+
+    // Без пересоздания калькулятора выбранным остался бы первый срок прайса.
+    await waitFor(
+      () => expect(screen.getByTestId('license-term-year')).toHaveAttribute('aria-pressed', 'true'),
+      { timeout: 2000 },
+    );
+    expect(screen.getByTestId('license-term-half_year')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('license-total')).toHaveTextContent('100 000 ₽');
+  });
+
   it('открывает вход окном на самой странице тарифов', async () => {
     mockFetch(publicRoutes());
     const user = userEvent.setup();

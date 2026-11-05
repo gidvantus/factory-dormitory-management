@@ -114,11 +114,35 @@ const SEATS_INVOICE = {
     },
     {
       kind: 'seats',
-      name: null,
+      // Имя позиции мест сервер берёт из строки каталога `extra_member`.
+      name: 'Дополнительные сотрудники',
       period: null,
       quantity: 5,
       unit_amount: '1500.00',
       amount: '7500.00',
+    },
+  ],
+};
+
+/** Докупка мест из магазина: один счёт из одной позиции `seats`. */
+const SEATS_ONLY_INVOICE = {
+  ...NEW_INVOICE,
+  id: 5,
+  number: 'СЧ-2026-5',
+  item_kind: 'seats',
+  quantity: 3,
+  amount: '4500.00',
+  amount_label: '4 500 ₽',
+  tariff_name: 'Дополнительные сотрудники',
+  tariff_period: 'month',
+  items: [
+    {
+      kind: 'seats',
+      name: 'Дополнительные сотрудники',
+      period: 'month',
+      quantity: 3,
+      unit_amount: '1500.00',
+      amount: '4500.00',
     },
   ],
 };
@@ -192,6 +216,19 @@ describe('раздел «Документы» в кабинете', () => {
     // Сумму и статус по-прежнему отдаёт сервер.
     expect(screen.getByTestId('document-amount')).toHaveTextContent('67 500 ₽');
     expect(screen.getByTestId('document-status')).toHaveTextContent('Новый');
+  });
+
+  it('называет предмет у счёта за места, а не только их количество', async () => {
+    // Докупка из магазина даёт счёт с одной позицией `seats`: строка «3 места»
+    // не отвечает на вопрос, что куплено, поэтому имя позиции выводится тоже.
+    mockFetch(routes({ status: 200, body: [SEATS_ONLY_INVOICE] }));
+    renderApp('/cabinet/documents');
+
+    await screen.findByTestId('documents-row');
+
+    expect(screen.getByTestId('documents-items')).toHaveTextContent(
+      'Дополнительные сотрудники · 3 места',
+    );
   });
 
   it('называет решение магазина в составе счёта', async () => {
