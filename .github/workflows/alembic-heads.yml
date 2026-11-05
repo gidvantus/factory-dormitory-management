@@ -1,0 +1,50 @@
+name: Одна голова alembic
+
+# Зачем: `api` начинает старт с `alembic upgrade head` (app/backend/entrypoint.sh).
+# Две головы в дереве ревизий — и alembic выходит с «Multiple head revisions»,
+# контейнер `api` уходит в цикл перезапуска, а основной домен отдаёт 502 на
+# `/api/health`. Так было после каждого параллельного слияния develop-s:
+# #133, #139, #159 и снова 5 ноября 2026 — на `main` после слияния develop-s
+# (#169) и develop-m (#170), уже на боевом сервере.
+#
+# Тест-страховка на одну голову в репозитории была
+# (`app/backend/tests/migration_support.py`, `assert_single_head`), но её никто
+# не запускал: workflow на `pull_request` не существовало. Этот файл его
+# заменяет — ровно одной проверкой, без линтеров и тестов, чтобы первый же
+# красный прогон означал именно то, что написано, и гейт не спорил с
+# известными расхождениями в тестах.
+#
+# Команда та же, что в деплое и на машине разработчика:
+#   python _tools/alembic-heads.py
+# Ни alembic, ни зависимости `app/backend` не нужны: скрипт разбирает файлы
+# ревизий как текст модуля (`ast`), а не импортом.
+
+on:
+  pull_request:
+    branches:
+      - develop-m
+      - main
+
+# Новый коммит в тот же pull request отменяет старый прогон: ждать результат
+# по устаревшему коду незачем.
+concurrency:
+  group: alembic-heads-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  single-head:
+    name: Одна голова миграций
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: "Проверка: в дереве alembic ровно одна голова"
+        # Падение печатает список голов и куда идти: нужна сводящая ревизия с
+        # кортежем `down_revision` (образец —
+        # app/backend/alembic/versions/0063_merge_main_heads.py). Лечится до
+        # слияния, а не деплоем на боевой сервер.
+        run: python3 _tools/alembic-heads.py

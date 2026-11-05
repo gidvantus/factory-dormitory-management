@@ -105,14 +105,14 @@ Windows-машины, приходит с `\r`, ssh такой файл не ч�
    `docker compose`, поэтому в workflow флаг `-p` не передаётся.
 7. DNS: A-запись домена на адрес сервера, `www` и `operator` — на тот же адрес,
    без AAAA и без прокси/CDN — ACME должен получить прямой ответ на портах 80 и
-   443 (`docs/ssl.md`). Без `operator.<домен>` деплой красный на шаге 16:
+   443 (`docs/ssl.md`). Без `operator.<домен>` деплой красный на шаге 17:
    сертификат на поддомен не выпустится.
 8. Порты 80/443 на машине должны быть свободны: стенд Vahta занимает их на
    своём сервере, CRMDormitory нужен отдельный сервер или своя цепочка прокси.
 
 ## Диагностика: шаг → что делает → типичная ошибка
 
-Шагов в workflow ровно семнадцать, таблица повторяет их порядок и имена.
+Шагов в workflow ровно восемнадцать, таблица повторяет их порядок и имена.
 
 | № | Шаг | Что делает | Типичная ошибка |
 |---|---|---|---|
@@ -120,19 +120,54 @@ Windows-машины, приходит с `\r`, ssh такой файл не ч�
 | 2 | `Проверка: деплой только из ветки main` | пускает запуск только из `refs/heads/main` | нажали «Run workflow», выбрав `develop-m` или ветку задачи: шаг красный, деплой не начался — рабочая ветка попадает на сервер только через слияние в `main` |
 | 3 | `Проверка: секреты деплоя заданы` | перечисляет отсутствующие `CRM_SSH_KEY`/`CRM_SSH_HOST`/`CRM_SSH_USER` и падает | секреты не заведены или заведены в Environment вместо Repository: пока их нет, падение обязано быть здесь, до SSH |
 | 4 | `Ревизия: какой коммит поедет на сервер` | печатает ветку, `github.sha`, `git log -1` | ошибки нет; шаг нужен, чтобы в логе деплоя остался точный коммит |
-| 5 | `SSH: настроить ключ доступа` | пишет ключ в `~/.ssh/id_ed25519`, чистит CRLF, проверяет читаемость `ssh-keygen -y` и заводит псевдоним `crm-deploy` в `~/.ssh/config` (ключ, порт, `BatchMode`, `ConnectTimeout`) — дальше все шаги обращаются к серверу только по нему | ключ скопирован с CRLF или обрезан (нет `-----END`): `ssh-keygen` не читает файл |
-| 6 | `SSH: проверка подключения` | `ssh` с `BatchMode=yes`, печатает `===SSH-OK===`, `hostname`, `whoami` | публичная часть ключа не в `authorized_keys`, не тот пользователь, закрыт порт, `CRM_SSH_HOST` указывает не туда — `Permission denied (publickey)` или таймаут |
-| 7 | `Сервер: проверка .env по чек-листу TLS` | читает `.env` сервера и требует непустые `SITE_DOMAIN`, `ACME_EMAIL`, `CADDY_ACME_CA`, `FRONTEND_PORT`, `API_PORT`, `FRONTEND_BASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_SERVICE_TOKEN`, `OPERATOR_USERNAME`, `OPERATOR_PASSWORD`, `OPERATOR_TOKEN_SECRET`, `SESSION_COOKIE_SECURE=true`, `OPERATOR_SESSION_COOKIE_SECURE=true`; порты `FRONTEND_PORT`, `API_PORT`, `OPERATOR_API_PORT`, `OPERATOR_FRONTEND_PORT` обязаны начинаться с `127.0.0.1`; заглушки `.env.example` (`OPERATOR_PASSWORD=change-me`, `JWT_SECRET` и `OPERATOR_TOKEN_SECRET` с `local-stand-only` или `change-me`) отклоняются | файла нет, ключ пуст, `FRONTEND_PORT=8080` без `127.0.0.1` (тогда caddy не получит порт 80), `OPERATOR_FRONTEND_PORT=8081` без `127.0.0.1` или `OPERATOR_API_PORT=0.0.0.0:8002`, `SESSION_COOKIE_SECURE` или `OPERATOR_SESSION_COOKIE_SECURE` не `true`, не заданы токены бота (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_SERVICE_TOKEN`), не заданы `JWT_SECRET`/`OPERATOR_USERNAME`/`OPERATOR_PASSWORD`/`OPERATOR_TOKEN_SECRET`, оставлены заглушки `change-me` или `local-stand-only-…` — сообщение называет конкретный ключ и отправляет в `docs/ssl.md` и `docs/deploy.md` |
-| 8 | `Сервер: бэкап БД перед обновлением` | ищет контейнер через `docker compose ps -aq db` (ошибка «нет compose-файла» на первом деплое глушится), снимает `pg_dump -Fc` в `backups/crm_<TS>.dump`; контейнера нет — `::warning::` и дальше, контейнер есть но остановлен — ошибка и стоп | нет места на диске, `POSTGRES_USER`/`POSTGRES_DB` пусты в окружении контейнера — `pg_dump` возвращает ошибку и шаг красный; «БД существует, но не запущена» значит, что база остановлена, а деплой пошёл бы с миграциями без страховки — поднять `docker compose --profile tls up -d db` и повторить |
-| 9 | `Архив: упаковать и передать на сервер` | `git archive` в `/tmp/deploy.tar` и `scp` на сервер | архив не собрался из-за автоконвертации строк (`core.autocrlf` уже отключён) или `scp` упёрся в квоту и место в `/tmp` сервера |
-| 10 | `Сервер: распаковка в $REMOTE_DIR` | `tar -xf` в `/tmp/crm-deploy-stage` и `rsync -a --delete` с исключениями `.env` и `backups/` | нет прав на `/srv/crm-dormitory` (каталог принадлежит другому пользователю); исключения сломаны — тогда уехали бы `.env` и дампы, поэтому их ровно два и `.env*` исключать нельзя (`.env.example` обязателен compose) |
-| 11 | `Сервер: сборка образов` | `docker compose --profile tls build` в `/srv/crm-dormitory`; собираются четыре образа — `api`, `web`, `operator-api`, `operator-web` | кончилось место под образы, долгая сборка фронта по памяти, ошибка в `Dockerfile` — старый контейнер при этом ещё работает, простой не начался |
-| 12 | `Сервер: запуск стека (здесь же миграции)` | `docker compose --profile tls up -d --no-build --remove-orphans --wait --wait-timeout 180`; миграции применяет `api` при старте | упавшая миграция роняет `api` и этот шаг; пустые `TELEGRAM_BOT_TOKEN`/`TELEGRAM_SERVICE_TOKEN` в `.env` роняют `bot` в рестарт по кругу, и шаг тоже красный (но такие `.env` отсекает шаг 7 — если красный всё-таки здесь, смотрите `docker compose logs bot`); `bind: address already in use` на `8081` — это `OPERATOR_FRONTEND_PORT` по умолчанию занял порт `FRONTEND_PORT`, задайте `OPERATOR_FRONTEND_PORT=127.0.0.1:8082`; `operator-api` в рестарте из-за пустого `OPERATOR_PASSWORD` (смотрите `docker compose logs operator-api`); `--wait` проверяет `db`, `caddy` и оба сервиса кабинета оператора, а у `api`/`web`/`bot` healthcheck'ов нет, поэтому зелёный шаг ещё не значит «стек жив» — настоящие проверки ниже |
-| 13 | `Сервер: ANALYZE после миграций` | находит контейнер БД через `docker compose ps -q db` и выполняет `psql -c 'ANALYZE'` | контейнер БД не найден (стек не поднялся) или `psql` недоступен в образе БД — шаг красный, деплой остановлен |
-| 14 | `Сервер: перечитать конфиг caddy` | `docker exec <id> caddy reload --config /etc/caddy/Caddyfile`, при ошибке — `up -d --force-recreate caddy` | `reload` падает на синтаксисе `Caddyfile`; тогда контейнер пересоздаётся, сертификаты переживают это в томе `caddy_data` — том не удалять |
-| 15 | `Проверка: /healthz по HTTP на сервере` | `curl http://localhost/healthz`, требует 200 | caddy не поднялся или сломан блок `:80` в `caddy/Caddyfile` (он обязан отдавать 200 без редиректа) |
-| 16 | `Проверка: /api/health по HTTPS` | читает `SITE_DOMAIN` из `.env` и делает `curl --resolve <домен>:443:127.0.0.1 https://<домен>/api/health`, требует 200 и `"status":"ok"`; затем то же для `operator.<домен>`: `/healthz` → 200 и тело `ok` (маршрут caddy → `operator-web`), `/api/health` → 200 (цепочка до `operator-api`) | нет A-записи или сертификат не выпущен (ошибка TLS), `api` упал после старта, nginx фронта не проксирует `/api/`; для операторского хоста — нет A-записи `operator.<домен>`, упал `operator-web`/`operator-api` или сломан site-блок поддомена. Код возврата curl захватывается явно: при провале шаг печатает текст ошибки curl и `docker compose --profile tls logs --tail=20 caddy` |
-| 17 | `Итог: деплой завершён` | печатает `github.sha`, домен и `docker compose ps` | ошибки нет; по `ps` видно, все ли контейнеры `running` |
+| 5 | `Проверка: одна голова миграций alembic` | запускает `python3 _tools/alembic-heads.py`: разбирает `app/backend/alembic/versions` и требует ровно одну голову; alembic и зависимости api на раннере не нужны | в дереве две головы: параллельно слили develop-s и develop-m (`#169`, `#170`) или две ветки независимо добавили сводящую ревизию. `api` на таком дереве уходит в цикл перезапуска на `alembic upgrade head`, а сайт отдаёт 502 — поэтому шаг красный ДО SSH и до бэкапа. Нужна сводящая ревизия (`down_revision` — кортеж голов), образец — `0063_merge_main_heads.py` |
+| 6 | `SSH: настроить ключ доступа` | пишет ключ в `~/.ssh/id_ed25519`, чистит CRLF, проверяет читаемость `ssh-keygen -y` и заводит псевдоним `crm-deploy` в `~/.ssh/config` (ключ, порт, `BatchMode`, `ConnectTimeout`) — дальше все шаги обращаются к серверу только по нему | ключ скопирован с CRLF или обрезан (нет `-----END`): `ssh-keygen` не читает файл |
+| 7 | `SSH: проверка подключения` | `ssh` с `BatchMode=yes`, печатает `===SSH-OK===`, `hostname`, `whoami` | публичная часть ключа не в `authorized_keys`, не тот пользователь, закрыт порт, `CRM_SSH_HOST` указывает не туда — `Permission denied (publickey)` или таймаут |
+| 8 | `Сервер: проверка .env по чек-листу TLS` | читает `.env` сервера и требует непустые `SITE_DOMAIN`, `ACME_EMAIL`, `CADDY_ACME_CA`, `FRONTEND_PORT`, `API_PORT`, `FRONTEND_BASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_SERVICE_TOKEN`, `OPERATOR_USERNAME`, `OPERATOR_PASSWORD`, `OPERATOR_TOKEN_SECRET`, `SESSION_COOKIE_SECURE=true`, `OPERATOR_SESSION_COOKIE_SECURE=true`; порты `FRONTEND_PORT`, `API_PORT`, `OPERATOR_API_PORT`, `OPERATOR_FRONTEND_PORT` обязаны начинаться с `127.0.0.1`; заглушки `.env.example` (`OPERATOR_PASSWORD=change-me`, `JWT_SECRET` и `OPERATOR_TOKEN_SECRET` с `local-stand-only` или `change-me`) отклоняются | файла нет, ключ пуст, `FRONTEND_PORT=8080` без `127.0.0.1` (тогда caddy не получит порт 80), `OPERATOR_FRONTEND_PORT=8081` без `127.0.0.1` или `OPERATOR_API_PORT=0.0.0.0:8002`, `SESSION_COOKIE_SECURE` или `OPERATOR_SESSION_COOKIE_SECURE` не `true`, не заданы токены бота (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_SERVICE_TOKEN`), не заданы `JWT_SECRET`/`OPERATOR_USERNAME`/`OPERATOR_PASSWORD`/`OPERATOR_TOKEN_SECRET`, оставлены заглушки `change-me` или `local-stand-only-…` — сообщение называет конкретный ключ и отправляет в `docs/ssl.md` и `docs/deploy.md` |
+| 9 | `Сервер: бэкап БД перед обновлением` | ищет контейнер через `docker compose ps -aq db` (ошибка «нет compose-файла» на первом деплое глушится), снимает `pg_dump -Fc` в `backups/crm_<TS>.dump`; контейнера нет — `::warning::` и дальше, контейнер есть но остановлен — ошибка и стоп | нет места на диске, `POSTGRES_USER`/`POSTGRES_DB` пусты в окружении контейнера — `pg_dump` возвращает ошибку и шаг красный; «БД существует, но не запущена» значит, что база остановлена, а деплой пошёл бы с миграциями без страховки — поднять `docker compose --profile tls up -d db` и повторить |
+| 10 | `Архив: упаковать и передать на сервер` | `git archive` в `/tmp/deploy.tar` и `scp` на сервер | архив не собрался из-за автоконвертации строк (`core.autocrlf` уже отключён) или `scp` упёрся в квоту и место в `/tmp` сервера |
+| 11 | `Сервер: распаковка в $REMOTE_DIR` | `tar -xf` в `/tmp/crm-deploy-stage` и `rsync -a --delete` с исключениями `.env` и `backups/` | нет прав на `/srv/crm-dormitory` (каталог принадлежит другому пользователю); исключения сломаны — тогда уехали бы `.env` и дампы, поэтому их ровно два и `.env*` исключать нельзя (`.env.example` обязателен compose) |
+| 12 | `Сервер: сборка образов` | `docker compose --profile tls build` в `/srv/crm-dormitory`; собираются четыре образа — `api`, `web`, `operator-api`, `operator-web` | кончилось место под образы, долгая сборка фронта по памяти, ошибка в `Dockerfile` — старый контейнер при этом ещё работает, простой не начался |
+| 13 | `Сервер: запуск стека (здесь же миграции)` | `docker compose --profile tls up -d --no-build --remove-orphans --wait --wait-timeout 300`; миграции применяет `api` при старте | упавшая миграция роняет `api` и теперь краснит ЭТОТ шаг (у `api` есть healthcheck), а не превращается в 502 на шаге 17; пустые `TELEGRAM_BOT_TOKEN`/`TELEGRAM_SERVICE_TOKEN` в `.env` роняют `bot` в рестарт по кругу (но такие `.env` отсекает шаг 8 — если красный всё-таки здесь, смотрите `docker compose logs bot`); `bind: address already in use` на `8081` — это `OPERATOR_FRONTEND_PORT` по умолчанию занял порт `FRONTEND_PORT`, задайте `OPERATOR_FRONTEND_PORT=127.0.0.1:8082`; `operator-api` в рестарте из-за пустого `OPERATOR_PASSWORD` (смотрите `docker compose logs operator-api`); `--wait` проверяет `db`, `api`, `caddy` и оба сервиса кабинета оператора, а у `web` и `bot` healthcheck'ов нет — настоящие проверки работоспособности ниже, шаги 16 и 17 |
+| 14 | `Сервер: ANALYZE после миграций` | находит контейнер БД через `docker compose ps -q db` и выполняет `psql -c 'ANALYZE'` | контейнер БД не найден (стек не поднялся) или `psql` недоступен в образе БД — шаг красный, деплой остановлен |
+| 15 | `Сервер: перечитать конфиг caddy` | `docker exec <id> caddy reload --config /etc/caddy/Caddyfile`, при ошибке — `up -d --force-recreate caddy` | `reload` падает на синтаксисе `Caddyfile`; тогда контейнер пересоздаётся, сертификаты переживают это в томе `caddy_data` — том не удалять |
+| 16 | `Проверка: /healthz по HTTP на сервере` | `curl http://localhost/healthz`, требует 200 | caddy не поднялся или сломан блок `:80` в `caddy/Caddyfile` (он обязан отдавать 200 без редиректа) |
+| 17 | `Проверка: /api/health по HTTPS` | читает `SITE_DOMAIN` из `.env` и делает `curl --resolve <домен>:443:127.0.0.1 https://<домен>/api/health`, требует 200 и `"status":"ok"`; затем то же для `operator.<домен>`: `/healthz` → 200 и тело `ok` (маршрут caddy → `operator-web`), `/api/health` → 200 (цепочка до `operator-api`) | нет A-записи или сертификат не выпущен (ошибка TLS), `api` упал после старта, nginx фронта не проксирует `/api/`; для операторского хоста — нет A-записи `operator.<домен>`, упал `operator-web`/`operator-api` или сломан site-блок поддомена. Код возврата curl захватывается явно: при провале шаг печатает текст ошибки curl и `docker compose --profile tls logs --tail=20 caddy` |
+| 18 | `Итог: деплой завершён` | печатает `github.sha`, домен и `docker compose ps` | ошибки нет; по `ps` видно, все ли контейнеры `running` |
+
+## Если основной домен отвечает 502 на `/api/health`
+
+**Симптом.** `https://<домен>/api/health` отдаёт 502, а в теле — страница
+nginx (`<center>502 Bad Gateway</center>`, `nginx/1.27.5`). Это nginx контейнера
+`web`: он проксирует `/api/` в `api:8000` и ответа не получил. TLS и caddy при
+этом живы — `/healthz` на том же хосте отвечает 200, поэтому шаг 16 зелёный, а
+деплой краснеет на шаге 17.
+
+**Первая проверка** — жив ли `api` и что он пишет:
+
+```bash
+cd /srv/crm-dormitory
+docker compose --profile tls ps
+docker compose --profile tls logs --tail=50 api
+```
+
+**Причина, которая уже случалась четырежды** — две головы alembic: `api`
+начинает старт с `alembic upgrade head`, получает «Multiple head revisions» и
+уходит в цикл перезапуска (`Restarting (1)` в `ps`). Проверяется без сервера:
+
+```bash
+python _tools/alembic-heads.py
+```
+
+**Исправление** — сводящая ревизия (образец — `0063_merge_main_heads.py`),
+merge в `main` и повторный запуск деплоя. На сервер такое теперь не уезжает:
+шаг 5 проверяет головы до SSH, а pull request — до слияния
+(`.github/workflows/alembic-heads.yml`).
+
+**Если `api` в `restarting` не из-за голов** — те же логи называют причину:
+пустой `JWT_SECRET` (обычно отсекает шаг 8), недоступная база, упавшая
+миграция. Если `api` `healthy`, а 502 остался — смотрите логи `web`:
+nginx не смог разрешить имя `api` в сети compose (стек поднимали не целиком).
 
 ## Первый деплой (чистый сервер)
 
@@ -144,11 +179,11 @@ Windows-машины, приходит с `\r`, ssh такой файл не ч�
 4. Первый выпуск сертификата удобно делать на staging ACME
    (`CADDY_ACME_CA=https://acme-staging-v02.api.letsencrypt.org/directory`), затем
    вернуть боевую директорию — порядок в `docs/ssl.md`. **Пока стоит staging,
-   шаг 16 ожидаемо красный**: staging-сертификат не в доверенных, `curl` без `-k`
+   шаг 17 ожидаемо красный**: staging-сертификат не в доверенных, `curl` без `-k`
    получает код 60 и пустое тело. Это не сбой стека и не повод искать A-запись:
    верните в `.env` боевую `CADDY_ACME_CA`, перезапустите caddy (шаг 14 сделает
    это сам) и запустите деплой ещё раз.
-5. Итог: шаг 15 и шаг 16 зелёные, `docker compose ps` показывает `db`, `api`,
+5. Итог: шаг 16 и шаг 17 зелёные, `docker compose ps` показывает `db`, `api`,
    `web`, `bot`, `caddy` и кабинет оператора — `operator-api`, `operator-web`.
 
 ## Откат
@@ -169,7 +204,7 @@ docker exec "$DB" rm -f /tmp/restore.dump
 ```
 
 **Схема.** Дамп несёт и схему, поэтому восстановление возвращает базу к тому
-состоянию, в котором её снял шаг 8. Отдельного `alembic downgrade` в откате нет.
+состоянию, в котором её снял шаг 9. Отдельного `alembic downgrade` в откате нет.
 
 **После восстановления `api` и `bot` остаются остановленными** — сайт отдаёт 502
 до тех пор, пока их не поднимут. Поднимает их только повторный деплой после
@@ -190,17 +225,21 @@ merge-коммитом и повторный запуск workflow из `main`. 
 ## Что не автоматизировано
 
 - **Автоотката нет.** Плохой деплой откатывается руками по разделу «Откат».
-- **Healthcheck'ов у `api`, `web` и `bot` нет.** `docker compose up --wait`
-  проверяет `db`, `caddy`, `operator-api`, `operator-web`; у `api`/`web`/`bot`
-  healthcheck'ов нет, поэтому единственная настоящая проверка
-  работоспособности — шаги 15 и 16. Healthcheck'и для этих сервисов — отдельная
-  задача, эта их не добавляет.
-- **Ротации бэкапов и внешней копии нет.** Шаг 8 снимает дамп только перед
+- **Healthcheck есть у `api`, у `web` и `bot` его нет.** `docker compose up
+  --wait` проверяет `db`, `api`, `caddy`, `operator-api`, `operator-web`; `web`
+  стартует только после того, как `api` стал `healthy`, поэтому 502 от nginx
+  фронта на `/api/` теперь означает именно упавший `api`, а не гонку старта.
+  У `bot` healthcheck'а нет: это воркер опроса Bot API, его живость видна по
+  логам, и в проверках деплоя он не участвует.
+- **Ротации бэкапов и внешней копии нет.** Шаг 9 снимает дамп только перед
   миграциями, копит его в `backups/` без ротации и никуда не выгружает.
   Ежедневная копия в S3, ротация последних 10 дампов и восстановление из бакета
   — `docs/backup.md` и `.github/workflows/backup-db.yml`.
-- **CI и гейта тестов нет.** Деплой запускается вручную и не ждёт прогонов
-  `pytest`/`vitest`: на момент этой задачи в репозитории нет ни `.github`, ни CI.
+- **Гейта тестов нет, гейт одной головы alembic есть.** Деплой запускается
+  вручную и не ждёт прогонов `pytest`/`vitest`. Единственная проверка pull
+  request — `.github/workflows/alembic-heads.yml` («одна голова миграций»):
+  именно её отсутствие стоило четырёх падений `api` на стенде (#133, #139,
+  #159 и 5 ноября 2026). Тесты остальных видов — отдельная задача.
 - **Мониторинга и уведомлений о сбоях нет.** Ежедневный бэкап по расписанию
   есть (`docs/backup.md`), но о его падении никто не сообщает: смотреть Actions.
 - **Кабинет оператора выведен на поддомен** `https://operator.<SITE_DOMAIN>`
@@ -210,7 +249,7 @@ merge-коммитом и повторный запуск workflow из `main`. 
   `crm_session` основного кабинета. Публикация кабинета на loopback
   (`OPERATOR_API_PORT=127.0.0.1:8002`, `OPERATOR_FRONTEND_PORT=127.0.0.1:8082`)
   сохраняется как резервный SSH-туннель; две сессии (через домен и через туннель)
-  — норма, а не дефект. Проверки шага 16 покрывают оба хоста: основной домен и
+  — норма, а не дефект. Проверки шага 17 покрывают оба хоста: основной домен и
   `operator.<домен>`.
 
 ## Кнопка «Run workflow» и ветка `main`
@@ -232,6 +271,14 @@ rebase: иначе следующие слияния сломаются), пос
 
 ## Изменения
 
+- 2026-11-05 — деплой перестал прятать упавший `api`: проверка «одна голова
+  миграций» стала шагом 5 (до SSH и до бэкапа) и workflow проверок pull request
+  (`_tools/alembic-heads.py`, `.github/workflows/alembic-heads.yml`); у `api`
+  появился healthcheck, `web` ждёт `service_healthy`, ожидание стека — 300 с, а
+  провал шага 17 печатает логи `api`, `web` и `caddy`, а не только `caddy`.
+  Причина падения в этот день — две головы alembic на `main` после слияния
+  develop-s (#169) и develop-m (#170); сводящая ревизия —
+  `0063_merge_main_heads`.
 - 2026-11-05 — кабинет оператора выведен на поддомен
   `operator.<SITE_DOMAIN>`: site-блок в `caddy/Caddyfile`, хост в матчере
   редиректа блока `:80`, вторая пара проверок в шаге 16. Loopback-порты кабинета

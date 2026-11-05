@@ -7,10 +7,10 @@ name: Деплой на боевой сервер
 # Деплой выполняется ТОЛЬКО отсюда: Actions → «Деплой на боевой сервер» →
 # «Run workflow» из ветки main. Каждый шаг назван по стадии работы, чтобы
 # по подсвеченному красным шагу сразу было видно, где встал деплой. Порядок:
-# проверка ветки и секретов → ревизия коммита → ключ и связь по SSH → чек-лист
-# .env сервера → бэкап БД → архив из main → распаковка → сборка образов →
-# запуск стека (здесь же миграции) → ANALYZE → reload caddy → /healthz →
-# /api/health по HTTPS → итог.
+# проверка ветки и секретов → ревизия коммита → одна голова миграций → ключ и
+# связь по SSH → чек-лист .env сервера → бэкап БД → архив из main → распаковка →
+# сборка образов → запуск стека (здесь же миграции) → ANALYZE → reload caddy →
+# /healthz → /api/health по HTTPS → итог.
 #
 # Про ветки: код и этот файл правятся в рабочей ветке, релиз — это merge
 # рабочей ветки в main merge-коммитом, а деплой запускается только из main.
@@ -91,6 +91,20 @@ jobs:
           echo "Ветка:  $GITHUB_REF_NAME"
           echo "Коммит: $GITHUB_SHA"
           git log -1 --oneline
+
+      - name: "Проверка: одна голова миграций alembic"
+        # Падение обязано происходить здесь, до SSH и до бэкапа. `api`
+        # начинает старт с `alembic upgrade head` (app/backend/entrypoint.sh):
+        # при двух головах он выходит с «Multiple head revisions» и уходит в
+        # цикл перезапуска, а nginx фронта отдаёт 502 на /api/ — так деплой
+        # 5 ноября дошёл до шага 17 и покраснел на 502 вместо внятной причины.
+        # Проверка читает `alembic/versions` как текст модулей: alembic и
+        # зависимости api на раннере не нужны. Тот же скрипт запускается в
+        # проверках pull request (.github/workflows/alembic-heads.yml) и руками:
+        #   python _tools/alembic-heads.py
+        run: |
+          set -euo pipefail
+          python3 _tools/alembic-heads.py
 
       - name: "SSH: настроить ключ доступа"
         env:
@@ -318,12 +332,17 @@ jobs:
           # Миграции применяет сам api при старте (app/backend/entrypoint.sh:
           # alembic upgrade head, затем uvicorn), поэтому отдельного шага
           # миграций нет. Ошибка alembic роняет api и этот шаг.
-          # --wait проверяет db, caddy, operator-api, operator-web; у api, web и
-          # bot healthcheck'ов нет, поэтому зелёный шаг ещё не доказывает, что
-          # они живы. Настоящие проверки — шаги /healthz и /api/health ниже.
+          # --wait проверяет db, caddy, operator-api, operator-web и api: у api
+          # теперь есть healthcheck (docker-compose.yml), поэтому упавшая
+          # миграция краснит ЭТОТ шаг, а не превращается в 502 на проверке
+          # HTTPS. У web и bot healthcheck'ов нет: web — статика nginx за
+          # живым api, bot живёт по своему циклу опроса. Настоящие проверки —
+          # шаги /healthz и /api/health ниже.
+          # --wait-timeout 300: у api start_period 120 с (миграции на чистом
+          # сервере идут дольше старта приложения) плюс до пяти retry по 15 с.
           # shellcheck disable=SC2029
           ssh "$SSH_TARGET" \
-              "cd $REMOTE_DIR && docker compose --profile tls up -d --no-build --remove-orphans --wait --wait-timeout 180"
+              "cd $REMOTE_DIR && docker compose --profile tls up -d --no-build --remove-orphans --wait --wait-timeout 300"
 
       - name: "Сервер: ANALYZE после миграций"
         run: |
@@ -397,11 +416,21 @@ jobs:
           # с упавшим curl завершает шаг молча, без текста ошибки — так 3 ноября
           # и потеряли диагностику на основном домене. Поэтому обе проверки —
           # основной домен и поддомен кабинета — идут через один механизм.
+          #
+          # В дампе логов — все три звена цепочки: 502 отдаёт nginx фронта,
+          # когда не может достучаться до `api:8000`, а бывает это по вине
+          # самого api (упавшие миграции) или caddy. Одни логи caddy в этом
+          # случае бесполезны: 5 ноября в них не было ни слова о причине.
           fail_dump() {
             echo "::error::$1"
             printf '%s\n' "--- ответ curl: $2"
             # shellcheck disable=SC2029
-            remote "cd $REMOTE_DIR && docker compose --profile tls logs --tail=20 caddy" || true
+            remote "cd $REMOTE_DIR && docker compose --profile tls ps" || true
+            for service in api web caddy; do
+              echo "--- логи $service (последние 20 строк)"
+              # shellcheck disable=SC2029
+              remote "cd $REMOTE_DIR && docker compose --profile tls logs --tail=20 $service" || true
+            done
             exit 1
           }
 
