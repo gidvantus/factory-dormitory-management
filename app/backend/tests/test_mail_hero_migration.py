@@ -2,7 +2,7 @@
 
 Проверяется то, что ломается тихо:
 
-* ревизия стоит на своде голов (`0063_merge_views_heads`), а свод — на двух прежних
+* ревизия стоит на своде голов (`0063_merge_main_heads`), а свод — на двух прежних
   головах: на двух головах `alembic upgrade head` падает с «Multiple head revisions»,
   и `api` уходит в цикл перезапусков;
 * `upgrade` проставляет вёрстку с `src="cid:domovoy-house@domovoy"` ровно строкам
@@ -15,24 +15,21 @@
 * ассет существует, это PNG 224×224 (показ 112×112), и он не пустой: письмо едет
   вложением, а не ссылкой на хостинг.
 
-Настоящий DDL-ный прогон (`alembic upgrade head`, `downgrade -1`, снова `upgrade`)
-делается на стенде: SQLite `IF NOT EXISTS` в `ADD COLUMN` не понимает, поэтому
-цепочка `0059` → `0064` прогоняется здесь через `sqlite_compatible`.
+Стенд прогона ревизий на SQLite (`engine_connection`, `build_mail_templates`,
+`insert_template`, `mail_rows`, `run_upgrade`/`run_downgrade`) живёт в
+`tests/migration_support.py` один на все файлы тестов ревизий: правка `0011` иначе
+попала бы в одну копию, а вторая молча собирала бы прежнюю схему. Настоящий DDL
+(`alembic upgrade head`, `downgrade -1`, снова `upgrade`) проверяется на стенде —
+SQLite `IF NOT EXISTS` в `ADD COLUMN` не понимает, поэтому здесь DDL идёт через
+`sqlite_compatible`.
 """
 
 import struct
-from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 
-import pytest
 import sqlalchemy as sa
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from sqlalchemy import Engine, create_engine
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
 
 from app import mail as mail_module
 from app.mail import (
@@ -46,19 +43,22 @@ from tests.migration_support import (
     assert_no_external_resources,
     assert_on_previous_head,
     assert_single_head,
+    build_mail_templates,
+    insert_template,
     load_migration,
-    sqlite_compatible,
-    with_operations,
+    mail_rows,
+    run_downgrade,
+    run_upgrade,
 )
 
 VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
 ALEMBIC_DIR = VERSIONS.parent
 MIGRATION_PATH = VERSIONS / "0064_mail_hero_house.py"
 PREVIOUS_PATH = VERSIONS / "0059_mail_html_bodies.py"
-MERGE_PATH = VERSIONS / "0063_merge_views_heads.py"
+MERGE_PATH = VERSIONS / "0063_merge_main_heads.py"
 REVISION = "0064_mail_hero_house"
-PARENT = "0063_merge_views_heads"
-MERGE_REVISION = "0063_merge_views_heads"
+PARENT = "0063_merge_main_heads"
+MERGE_REVISION = "0063_merge_main_heads"
 MERGE_PARENTS = ("0060_merge_stand_heads", "0062_table_views")
 
 INVITATION_CODE = "invitation"
@@ -82,64 +82,12 @@ MIN_HOUSE_IMAGE_BYTES = 3 * 1024
 MAX_HOUSE_IMAGE_BYTES = 20 * 1024
 
 
-@pytest.fixture
-def engine_connection() -> Iterator[Connection]:
-    """Пустая база на SQLite: схему `mail_templates` собирает сама ревизия `0011`."""
-    engine: Engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    with engine.connect() as connection:
-        yield connection
-    engine.dispose()
-
-
-def operations_for(connection: Connection) -> Operations:
-    return Operations(MigrationContext.configure(connection))
-
-
-def run_migration(connection: Connection, filename: str) -> None:
-    """Прогнать `upgrade` ревизии на SQLite, сняв `IF [NOT] EXISTS` из DDL."""
-    module = sqlite_compatible(load_migration(VERSIONS / filename))
-    with_operations(module, operations_for(connection)).upgrade()
-
-
-def run_downgrade(connection: Connection, filename: str) -> None:
-    module = sqlite_compatible(load_migration(VERSIONS / filename))
-    with_operations(module, operations_for(connection)).downgrade()
-
-
-def build_mail_templates(connection: Connection) -> None:
-    """Схема `mail_templates` из `0011` — с её же сиидом активации."""
-    metadata = sa.MetaData()
-    sa.Table("users", metadata, sa.Column("id", sa.Integer(), primary_key=True))
-    metadata.create_all(connection)
-    run_migration(connection, "0011_activation_and_mail_templates.py")
-
-
-def insert_template(connection: Connection, *, code: str, subject: str, body: str) -> None:
-    connection.execute(
-        sa.text(
-            "INSERT INTO mail_templates (code, subject, body, is_active) "
-            "VALUES (:code, :subject, :body, 1)"
-        ),
-        {"code": code, "subject": subject, "body": body},
-    )
-
-
-def mail_rows(connection: Connection) -> dict[str, Any]:
-    """Строки `mail_templates` по коду: что ревизия оставила после `upgrade`."""
-    query = sa.text("SELECT code, subject, body, body_html FROM mail_templates")
-    return {str(row.code): row for row in connection.execute(query)}
-
-
 def prepared_database(connection: Connection) -> None:
     """База «как после `0059`»: оба письма с прежней вёрсткой, плюс восстановление."""
     build_mail_templates(connection)
     insert_template(connection, code=INVITATION_CODE, subject=SUBJECT, body=BODY)
     insert_template(connection, code=RECOVERY_CODE, subject=RECOVERY_SUBJECT, body=RECOVERY_BODY)
-    run_migration(connection, "0059_mail_html_bodies.py")
+    run_upgrade(connection, PREVIOUS_PATH)
 
 
 # --- Дерево ревизий ---------------------------------------------------------
@@ -166,7 +114,7 @@ def test_revision_tree_has_exactly_one_head() -> None:
 def test_upgrade_gives_the_house_to_the_two_letters(engine_connection: Connection) -> None:
     prepared_database(engine_connection)
 
-    run_migration(engine_connection, MIGRATION_PATH.name)
+    run_upgrade(engine_connection, MIGRATION_PATH)
 
     rows = mail_rows(engine_connection)
     assert set(rows) == {ACTIVATION_CODE, INVITATION_CODE, RECOVERY_CODE}
@@ -196,7 +144,7 @@ def test_upgrade_does_not_create_a_missing_template(engine_connection: Connectio
     prepared_database(engine_connection)
     engine_connection.execute(sa.text("DELETE FROM mail_templates WHERE code = 'invitation'"))
 
-    run_migration(engine_connection, MIGRATION_PATH.name)
+    run_upgrade(engine_connection, MIGRATION_PATH)
 
     rows = mail_rows(engine_connection)
     assert set(rows) == {ACTIVATION_CODE, RECOVERY_CODE}
@@ -208,10 +156,10 @@ def test_downgrade_returns_the_layout_of_0059(engine_connection: Connection) -> 
     prepared_database(engine_connection)
     previous = load_migration(PREVIOUS_PATH)
 
-    run_migration(engine_connection, MIGRATION_PATH.name)
+    run_upgrade(engine_connection, MIGRATION_PATH)
     assert HOUSE_SRC in mail_rows(engine_connection)[INVITATION_CODE].body_html
 
-    run_downgrade(engine_connection, MIGRATION_PATH.name)
+    run_downgrade(engine_connection, MIGRATION_PATH)
 
     rows = mail_rows(engine_connection)
     assert rows[INVITATION_CODE].body_html == previous.INVITATION_HTML

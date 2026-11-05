@@ -30,6 +30,8 @@ PostgreSQL, а не SQLite. Это делается на стенде коман
 """
 
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -40,6 +42,9 @@ import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.script import ScriptDirectory
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.engine import Connection
+from sqlalchemy.pool import StaticPool
 
 from app.models.base import Base
 
@@ -50,6 +55,9 @@ SRC_PATTERN = re.compile(r'src="([^"]*)"', re.IGNORECASE)
 
 # Каталог ревизий: `alembic/versions` рядом с каталогом `tests`, где лежит этот файл.
 VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+
+# Ревизия, которая заводит таблицу `mail_templates` вместе с её сиидом.
+MAIL_TEMPLATES_REVISION = "0011_activation_and_mail_templates.py"
 
 
 def load_migration(path: Path) -> ModuleType:
@@ -207,6 +215,83 @@ def assert_no_external_resources(html: str) -> None:
     assert "display:flex" not in html
     assert "display:grid" not in html
     assert "position:absolute" not in html
+
+
+# --- Общий стенд прогона ревизий на SQLite -----------------------------------
+
+
+@contextmanager
+def sqlite_connection() -> Iterator[Connection]:
+    """Пустая база на SQLite: ревизия сама собирает ту схему, что ей нужна.
+
+    `db_engine` из `conftest` здесь не годится: она создаёт схему из моделей, а
+    тесты ревизий проверяют как раз то, что ревизия делает с **прежней** схемой.
+    Фикстуру `engine_connection` поверх этой функции держит `tests/conftest.py`:
+    pytest не видит фикстуру, импортированную в модуль теста, а `pytest_plugins` в
+    не-корневом `conftest` устарел. Стенд при этом один — здесь.
+    """
+    engine: Engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    try:
+        with engine.connect() as connection:
+            yield connection
+    finally:
+        engine.dispose()
+
+
+def operations_for(connection: Connection) -> Operations:
+    return Operations(MigrationContext.configure(connection))
+
+
+def run_upgrade(connection: Connection, path: Path) -> None:
+    """Прогнать `upgrade` ревизии по пути.
+
+    Модуль читается заново на каждый прогон: `sqlite_compatible` правит его
+    константы, и общий модуль на два прогона исказил бы второй.
+    """
+    module = sqlite_compatible(load_migration(path))
+    with_operations(module, operations_for(connection)).upgrade()
+
+
+def run_downgrade(connection: Connection, path: Path) -> None:
+    """Прогнать `downgrade` ревизии по пути — тем же способом, что и `upgrade`."""
+    module = sqlite_compatible(load_migration(path))
+    with_operations(module, operations_for(connection)).downgrade()
+
+
+# --- Письма: таблица `mail_templates` и её строки ----------------------------
+
+
+def build_mail_templates(connection: Connection) -> None:
+    """Схема `mail_templates` из `0011` — с её же сиидом активации.
+
+    Таблица собирается настоящей ревизией, а не руками: строка `activation` и
+    колонки приходят такими, какими они лежат на живой базе.
+    """
+    metadata = sa.MetaData()
+    sa.Table("users", metadata, sa.Column("id", sa.Integer(), primary_key=True))
+    metadata.create_all(connection)
+    run_upgrade(connection, VERSIONS / MAIL_TEMPLATES_REVISION)
+
+
+def insert_template(connection: Connection, *, code: str, subject: str, body: str) -> None:
+    """Строка `mail_templates` с кодом: `body_html` заполнит проверяемая ревизия."""
+    connection.execute(
+        sa.text(
+            "INSERT INTO mail_templates (code, subject, body, is_active) "
+            "VALUES (:code, :subject, :body, 1)"
+        ),
+        {"code": code, "subject": subject, "body": body},
+    )
+
+
+def mail_rows(connection: Connection) -> dict[str, Any]:
+    """Строки `mail_templates` по коду: что ревизия оставила после `upgrade`."""
+    query = sa.text("SELECT code, subject, body, body_html FROM mail_templates")
+    return {str(row.code): row for row in connection.execute(query)}
 
 
 # --- Ревизии данных таблицы `documents` --------------------------------------

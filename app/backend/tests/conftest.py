@@ -33,6 +33,7 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy import Engine, create_engine, event, select
+from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -51,6 +52,7 @@ from app.models.solution import OrganizationSolution, Solution
 from app.models.user import User
 from app.security import hash_password
 from app.storage import LocalStorage
+from tests.migration_support import sqlite_connection
 
 # Пароль, которым тесты входят в кабинет. Сервер его не показывает, поэтому
 # пользователь с известным паролем создаётся прямо в базе (см. create_user).
@@ -139,6 +141,20 @@ def db_engine(monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
     finally:
         Base.metadata.drop_all(engine)
         engine.dispose()
+
+
+@pytest.fixture
+def engine_connection() -> Iterator[Connection]:
+    """Пустая база на SQLite для тестов ревизий: схему собирает сама ревизия.
+
+    Не `db_engine`: та создаёт схему из моделей, где колонки уже есть, а тесты
+    ревизий проверяют как раз добавление колонки к **прежней** таблице. Сам стенд
+    лежит одной копией в `tests/migration_support.py` (`sqlite_connection`), а
+    фикстура стоит здесь, потому что pytest не видит фикстуру, импортированную в
+    модуль теста, и её пришлось бы держать копией в каждом файле тестов ревизий.
+    """
+    with sqlite_connection() as connection:
+        yield connection
 
 
 @pytest.fixture

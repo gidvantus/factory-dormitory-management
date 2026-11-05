@@ -18,6 +18,11 @@
 
 Идентификатор ревизии короче 32 символов: колонка `alembic_version.version_num` имеет
 тип `varchar(32)`.
+
+Сводящей ревизии (`0063_merge_main_heads`) эта ревизия не заводит: она берёт ту, что
+приносит PR #174 — разные ветки не могут завести две сводящие ревизии из одних и тех
+же родителей, иначе после слияния в дереве снова окажутся две головы и `alembic
+upgrade head` в `entrypoint.sh` упадёт с «Multiple head revisions».
 """
 
 from collections.abc import Sequence
@@ -26,7 +31,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0064_mail_hero_house"
-down_revision: str | None = "0063_merge_views_heads"
+down_revision: str | None = "0063_merge_main_heads"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
