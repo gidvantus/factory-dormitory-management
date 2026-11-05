@@ -118,11 +118,12 @@ jobs:
           ssh "$SSH_TARGET" 'echo ===SSH-OK===; hostname; whoami'
 
       - name: "Проверка: S3 включён и пишем в боевой префикс"
-        # `check` падает, если хранилище не S3 или префикс не crm-prod. JOB
-        # КРАСНЕЕТ и ничего не снимает — это правильный результат: при
-        # `S3_ENV=test` дамп уехал бы в crm-agent-test, а при выключенном S3
-        # остался бы на том же диске, с которого снят. Прод из workflow не
-        # правится: `.env` сервера — ручная операция, docs/backup.md.
+        # `check` падает, если хранилище не S3, если S3_ENV не prod или если
+        # S3_PREFIX_PROD пуст либо совпадает с тестовым. JOB КРАСНЕЕТ и ничего
+        # не снимает — это правильный результат: при `S3_ENV=test` дамп уехал
+        # бы в тестовый префикс, а при выключенном S3 остался бы на том же
+        # диске, с которого снят. Префикс и среда читаются из `.env` сервера:
+        # workflow их не правит, это ручная операция (docs/backup.md).
         #
         # Шаг стоит ДО дампа намеренно: при его отказе сервер не тронут — ни
         # свежего файла в backups/, ни объекта в S3. Искать «локальную копию,
@@ -131,7 +132,7 @@ jobs:
           set -euo pipefail
           # shellcheck disable=SC2029
           if ! ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose exec -T api python -m app.backup_cli check"; then
-            echo "::error::'python -m app.backup_cli check' отказал на сервере — дамп не снимался, сервер не тронут. Причина — строкой ОШИБКА выше. Обычно это выключенный S3 или S3_ENV=test в .env сервера (docs/backup.md), но если в логе 'No module named app.backup_cli', то образ api на сервере старше слияния: сначала деплой из main (deploy.yml), потом бэкап."
+            echo "::error::'python -m app.backup_cli check' отказал на сервере — дамп не снимался, сервер не тронут. Причина — строкой ОШИБКА выше. Обычно это выключенный S3, S3_ENV=test или неверный/пустой S3_PREFIX_PROD в .env сервера (docs/backup.md), но если в логе 'No module named app.backup_cli', то образ api на сервере старше слияния: сначала деплой из main (deploy.yml), потом бэкап."
             exit 1
           fi
 
@@ -231,5 +232,5 @@ jobs:
         run: |
           set -euo pipefail
           echo "OK: дамп боевой БД снят и выгружен в S3 (ветка $GITHUB_REF_NAME, коммит $GITHUB_SHA)."
-          echo "Ключ объекта: crm-prod/backup/db/crm_<ГГГГММДД_ЧЧММСС>.dump — см. строку 'OK: выгружен …' выше."
+          echo "Ключ объекта: crmdormitory-prod/backup/db/crm_<ГГГГММДД_ЧЧММСС>.dump — см. строку 'OK: выгружен …' выше."
           echo "Восстановление и разбор сбоев — docs/backup.md."

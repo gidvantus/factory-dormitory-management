@@ -202,7 +202,7 @@ def test_the_mode_is_chosen_by_the_keys_of_the_active_environment() -> None:
 
     prod = settings.model_copy(update={"s3_env": "prod"})
     assert prod.s3_access_key == "prod-key"
-    assert prod.s3_prefix == "crm-prod"
+    assert prod.s3_prefix == "crmdormitory-prod"
 
 
 def test_empty_bucket_turns_s3_off() -> None:
