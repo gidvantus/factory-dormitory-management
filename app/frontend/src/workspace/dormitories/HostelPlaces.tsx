@@ -1,3 +1,4 @@
+import { WorkingTable } from '../../components/WorkingTable';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 import type { FormEvent } from 'react';
@@ -481,7 +482,18 @@ export function HostelPlaces({
                   </div>
                 </div>
                 <div className={styles.tableScroll}>
-                  <table className={styles.table}>
+                  <WorkingTable
+                    className={styles.table}
+                    viewKey={
+                      location.pathname.startsWith('/preview/')
+                        ? undefined
+                        : `dormitories/${dormitoryId}/table-views/places`
+                    }
+                    columns={[
+                      { id: 'name', label: 'Наименование' },
+                      ...month.days.map((day) => ({ id: day, label: formatDate(day, false) })),
+                    ]}
+                  >
                     <thead>
                       <tr>
                         <th scope="col">Наименование</th>
@@ -528,7 +540,7 @@ export function HostelPlaces({
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </WorkingTable>
                 </div>
               </article>
             ))}

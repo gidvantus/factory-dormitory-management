@@ -6,6 +6,7 @@ import type {
 } from '../../api/personnelBuilder';
 
 export type BuilderEnvironment = {
+  structureRevision?: number;
   registerDraft?: (id: string, active: boolean) => void;
   sources: BuilderCatalog['sources'];
   templates: BuilderCatalog['templates'];

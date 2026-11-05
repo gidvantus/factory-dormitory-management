@@ -42,6 +42,9 @@ import { CellFillCell } from './CellFillCell';
 import { CellFillEditor } from './CellFillEditor';
 import { cellFillError, supportsCellFill, useCellFillSources } from './cellFill';
 import fillStyles from './CellFill.module.css';
+import { ColumnArchiveTabs } from '../../components/ColumnArchiveTabs';
+import { WorkingTable } from '../../components/WorkingTable';
+import { useWorkingColumns } from '../../components/workingTableContext';
 
 export function TableColumnsProvider({
   dormitoryId,
@@ -251,10 +254,20 @@ export function ColumnsControls(): JSX.Element {
     <div className={styles.controls}>
       {!settings && (
         <>
-          <button type="button" disabled={loading || !!error} onClick={() => edit('new')}>
+          <button
+            className="btn btn--ghost btn--compact"
+            type="button"
+            disabled={loading || !!error}
+            onClick={() => edit('new')}
+          >
             + Добавить столбец
           </button>
-          <button type="button" disabled={loading || !!error} onClick={() => edit('manage')}>
+          <button
+            className="btn btn--ghost btn--compact"
+            type="button"
+            disabled={loading || !!error}
+            onClick={() => edit('manage')}
+          >
             Настроить столбцы
           </button>
         </>
@@ -263,7 +276,7 @@ export function ColumnsControls(): JSX.Element {
       {error && (
         <span role="alert" className={styles.error}>
           {error}{' '}
-          <button type="button" onClick={reload}>
+          <button className="btn btn--ghost btn--compact" type="button" onClick={reload}>
             Повторить загрузку столбцов
           </button>
         </span>
@@ -278,6 +291,7 @@ function ManageColumns(): JSX.Element {
   const [pending, setPending] = useState(false);
   const [confirm, setConfirm] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [archived, setArchived] = useState(false);
   async function change(column: TableColumn): Promise<void> {
     setPending(true);
     setError('');
@@ -327,44 +341,54 @@ function ManageColumns(): JSX.Element {
               Связь с персоналом
             </button>
           )}
+          <ColumnArchiveTabs
+            archived={archived}
+            onChange={setArchived}
+            currentCount={columns.filter((column) => !column.archived).length}
+            archivedCount={columns.filter((column) => column.archived).length}
+          />
           <ul className={styles.columnList}>
-            {columns.map((column) => (
-              <li key={column.id}>
-                <span>
-                  <strong>{column.name}</strong>
-                  <small>
-                    {kinds[column.kind]}
-                    {column.archived ? ' · удалён' : ''}
-                  </small>
-                </span>
-                {!column.archived && (
+            {columns
+              .filter((column) => column.archived === archived)
+              .map((column) => (
+                <li key={column.id}>
+                  <span>
+                    <strong>{column.name}</strong>
+                    <small>
+                      {kinds[column.kind]}
+                      {column.archived ? ' · удалён' : ''}
+                    </small>
+                  </span>
+                  {!column.archived && (
+                    <button
+                      className="btn btn--ghost btn--compact"
+                      type="button"
+                      disabled={pending}
+                      onClick={() => edit(column)}
+                      aria-label={`Настроить столбец ${column.name}`}
+                    >
+                      Изменить
+                    </button>
+                  )}
                   <button
+                    className={`btn ${column.archived ? 'btn--ghost' : 'btn--danger'} btn--compact`}
                     type="button"
                     disabled={pending}
-                    onClick={() => edit(column)}
-                    aria-label={`Настроить столбец ${column.name}`}
+                    aria-label={`${column.archived ? 'Восстановить' : confirm === column.id ? 'Подтвердить удаление' : 'Удалить'} столбец ${column.name}`}
+                    onClick={() =>
+                      column.archived || confirm === column.id
+                        ? void change(column)
+                        : setConfirm(column.id)
+                    }
                   >
-                    Изменить
+                    {column.archived
+                      ? 'Восстановить'
+                      : confirm === column.id
+                        ? 'Подтвердить удаление'
+                        : 'Удалить'}
                   </button>
-                )}
-                <button
-                  type="button"
-                  disabled={pending}
-                  aria-label={`${column.archived ? 'Восстановить' : confirm === column.id ? 'Подтвердить удаление' : 'Удалить'} столбец ${column.name}`}
-                  onClick={() =>
-                    column.archived || confirm === column.id
-                      ? void change(column)
-                      : setConfirm(column.id)
-                  }
-                >
-                  {column.archived
-                    ? 'Восстановить'
-                    : confirm === column.id
-                      ? 'Подтвердить удаление'
-                      : 'Удалить'}
-                </button>
-              </li>
-            ))}
+                </li>
+              ))}
           </ul>
           {error && (
             <p role="alert" className={styles.error}>
@@ -488,20 +512,21 @@ export function ColumnForm({
         </EditorSection>
         <EditorSection
           title="Формат данных"
-          description="Выберите, что будут вводить в ячейку. После создания тип изменить нельзя."
+          description="Тип можно изменить, пока столбец полностью пуст и не используется в связях."
         >
           <label>
             Тип столбца
             <select
               value={kind}
-              disabled={saving || !!column}
+              disabled={saving || !!column?.builtin_key || !!column?.type_change_reason}
               onChange={(event) => {
                 setKind(event.target.value as ColumnKind);
                 setFill(null);
+                setOptions([{ id: null, label: '', archived: false }]);
               }}
             >
               {Object.entries(kinds)
-                .filter(([key]) => !!column || !['action', 'hostel'].includes(key))
+                .filter(([key]) => !!column?.builtin_key || !['action', 'hostel'].includes(key))
                 .map(([key, label]) => (
                   <option value={key} key={key}>
                     {label}
@@ -511,7 +536,10 @@ export function ColumnForm({
           </label>
           {column && (
             <p className={styles.help}>
-              Тип сохраняется вместе с данными. Для другого типа добавьте новый столбец.
+              {column.type_change_reason ??
+                (column.builtin_key
+                  ? 'Тип стандартного столбца связан с работой системы.'
+                  : 'Изменение доступно только для полностью пустого столбца.')}
             </p>
           )}
           {organized && (
@@ -553,6 +581,7 @@ export function ColumnForm({
                     }
                   />
                   <button
+                    className="btn btn--ghost btn--compact"
                     type="button"
                     onClick={() =>
                       setOptions(
@@ -570,6 +599,7 @@ export function ColumnForm({
                 </div>
               ))}
               <button
+                className="btn btn--ghost btn--compact"
                 type="button"
                 disabled={options.length >= 200}
                 onClick={() => setOptions([...options, { id: null, label: '', archived: false }])}
@@ -617,10 +647,15 @@ export function ColumnForm({
           </EditorSection>
         )}
         <div className={styles.actions}>
-          <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
+          <ModalCancelButton
+            className="btn btn--ghost btn--compact"
+            onClick={onClose}
+            type="button"
+            disabled={saving}
+          >
             Отмена
           </ModalCancelButton>
-          <button type="submit" disabled={saving}>
+          <button className="btn btn--primary btn--compact" type="submit" disabled={saving}>
             {saving ? 'Сохраняем…' : (submitLabel ?? 'Сохранить столбец')}
           </button>
         </div>
@@ -633,139 +668,111 @@ function isRowAction(column: TableColumn): boolean {
   return column.kind === 'action' && !!column.builtin_key?.startsWith('action_');
 }
 
-function columnWidth(column: TableColumn): number {
-  const builtinWidths: Record<string, number> = {
-    row_number: 48,
-    gender: 68,
-    personnel_number: 104,
-    full_name: 280,
-    hostel_id: 210,
-    shift_count: 96,
-    phone: 168,
-    medical_book: 116,
-    citizenship: 160,
-    reason: 210,
-    notes: 260,
-    additional_info: 260,
-    advance_amount: 148,
-    action_advance: 112,
-    action_settlement: 112,
-    action_transfer: 100,
-    action_outflow: 88,
-    action_evict: 108,
-    action_delete: 88,
-  };
-  if (column.builtin_key && builtinWidths[column.builtin_key]) {
-    return builtinWidths[column.builtin_key];
-  }
-  if (column.kind === 'checkbox') return 80;
-  if (column.kind === 'action') return 104;
-  if (column.kind === 'date') return 152;
-  if (column.kind === 'number') return 128;
-  if (column.kind === 'hostel') return 210;
-
-  const name = column.name.toLocaleLowerCase('ru').replace(/[\s./№_-]+/g, '');
-  if (name === 'пол') return 68;
-  if (name === 'фио' || name.includes('фамилия')) return 280;
-  if (name === 'тн' || name.includes('табельн')) return 104;
-  if (name.includes('телефон')) return 168;
-  if (name.includes('примечан') || name.includes('коммент') || name.includes('информац')) {
-    return 260;
-  }
-  if (column.kind === 'select') {
-    const longestOption = Math.max(0, ...column.options.map((option) => option.label.length));
-    return Math.min(260, Math.max(128, longestOption * 7 + 48));
-  }
-  return 200;
-}
-
 export function ConfiguredTable({
   className,
   children,
   trailingColumns = 0,
+  trailing,
 }: {
   className: string;
   children: ReactNode;
   trailingColumns?: number;
+  trailing?: { id: string; label: string }[];
 }): JSX.Element {
-  const { columns } = useColumns();
-  const tableRef = useRef<HTMLTableElement>(null);
-  const [availableWidth, setAvailableWidth] = useState(0);
-  useEffect(() => {
-    const container = tableRef.current?.parentElement;
-    if (!container) return;
-    const measure = (): void => setAvailableWidth(container.clientWidth);
-    measure();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, []);
+  const { columns, dormitoryId, table } = useColumns();
   const settings = useSettingsNavigation();
-  const visibleColumns = columns.filter(
+  const visible = columns.filter(
     (column) => !column.archived && (!settings || !isRowAction(column)),
   );
   const actions = !!settings && columns.some((column) => !column.archived && isRowAction(column));
-  const baseWidth = visibleColumns.reduce(
-    (sum, column) => sum + columnWidth(column),
-    (actions ? 150 : 0) + trailingColumns * 110,
-  );
-  const flexibleColumns = visibleColumns.filter(
-    (column) => column.kind === 'text' && columnWidth(column) >= 200,
-  );
-  const extraWidth = flexibleColumns.length
-    ? Math.max(0, availableWidth - baseWidth) / flexibleColumns.length
-    : 0;
   return (
-    <table
-      ref={tableRef}
+    <WorkingTable
       className={className}
-      style={{ width: baseWidth + extraWidth * flexibleColumns.length, minWidth: baseWidth }}
+      configured
+      readOnly={settings?.readOnly}
+      viewKey={
+        location.pathname.startsWith('/preview/')
+          ? undefined
+          : `dormitories/${dormitoryId}/table-views/${table}`
+      }
+      revisionKey={columns
+        .map((column) => `${column.id}:${column.position}:${column.archived}`)
+        .join('|')}
+      columns={[
+        ...visible.map((column) => ({ id: String(column.id), label: column.name })),
+        ...(actions ? [{ id: 'actions', label: 'Действия' }] : []),
+        ...(trailing ??
+          Array.from({ length: trailingColumns }, (_, index) => ({
+            id: `day-${index}`,
+            label: `День ${index + 1}`,
+          }))),
+      ]}
     >
-      <colgroup>
-        {visibleColumns.map((column) => (
-          <col
-            key={column.id}
-            style={{
-              width: columnWidth(column) + (flexibleColumns.includes(column) ? extraWidth : 0),
-            }}
-          />
-        ))}
-        {actions && <col style={{ width: 150 }} />}
-        {Array.from({ length: trailingColumns }, (_, index) => (
-          <col key={`day-${index}`} style={{ width: 110 }} />
-        ))}
-      </colgroup>
       {children}
-    </table>
+    </WorkingTable>
   );
 }
 
-export function ConfiguredHeaders(): JSX.Element {
-  const { columns } = useColumns();
-  const settings = useSettingsNavigation();
+type ExtraCell = { id: string; node: ReactNode };
+function OrderedTableCells({
+  ids,
+  children,
+  extras = [],
+}: {
+  ids: string[];
+  children: ReactNode;
+  extras?: ExtraCell[];
+}): JSX.Element {
+  const root = isValidElement<{ children?: ReactNode }>(children)
+    ? children.props.children
+    : children;
+  const nodes = Children.toArray(root);
+  const ordered = useWorkingColumns([
+    ...ids.map((id, index) => ({ id, node: nodes[index] })),
+    ...extras,
+  ]);
   return (
     <>
-      {columns
-        .filter((column) => !column.archived && (!settings || !isRowAction(column)))
-        .map((column) => (
-          <th scope="col" key={column.id} data-column-key={column.builtin_key ?? undefined}>
-            {column.name}
-            {column.fill && (
-              <small className={fillStyles.headerNote}>
-                {column.fill.mode === 'pick'
-                  ? 'Выбор записи'
-                  : column.fill.update === 'copy'
-                    ? 'Разовая копия'
-                    : 'Из таблицы'}
-              </small>
-            )}
-          </th>
-        ))}
-      {settings && columns.some((column) => !column.archived && isRowAction(column)) && (
-        <th scope="col">Действия</th>
-      )}
+      {ordered.map((item) => (
+        <Fragment key={item.id}>{item.node}</Fragment>
+      ))}
     </>
+  );
+}
+
+export function ConfiguredHeaders({ extra = [] }: { extra?: ExtraCell[] } = {}): JSX.Element {
+  const context = useColumns();
+  const columns = useWorkingColumns(context.columns);
+  const settings = useSettingsNavigation();
+  const ids = columns
+    .filter((column) => !column.archived && (!settings || !isRowAction(column)))
+    .map((column) => String(column.id));
+  if (settings && columns.some((column) => !column.archived && isRowAction(column)))
+    ids.push('actions');
+  return (
+    <OrderedTableCells ids={ids} extras={extra}>
+      <>
+        {columns
+          .filter((column) => !column.archived && (!settings || !isRowAction(column)))
+          .map((column) => (
+            <th scope="col" key={column.id} data-column-key={column.builtin_key ?? undefined}>
+              {column.name}
+              {column.fill && (
+                <small className={fillStyles.headerNote}>
+                  {column.fill.mode === 'pick'
+                    ? 'Выбор записи'
+                    : column.fill.update === 'copy'
+                      ? 'Разовая копия'
+                      : 'Из таблицы'}
+                </small>
+              )}
+            </th>
+          ))}
+        {settings && columns.some((column) => !column.archived && isRowAction(column)) && (
+          <th scope="col">Действия</th>
+        )}
+      </>
+    </OrderedTableCells>
   );
 }
 
@@ -776,6 +783,7 @@ export function ConfiguredCells({
   readOnly = false,
   onPersonnelLinked,
   actionResult,
+  extra = [],
 }: {
   fields: string[];
   row: CellFillRow & { custom_values?: Record<string, CellValue>; employee_id?: string | null };
@@ -783,73 +791,86 @@ export function ConfiguredCells({
   readOnly?: boolean;
   onPersonnelLinked?: (id: string) => void;
   actionResult?: string | undefined;
+  extra?: ExtraCell[];
 }): JSX.Element {
-  const { columns } = useColumns();
+  const context = useColumns();
+  const columns = useWorkingColumns(context.columns);
   const settings = useSettingsNavigation();
   const cells = Children.toArray(children);
+  const ids = columns
+    .filter((column) => !column.archived && (!settings || !isRowAction(column)))
+    .map((column) => String(column.id));
+  if (settings && columns.some((column) => !column.archived && isRowAction(column)))
+    ids.push('actions');
   return (
-    <>
-      {columns
-        .filter((column) => !column.archived && (!settings || !isRowAction(column)))
-        .map((column) =>
-          actionResult && isRowAction(column) ? (
-            <td key={column.id} className={styles.rowActions}>
-              {column.id === columns.find((item) => !item.archived && isRowAction(item))?.id && (
-                <span className={styles.rowActionResult}>{actionResult}</span>
-              )}
-            </td>
-          ) : column.fill ? (
-            <td key={column.id} className={styles.customCell}>
-              <CellFillCell column={column} row={row} readOnly={readOnly || !!settings?.readOnly} />
-            </td>
-          ) : column.builtin_key ? (
-            <Fragment key={column.id}>{cells[fields.indexOf(column.builtin_key)]}</Fragment>
-          ) : (
-            <td key={column.id} className={styles.customCell}>
-              <CustomCell
-                column={column}
-                row={row}
-                readOnly={readOnly || !!settings?.readOnly}
-                onPersonnelLinked={onPersonnelLinked}
-              />
-            </td>
-          ),
-        )}
-      {settings && columns.some((column) => !column.archived && isRowAction(column)) && (
-        <td className={styles.rowActions}>
-          {actionResult ? (
-            <span className={styles.rowActionResult}>{actionResult}</span>
-          ) : (
-            <RowActionsMenu label={`Действия, строка ${row.id}`}>
-              {columns
-                .filter((column) => !column.archived && isRowAction(column))
-                .map((column) => (
-                  <Fragment key={column.id}>
-                    {actionParts(
-                      cells[fields.indexOf(column.builtin_key ?? '')],
-                      column,
-                      readOnly || settings.readOnly,
-                      true,
-                    )}
-                  </Fragment>
-                ))}
-            </RowActionsMenu>
-          )}
-          {columns
-            .filter((column) => !column.archived && isRowAction(column))
-            .map((column) => (
-              <Fragment key={column.id}>
-                {actionParts(
-                  cells[fields.indexOf(column.builtin_key ?? '')],
-                  column,
-                  readOnly || settings.readOnly,
-                  false,
+    <OrderedTableCells ids={ids} extras={extra}>
+      <>
+        {columns
+          .filter((column) => !column.archived && (!settings || !isRowAction(column)))
+          .map((column) =>
+            actionResult && isRowAction(column) ? (
+              <td key={column.id} className={styles.rowActions}>
+                {column.id === columns.find((item) => !item.archived && isRowAction(item))?.id && (
+                  <span className={styles.rowActionResult}>{actionResult}</span>
                 )}
-              </Fragment>
-            ))}
-        </td>
-      )}
-    </>
+              </td>
+            ) : column.fill ? (
+              <td key={column.id} className={styles.customCell}>
+                <CellFillCell
+                  column={column}
+                  row={row}
+                  readOnly={readOnly || !!settings?.readOnly}
+                />
+              </td>
+            ) : column.builtin_key ? (
+              <Fragment key={column.id}>{cells[fields.indexOf(column.builtin_key)]}</Fragment>
+            ) : (
+              <td key={column.id} className={styles.customCell}>
+                <CustomCell
+                  column={column}
+                  row={row}
+                  readOnly={readOnly || !!settings?.readOnly}
+                  onPersonnelLinked={onPersonnelLinked}
+                />
+              </td>
+            ),
+          )}
+        {settings && columns.some((column) => !column.archived && isRowAction(column)) && (
+          <td className={styles.rowActions}>
+            {actionResult ? (
+              <span className={styles.rowActionResult}>{actionResult}</span>
+            ) : (
+              <RowActionsMenu label={`Действия, строка ${row.id}`}>
+                {columns
+                  .filter((column) => !column.archived && isRowAction(column))
+                  .map((column) => (
+                    <Fragment key={column.id}>
+                      {actionParts(
+                        cells[fields.indexOf(column.builtin_key ?? '')],
+                        column,
+                        readOnly || settings.readOnly,
+                        true,
+                      )}
+                    </Fragment>
+                  ))}
+              </RowActionsMenu>
+            )}
+            {columns
+              .filter((column) => !column.archived && isRowAction(column))
+              .map((column) => (
+                <Fragment key={column.id}>
+                  {actionParts(
+                    cells[fields.indexOf(column.builtin_key ?? '')],
+                    column,
+                    readOnly || settings.readOnly,
+                    false,
+                  )}
+                </Fragment>
+              ))}
+          </td>
+        )}
+      </>
+    </OrderedTableCells>
   );
 }
 

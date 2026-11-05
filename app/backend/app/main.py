@@ -51,6 +51,7 @@ from app.api import (
     statistics_reports,
     tab_catalog,
     table_columns,
+    table_views,
     table_exchange,
     tariffs,
     telegram,
@@ -371,6 +372,7 @@ def create_app() -> FastAPI:
     application.include_router(reports.router, prefix=API_PREFIX)
     application.include_router(report_templates.router, prefix=API_PREFIX)
     application.include_router(table_columns.router, prefix=API_PREFIX)
+    application.include_router(table_views.router, prefix=API_PREFIX)
     application.include_router(table_exchange.router, prefix=API_PREFIX)
     application.include_router(cell_fill.router, prefix=API_PREFIX)
     application.include_router(custom_tabs.router, prefix=API_PREFIX)

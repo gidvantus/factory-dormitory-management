@@ -342,7 +342,7 @@ export function TelegramNotifications(): JSX.Element {
             {connected && (
               <div className={styles['telegram-actions']}>
                 <button
-                  className="btn"
+                  className="btn btn--ghost"
                   type="button"
                   data-testid="telegram-disconnect-button"
                   onClick={() => void disconnect()}

@@ -41,24 +41,7 @@
   gap: 8px;
   flex-wrap: wrap;
 }
-.content button {
-  padding: 8px 11px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
-  background: var(--color-bg-surface);
-  color: var(--mint-700);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.content button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.content .danger,
 .error {
   color: var(--color-danger);
-}
-.error {
   font-size: 13px;
 }

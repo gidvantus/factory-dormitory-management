@@ -67,68 +67,67 @@
 }
 .tableScroll {
   max-width: 100%;
-  max-height: min(72vh, 760px);
-  overflow: auto;
+  overflow-x: auto;
 }
-.table {
+.report .table {
   width: max-content;
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--table-report-cell-size);
 }
-.table th,
-.table td {
+.report .table th,
+.report .table td {
   width: 52px;
   min-width: 52px;
   max-width: 52px;
-  height: 46px;
-  padding: 7px 3px;
+  height: calc(var(--table-report-row-height) * var(--table-report-scale));
+  padding: var(--table-report-row-padding) var(--gap-2);
   border-right: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.table thead th {
+.report .table thead th {
   position: sticky;
   top: 0;
   z-index: 2;
   background: var(--cream-100);
   color: var(--color-text-body);
-  font-size: 11px;
+  font-size: var(--table-report-heading-size);
   font-weight: 800;
 }
-.table tbody th {
+.report .table tbody th {
   position: sticky;
   left: 0;
   z-index: 1;
   width: auto;
-  min-width: 212px;
+  min-width: 0;
   max-width: none;
   padding-inline: 9px;
   background: var(--color-bg-surface);
   text-align: left;
 }
-.table thead th:first-child {
+.report .table thead th[data-table-column='name'] {
   left: 0;
   z-index: 3;
   width: auto;
-  min-width: 212px;
+  min-width: 0;
   max-width: none;
   padding-inline: 9px;
   text-align: left;
 }
-.table tbody tr:nth-child(even) th,
-.table tbody tr:nth-child(even) td {
+.report .table tbody tr:nth-child(even) th,
+.report .table tbody tr:nth-child(even) td {
   background: var(--cream-50);
 }
-.table tr:last-child th,
-.table tr:last-child td {
+.report .table tr:last-child th,
+.report .table tr:last-child td {
   border-bottom: 0;
 }
-.table tr th:last-child,
-.table tr td:last-child {
+.report .table tr th:last-child,
+.report .table tr td:last-child {
   border-right: 0;
 }
 .rowName {
@@ -148,9 +147,11 @@
   text-align: left;
   white-space: nowrap;
 }
-.rowName > button {
+.report .rowName > button {
   flex: none;
-  font-size: 15.6px;
+  font-size: var(--table-report-name-size);
+  line-height: var(--leading-snug);
+  padding: var(--table-report-button-padding);
 }
 .rowName button:hover {
   color: var(--mint-700);
@@ -163,7 +164,7 @@
   background: var(--mint-100);
   color: var(--mint-700);
   font-family: serif;
-  font-size: 16px;
+  font-size: var(--table-report-badge-size);
   font-weight: 700;
 }
 .cellEditor {
@@ -173,12 +174,13 @@
 .cellEditor input {
   width: 100%;
   min-width: 0;
-  padding: 6px 3px;
+  padding: calc(var(--gap-6) * var(--table-report-scale)) var(--gap-2);
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
   color: var(--color-text);
-  font: 600 12px var(--font-body);
+  font: 600 var(--table-report-cell-size) var(--font-body);
+  line-height: var(--leading-snug);
   text-align: center;
 }
 .cellEditor input:hover,
@@ -219,14 +221,14 @@
 }
 .rowMove button {
   flex: none;
-  width: 22px;
-  height: 25px;
+  width: var(--table-report-action-width);
+  height: var(--table-report-action-height);
   padding: 0;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-bg-surface);
   color: var(--color-text-muted);
-  font-size: 14px;
+  font-size: var(--table-report-action-font);
   line-height: 1;
   text-align: center;
 }
@@ -344,10 +346,4 @@
 /* Кнопка удаления в диалоге строки уезжает влево, остальные — справа. */
 .dialogDelete {
   margin-right: auto;
-}
-@media (max-width: 760px) {
-  .table tbody th,
-  .table thead th:first-child {
-    min-width: 160px;
-  }
 }

@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { BuilderEnvironmentContext } from '../../pages/personnel-tab-builder/BuilderEnvironment';
+import { WorkingTable } from '../../components/WorkingTable';
+import { useContext, useState } from 'react';
 import { personnelApi } from '../../api/personnel';
 import { downloadBlob } from '../../api/download';
 import type { Employee, PersonnelData } from '../../api/personnel';
@@ -24,6 +26,7 @@ export function SelectedEmployeesDialog({
   onPerson: (id: string) => void;
   onClose: () => void;
 }): JSX.Element {
+  const environment = useContext(BuilderEnvironmentContext);
   const [name, setName] = useState('Выбранные сотрудники');
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
@@ -71,7 +74,10 @@ export function SelectedEmployeesDialog({
       </div>
       {error && <p role="alert">{error}</p>}
       <div className={s.tableScroll}>
-        <table className={`${s.table} ${styles.selectedTable}`}>
+        <WorkingTable
+          viewKey={environment ? 'personnel/table-views/selected-employees' : undefined}
+          className={`${s.table} ${styles.selectedTable}`}
+        >
           <caption className={styles.selectedTableCaption}>
             {name.trim() || 'Выбранные сотрудники'} · {people.length}
           </caption>
@@ -135,7 +141,7 @@ export function SelectedEmployeesDialog({
               </tr>
             ))}
           </tbody>
-        </table>
+        </WorkingTable>
       </div>
       {!people.length && <p className={s.empty}>В списке больше нет доступных сотрудников.</p>}
       <p className={styles.hint}>

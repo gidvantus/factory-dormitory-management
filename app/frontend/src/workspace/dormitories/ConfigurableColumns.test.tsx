@@ -116,6 +116,7 @@ it('создаёт список, сохраняет выбор, переимен
   await user.click(screen.getByRole('button', { name: 'Удалить столбец Причина' }));
   await user.click(screen.getByRole('button', { name: 'Подтвердить удаление столбец Причина' }));
   await waitFor(() => expect(screen.queryByLabelText('Причина, строка 8')).not.toBeInTheDocument());
+  await user.click(screen.getByRole('tab', { name: /Архивные столбцы/ }));
   await user.click(await screen.findByRole('button', { name: 'Восстановить столбец Причина' }));
   await waitFor(() => expect(screen.getByLabelText('Причина, строка 8')).toHaveValue('option-0'));
   view.unmount();

@@ -111,7 +111,11 @@ export function ManageCustomTabsDialog({
         {loadError && (
           <p role="alert" className={styles.error}>
             {loadError}{' '}
-            <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+            <button
+              className="btn btn--ghost btn--compact"
+              type="button"
+              onClick={() => setAttempt((n) => n + 1)}
+            >
               Повторить загрузку
             </button>
           </p>
@@ -133,7 +137,12 @@ export function ManageCustomTabsDialog({
                   </span>
                 </div>
                 <div className={styles.actions}>
-                  <button type="button" disabled={busy} onClick={() => onOpen(tab)}>
+                  <button
+                    className="btn btn--ghost btn--compact"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onOpen(tab)}
+                  >
                     {tab.is_active &&
                     (!tab.parent_id || tabs.find((item) => item.id === tab.parent_id)?.is_active)
                       ? 'Открыть'
@@ -141,6 +150,7 @@ export function ManageCustomTabsDialog({
                   </button>
                   {tab.is_active ? (
                     <button
+                      className="btn btn--ghost btn--compact"
                       type="button"
                       disabled={busy}
                       onClick={() => {
@@ -152,6 +162,7 @@ export function ManageCustomTabsDialog({
                     </button>
                   ) : (
                     <button
+                      className="btn btn--ghost btn--compact"
                       type="button"
                       disabled={
                         busy ||
@@ -167,7 +178,7 @@ export function ManageCustomTabsDialog({
                   )}
                   <button
                     type="button"
-                    className={styles.danger}
+                    className="btn btn--danger btn--compact"
                     disabled={busy || !!tab.delete_block_reason}
                     title={tab.delete_block_reason ?? undefined}
                     onClick={() => {
@@ -194,6 +205,7 @@ export function ManageCustomTabsDialog({
             </p>
             <div className={styles.actions}>
               <button
+                className="btn btn--ghost btn--compact"
                 type="button"
                 disabled={busy}
                 onClick={() => {
@@ -206,7 +218,7 @@ export function ManageCustomTabsDialog({
               <button
                 type="button"
                 disabled={busy}
-                className={confirm.action === 'delete' ? styles.danger : undefined}
+                className={`btn ${confirm.action === 'delete' ? 'btn--danger' : 'btn--primary'} btn--compact`}
                 onClick={() => void change(confirm.tab, confirm.action)}
               >
                 {busy

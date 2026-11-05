@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ColumnArchiveTabs } from '../../components/ColumnArchiveTabs';
 import { useEditorPreview } from '../../components/EditorSurface';
 import { EditorSection } from '../../components/EditorSection';
 import { api, ApiError, waitForDormitoryWrites } from '../../api/client';
@@ -66,6 +67,7 @@ export function DormitorySettingsDialog({
   const [dirty, setDirty] = useState(false);
   const [selected, setSelected] = useState(initialKey || 'residents');
   const [page, setPage] = useState<Page>(initialPage);
+  const [archivedColumns, setArchivedColumns] = useState(false);
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -82,6 +84,8 @@ export function DormitorySettingsDialog({
   const [templateError, setTemplateError] = useState('');
   const [deleteTemplate, setDeleteTemplate] = useState<number | null>(null);
   const sequence = useRef(0);
+
+  useEffect(() => setArchivedColumns(false), [selected]);
 
   function hydrate(data: DormitorySettings): void {
     setSnapshot(data);
@@ -201,6 +205,17 @@ export function DormitorySettingsDialog({
       columns.map((column) => (column.local === local ? { ...column, ...patch } : column)),
     );
   }
+  function moveColumn(local: number, direction: number): void {
+    const visible = columns.filter((column) => column.archived === archivedColumns);
+    const index = visible.findIndex((column) => column.local === local);
+    const target = visible[index + direction];
+    if (!target) return;
+    const next = [...columns];
+    const from = next.findIndex((column) => column.local === local);
+    const to = next.findIndex((column) => column.local === target.local);
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    updateColumns(next);
+  }
   function updateNode(patch: Partial<Node>): void {
     setNodes((current) =>
       current.map((item) => (item.key === selected ? { ...item, ...patch } : item)),
@@ -276,20 +291,31 @@ export function DormitorySettingsDialog({
           })
           .map((key) => ({
             key,
-            columns: tables[key].map((column) => ({
-              ...(column.id ? { id: column.id } : {}),
-              name: column.name.trim(),
-              kind: column.kind,
-              options: column.options,
-              archived: column.archived,
-              ...(!column.id && Object.values(tables).some((list) => list.some((item) => item.fill))
-                ? { client_id: -column.local }
-                : {}),
-              ...(column.fill ||
-              snapshot.tables[key]?.some((item) => item.id === column.id && item.fill)
-                ? { fill: column.fill ?? null }
-                : {}),
-            })),
+            columns: tables[key]
+              .filter(
+                (column) =>
+                  column.id ||
+                  !column.archived ||
+                  (column.name.trim() &&
+                    (column.kind !== 'select' ||
+                      (column.options.some((option) => !option.archived && option.label.trim()) &&
+                        column.options.every((option) => option.label.trim())))),
+              )
+              .map((column) => ({
+                ...(column.id ? { id: column.id } : {}),
+                name: column.name.trim() || 'Новый столбец',
+                kind: column.kind,
+                options: column.options,
+                archived: column.archived,
+                ...(!column.id &&
+                Object.values(tables).some((list) => list.some((item) => item.fill))
+                  ? { client_id: -column.local }
+                  : {}),
+                ...(column.fill ||
+                snapshot.tables[key]?.some((item) => item.id === column.id && item.fill)
+                  ? { fill: column.fill ?? null }
+                  : {}),
+              })),
           })),
         tabs: nodes
           .filter((item) => item.custom && item.status !== 'deleted')
@@ -324,6 +350,7 @@ export function DormitorySettingsDialog({
     }
   }
   function addColumn(): void {
+    setArchivedColumns(false);
     const next = {
       local: ++sequence.current,
       name: '',
@@ -334,12 +361,7 @@ export function DormitorySettingsDialog({
       archived: false,
       used_by: [],
     };
-    const actionIndex = columns.findIndex(
-      (column) => column.kind === 'action' && column.builtin_key?.startsWith('action_'),
-    );
-    const result = [...columns];
-    result.splice(actionIndex < 0 ? columns.length : actionIndex, 0, next);
-    updateColumns(result);
+    updateColumns([...columns, next]);
   }
   async function saveTemplate(): Promise<void> {
     if (!templateName.trim() || busy || dirty) return;
@@ -391,7 +413,7 @@ export function DormitorySettingsDialog({
                 <button
                   key={item.key}
                   type="button"
-                  className={styles.treeItem}
+                  className={`btn btn--quiet btn--compact ${styles.treeItem}`}
                   style={{ paddingLeft: 12 + (path.length - 1) * 18 }}
                   aria-pressed={selected === item.key}
                   onClick={() => {
@@ -472,6 +494,7 @@ export function DormitorySettingsDialog({
               ] as const
             ).map(([key, label]) => (
               <button
+                className="btn btn--tab btn--compact"
                 role="tab"
                 aria-selected={page === key}
                 key={key}
@@ -498,7 +521,7 @@ export function DormitorySettingsDialog({
                 />
                 <div className={styles.tree}>{tree(null)}</div>
                 <button
-                  className={styles.add}
+                  className={`btn btn--ghost btn--compact ${styles.add}`}
                   type="button"
                   disabled={busy || dirty}
                   onClick={() => setCreating({ parent: null })}
@@ -527,6 +550,7 @@ export function DormitorySettingsDialog({
                         </p>
                       </div>
                       <button
+                        className="btn btn--ghost btn--compact"
                         type="button"
                         disabled={dirty || busy || node.status === 'deleted'}
                         onClick={() => onOpen(selected)}
@@ -551,6 +575,7 @@ export function DormitorySettingsDialog({
                         )}
                         <div className={styles.toolbar}>
                           <button
+                            className="btn btn--ghost btn--compact"
                             type="button"
                             onClick={() =>
                               updateNode({ status: node.status === 'active' ? 'hidden' : 'active' })
@@ -564,6 +589,7 @@ export function DormitorySettingsDialog({
                           </button>
                           {node.status !== 'deleted' && (
                             <button
+                              className="btn btn--danger btn--compact"
                               type="button"
                               disabled={!!node.reason}
                               title={node.reason ?? undefined}
@@ -579,6 +605,7 @@ export function DormitorySettingsDialog({
                             </button>
                           )}
                           <button
+                            className="btn btn--ghost btn--compact"
                             type="button"
                             disabled={blocked || dirty || node.kind === 'archive'}
                             title={
@@ -668,6 +695,7 @@ export function DormitorySettingsDialog({
                           {(selected === 'archive' || node.custom) && (
                             <div className={styles.toolbar} style={{ marginBottom: 14 }}>
                               <button
+                                className="btn btn--ghost btn--compact"
                                 type="button"
                                 disabled={dirty}
                                 onClick={() => setBinding(selected as SourceTable)}
@@ -686,193 +714,205 @@ export function DormitorySettingsDialog({
                               Таблица ещё не создана. Добавьте столбцы и сохраните изменения.
                             </p>
                           )}
-                          {columns.map((column, index) => (
-                            <div
-                              className={`${styles.column} ${column.archived ? styles.archived : ''}`}
-                              key={column.local}
-                            >
-                              <div className={styles.columnLine}>
-                                <span className={styles.index}>{index + 1}</span>
-                                <input
-                                  aria-label={`Название столбца ${index + 1}`}
-                                  value={column.name}
-                                  maxLength={120}
-                                  placeholder="Название столбца"
-                                  disabled={column.archived}
-                                  onChange={(event) =>
-                                    changeColumn(column.local, { name: event.target.value })
-                                  }
-                                />
-                                <select
-                                  aria-label={`Формат столбца ${index + 1}`}
-                                  value={column.kind}
-                                  disabled={!!column.id || column.archived}
-                                  onChange={(event) =>
-                                    changeColumn(column.local, {
-                                      kind: event.target.value as ColumnKind,
-                                      options:
-                                        event.target.value === 'select'
-                                          ? [{ id: null, label: '', archived: false }]
-                                          : [],
-                                      fill: null,
-                                    })
-                                  }
-                                >
-                                  {Object.entries(columnKinds)
-                                    .filter(
-                                      ([kind]) =>
-                                        !!column.id || !['action', 'hostel'].includes(kind),
-                                    )
-                                    .map(([kind, label]) => (
-                                      <option key={kind} value={kind}>
-                                        {label}
-                                      </option>
-                                    ))}
-                                </select>
-                                <div className={styles.columnActions}>
-                                  <button
-                                    type="button"
-                                    aria-label={`Выше: ${column.name}`}
-                                    disabled={!index}
-                                    onClick={() => {
-                                      const next = [...columns];
-                                      [next[index - 1], next[index]] = [
-                                        next[index],
-                                        next[index - 1],
-                                      ];
-                                      updateColumns(next);
-                                    }}
-                                  >
-                                    ↑
-                                  </button>
-                                  <button
-                                    type="button"
-                                    aria-label={`Ниже: ${column.name}`}
-                                    disabled={index === columns.length - 1}
-                                    onClick={() => {
-                                      const next = [...columns];
-                                      [next[index + 1], next[index]] = [
-                                        next[index],
-                                        next[index + 1],
-                                      ];
-                                      updateColumns(next);
-                                    }}
-                                  >
-                                    ↓
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={!column.archived && column.used_by.length > 0}
-                                    title={
-                                      column.used_by.length
-                                        ? `Используется в связях: ${column.used_by.join(', ')}`
-                                        : undefined
+                          <ColumnArchiveTabs
+                            archived={archivedColumns}
+                            onChange={setArchivedColumns}
+                            currentCount={columns.filter((column) => !column.archived).length}
+                            archivedCount={columns.filter((column) => column.archived).length}
+                          />
+                          {columns
+                            .filter((column) => column.archived === archivedColumns)
+                            .map((column, index) => (
+                              <div
+                                className={`${styles.column} ${column.archived ? styles.archived : ''}`}
+                                key={column.local}
+                              >
+                                <div className={styles.columnLine}>
+                                  <span className={styles.index}>{index + 1}</span>
+                                  <input
+                                    aria-label={`Название столбца ${index + 1}`}
+                                    value={column.name}
+                                    maxLength={120}
+                                    placeholder="Название столбца"
+                                    disabled={column.archived}
+                                    onChange={(event) =>
+                                      changeColumn(column.local, { name: event.target.value })
                                     }
-                                    onClick={() =>
-                                      column.id
-                                        ? changeColumn(column.local, { archived: !column.archived })
-                                        : updateColumns(
-                                            columns.filter((item) => item.local !== column.local),
-                                          )
-                                    }
-                                  >
-                                    {column.archived ? 'Вернуть' : 'Убрать'}
-                                  </button>
-                                </div>
-                              </div>
-                              {node.custom &&
-                                !column.archived &&
-                                !column.builtin_key &&
-                                supportsCellFill(column.kind) && (
-                                  <CellFillEditor
-                                    value={column.fill}
-                                    kind={column.kind}
-                                    columnId={column.id ?? -column.local}
-                                    columns={fillColumns}
-                                    sources={fillSources}
-                                    table={selected}
-                                    onChange={(fill) => changeColumn(column.local, { fill })}
                                   />
-                                )}
-                              {!!column.used_by.length && (
-                                <small className={styles.dependency}>
-                                  ↗{' '}
-                                  {column.used_by.some((name) => name.startsWith('Ячейки «'))
-                                    ? 'Используется в связях'
-                                    : 'Используется в отчёте'}
-                                  : {column.used_by.join(', ')}
-                                </small>
-                              )}
-                              {column.kind === 'action' &&
-                                column.builtin_key?.startsWith('action_') && (
-                                  <small className={styles.hint}>
-                                    Действие с записью. В таблице находится в меню «Действия».
-                                  </small>
-                                )}
-                              {column.kind === 'select' && !column.archived && (
-                                <fieldset
-                                  disabled={!!column.builtin_key}
-                                  className={styles.options}
-                                >
-                                  <legend>Варианты списка</legend>
-                                  {column.options.map((option, optionIndex) => (
-                                    <div key={option.id ?? optionIndex}>
-                                      <input
-                                        aria-label={`Вариант ${optionIndex + 1} столбца ${index + 1}`}
-                                        value={option.label}
-                                        maxLength={120}
-                                        onChange={(event) =>
-                                          changeColumn(column.local, {
-                                            options: column.options.map((item, i) =>
-                                              i === optionIndex
-                                                ? { ...item, label: event.target.value }
-                                                : item,
-                                            ),
-                                          })
-                                        }
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          changeColumn(column.local, {
-                                            options: option.id
-                                              ? column.options.map((item, i) =>
-                                                  i === optionIndex
-                                                    ? { ...item, archived: !item.archived }
-                                                    : item,
-                                                )
-                                              : column.options.filter((_, i) => i !== optionIndex),
-                                          })
-                                        }
-                                      >
-                                        {option.archived
-                                          ? 'Вернуть вариант'
-                                          : option.id
-                                            ? 'В архив'
-                                            : 'Убрать вариант'}
-                                      </button>
-                                      {option.archived && <small>В архиве</small>}
-                                    </div>
-                                  ))}
-                                  <button
-                                    type="button"
-                                    disabled={column.options.length >= 200}
-                                    onClick={() =>
+                                  <select
+                                    aria-label={`Формат столбца ${index + 1}`}
+                                    value={column.kind}
+                                    disabled={
+                                      !!column.builtin_key ||
+                                      !!column.type_change_reason ||
+                                      column.archived
+                                    }
+                                    title={column.type_change_reason ?? undefined}
+                                    onChange={(event) =>
                                       changeColumn(column.local, {
-                                        options: [
-                                          ...column.options,
-                                          { id: null, label: '', archived: false },
-                                        ],
+                                        kind: event.target.value as ColumnKind,
+                                        options:
+                                          event.target.value === 'select'
+                                            ? [{ id: null, label: '', archived: false }]
+                                            : [],
+                                        fill: null,
                                       })
                                     }
                                   >
-                                    + Вариант
-                                  </button>
-                                </fieldset>
-                              )}
-                            </div>
-                          ))}
-                          <button className={styles.add} type="button" onClick={addColumn}>
+                                    {Object.entries(columnKinds)
+                                      .filter(
+                                        ([kind]) =>
+                                          !!column.builtin_key ||
+                                          !['action', 'hostel'].includes(kind),
+                                      )
+                                      .map(([kind, label]) => (
+                                        <option key={kind} value={kind}>
+                                          {label}
+                                        </option>
+                                      ))}
+                                  </select>
+                                  <div className={styles.columnActions}>
+                                    <button
+                                      className="btn btn--ghost btn--compact btn--icon"
+                                      type="button"
+                                      aria-label={`Выше: ${column.name}`}
+                                      disabled={!index}
+                                      onClick={() => moveColumn(column.local, -1)}
+                                    >
+                                      ↑
+                                    </button>
+                                    <button
+                                      className="btn btn--ghost btn--compact btn--icon"
+                                      type="button"
+                                      aria-label={`Ниже: ${column.name}`}
+                                      disabled={
+                                        index ===
+                                        columns.filter((item) => item.archived === archivedColumns)
+                                          .length -
+                                          1
+                                      }
+                                      onClick={() => moveColumn(column.local, 1)}
+                                    >
+                                      ↓
+                                    </button>
+                                    <button
+                                      className="btn btn--ghost btn--compact"
+                                      type="button"
+                                      disabled={!column.archived && column.used_by.length > 0}
+                                      title={
+                                        column.used_by.length
+                                          ? `Используется в связях: ${column.used_by.join(', ')}`
+                                          : undefined
+                                      }
+                                      onClick={() =>
+                                        changeColumn(column.local, { archived: !column.archived })
+                                      }
+                                    >
+                                      {column.archived ? 'Вернуть' : 'Убрать'}
+                                    </button>
+                                  </div>
+                                </div>
+                                {node.custom &&
+                                  !column.archived &&
+                                  !column.builtin_key &&
+                                  supportsCellFill(column.kind) && (
+                                    <CellFillEditor
+                                      value={column.fill}
+                                      kind={column.kind}
+                                      columnId={column.id ?? -column.local}
+                                      columns={fillColumns}
+                                      sources={fillSources}
+                                      table={selected}
+                                      onChange={(fill) => changeColumn(column.local, { fill })}
+                                    />
+                                  )}
+                                {!!column.used_by.length && (
+                                  <small className={styles.dependency}>
+                                    ↗{' '}
+                                    {column.used_by.some((name) => name.startsWith('Ячейки «'))
+                                      ? 'Используется в связях'
+                                      : 'Используется в отчёте'}
+                                    : {column.used_by.join(', ')}
+                                  </small>
+                                )}
+                                {column.kind === 'action' &&
+                                  column.builtin_key?.startsWith('action_') && (
+                                    <small className={styles.hint}>
+                                      Действие с записью. В таблице находится в меню «Действия».
+                                    </small>
+                                  )}
+                                {column.kind === 'select' && !column.archived && (
+                                  <fieldset
+                                    disabled={!!column.builtin_key}
+                                    className={styles.options}
+                                  >
+                                    <legend>Варианты списка</legend>
+                                    {column.options.map((option, optionIndex) => (
+                                      <div key={option.id ?? optionIndex}>
+                                        <input
+                                          aria-label={`Вариант ${optionIndex + 1} столбца ${index + 1}`}
+                                          value={option.label}
+                                          maxLength={120}
+                                          onChange={(event) =>
+                                            changeColumn(column.local, {
+                                              options: column.options.map((item, i) =>
+                                                i === optionIndex
+                                                  ? { ...item, label: event.target.value }
+                                                  : item,
+                                              ),
+                                            })
+                                          }
+                                        />
+                                        <button
+                                          className="btn btn--ghost btn--compact"
+                                          type="button"
+                                          onClick={() =>
+                                            changeColumn(column.local, {
+                                              options: option.id
+                                                ? column.options.map((item, i) =>
+                                                    i === optionIndex
+                                                      ? { ...item, archived: !item.archived }
+                                                      : item,
+                                                  )
+                                                : column.options.filter(
+                                                    (_, i) => i !== optionIndex,
+                                                  ),
+                                            })
+                                          }
+                                        >
+                                          {option.archived
+                                            ? 'Вернуть вариант'
+                                            : option.id
+                                              ? 'В архив'
+                                              : 'Убрать вариант'}
+                                        </button>
+                                        {option.archived && <small>В архиве</small>}
+                                      </div>
+                                    ))}
+                                    <button
+                                      className="btn btn--ghost btn--compact"
+                                      type="button"
+                                      disabled={column.options.length >= 200}
+                                      onClick={() =>
+                                        changeColumn(column.local, {
+                                          options: [
+                                            ...column.options,
+                                            { id: null, label: '', archived: false },
+                                          ],
+                                        })
+                                      }
+                                    >
+                                      + Вариант
+                                    </button>
+                                  </fieldset>
+                                )}
+                              </div>
+                            ))}
+                          <button
+                            className={`btn btn--ghost btn--compact ${styles.add}`}
+                            type="button"
+                            onClick={addColumn}
+                          >
                             + Добавить столбец
                           </button>
                           <p className={styles.hint}>
@@ -902,6 +942,7 @@ export function DormitorySettingsDialog({
                   <p>Каждое правило считает значения отдельно за каждую дату.</p>
                 </div>
                 <button
+                  className="btn btn--ghost btn--compact"
                   type="button"
                   disabled={dirty || busy}
                   onClick={() => setEditingRule('new')}
@@ -940,6 +981,7 @@ export function DormitorySettingsDialog({
                     <div className={styles.toolbar}>
                       {row.link && (
                         <button
+                          className="btn btn--ghost btn--compact"
                           type="button"
                           disabled={dirty}
                           onClick={() => onOpen(row.link!.table_key)}
@@ -947,7 +989,12 @@ export function DormitorySettingsDialog({
                           К источнику ↗
                         </button>
                       )}
-                      <button type="button" disabled={dirty} onClick={() => setEditingRule(row)}>
+                      <button
+                        className="btn btn--ghost btn--compact"
+                        type="button"
+                        disabled={dirty}
+                        onClick={() => setEditingRule(row)}
+                      >
                         Настроить
                       </button>
                     </div>
@@ -975,6 +1022,7 @@ export function DormitorySettingsDialog({
                   />
                 </label>
                 <button
+                  className="btn btn--primary btn--compact"
                   type="button"
                   disabled={!templateName.trim() || dirty || busy}
                   onClick={() => void saveTemplate()}
@@ -995,6 +1043,7 @@ export function DormitorySettingsDialog({
                     </p>
                   </div>
                   <button
+                    className="btn btn--danger btn--compact"
                     type="button"
                     disabled={busy}
                     onClick={() =>
@@ -1022,6 +1071,7 @@ export function DormitorySettingsDialog({
                   {error}
                   {
                     <button
+                      className="btn btn--ghost btn--compact"
                       type="button"
                       onClick={() =>
                         dirty ? setConfirmReload(true) : setAttempt((value) => value + 1)
@@ -1036,11 +1086,16 @@ export function DormitorySettingsDialog({
               {dirty && <span className={styles.unsaved}>Есть несохранённые изменения</span>}
             </div>
             <div className={styles.toolbar}>
-              <button type="button" disabled={busy} onClick={close}>
+              <button
+                className="btn btn--ghost btn--compact"
+                type="button"
+                disabled={busy}
+                onClick={close}
+              >
                 Закрыть
               </button>
               <button
-                className={styles.primary}
+                className="btn btn--primary btn--compact"
                 type="button"
                 disabled={!dirty || busy}
                 onClick={() => void save()}
@@ -1052,10 +1107,14 @@ export function DormitorySettingsDialog({
           {confirmClose && (
             <div className={styles.leave} role="alert">
               <span>Изменения ещё не сохранены.</span>
-              <button type="button" onClick={() => setConfirmClose(false)}>
+              <button
+                className="btn btn--ghost btn--compact"
+                type="button"
+                onClick={() => setConfirmClose(false)}
+              >
                 Продолжить настройку
               </button>
-              <button onClick={onClose} type="button">
+              <button className="btn btn--ghost btn--compact" onClick={onClose} type="button">
                 Закрыть без сохранения
               </button>
             </div>
@@ -1063,10 +1122,15 @@ export function DormitorySettingsDialog({
           {confirmReload && (
             <div className={styles.leave} role="alert">
               <span>При обновлении несохранённые изменения будут отменены.</span>
-              <button type="button" onClick={() => setConfirmReload(false)}>
+              <button
+                className="btn btn--ghost btn--compact"
+                type="button"
+                onClick={() => setConfirmReload(false)}
+              >
                 Продолжить настройку
               </button>
               <button
+                className="btn btn--ghost btn--compact"
                 type="button"
                 onClick={() => {
                   setConfirmReload(false);

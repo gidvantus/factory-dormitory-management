@@ -29,6 +29,21 @@ export function PersonnelWithBuilder(): JSX.Element {
   const [catalog, setCatalog] = useState<BuilderCatalog>({ sources: [], templates: [] });
   const [ready, setReady] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
+  const [structureRevision, setStructureRevision] = useState(0);
+  const savedStructure = useRef('');
+  const trackStructure = useCallback((next: DemoState) => {
+    const key = JSON.stringify(
+      next.tabs.map((tab) => [
+        tab.id,
+        tab.columns.map((column) => [column.id, column.archived]),
+        tab.rows.map((row) => row.id),
+      ]),
+    );
+    if (key !== savedStructure.current) {
+      savedStructure.current = key;
+      setStructureRevision((value) => value + 1);
+    }
+  }, []);
   const [saving, setSaving] = useState(false);
   const [reading, setReading] = useState(false);
   const [error, setError] = useState('');
@@ -83,6 +98,7 @@ export function PersonnelWithBuilder(): JSX.Element {
         acknowledged.current = signature(next);
         setLocalState(next);
         setSaved(signature(next));
+        trackStructure(next);
         setReady(true);
         setError('');
         setConflict(false);
@@ -166,6 +182,7 @@ export function PersonnelWithBuilder(): JSX.Element {
           acknowledged.current = sent;
           if (mounted.current) {
             setSaved(sent);
+            trackStructure(snapshot);
             setError('');
           }
         })
@@ -184,10 +201,15 @@ export function PersonnelWithBuilder(): JSX.Element {
         });
     }, 450);
     return () => clearTimeout(timer);
-  }, [ready, dirty, serialized, error, conflict, pulse, reading]);
+  }, [ready, dirty, serialized, error, conflict, pulse, reading, trackStructure]);
   const environment = useMemo(
-    () => ({ ...catalog, evaluate: personnelBuilderApi.evaluate, registerDraft }),
-    [catalog, registerDraft],
+    () => ({
+      ...catalog,
+      evaluate: personnelBuilderApi.evaluate,
+      registerDraft,
+      structureRevision,
+    }),
+    [catalog, registerDraft, structureRevision],
   );
   function downloadDraft(): void {
     const url = URL.createObjectURL(

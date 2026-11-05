@@ -6,28 +6,7 @@
   flex-wrap: wrap;
   align-items: center;
 }
-.controls button,
-.subtabFields button,
-.subtabAdd,
-.actions button,
-.option button,
-.columnList button,
-.options > button {
-  padding: 8px 11px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
-  background: var(--color-bg-surface);
-  color: var(--color-text);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.controls button:disabled,
-.form button:disabled,
-.columnList button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
+
 .form {
   display: grid;
   gap: 16px;
@@ -40,13 +19,14 @@
 .form input,
 .form select {
   width: 100%;
-  min-height: 38px;
-  padding: 8px;
+  min-height: var(--control-h-md);
+  padding: var(--gap-8) var(--gap-10);
   border: 1px solid var(--color-border-strong);
-  border-radius: 7px;
+  border-radius: var(--radius-4xs);
   background: var(--color-bg-surface);
   color: var(--color-text);
   font: inherit;
+  line-height: var(--leading-snug);
 }
 .form .subtabToggle {
   display: flex;
@@ -88,11 +68,10 @@
 }
 .actions {
   justify-content: flex-end;
+  padding-top: var(--gap-16);
+  border-top: 1px solid var(--color-border);
 }
-.actions button:last-child {
-  background: var(--mint-600);
-  color: white;
-}
+
 .help {
   color: var(--color-text-muted);
   font-size: 13px;
@@ -212,4 +191,15 @@
   color: var(--mint-700);
   font-size: 12px;
   font-weight: 700;
+}
+
+@media (max-width: 540px) {
+  .actions :global(.btn) {
+    flex: 1 1 auto;
+    max-width: 100%;
+    white-space: normal;
+  }
+  .option input {
+    min-width: 0;
+  }
 }

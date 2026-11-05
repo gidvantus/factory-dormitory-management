@@ -98,6 +98,7 @@ export function EmployeeNameCell({
           {!disabled && (
             <button
               type="button"
+              data-table-edit-trigger
               className={styles.nameEdit}
               aria-label={`Редактировать ${label}, ${rowLabel}`}
               title={`Редактировать ${label}`}

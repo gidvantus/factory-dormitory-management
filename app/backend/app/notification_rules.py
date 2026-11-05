@@ -166,7 +166,13 @@ def _section_title(dormitory: Dormitory, key: str) -> str:
 def _custom_tab(db: Session, dormitory_id: int, tab_id: int) -> CustomTab | None:
     """Живая пользовательская вкладка этого общежития, если она есть."""
     tab = db.get(CustomTab, tab_id)
-    if tab is None or tab.dormitory_id != dormitory_id or tab.is_group or not tab.table_created:
+    if (
+        tab is None
+        or tab.dormitory_id != dormitory_id
+        or tab.is_group
+        or not tab.table_created
+        or tab.kind == "archive"
+    ):
         return None
     return tab
 
@@ -274,7 +280,8 @@ def catalog(db: Session, dormitory: Dormitory) -> list[CatalogTable]:
     )
     by_id = {tab.id: tab for tab in tabs}
     for tab in tabs:
-        if not tab.table_created or tab.is_group:
+        # Архив действий читается через историю и не является источником правил.
+        if not tab.table_created or tab.is_group or tab.kind == "archive":
             continue
         columns = _available_columns(ensure_columns(db, dormitory.id, tab.table_key))
         tables.append(

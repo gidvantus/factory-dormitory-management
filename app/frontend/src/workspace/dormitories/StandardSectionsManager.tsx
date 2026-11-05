@@ -75,7 +75,12 @@ export function StandardSectionsManager({
       {error && (
         <p role="alert" className={styles.error}>
           {error}{' '}
-          <button type="button" disabled={busy} onClick={() => setAttempt((n) => n + 1)}>
+          <button
+            className="btn btn--ghost btn--compact"
+            type="button"
+            disabled={busy}
+            onClick={() => setAttempt((n) => n + 1)}
+          >
             Повторить
           </button>
         </p>
@@ -101,12 +106,18 @@ export function StandardSectionsManager({
                 </div>
                 <div className={styles.actions}>
                   {item.status !== 'deleted' && parent?.status !== 'deleted' && (
-                    <button type="button" disabled={busy} onClick={() => onOpen(item)}>
+                    <button
+                      className="btn btn--ghost btn--compact"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onOpen(item)}
+                    >
                       {item.status === 'hidden' || parentInactive ? 'Просмотреть' : 'Открыть'}
                     </button>
                   )}
                   {item.status === 'active' ? (
                     <button
+                      className="btn btn--ghost btn--compact"
                       type="button"
                       disabled={busy}
                       onClick={() => {
@@ -118,6 +129,7 @@ export function StandardSectionsManager({
                     </button>
                   ) : (
                     <button
+                      className="btn btn--ghost btn--compact"
                       type="button"
                       disabled={busy || !!parentInactive}
                       onClick={() => void change(item, 'active')}
@@ -128,7 +140,7 @@ export function StandardSectionsManager({
                   {item.status !== 'deleted' && (
                     <button
                       type="button"
-                      className={styles.danger}
+                      className="btn btn--danger btn--compact"
                       disabled={busy || !!item.delete_block_reason}
                       title={item.delete_block_reason ?? undefined}
                       onClick={() => {
@@ -159,13 +171,18 @@ export function StandardSectionsManager({
               : `Удалить пустую вкладку «${confirm.item.name}» и её структуру? Позже её можно добавить обратно со стандартными столбцами.`}
           </p>
           <div className={styles.actions}>
-            <button type="button" disabled={busy} onClick={() => setConfirm(null)}>
+            <button
+              className="btn btn--ghost btn--compact"
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirm(null)}
+            >
               Отмена
             </button>
             <button
               type="button"
               disabled={busy}
-              className={confirm.status === 'deleted' ? styles.danger : undefined}
+              className={`btn ${confirm.status === 'deleted' ? 'btn--danger' : 'btn--primary'} btn--compact`}
               onClick={() => void change(confirm.item, confirm.status)}
             >
               {busy

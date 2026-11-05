@@ -11,6 +11,7 @@ import formStyles from './ConfigurableColumns.module.css';
 import styles from './CreateTableDialog.module.css';
 import { CellFillEditor } from './CellFillEditor';
 import { cellFillError, supportsCellFill, useCellFillSources } from './cellFill';
+import { ColumnArchiveTabs } from '../../components/ColumnArchiveTabs';
 
 interface DraftColumn extends ColumnInput {
   key: number;
@@ -37,6 +38,8 @@ export function CreateTableDialog({
   const id = useId();
   const nextKey = useRef(1);
   const [columns, setColumns] = useState<DraftColumn[]>([emptyColumn(0)]);
+  const [archivedDrafts, setArchivedDrafts] = useState<DraftColumn[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
   const fillSources = useCellFillSources(dormitoryId);
   const fillColumns = columns.map((column) => ({ ...column, id: -(column.key + 1) }));
   useEditorPreview('create-table', { columns });
@@ -113,7 +116,38 @@ export function CreateTableDialog({
           title="Столбцы таблицы"
           description="У каждого столбца — название и тип. Порядок карточек определяет порядок в таблице."
         >
-          <div className={styles.columns}>
+          <ColumnArchiveTabs
+            archived={showArchived}
+            onChange={setShowArchived}
+            currentCount={columns.length}
+            archivedCount={archivedDrafts.length}
+          />
+          {showArchived && (
+            <div className={styles.columns}>
+              {!archivedDrafts.length && (
+                <p className={formStyles.help}>Архивных столбцов пока нет.</p>
+              )}
+              {archivedDrafts.map((column) => (
+                <div key={column.key} className={styles.heading}>
+                  <span>{column.name || 'Новый столбец'}</span>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--compact"
+                    disabled={saving}
+                    onClick={() => {
+                      setColumns((current) => [...current, column]);
+                      setArchivedDrafts((current) =>
+                        current.filter((item) => item.key !== column.key),
+                      );
+                    }}
+                  >
+                    Восстановить столбец
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className={styles.columns} hidden={showArchived}>
             {fillSources.loading && <p role="status">Загружаем источники заполнения…</p>}
             {fillSources.error && (
               <p className={formStyles.help}>
@@ -171,10 +205,11 @@ export function CreateTableDialog({
                     </div>
                   )}
                   <button
-                    className={styles.remove}
+                    className={`btn btn--danger btn--compact ${styles.remove}`}
                     type="button"
                     aria-label={`Удалить столбец ${index + 1}`}
                     onClick={() => {
+                      setArchivedDrafts((current) => [...current, column]);
                       setColumns((current) => current.filter((item) => item.key !== column.key));
                       setError('');
                     }}
@@ -241,6 +276,7 @@ export function CreateTableDialog({
                           }
                         />
                         <button
+                          className="btn btn--ghost btn--compact"
                           type="button"
                           aria-label={`Удалить вариант ${optionIndex + 1}`}
                           onClick={() =>
@@ -254,6 +290,7 @@ export function CreateTableDialog({
                       </div>
                     ))}
                     <button
+                      className="btn btn--ghost btn--compact"
                       type="button"
                       disabled={column.options.length >= 200}
                       onClick={() =>
@@ -273,10 +310,11 @@ export function CreateTableDialog({
           <div>
             <button
               type="button"
-              className={styles.add}
+              className={`btn btn--ghost btn--compact ${styles.add}`}
               disabled={saving}
               onClick={() => {
                 const column = emptyColumn(nextKey.current++);
+                setShowArchived(false);
                 setColumns((current) => [...current, column]);
                 setError('');
               }}
@@ -291,10 +329,19 @@ export function CreateTableDialog({
           </p>
         )}
         <div className={formStyles.actions}>
-          <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
+          <ModalCancelButton
+            className="btn btn--ghost btn--compact"
+            onClick={onClose}
+            type="button"
+            disabled={saving}
+          >
             Отмена
           </ModalCancelButton>
-          <button type="submit" disabled={saving || !columns.length}>
+          <button
+            className="btn btn--primary btn--compact"
+            type="submit"
+            disabled={saving || !columns.length}
+          >
             {saving ? 'Создаём…' : 'Создать таблицу'}
           </button>
         </div>

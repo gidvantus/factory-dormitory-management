@@ -24,11 +24,13 @@ from app.personnel import record_changed
 from app.schemas.table_column import CellRequest, ColumnRequest, ColumnResponse, TableKey
 from app.table_data import (
     column_dependencies,
+    column_type_change_reason,
     ensure_columns,
     get_column,
     get_record,
     lock_dormitory,
     normalize_value,
+    require_column_type_change,
     require_writable_table,
 )
 
@@ -80,10 +82,17 @@ def list_columns(
     _user: SubscribedUser,
     db: DbSession,
     _dormitory: OwnDormitory,
-) -> list[TableColumn]:
+) -> list[dict[str, Any]]:
     columns = ensure_columns(db, dormitory_id, table_key)
+    result = [
+        {
+            **ColumnResponse.model_validate(column).model_dump(),
+            "type_change_reason": column_type_change_reason(db, column),
+        }
+        for column in columns
+    ]
     db.commit()
-    return columns
+    return result
 
 
 @router.post("/{table_key}/columns", response_model=ColumnResponse, status_code=201)
@@ -100,14 +109,7 @@ def create_column(
     if payload.kind in ("action", "hostel"):
         raise HTTPException(422, "Выберите тип данных нового столбца")
     check_name(columns, payload.name)
-    position = min(
-        (
-            col.position
-            for col in columns
-            if col.builtin_key and col.builtin_key.startswith("action_")
-        ),
-        default=max((col.position for col in columns), default=-1) + 1,
-    )
+    position = max((col.position for col in columns), default=-1) + 1
     for col in columns:
         if col.position >= position:
             col.position += 1
@@ -139,21 +141,20 @@ def update_column(
     db: DbSession,
     _dormitory: OwnDormitory,
 ) -> TableColumn:
+    lock_dormitory(db, dormitory_id)
     columns = ensure_columns(db, dormitory_id, table_key)
     require_writable_table(db, dormitory_id, table_key)
     column = get_column(db, dormitory_id, table_key, column_id)
     if column.archived:
         raise HTTPException(409, "Сначала восстановите столбец")
     check_name(columns, payload.name, column.id)
-    if payload.kind != column.kind:
-        raise HTTPException(
-            409, "Тип существующего столбца нельзя изменить; создайте новый столбец"
-        )
+    require_column_type_change(db, column, payload.kind)
     if column.builtin_key:
         if [item.model_dump() for item in payload.options] != column.options:
             raise HTTPException(409, "Варианты стандартного столбца изменять нельзя")
     else:
-        column.options = prepare_options(payload, column)
+        column.options = prepare_options(payload, column if payload.kind == column.kind else None)
+    column.kind = payload.kind
     column.name = payload.name
     if "fill" in payload.model_fields_set and assign_fill(column, payload.fill):
         checked_fill_changes(db, dormitory_id, [column])

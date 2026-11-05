@@ -328,6 +328,9 @@ def move_row(
     row = rows[index]
     neighbor = rows[neighbor_index]
     row.position, neighbor.position = neighbor.position, row.position
+    from app.table_views import clear_view_order
+
+    clear_view_order(db, _dormitory.organization_id, f"dormitory-{dormitory_id}", "report", "rows")
     db.commit()
     db.refresh(row)
     return row_response(row)
