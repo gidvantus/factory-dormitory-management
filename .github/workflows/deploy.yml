@@ -405,7 +405,9 @@ jobs:
             exit 1
           }
 
-          # check_host <слой> <хост> <путь> <обязательная подстрока тела, «» — любое>
+          # check_host <слой> <хост> <путь> <образец для case; подставляется БЕЗ
+          # кавычек, поэтому «ok» — точное сравнение, «*"status":"ok"*» — подстрока,
+          # «*» — тело не проверяется.>
           check_host() {
             local label="$1" host="$2" path="$3" want="$4"
             local url="https://$host$path"
@@ -421,14 +423,15 @@ jobs:
             if [ "$code" != "200" ]; then
               fail_dump "$label: $url отвечает $code вместо 200. Смотрите шаг запуска стека и caddy reload." "$body"
             fi
+            # shellcheck disable=SC2254  # образец приходит из нашего же вызова
             case "$body_compact" in
-              *"$want"*) : ;;
-              *) fail_dump "$label: $url вернул 200, но тело не содержит «$want»: $body" "$body" ;;
+              $want) : ;;
+              *) fail_dump "$label: $url вернул 200, но тело не совпало с образцом «$want»: $body" "$body" ;;
             esac
           }
 
           # Основной домен: 200 и "status":"ok" от API.
-          check_host "основной домен" "$DOMAIN" "/api/health" '"status":"ok"'
+          check_host "основной домен" "$DOMAIN" "/api/health" '*"status":"ok"*'
 
           # --- Кабинет оператора на поддомене ---
           # Хост — производная от SITE_DOMAIN: отдельной переменной окружения не
@@ -437,8 +440,12 @@ jobs:
 
           # Первая проверка — маршрут caddy → operator-web, вторая — вся цепочка
           # до operator-api (у него та же ручка /api/health в healthcheck).
+          # Тело /healthz сверяем ТОЧНО: `location = /healthz` отдаёт ровно `ok`,
+          # а подстрочный «*ok*» совпал бы с SPA-фолбэком — в разметке кабинета
+          # «ok» встречается в `stroke-linecap`, и пропавшая ручка осталась бы
+          # незамеченной.
           check_host "маршрут caddy → operator-web" "$OPERATOR_DOMAIN" "/healthz" "ok"
-          check_host "цепочка до operator-api" "$OPERATOR_DOMAIN" "/api/health" ""
+          check_host "цепочка до operator-api" "$OPERATOR_DOMAIN" "/api/health" "*"
 
       - name: "Итог: деплой завершён"
         run: |
