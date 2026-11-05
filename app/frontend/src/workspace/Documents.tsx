@@ -58,6 +58,37 @@ function purchasedFlag(state: unknown): boolean {
   );
 }
 
+/** «1 место», «5 мест»: количество мест в составе счёта. */
+function seatsLabel(quantity: number): string {
+  const lastTwo = quantity % 100;
+  if (lastTwo >= 11 && lastTwo <= 14) return `${quantity} мест`;
+  const last = quantity % 10;
+  const word = last === 1 ? 'место' : last >= 2 && last <= 4 ? 'места' : 'мест';
+  return `${quantity} ${word}`;
+}
+
+/**
+ * Состав счёта для колонки «Предмет»: «Домовой · 6 месяцев + 5 мест».
+ *
+ * Считает по позициям сервера (`items`), а не по снимку первой позиции:
+ * у счёта за «тариф + места» предмет один документ, но позиций две, и колонка
+ * называет обе. Сумму, статус и файлы экран по-прежнему берёт готовыми.
+ *
+ * Исторический счёт без позиций (до бэкфилла) отдаётся снимком `tariff_name`:
+ * колонка не ломается на старых документах.
+ */
+function invoiceSubject(invoice: Invoice): string {
+  const items = invoice.items ?? [];
+  if (items.length === 0) return invoice.tariff_name ?? '—';
+  return items
+    .map((item) =>
+      item.kind === 'seats'
+        ? seatsLabel(item.quantity ?? 0)
+        : (item.name ?? invoice.tariff_name ?? '—'),
+    )
+    .join(' + ');
+}
+
 /**
  * Раздел «Документы»: счета организации, их статусы и файлы.
  *
@@ -199,7 +230,7 @@ export function Documents(): JSX.Element {
                   <tr key={invoice.id} data-testid="documents-row">
                     <td data-testid="document-number">{invoice.number}</td>
                     <td data-testid="document-date">{formatDate(invoice.created_at)}</td>
-                    <td data-testid="document-tariff">{invoice.tariff_name ?? '—'}</td>
+                    <td data-testid="documents-items">{invoiceSubject(invoice)}</td>
                     <td data-testid="document-amount">{invoice.amount_label}</td>
                     <td>
                       <span

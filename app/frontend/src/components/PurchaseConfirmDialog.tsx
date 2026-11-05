@@ -1,8 +1,8 @@
 import { useState } from 'react';
 
-import type { Tariff } from '../api/client';
+import type { LicenseOrder } from './LicenseCalculator';
 import { Modal } from './Modal';
-import { TariffPrice } from './TariffPrice';
+import { formatKopecks } from './money';
 import styles from './PurchaseConfirmDialog.module.css';
 
 /** Страница оферты: тот же адрес, что в подвале сайта и на регистрации. */
@@ -19,8 +19,8 @@ const OFFER_PATH = '/documents/offer';
 const OFFER_ACCEPTANCE_REQUIRED = 'Отметьте согласие с условиями оферты';
 
 interface PurchaseConfirmDialogProps {
-  /** Что покупаем: из карточки тарифа, по которой нажали «Купить». */
-  tariff: Tariff;
+  /** Заказ из калькулятора: лицензия, места и их суммы. */
+  order: LicenseOrder;
   /** Запрос в пути: окно не закрывается, чтобы не потерять ответ сервера. */
   submitting: boolean;
   /** Отказ сервера как есть: про отметку он или нет, решает само окно. */
@@ -30,23 +30,25 @@ interface PurchaseConfirmDialogProps {
 }
 
 /**
- * Окно подтверждения покупки тарифа с обязательной отметкой оферты.
+ * Окно подтверждения заказа «лицензия + дополнительные места».
+ *
+ * Состав заказа показывается теми же числами, что и в калькуляторе: цена
+ * лицензии из прайса и места по цене ступени с их произведением. Итог — сумма
+ * двух позиций; сумму счёта всё равно посчитает сервер, поэтому в запрос уходят
+ * только `tariff_id`, `seats` и отметка оферты.
  *
  * Согласие — явное действие человека: чекбокс пуст, а «Выставить счёт» погашена
  * до отметки. Клиент отметку не подставляет и не проверяет за сервер: если
  * запрос всё же ушёл без неё, `422` показывается тем же текстом, что требует
  * сервер, — под чекбоксом, потому что он про отметку.
  *
- * Отказы другой природы (тариф уже выбран, конец сессии, нет прав, сеть) про
- * галочку ничего не говорят: они показываются отдельным алертом над кнопками, а
- * чекбокс остаётся валидным.
- *
- * Окно одно на публичный прайс: раздел кабинета «Тарифы» удалён в #87, и
- * `/cabinet/tariffs` ведёт на прайс. Решения магазина улучшений покупаются без
- * отметки и это окно не открывают.
+ * Отказы другой природы (тариф уже выбран, места без тарифа, конец сессии, сеть)
+ * про галочку ничего не говорят: они показываются отдельным алертом над кнопками,
+ * а чекбокс остаётся валидным. Оба текста — дословно серверные, под
+ * `data-testid="license-error"`, чтобы экран отдавал отказ, а не переписывал его.
  */
 export function PurchaseConfirmDialog({
-  tariff,
+  order,
   submitting,
   error,
   onCancel,
@@ -56,19 +58,33 @@ export function PurchaseConfirmDialog({
   // Отказ про отметку против всех остальных: первый красит чекбокс, вторые — нет.
   const offerError = error.includes(OFFER_ACCEPTANCE_REQUIRED) ? error : '';
   const requestError = offerError === '' ? error : '';
+  const { tariff, seats, unitKopecks, seatsTotalKopecks, totalKopecks } = order;
 
   return (
     <Modal
-      title={`Покупка тарифа «${tariff.name}»`}
+      title={`Заказ: ${tariff.name}`}
       testId="purchase-confirm"
       onClose={onCancel}
       closeDisabled={submitting}
     >
-      <TariffPrice
-        label={tariff.price_label}
-        className={styles.amount}
-        testId="purchase-confirm-amount"
-      />
+      <dl className={styles.items} data-testid="purchase-confirm-items">
+        <div>
+          <dt>Тариф · {tariff.name}</dt>
+          <dd>{formatKopecks(totalKopecks - seatsTotalKopecks)}</dd>
+        </div>
+        {seats > 0 && (
+          <div>
+            <dt>
+              Дополнительные места · {seats} ({formatKopecks(unitKopecks)} × {seats})
+            </dt>
+            <dd>{formatKopecks(seatsTotalKopecks)}</dd>
+          </div>
+        )}
+        <div className={styles.total}>
+          <dt>Итого</dt>
+          <dd data-testid="purchase-confirm-amount">{formatKopecks(totalKopecks)}</dd>
+        </div>
+      </dl>
 
       <div className="field" data-testid="purchase-confirm-offer">
         <label className="field__consent" htmlFor="purchase-offer">
@@ -77,6 +93,7 @@ export function PurchaseConfirmDialog({
             id="purchase-offer"
             name="offer_accepted"
             type="checkbox"
+            data-testid="license-offer"
             checked={accepted}
             onChange={(event) => setAccepted(event.target.checked)}
             aria-invalid={offerError ? true : undefined}
@@ -94,7 +111,7 @@ export function PurchaseConfirmDialog({
             className="field__error"
             id="purchase-offer-error"
             role="alert"
-            data-testid="purchase-confirm-error"
+            data-testid="license-error"
           >
             {offerError}
           </p>
@@ -103,7 +120,7 @@ export function PurchaseConfirmDialog({
 
       {/* Отказ не про галочку: отдельный алерт, чекбокс при нём валиден. */}
       {requestError ? (
-        <p className="alert alert--error" role="alert" data-testid="purchase-confirm-request-error">
+        <p className="alert alert--error" role="alert" data-testid="license-error">
           {requestError}
         </p>
       ) : null}
