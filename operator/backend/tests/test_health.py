@@ -44,6 +44,10 @@ def test_openapi_documents_the_contract(client: TestClient) -> None:
         "/api/invoices/{invoice_id}",
         "/api/invoices/{invoice_id}/file",
         "/api/invoices/{invoice_id}/act-file",
+        # Тарифы платформы: четвёртый раздел — весь прайс, правка полей и
+        # снятие с продажи.
+        "/api/tariffs",
+        "/api/tariffs/{tariff_id}",
     }
     login = schema["paths"]["/api/auth/login"]["post"]
     assert login["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
@@ -114,3 +118,25 @@ def test_openapi_documents_the_invoices_contour(client: TestClient) -> None:
     assert update["responses"]["422"] is not None
     assert invoice_file["responses"]["404"] is not None
     assert act_file["responses"]["404"] is not None
+
+
+def test_openapi_documents_the_tariffs_contour(client: TestClient) -> None:
+    """Тарифы: список — `list[Tariff]`, удаление — `204` без тела."""
+    schema = client.get("/openapi.json").json()
+    listing = schema["paths"]["/api/tariffs"]["get"]
+    update = schema["paths"]["/api/tariffs/{tariff_id}"]["patch"]
+    delete = schema["paths"]["/api/tariffs/{tariff_id}"]["delete"]
+
+    assert listing["responses"]["200"]["content"]["application/json"]["schema"]["items"][
+        "$ref"
+    ].endswith("Tariff")
+    for operation in (listing, update, delete):
+        assert operation["responses"]["401"]["description"] == UNAUTHORIZED_DETAIL
+        assert operation["responses"]["502"] is not None
+        assert operation["responses"]["503"] is not None
+    assert update["responses"]["404"] is not None
+    assert update["responses"]["409"] is not None
+    assert update["responses"]["422"] is not None
+    # `DELETE` отвечает пустым телом: 204 объявлен, а 200 у него нет.
+    assert "204" in delete["responses"]
+    assert "200" not in delete["responses"]

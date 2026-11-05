@@ -135,9 +135,7 @@ def test_list_page_size_and_search_bounds_are_validated(
     assert client.get(INVOICES, params={"search": "я" * 101}).status_code == 422
 
 
-def test_seats_invoice_keeps_its_kind_and_quantity(
-    client: TestClient, main_api: MainApi
-) -> None:
+def test_seats_invoice_keeps_its_kind_and_quantity(client: TestClient, main_api: MainApi) -> None:
     """Счёт за места (#168): вид `seats` и количество доезжают до реестра оператора.
 
     `PlatformInvoice` кабинета — ручная копия модели основного API, а pydantic

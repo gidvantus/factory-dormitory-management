@@ -74,8 +74,13 @@ CURRENT_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-def _response(tariff: Tariff) -> TariffResponse:
-    """Ответ по строке тарифа: `price_label` считает сервер, клиент его не собирает."""
+def tariff_response(tariff: Tariff) -> TariffResponse:
+    """Ответ по строке тарифа: `price_label` считает сервер, клиент его не собирает.
+
+    Функция публичная, а не приватная: форму ответа собирает и платформенный
+    контур (`app/api/platform_tariffs.py`), а вторая копия этой сборки разошлась
+    бы с первой на первой же правке формулы цены.
+    """
     return TariffResponse(
         id=tariff.id,
         name=tariff.name,
@@ -102,7 +107,7 @@ def list_tariffs(db: DbSession) -> list[TariffResponse]:
     visible = db.scalars(
         select(Tariff).where(Tariff.is_visible.is_(True)).order_by(Tariff.position, Tariff.id)
     )
-    return [_response(tariff) for tariff in visible]
+    return [tariff_response(tariff) for tariff in visible]
 
 
 # 404 у параметров мест один: строки каталога, по которой продаются места, нет
@@ -168,12 +173,14 @@ def read_organization_tariff(membership: Membership, db: DbSession) -> Organizat
     """
     state = subscription_state(db, membership.organization_id)
     next_period = (
-        NextTariffResponse(tariff=_response(state.next_tariff), starts_at=state.next_starts_at)
+        NextTariffResponse(
+            tariff=tariff_response(state.next_tariff), starts_at=state.next_starts_at
+        )
         if state.next_tariff is not None and state.next_starts_at is not None
         else None
     )
     return OrganizationTariffResponse(
-        tariff=_response(state.tariff) if state.tariff is not None else None,
+        tariff=tariff_response(state.tariff) if state.tariff is not None else None,
         ends_at=state.ends_at,
         days_left=state.days_left,
         is_expiring=state.is_expiring,
