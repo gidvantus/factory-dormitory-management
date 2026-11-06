@@ -60,12 +60,33 @@ services:
       # исчезали бы при каждой пересборке контейнера. При заданных ключах S3
       # том просто не используется — файлы уходят в бакет.
       - uploads:/app/uploads
+    healthcheck:
+      # Без этого healthcheck'а падение api не видит никто: `docker compose up
+      # --wait` в деплое проверяет только сервисы с healthcheck, поэтому шаг
+      # запуска стека был зелёным, а /api/health отдавал 502 от nginx фронта
+      # (api в цикле перезапуска — упавший `alembic upgrade head`). curl в
+      # slim-образе нет: проверяем тем же Python, которым запущен сервис.
+      # start_period 120 с — миграции на чистом сервере идут дольше, чем старт
+      # приложения; деплой ждёт с `--wait-timeout 300`.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
 
   web:
     build: ./app/frontend
     restart: unless-stopped
     depends_on:
-      - api
+      api:
+        # Ждём не старта контейнера, а готовности api: nginx этого сервиса
+        # проксирует `/api/` в `api:8000`, и поднятый раньше времени фронт
+        # отвечал бы 502 на каждый запрос кабинета.
+        condition: service_healthy
     ports:
       - "${FRONTEND_PORT:-8080}:80"
 
