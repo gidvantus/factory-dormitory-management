@@ -183,6 +183,59 @@ def test_patch_forwards_a_foreign_field_to_be_rejected_upstairs(
     assert json.loads(main_api.requests[-1].content) == {"code": "journal"}
 
 
+@pytest.mark.parametrize(
+    ("payload", "field", "message"),
+    [
+        # Дробный порядок: с полем `int | None` кабинет отвечал английским текстом
+        # `pydantic` («Input should be a valid integer, got a number with a
+        # fractional part») вместо русского текста контракта.
+        ({"position": 1.5}, "position", "Порядок должен быть целым числом"),
+        # Строка и `bool` приводились к числу и уходили наверх как `3` и `1`:
+        # основной API ровно эти значения отвергает, а кабинет отвечал `200`.
+        ({"position": "3"}, "position", "Порядок должен быть целым числом"),
+        ({"position": True}, "position", "Порядок должен быть целым числом"),
+        # `1` приводился к `true` (`bool` — подкласс `int`), `"да"` давала
+        # английский текст вместо «Состояние должно быть true или false».
+        ({"is_visible": 1}, "is_visible", "Состояние должно быть true или false"),
+        ({"is_visible": "да"}, "is_visible", "Состояние должно быть true или false"),
+        # Число вместо названия: текст «Название не может быть пустым» — тоже
+        # русского контракта, а не `pydantic`.
+        ({"name": 42}, "name", "Название не может быть пустым"),
+    ],
+)
+def test_patch_does_not_validate_or_coerce_values(
+    client: TestClient,
+    main_api: MainApi,
+    payload: dict[str, object],
+    field: str,
+    message: str,
+) -> None:
+    """Кабинет не проверяет и не приводит значения: отказ приходит от основного API.
+
+    Это замечание Б1 ревью №1: с полями `str`/`int`/`bool` `pydantic` приводил
+    присланное до отправки, и кабинет отвечал `200` или английским текстом там,
+    где контракт обещает `422` с русским текстом. Договор кабинета — «тело уходит
+    наверх как есть», поэтому проверяется и тело запроса, и дословный `detail`.
+    """
+    errors = [
+        {
+            "type": "value_error",
+            "loc": ["body", field],
+            "msg": f"Value error, {message}",
+            "input": next(iter(payload.values())),
+        }
+    ]
+    main_api.handler = respond(errors, 422)
+    login(client)
+
+    response = client.patch(f"{SOLUTIONS}/3", json=payload)
+
+    assert response.status_code == 422, response.text
+    assert response.json() == {"detail": errors}
+    # Присланное ушло наверх без приведения: `1.5` не стал `1`, `"3"` — числом.
+    assert json.loads(main_api.requests[-1].content) == payload
+
+
 def test_patch_publishes_a_hidden_solution(client: TestClient, main_api: MainApi) -> None:
     """«Опубликовать» — это `PATCH {"is_visible": true}`, и тело не переписывается."""
     published = {**HIDDEN_SOLUTION, "is_visible": True}
