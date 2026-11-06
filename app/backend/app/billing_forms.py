@@ -314,6 +314,31 @@ def _tax_ids(inn: str | None, kpp: str | None) -> str:
     return " · ".join(parts)
 
 
+def _requisite_lines(
+    name: str | None,
+    inn: str | None,
+    kpp: str | None,
+    ogrn: str | None,
+    address: str | None,
+) -> tuple[str, list[str]]:
+    """Название стороны и строки её реквизитов: ИНН · КПП, ОГРН, адрес.
+
+    Блоки исполнителя и заказчика различаются только источником данных
+    (`CompanyDetails` против снимка `Invoice`), поэтому строки собираются в одном
+    месте. Иначе следующая правка образца поправила бы одну сторону и молча
+    потеряла поле у другой: тест блоки между собой не сравнивает.
+    """
+    details: list[str] = []
+    tax_ids = _tax_ids(inn, kpp)
+    if tax_ids:
+        details.append(tax_ids)
+    if _filled(ogrn):
+        details.append(f"ОГРН {(ogrn or '').strip()}")
+    if _filled(address):
+        details.append((address or "").strip())
+    return (name or "").strip(), details
+
+
 def _party_lines(company: CompanyDetails | None) -> tuple[str, list[str]]:
     """Название и строки реквизитов исполнителя из таблицы реквизитов.
 
@@ -325,28 +350,18 @@ def _party_lines(company: CompanyDetails | None) -> tuple[str, list[str]]:
     """
     if company is None or not any(_filled(getattr(company, field)) for field in REQUISITE_FIELDS):
         return "", [SUPPLIER_PLACEHOLDER]
-    details: list[str] = []
-    tax_ids = _tax_ids(company.inn, company.kpp)
-    if tax_ids:
-        details.append(tax_ids)
-    if _filled(company.ogrn):
-        details.append(f"ОГРН {(company.ogrn or '').strip()}")
-    if _filled(company.address):
-        details.append((company.address or "").strip())
-    return (company.name or "").strip(), details
+    return _requisite_lines(company.name, company.inn, company.kpp, company.ogrn, company.address)
 
 
 def _customer_lines(invoice: Invoice) -> tuple[str, list[str]]:
     """Название и строки реквизитов заказчика из снимка счёта."""
-    details: list[str] = []
-    tax_ids = _tax_ids(invoice.buyer_inn, invoice.buyer_kpp)
-    if tax_ids:
-        details.append(tax_ids)
-    if _filled(invoice.buyer_ogrn):
-        details.append(f"ОГРН {(invoice.buyer_ogrn or '').strip()}")
-    if _filled(invoice.buyer_address):
-        details.append((invoice.buyer_address or "").strip())
-    return (invoice.buyer_name or "").strip(), details
+    return _requisite_lines(
+        invoice.buyer_name,
+        invoice.buyer_inn,
+        invoice.buyer_kpp,
+        invoice.buyer_ogrn,
+        invoice.buyer_address,
+    )
 
 
 def _party_block(

@@ -49,6 +49,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import billing_forms, solutions
+from app.amount_words import amount_in_words
 from app.api.billing import SOLUTION_NOT_FOUND_DETAIL
 from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
 from app.models.company_details import SINGLE_ROW_ID, CompanyDetails
@@ -906,6 +907,9 @@ def test_seats_invoice_file_shows_the_quantity(client: TestClient, db_session: S
     assert money(Decimal("2700.00")) in text
     assert "Всего к оплате:" in text
     assert amount_text(invoice) in text
+    # Сумма прописью — требование образца первичного документа: проверяется в
+    # готовом файле, а не только в `amount_in_words`.
+    assert amount_in_words(invoice.amount, invoice.currency) in text
 
 
 def test_tariff_invoice_file_has_no_quantity_row(client: TestClient, db_session: Session) -> None:
@@ -922,6 +926,9 @@ def test_tariff_invoice_file_has_no_quantity_row(client: TestClient, db_session:
     assert "Количество" not in text
     assert "Тариф «Старт» в месяц" in text
     assert amount_text(invoice) in text
+    # Сумма прописью — требование образца первичного документа: проверяется в
+    # готовом файле, а не только в `amount_in_words`.
+    assert amount_in_words(invoice.amount, invoice.currency) in text
 
 
 def test_invoice_file_omits_an_empty_buyer_requisite(
