@@ -213,10 +213,15 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'error'; text: string }
-  | { status: 'ready'; data: CompanyDetailsData };
+/**
+ * Состояние загрузки.
+ *
+ * `ready` не носит ответа: экран показывает не строку реквизитов, а форму, и
+ * живёт она отдельным состоянием `form`, которое обновляет и загрузка, и
+ * сохранение. Держать `data` ещё и здесь значило бы иметь вторую копию того же
+ * ответа, которую никто не читает.
+ */
+type LoadState = { status: 'loading' } | { status: 'error'; text: string } | { status: 'ready' };
 
 /**
  * Реквизиты поставщика и строка про НДС — единственное место, где они правятся.
@@ -250,7 +255,7 @@ export function CompanyDetails(): JSX.Element {
     getCompanyDetails().then(
       (data) => {
         if (!active) return;
-        setState({ status: 'ready', data });
+        setState({ status: 'ready' });
         setForm(formFrom(data));
       },
       (error: unknown) => {
@@ -284,7 +289,6 @@ export function CompanyDetails(): JSX.Element {
     setErrorField(null);
     try {
       const updated = await updateCompanyDetails(toPayload(form));
-      setState({ status: 'ready', data: updated });
       setForm(formFrom(updated));
       setSaved(true);
     } catch (error: unknown) {
@@ -336,6 +340,22 @@ export function CompanyDetails(): JSX.Element {
                 <h2 className="panel__title">Поставщик</h2>
               </div>
 
+              {/* Отказ сохранения — над формой, а не после сетки полей: оператор
+                  правит верхнее поле и жмёт Enter, и сообщение о том, что PATCH
+                  не прошёл, должно быть в поле зрения, а не ниже одиннадцати
+                  полей. `id` остаётся тем же: на него ссылаются `aria-describedby`
+                  виноватого поля. */}
+              {saveError !== null && (
+                <p
+                  className="alert alert--error panel__alert"
+                  id="company-error"
+                  role="alert"
+                  data-testid="operator-company-error"
+                >
+                  {saveError}
+                </p>
+              )}
+
               <form
                 className="form form--panel"
                 noValidate
@@ -382,17 +402,6 @@ export function CompanyDetails(): JSX.Element {
                     </div>
                   ))}
                 </div>
-
-                {saveError !== null && (
-                  <p
-                    className="alert alert--error"
-                    id="company-error"
-                    role="alert"
-                    data-testid="operator-company-error"
-                  >
-                    {saveError}
-                  </p>
-                )}
 
                 <div className="form__actions">
                   <button

@@ -243,10 +243,38 @@ describe('реквизиты поставщика в кабинете опера
     const error = await screen.findByTestId('operator-company-error');
     expect(error).toHaveTextContent(/^ИНН должен состоять из 10 или 12 цифр$/);
     expect(error).toHaveAttribute('role', 'alert');
+    // Алерт стоит над формой, а не после одиннадцати полей (замечание Ф1):
+    // отказ без виноватого поля иначе остался бы вне экрана.
+    const form = screen.getByTestId('operator-company');
+    expect(form).not.toContainElement(error);
+    expect(error.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Введённое остаётся в поле: правку можно исправить и отправить снова.
     expect(screen.getByTestId('operator-company-inn')).toHaveValue('77012345678');
     expect(screen.getByTestId('operator-company-inn')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByTestId('operator-company-inn')).toHaveAttribute(
+      'aria-describedby',
+      'company-error',
+    );
+    expect(error).toHaveAttribute('id', 'company-error');
     expect(screen.queryByTestId('operator-company-saved')).not.toBeInTheDocument();
+  });
+
+  it('отказ без виноватого поля (502) тоже виден над формой', async () => {
+    await renderLoaded([
+      { status: 200, body: EMPTY_DETAILS },
+      { status: 502, body: { detail: 'Основной API недоступен' } },
+    ]);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByTestId('operator-company-name'), 'ООО «Домовой»');
+    await user.click(screen.getByTestId('operator-company-save'));
+
+    const error = await screen.findByTestId('operator-company-error');
+    expect(error).toHaveTextContent(/^Основной API недоступен$/);
+    const form = screen.getByTestId('operator-company');
+    expect(form).not.toContainElement(error);
+    expect(error.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('operator-company-name')).toHaveValue('ООО «Домовой»');
   });
 
   it('отказ сети без detail показывает общий текст', async () => {
