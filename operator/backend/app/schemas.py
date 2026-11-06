@@ -6,7 +6,7 @@ OpenAPI (`/openapi.json` и `/docs`) собирается из них, а не �
 рядом.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -413,3 +413,83 @@ class UpdateSolutionRequest(ForwardedBody):
     period: Any = None
     position: Any = None
     is_visible: Any = None
+
+
+# --- Тариф и расширения организации ------------------------------------------
+# Девятый раздел кабинета (#189). Те же правила, что у остальных платформенных
+# разделов: модели повторяют форму ответа основного API
+# (`app/backend/app/schemas/platform_subscription.py`) один в один, а тела правки
+# проверяются там же, наверху. Кабинет ничего не добавляет и ничего не считает:
+# `paid_until`, `days_left` и `is_live` приходят готовыми, из основного API.
+
+
+class SubscriptionTariff(BaseModel):
+    """Записанный слот подписки: строка прайса и её срок.
+
+    `ends_at: null` — бессрочный тариф (тогда и `paid_until: null`), `is_live`
+    считает сервер по сроку. `price_label` — готовая подпись цены, её тоже
+    собирает сервер: второй формулы цены на клиенте нет.
+    """
+
+    id: int
+    name: str
+    period: str
+    max_members: int | None
+    price_label: str
+    ends_at: datetime | None
+    paid_until: date | None
+    is_live: bool
+
+
+class NextSubscription(BaseModel):
+    """Оплаченный вперёд слот: показывается, но не правится и не снимается."""
+
+    tariff: SubscriptionTariff
+    ends_at: datetime | None
+    paid_until: date | None
+
+
+class SubscriptionRight(BaseModel):
+    """Право организации на расширение — включая истёкшие (`is_live = false`).
+
+    `code` — машинный код решения, гейт платной функции; `paid_until` — последний
+    включённый день права по Москве (`null` — бессрочное).
+    """
+
+    code: str
+    name: str
+    expires_at: datetime | None
+    paid_until: date | None
+    is_live: bool
+
+
+class SubscriptionState(BaseModel):
+    """Состояние подписки организации — один и тот же объект у всех четырёх ручек.
+
+    `tariff` — записанный текущий слот, без «виртуального переезда» наступившего
+    будущего периода: оператор видит то, что лежит в базе. `member_limit` —
+    **действующий** предел мест: `max_members` действующего тарифа плюс
+    `extra_seats` (`null` — без ограничения). Считает его основной API тем же
+    правилом, что проверка приглашений и клиентский кабинет, поэтому у истёкшего
+    слота с оплаченным следующим кабинет покажет предел будущего тарифа.
+    """
+
+    tariff: SubscriptionTariff | None
+    days_left: int
+    next: NextSubscription | None
+    extra_seats: int
+    member_limit: int | None
+    solutions: list[SubscriptionRight]
+
+
+class UpdateSubscriptionRequest(ForwardedBody):
+    """Тело правки срока — то, что кабинет передаёт основному API.
+
+    Поле объявлено `Any`, а не `str`, намеренно — по той же причине, что у
+    `UpdateSolutionRequest`: с `str` `pydantic` отклонил бы присланное число или
+    `null` своим английским текстом, а контракт обещает, что отказ приходит из
+    основного API по-русски («Укажите срок действия в формате ГГГГ-ММ-ДД»).
+    Кабинет значения не проверяет: он их только передаёт.
+    """
+
+    paid_until: Any = None

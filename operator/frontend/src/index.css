@@ -2265,3 +2265,327 @@ body {
     padding: 12px 16px 14px;
   }
 }
+
+/* ============================================================================
+   Панель «Тариф и расширения» карточки организации (#189).
+
+   Внутри панели нет ни одной новой краски: она собрана из тех же
+   поверхностей, линий 1px, малых радиусов и счётчиков `.counts`, что уже есть
+   в карточке организации. Новые классы — только раскладка.
+   ========================================================================== */
+
+.sub {
+  padding: 0;
+}
+
+.sub__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 24px 0;
+}
+
+.sub__main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sub__name {
+  margin: 0;
+  font: 600 19px/1.3 var(--font-display);
+  letter-spacing: -0.2px;
+  color: var(--n-ink);
+  overflow-wrap: anywhere;
+}
+
+.sub__name--none {
+  color: var(--color-text-body);
+}
+
+.sub__state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+}
+
+.sub__state-text {
+  font-variant-numeric: tabular-nums;
+}
+
+.sub__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sub__hint {
+  max-width: 62ch;
+  margin: 0;
+  padding: 10px 24px 20px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* Счётчики повторяют подвал «Реквизитов»: фон страницы, линия сверху.
+   Здесь они отвечают на вопрос «сколько ещё», а не «сколько всего». */
+.sub__counts {
+  margin: 18px 0 0;
+}
+
+.sub__counts .counts__label {
+  max-width: 34ch;
+}
+
+.sub__next {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 13px 24px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.sub__next-value {
+  color: var(--color-text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.sub__solutions {
+  border-top: 1px solid var(--color-border);
+}
+
+.sub__section {
+  margin: 0;
+  padding: 16px 24px 2px;
+  color: var(--color-text-body);
+  font: 600 12.5px/1.4 var(--font-body);
+  letter-spacing: 0.01em;
+}
+
+.sub__list {
+  margin: 0;
+  padding: 0 24px 6px;
+  list-style: none;
+}
+
+.sub__solution {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sub__solution:last-child {
+  border-bottom: 0;
+}
+
+.sub__solution-name {
+  color: var(--n-ink);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.sub__solution-state {
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Пара «Подтвердить» / «Не надо» — один блок в третьей колонке строки: иначе
+   вторая кнопка уезжает на новую строку и тянется на всю ширину. */
+.sub__solution-actions {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+}
+
+/* Недействующее право остаётся в списке: срок в прошлом — это запись, а не
+   удаление. Гаснет название, срок и так тихий. */
+.sub__solution--off .sub__solution-name {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.sub__empty {
+  margin: 0;
+  padding: 4px 24px 20px;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+}
+
+/* Правка срока — форма внутри панели, как правка строки в прайсе: тот же тёплый
+   фон, что у раскрытой строки. */
+.form--sub {
+  gap: 0;
+  padding: 0;
+  background: var(--color-bg-open);
+  border-top: 1px solid var(--color-border);
+}
+
+.form--sub .field {
+  gap: 6px;
+  padding: 18px 24px 0;
+  max-width: 272px;
+}
+
+.form--sub .field__hint {
+  margin: 8px 24px 0;
+}
+
+.form--sub .alert {
+  margin: 14px 24px 0;
+}
+
+.form--sub .form__actions {
+  padding: 16px 24px 20px;
+}
+
+.sub__error {
+  margin: 14px 24px 20px;
+}
+
+/* Отказ загрузки панели: текст `detail` и «Повторить» одной строкой. */
+.sub__alert-line {
+  padding: 16px 24px 20px;
+}
+
+@media (max-width: 760px) {
+  /* Пять разделов в 375 в одну строку не встают: без переноса навигация тянет
+     шапку шире экрана. Правило выше задаёт высоту 46px — здесь она свободная. */
+  .topbar--nav .nav {
+    flex-wrap: wrap;
+    height: auto;
+  }
+
+  .topbar--nav .nav__link {
+    flex: 1 1 auto;
+    height: 44px;
+    justify-content: center;
+    padding: 0 10px;
+  }
+
+  /* Панель в столбик: название и срок сверху, действия на всю ширину,
+     счётчики друг под другом, строка расширения — название со сроком и кнопка
+     под ними. Горизонтального переполнения нет. */
+  .sub__head {
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px 20px 0;
+  }
+
+  .sub__name {
+    font-size: 17px;
+  }
+
+  .sub__actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .sub__actions .btn {
+    flex: 1 1 auto;
+  }
+
+  .sub__hint {
+    padding: 10px 20px 18px;
+  }
+
+  .sub__counts {
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 16px;
+  }
+
+  .sub__next {
+    padding: 12px 20px;
+  }
+
+  .sub__section {
+    padding: 14px 20px 2px;
+  }
+
+  .sub__list {
+    padding: 0 20px 4px;
+  }
+
+  .sub__solution {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+    padding: 13px 0;
+  }
+
+  .sub__solution-state {
+    text-align: start;
+  }
+
+  .sub__solution .btn {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .sub__solution-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .sub__solution-actions .btn {
+    flex: 1 1 50%;
+    margin-top: 0;
+  }
+
+  .sub__empty {
+    padding: 4px 20px 18px;
+  }
+
+  .form--sub .field {
+    max-width: none;
+    padding: 16px 20px 0;
+  }
+
+  .form--sub .field__hint {
+    margin: 8px 20px 0;
+  }
+
+  .form--sub .alert {
+    margin: 14px 20px 0;
+  }
+
+  .form--sub .form__actions {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 14px 20px 18px;
+  }
+
+  .sub__error {
+    padding: 0 20px 18px;
+  }
+
+  /* Отказ загрузки панели: текст и «Повторить» в столбик. Общий `.alert-line`
+     не трогаем — он же стоит в каталоге решений, у него свои отступы. */
+  .sub__alert-line {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px 20px 18px;
+  }
+}

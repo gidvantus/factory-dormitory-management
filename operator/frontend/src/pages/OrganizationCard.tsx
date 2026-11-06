@@ -7,6 +7,7 @@ import type { OrganizationDetails, OrganizationUpdate } from '../api/client';
 import { OperatorNav } from '../components/OperatorNav';
 import { OperatorTopBar } from '../components/OperatorTopBar';
 import { Screen } from '../components/Screen';
+import { SubscriptionPanel } from '../components/SubscriptionPanel';
 import { NO_NAME, formatDayLong, plural } from '../lib/format';
 
 /** Текст для сети и неожиданного отказа: `detail` сервера важнее общего текста. */
@@ -445,6 +446,10 @@ export function OrganizationCard(): JSX.Element {
               </>
             )}
           </div>
+
+          {/* Панель грузит своё состояние отдельным запросом: её отказ не ломает
+              реквизиты и правку выше. */}
+          <SubscriptionPanel organizationId={data.id} />
         </div>
       </main>
     </Screen>

@@ -75,6 +75,13 @@ EXEMPT_PATHS = frozenset(
         # неприменимы.
         "/api/platform/solutions",
         "/api/platform/solutions/{solution_id}",
+        # Тариф и расширения организации — седьмой раздел того же контура: чтение
+        # слотов, правка срока и снятие активности тарифа и права (#189).
+        # Авторизация тоже заголовком `X-Operator-Token`, поэтому cookie и guard
+        # кабинета клиента к ним неприменимы.
+        "/api/platform/organizations/{organization_id}/subscription",
+        "/api/platform/organizations/{organization_id}/subscription/deactivate",
+        "/api/platform/organizations/{organization_id}/solutions/{code}/deactivate",
         # Раздача файлов: это не операция кабинета, а ссылка на файл, и она живёт
         # вне `/api`. Отказы там свои и закреплены контрактом: аноним получает
         # `404` (существование файла не подтверждается), вошедший без прав —
