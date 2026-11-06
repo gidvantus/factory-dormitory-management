@@ -72,14 +72,14 @@ def save(
     return response(row)
 
 
-@router.get("/dormitories/{dormitory_id}/table-views/{key}", responses=SUBSCRIBED_USER_RESPONSES)
+@router.get("/dormitories/{dormitory_id}/table-views/{key}")
 def read_dormitory_view(
     key: ViewKey, _user: SubscribedUser, dorm: OwnDormitory, db: DbSession
 ) -> dict[str, Any]:
     return response(db.get(TableView, (dorm.organization_id, f"dormitory-{dorm.id}", key)))
 
 
-@router.put("/dormitories/{dormitory_id}/table-views/{key}", responses=SUBSCRIBED_USER_RESPONSES)
+@router.put("/dormitories/{dormitory_id}/table-views/{key}")
 def save_dormitory_view(
     key: ViewKey, payload: SaveView, _user: SubscribedUser, dorm: OwnDormitory, db: DbSession
 ) -> dict[str, Any]:
@@ -130,14 +130,14 @@ def save_dormitory_view(
     return save(db, dorm.organization_id, f"dormitory-{dorm.id}", key, payload)
 
 
-@router.get("/personnel/table-views/{key}", responses=SUBSCRIBED_USER_RESPONSES)
+@router.get("/personnel/table-views/{key}")
 def read_personnel_view(
     key: ViewKey, _user: SubscribedUser, membership: Membership, db: DbSession
 ) -> dict[str, Any]:
     return response(db.get(TableView, (membership.organization_id, "personnel", key)))
 
 
-@router.put("/personnel/table-views/{key}", responses=SUBSCRIBED_USER_RESPONSES)
+@router.put("/personnel/table-views/{key}")
 def save_personnel_view(
     key: ViewKey, payload: SaveView, _user: SubscribedUser, membership: Membership, db: DbSession
 ) -> dict[str, Any]:
