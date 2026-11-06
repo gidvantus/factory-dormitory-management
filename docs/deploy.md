@@ -154,7 +154,9 @@ docker compose --profile tls logs --tail=50 api
 **Причина, которая уже случалась четырежды** — две головы alembic. `api`
 проверяет это первым делом (`app/backend/entrypoint.sh`) и падает сразу с
 русским сообщением в логах, а не трассировкой alembic: в `docker compose logs
-api` будет «ОШИБКА: в дереве миграций 2 головы…». Без сервера проверяется так:
+api` будет «ОШИБКА: в дереве миграций 2 головы…», а в `ps` — цикл перезапуска
+(`Restarting (1)`). Без этого сообщения то же самое видно как
+«Multiple head revisions» от `alembic upgrade head`. Без сервера проверяется так:
 
 ```bash
 python _tools/alembic-heads.py
