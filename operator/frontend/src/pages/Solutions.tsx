@@ -273,6 +273,9 @@ export function Solutions(): JSX.Element {
   function handleCancel(): void {
     clearActionError();
     setPositionError(null);
+    // Нажатая «Отмена» исчезает из DOM вместе с формой: без возврата фокуса
+    // следующий Tab начал бы обход таблицы сначала.
+    focusAfterRender.current = editingId;
     setEditingId(null);
     setForm(null);
   }
@@ -311,8 +314,10 @@ export function Solutions(): JSX.Element {
    * Сохранение правки: единственное место, откуда уходит `PATCH` формы.
    *
    * Отправляются все семь полей — так требует контракт: пустое описание уходит
-   * как `null`. Порядок строки список не пересортировывает: место строки в
-   * реестре — это ответ сервера на следующий `GET`, а не догадка клиента.
+   * как `null`. После успеха каталог перечитывается: правка «Порядка» меняет
+   * место строки в реестре, и показать его может только сервер (порядок
+   * `position, id`). Экран при этом ничего не сортирует — он печатает ответ
+   * `GET` как пришло, иначе админка и витрина разошлись бы в последовательности.
    * Отказ сервера форму не сбрасывает: введённое остаётся, текст `detail`
    * показывается дословно над списком, виноватое поле помечается `aria-invalid`.
    */
@@ -339,7 +344,17 @@ export function Solutions(): JSX.Element {
     };
     try {
       const updated = await updateSolution(editingId, payload);
-      replaceRow(updated);
+      // Порядок витрины задаёт сервер: после правки «Порядка» строка может
+      // переехать, а `PATCH` отвечает одной строкой без контекста соседей.
+      // Поэтому каталог перечитывается, а не подменяется по индексу.
+      try {
+        const items = await listSolutions();
+        setState({ status: 'ready', items });
+      } catch {
+        // Перечитать не удалось — показываем хотя бы ответ `PATCH`: введённое
+        // не теряется, а место строки обновится следующим успешным чтением.
+        replaceRow(updated);
+      }
       // Форма закрылась — фокус возвращается в строку, а не на `body`.
       focusAfterRender.current = editingId;
       setEditingId(null);
@@ -360,7 +375,9 @@ export function Solutions(): JSX.Element {
   }
 
   /** Отказ от подтверждения: строка возвращается в прежний вид. */
-  function declineDelete(): void {
+  function declineDelete(id: number): void {
+    // «Не надо» исчезает из DOM так же, как «Подтвердить»: фокус — обратно в строку.
+    focusAfterRender.current = id;
     setConfirmingId(null);
   }
 
@@ -623,7 +640,7 @@ export function Solutions(): JSX.Element {
                                     <button
                                       className="btn btn--ghost btn--compact"
                                       type="button"
-                                      onClick={declineDelete}
+                                      onClick={() => declineDelete(item.id)}
                                       disabled={busy}
                                       data-testid="operator-solution-delete-decline"
                                     >

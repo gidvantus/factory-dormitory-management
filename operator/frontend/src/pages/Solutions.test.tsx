@@ -270,6 +270,8 @@ describe('раздел «Решения» кабинета оператора', 
     const network = renderSolutions([
       { status: 200, body: CATALOG },
       { status: 200, body: updated },
+      // После правки экран перечитывает каталог: место строки задаёт сервер.
+      { status: 200, body: [updated, HIDDEN, EXTRA_MEMBER] },
     ]);
     const user = userEvent.setup();
 
@@ -313,14 +315,56 @@ describe('раздел «Решения» кабинета оператора', 
       position: 0,
       is_visible: true,
     });
-    // Список не перезагружался: после загрузки и PATCH всего два запроса.
-    expect(network.calls).toHaveLength(2);
+    // После успешного PATCH каталог перечитан: GET, PATCH и снова GET.
+    expect(network.calls).toHaveLength(3);
+    expect(network.calls[2].url).toBe('/api/solutions');
+  });
+
+  it('после правки «Порядка» строка встаёт на место из ответа сервера', async () => {
+    // Кадр 3 макета: правим последнюю строку (`position = 900`) на `0` — она
+    // обязана переехать наверх, как только сервер отдаст каталог в новом порядке.
+    const moved = solution({ ...EXTRA_MEMBER, position: 0 });
+    const network = renderSolutions([
+      { status: 200, body: CATALOG },
+      { status: 200, body: moved },
+      { status: 200, body: [moved, TELEGRAM, HIDDEN] },
+    ]);
+    const user = userEvent.setup();
+
+    await screen.findByTestId('operator-solutions');
+    expect(renderedNames()).toEqual([
+      'Уведомления в Telegram',
+      'Журнал действий',
+      'Дополнительные сотрудники',
+    ]);
+
+    await user.click(
+      within(rowByName('Дополнительные сотрудники')).getByTestId('operator-solution-edit'),
+    );
+    const position = screen.getByTestId('operator-solution-position-input');
+    await user.clear(position);
+    await user.type(position, '0');
+    await user.click(screen.getByTestId('operator-solution-save'));
+
+    // Порядок пересортировывает сервер, а не экран: пришло первым — стоит первым.
+    await waitFor(() =>
+      expect(renderedNames()).toEqual([
+        'Дополнительные сотрудники',
+        'Уведомления в Telegram',
+        'Журнал действий',
+      ]),
+    );
+    expect(JSON.parse(bodies(network, 'PATCH')[0])).toMatchObject({ position: 0 });
+    // Правка не подменяет строку по индексу, а перечитывает каталог целиком.
+    expect(network.calls).toHaveLength(3);
   });
 
   it('пустое описание уходит как null', async () => {
+    const withoutDescription = solution({ id: 1, description: null });
     const network = renderSolutions([
       { status: 200, body: CATALOG },
-      { status: 200, body: solution({ id: 1, description: null }) },
+      { status: 200, body: withoutDescription },
+      { status: 200, body: [withoutDescription, HIDDEN, EXTRA_MEMBER] },
     ]);
     const user = userEvent.setup();
 
@@ -341,9 +385,36 @@ describe('раздел «Решения» кабинета оператора', 
       position: 10,
       is_visible: true,
     });
-    expect(
-      within(rowByName('Уведомления в Telegram')).getByTestId('operator-solution-description'),
-    ).toHaveTextContent('—');
+    await waitFor(() =>
+      expect(
+        within(rowByName('Уведомления в Telegram')).getByTestId('operator-solution-description'),
+      ).toHaveTextContent('—'),
+    );
+  });
+
+  it('если каталог после правки не перечитался, строка остаётся из ответа PATCH', async () => {
+    // Сеть упала на втором GET: правка уже сохранена, и терять её на экране нельзя.
+    const updated = solution({ id: 1, name: 'Уведомления в Telegram · год' });
+    const network = renderSolutions([
+      { status: 200, body: CATALOG },
+      { status: 200, body: updated },
+      { reject: true },
+    ]);
+    const user = userEvent.setup();
+
+    await screen.findByTestId('operator-solutions');
+    await user.click(
+      within(rowByName('Уведомления в Telegram')).getByTestId('operator-solution-edit'),
+    );
+    const name = screen.getByTestId('operator-solution-name-input');
+    await user.clear(name);
+    await user.type(name, 'Уведомления в Telegram · год');
+    await user.click(screen.getByTestId('operator-solution-save'));
+
+    expect(await screen.findByText('Уведомления в Telegram · год')).toBeInTheDocument();
+    expect(network.calls).toHaveLength(3);
+    // Экран не показывает отказ загрузки: каталог на месте, обновилось только имя.
+    expect(screen.queryByTestId('operator-solutions-error')).not.toBeInTheDocument();
   });
 
   it('нечисловой порядок не отправляет: объясняет словами', async () => {
@@ -633,6 +704,36 @@ describe('раздел «Решения» кабинета оператора', 
     // Нажатая «Подтвердить» исчезла из DOM — фокус возвращается в ту же строку.
     const edit = within(row).getByTestId('operator-solution-edit');
     await waitFor(() => expect(document.activeElement).toBe(edit));
+  });
+
+  it('после «Не надо» фокус остаётся в строке', async () => {
+    renderSolutions([{ status: 200, body: CATALOG }]);
+    const user = userEvent.setup();
+
+    await screen.findByTestId('operator-solutions');
+    const row = rowByName('Уведомления в Telegram');
+    await user.click(within(row).getByTestId('operator-solution-delete'));
+    await user.click(within(row).getByTestId('operator-solution-delete-decline'));
+
+    // «Не надо» исчезла из DOM: без возврата фокуса Tab начал бы обход сначала.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(row).getByTestId('operator-solution-edit')),
+    );
+  });
+
+  it('после «Отмена» фокус остаётся в строке', async () => {
+    renderSolutions([{ status: 200, body: CATALOG }]);
+    const user = userEvent.setup();
+
+    await screen.findByTestId('operator-solutions');
+    const row = rowByName('Уведомления в Telegram');
+    await user.click(within(row).getByTestId('operator-solution-edit'));
+    await user.click(screen.getByTestId('operator-solution-cancel'));
+
+    // Форма закрылась вместе с кнопкой «Отмена» — фокус возвращается в строку.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(row).getByTestId('operator-solution-edit')),
+    );
   });
 
   it('у каждого поля формы есть label', async () => {
