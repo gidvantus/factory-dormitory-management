@@ -49,7 +49,6 @@ from sqlalchemy.orm import Session
 
 from app import billing_forms, solutions
 from app.api.billing import SOLUTION_NOT_FOUND_DETAIL
-from app.billing_forms import EMPTY_VALUE
 from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
 from app.models.company_details import SINGLE_ROW_ID, CompanyDetails
 from app.models.document import Document
@@ -58,7 +57,7 @@ from app.models.organization import Organization
 from app.models.solution import OrganizationSolution, Solution
 from app.models.tariff import Tariff
 from app.offer import OFFER_ACCEPTANCE_REQUIRED_DETAIL, OFFER_DOCUMENT_CODE
-from app.pricing import format_amount, format_invoice_amount
+from app.pricing import format_amount
 from app.schemas.invoice import SOLUTION_ALONE_MESSAGE
 from app.seats import (
     EXTRA_MEMBER_CODE,
@@ -810,13 +809,16 @@ def pdf_text(body: bytes) -> str:
 
 
 def amount_text(invoice: Invoice) -> str:
-    """Сумма счёта такой, какой она должна быть в файле: без неразрывного пробела."""
-    label = format_invoice_amount(invoice.amount, invoice.currency, invoice.tariff_period)
-    return label.replace(NBSP, " ")
+    """Сумма счёта такой, какой она должна быть в итоговой строке файла.
+
+    Итог печатается голой суммой без окончания по периоду: период стоит в
+    наименовании позиции, а итог отвечает на вопрос «сколько платить».
+    """
+    return money(invoice.amount)
 
 
 def money(amount: Decimal) -> str:
-    """Сумма позиции без окончания по периоду: «2 700 ₽», уже без неразрывного."""
+    """Сумма: «2 700 ₽», уже без неразрывного пробела."""
     return f"{format_amount(amount)} ₽".replace(NBSP, " ")
 
 
@@ -849,11 +851,11 @@ def test_invoice_file_is_downloaded_as_a_pdf(client: TestClient, db_session: Ses
     pages = pdf_pages(response.content)
     assert len(pages) == 1
     text = pdf_text(response.content)
-    assert f"Счёт № {invoice.number}" in text
-    assert f"Дата: {invoice.created_at:%d.%m.%Y}" in text
-    assert "Поставщик" in text
-    assert "Покупатель" in text
-    assert "Предмет" in text
+    assert f"Счёт на оплату № {invoice.number} от {invoice.created_at:%d.%m.%Y}" in text
+    assert "ИСПОЛНИТЕЛЬ" in text
+    assert "ЗАКАЗЧИК" in text
+    assert "Наименование" in text
+    assert "Всего к оплате:" in text
     assert BUYER_NAME in text
     assert BUYER_INN in text
     assert BUYER_KPP in text
@@ -862,7 +864,7 @@ def test_invoice_file_is_downloaded_as_a_pdf(client: TestClient, db_session: Ses
     assert invoice.tariff_name is not None
     assert invoice.tariff_name in text
     assert amount_text(invoice) in text
-    # Поставщика в проекте нет: блок подписан заглушкой, а не выдуманными данными.
+    # Поставщика в проекте нет: блок исполнителя подписан заглушкой, а не выдуманными данными.
     assert "данные поставщика будут заполнены позже" in text
 
 
@@ -898,10 +900,10 @@ def test_seats_invoice_file_shows_the_quantity(client: TestClient, db_session: S
 
     text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
 
-    assert "Дополнительные места · 3 —" in text
-    # 900 ₽ — цена места, три места — 2 700 ₽: оба числа стоят в строке позиции.
-    assert f"{money(Decimal('2700.00'))} ({money(Decimal('900.00'))} × 3)" in text
-    assert "Итого:" in text
+    assert "Дополнительные места · 3 (900 ₽ × 3)" in text
+    # 2 700 ₽ — сумма позиции; цена места и множитель стоят в наименовании.
+    assert money(Decimal("2700.00")) in text
+    assert "Всего к оплате:" in text
     assert amount_text(invoice) in text
 
 
@@ -917,14 +919,19 @@ def test_tariff_invoice_file_has_no_quantity_row(client: TestClient, db_session:
     text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
 
     assert "Количество" not in text
-    assert f"Тариф «Старт» — {amount_text(invoice)}" in text
+    assert "Тариф «Старт» в месяц" in text
     assert amount_text(invoice) in text
 
 
-def test_invoice_file_draws_a_dash_for_an_empty_requisite(
+def test_invoice_file_omits_an_empty_buyer_requisite(
     client: TestClient, db_session: Session
 ) -> None:
-    """У индивидуального предпринимателя нет КПП: пустая ячейка — прочерк."""
+    """У индивидуального предпринимателя нет КПП: реквизит выпадает целиком.
+
+    Прочерк в строке «ИНН … · КПП —» выглядел бы как реквизит, которого на самом
+    деле нет: формат образца печатает только заполненные части, поэтому «КПП»
+    из документа выпадает вместе с подписью, а не заменяется прочерком.
+    """
     organization = owner(client, db_session)
     organization.kpp = None
     db_session.commit()
@@ -933,8 +940,8 @@ def test_invoice_file_draws_a_dash_for_an_empty_requisite(
 
     text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
 
-    assert "КПП" in text
-    assert EMPTY_VALUE in text
+    assert "ИНН" in text
+    assert "КПП" not in text
 
 
 def test_missing_font_fails_with_a_clear_message(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1056,7 +1063,7 @@ def test_invoice_prints_the_placeholder_when_no_field_is_filled(
 def test_invoice_prints_the_vat_line_after_the_subject(
     client: TestClient, db_session: Session
 ) -> None:
-    """Строка про НДС стоит сразу после раздела «Предмет», а не в шапке."""
+    """Строка про НДС стоит сразу после итога и суммы прописью, а не в шапке."""
     owner(client, db_session)
     tariff = add_tariff(db_session)
     invoice_id = purchase_id(client, tariff.id)
@@ -1065,7 +1072,7 @@ def test_invoice_prints_the_vat_line_after_the_subject(
     text = supplier_text(client, invoice_id)
 
     assert "НДС не облагается" in text
-    assert text.index("Предмет") < text.index("НДС не облагается")
+    assert text.index("Всего к оплате:") < text.index("НДС не облагается")
 
 
 def test_invoice_has_no_vat_line_when_the_note_is_empty(
@@ -1107,16 +1114,38 @@ def test_act_prints_the_same_supplier_block_and_vat_line(
     assert "ПАО «Банк поставщика»" in text
     assert "044525225" in text
     assert "НДС не облагается" in text
-    assert text.index("Предмет") < text.index("НДС не облагается")
+    assert text.index("Всего к оплате:") < text.index("НДС не облагается")
 
 
-def test_supplier_label_column_fits_the_widest_label() -> None:
-    """Колонка подписей шире «Корреспондентского счёта», иначе значение поверх неё.
+def test_table_columns_fill_the_page_width() -> None:
+    """Колонки таблицы позиций укладываются в полосу набора ровно и без остатка.
 
-    Дефект Б1: `cell(LABEL_WIDTH, …)` печатал подпись в 45 мм без переноса, а
-    подпись занимает 56,63 мм — номер счёта рисовался поверх слова «счёт» в счёте
-    и в акте. Наложение ловится глазами в готовом PDF, а его причина — здесь:
-    ширина колонки считается по метрикам шрифта, а не берётся константой.
+    Дефект Б1 прошлой приёмки был про геометрию: подпись рисовалась поверх
+    значения. У таблицы та же ловушка — сумма колонок, подобранная на глаз,
+    выводит правую границу за поле или оставляет пустую полосу справа.
+    """
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+    )
+
+    name_width = pdf.epw - billing_forms.NUMBER_WIDTH - billing_forms.AMOUNT_WIDTH
+
+    # Наименование — самая широкая колонка: сумма в 40 мм и номер в 15 мм.
+    assert name_width > billing_forms.AMOUNT_WIDTH
+    assert billing_forms.NUMBER_WIDTH + name_width + billing_forms.AMOUNT_WIDTH == pytest.approx(
+        pdf.epw
+    )
+
+
+def test_the_logo_takes_its_own_line_above_the_title() -> None:
+    """Знак занимает отдельную строку, а заголовок начинается ниже него.
+
+    Замечание человека к первой версии формы: «Счёт …» шёл рядом со знаком, и
+    знак читался как его часть. Проверяется курсор: после шапки он ниже знака на
+    его высоту плюс отбивку.
     """
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(
@@ -1125,21 +1154,12 @@ def test_supplier_label_column_fits_the_widest_label() -> None:
         billing_forms.PAGE_MARGIN,
     )
     billing_forms._register_fonts(pdf)
-    pdf.set_font(billing_forms.FONT_FAMILY, "B", billing_forms.BODY_SIZE)
+    pdf.add_page()
+    top = pdf.get_y()
 
-    labels = [label for label, _ in billing_forms.SUPPLIER_ROWS]
-    width = billing_forms._label_width(pdf, labels)
-    widest = "Корреспондентский счёт"
+    billing_forms._header(pdf, "Счёт на оплату № ИВ-2026-1 от 06.11.2026")
 
-    assert max(labels, key=pdf.get_string_width) == widest
-    assert pdf.get_string_width(widest) > billing_forms.LABEL_WIDTH
-    # Значение начинается за подписью, а не поверх неё.
-    assert width > pdf.get_string_width(widest)
-    # Короткие блоки не съеживаются ниже прежней колонки, а значению остаётся место.
-    assert width >= billing_forms.LABEL_WIDTH
-    assert pdf.epw - width >= billing_forms.MIN_VALUE_WIDTH
-    # Замер не оставляет жирный шрифт: следующий абзац (заглушка) печатается обычным.
-    assert pdf.font_style == ""
+    assert pdf.get_y() >= top + billing_forms.LOGO_HEIGHT + billing_forms.LOGO_GAP
 
 
 def test_the_logo_asset_is_present_and_sized() -> None:
@@ -1198,8 +1218,7 @@ def test_act_file_is_downloaded_after_payment(client: TestClient, db_session: Se
 
     assert len(pdf_pages(response.content)) == 1
     text = pdf_text(response.content)
-    assert f"Акт № {invoice.number}" in text
-    assert f"Дата: {invoice.paid_at:%d.%m.%Y}" in text
+    assert f"Акт № {invoice.number} от {invoice.paid_at:%d.%m.%Y}" in text
     assert BUYER_NAME in text
     assert BUYER_INN in text
     assert amount_text(invoice) in text
