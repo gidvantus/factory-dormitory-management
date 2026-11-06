@@ -295,6 +295,49 @@ UI ручного запуска; исполняемым он не станов�
 powershell.exe -NoProfile -Command "$null = [ScriptBlock]::Create((Get-Content -Raw <файл>)); 'ok'"
 ```
 
+## Правило: `$var:` в теле шага — только `${var}:`
+
+Вторая половина той же мины. В строке PowerShell вида
+
+```powershell
+Write-Host "::warning::No _tools\alembic-heads.py in $dir: alembic head check skipped."
+```
+
+`$dir:` разбирается не как переменная `$dir` и двоеточие, а как **переменная со
+scope** (как `$env:`). Драйва `dir` нет, и файл не парсится целиком:
+
+```
+At ...\step.ps1:7 char:56
++   Write-Host "::warning::No _tools\alembic-heads.py in $dir: alembic  ...
++                                                        ~~~~~
+Variable reference is not valid. ':' was not followed by a valid variable name character.
+```
+
+Заметьте: падает **не строка с ошибкой, а весь шаг** — до первого оператора, и
+на раннере это видно только после пуша. Так 6 ноября встало обновление стенда:
+шаг «Стенд: одна голова миграций alembic» не выполнил ни одной своей строки, а
+лог показал ошибку разбора вместо причины.
+
+Как писать:
+
+- `"...in ${dir}: ..."` — фигурные скобки снимают неоднозначность;
+- `"...in $dir\.env: ..."` — тоже нормально: обратный слэш обрывает имя, и
+  `$dir` остаётся переменной;
+- правило касается любого места, где после переменной сразу идёт `:`, а не
+  только `Write-Host`: `"$project:"`, `"$branch:"` ломаются так же.
+
+Проверка — в PR, а не на раннере. Job `workflows` в `.github/workflows/checks.yml`
+запускает `_tools/check-workflow-powershell.py`: он берёт тела `run:` у
+Windows-jobs (их исполняет Windows PowerShell) и разбирает каждое настоящим
+PowerShell. Локально — та же команда:
+
+```powershell
+python _tools/check-workflow-powershell.py
+# на Windows без pwsh скрипт сам возьмёт powershell.exe
+```
+
+Код возврата 1 печатает файл, номер строки шага, шаг и текст ошибки разбора.
+
 ## Те же шаги руками (проверка без GitHub)
 
 ```powershell
@@ -355,6 +398,7 @@ config`: `git fetch`/`git merge` в этом режиме не нужны — с
 | `::error::Clone has uncommitted changes in tracked files` | правки в отслеживаемых файлах при сборке не из `develop-m`: `git status`, затем commit или `git stash` |
 | `::warning::Stand was built from ...` | это не ошибка: стенд остался на ветке из input `branch`, следующий прогон (push в `develop-m` или ручной без input) вернёт его на `develop-m` |
 | `::error::Refusing to build the stand from ...` | input `branch` пришёл не от ручного запуска (так быть не должно): проверьте триггеры в `stand.yml` |
+| `Variable reference is not valid. ':' was not followed by a valid variable name character` | в теле шага стоит `$var:` без фигурных скобок — шаг не разбирается целиком: замените на `${var}:`, см. раздел про `$var:` |
 | `::error::Cannot fast-forward the clone` | в клоне правки в файлах, которые меняет merge: `git status`, затем commit или `git stash` |
 | `::warning::Clone has N local commit(s) ahead` | это ваша незапушенная работа: стенд сознательно не тронут |
 | `::error::Compose project name is ...` | нет/неверен `COMPOSE_PROJECT_NAME` в `.env` клона |

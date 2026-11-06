@@ -219,12 +219,12 @@ jobs:
           if (-not (Test-Path $script)) {
             # Клон обновляется fast-forward до develop-m, файл появится в нём
             # после слияния инструмента. До этого проверять нечего.
-            Write-Host "::warning::No _tools\alembic-heads.py in $dir: alembic head check skipped."
+            Write-Host "::warning::No _tools\alembic-heads.py in ${dir}: alembic head check skipped."
             exit 0
           }
           python $script
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::Two alembic heads in $dir: api would restart-loop on 'alembic upgrade head' and the stand would answer 502. Fix: python _tools/alembic-heads.py --merge, then commit the new revision to develop-m. The stand is left as is."
+            Write-Host "::error::Two alembic heads in ${dir}: api would restart-loop on 'alembic upgrade head' and the stand would answer 502. Fix: python _tools/alembic-heads.py --merge, then commit the new revision to develop-m. The stand is left as is."
             exit 1
           }
           Write-Host "alembic: single head"
