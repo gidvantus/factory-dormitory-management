@@ -19,14 +19,17 @@
 `Base.metadata.create_all` не выполняется.
 """
 
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import solutions
+from app.config import get_settings
 from app.models.solution import OrganizationSolution
 from app.solutions import SOLUTION_REQUIRED_DETAIL, TELEGRAM_NOTIFICATIONS, entitlement_expiry
 from tests.conftest import (
@@ -41,6 +44,24 @@ from tests.conftest import (
 
 CATALOG_URL = "/api/solutions"
 STATUS_URL = "/api/telegram/status"
+
+# Платформенные ручки каталога (#188): правка `position` из кабинета оператора —
+# это и есть второй конец шва «порядок витрины».
+PLATFORM_CATALOG_URL = "/api/platform/solutions"
+SERVICE_TOKEN = "unit-test-operator-service-token"
+OPERATOR_HEADERS = {"X-Operator-Token": SERVICE_TOKEN}
+
+
+@pytest.fixture
+def operator_token(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Настроенный секрет сервисного контура. Кеш настроек сбрасывается до и после."""
+    monkeypatch.setenv("OPERATOR_SERVICE_TOKEN", SERVICE_TOKEN)
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        get_settings.cache_clear()
+
 
 # Подпись цены собирает сервер. Разряды разделяются неразрывным пробелом, но у
 # 500 разрядов нет — здесь обычный пробел.
@@ -382,6 +403,51 @@ def test_catalog_is_ordered_by_position(client: TestClient, db_session: Session)
 
     items = client.get(CATALOG_URL).json()["items"]
 
+    assert [item["code"] for item in items] == ["first_code", "second_code"]
+
+
+def test_editing_position_changes_the_catalog_order(
+    client: TestClient, db_session: Session, operator_token: None
+) -> None:
+    """Правка `position` в кабинете оператора меняет порядок витрины магазина (#188).
+
+    Порядок карточек `/cabinet/shop` — это порядок ответа `GET /api/solutions`
+    (`position`, затем `id`): фронтенд его не пересортировывает. Здесь проверяется
+    шов между половинами — админка меняет число, витрина едет за ним.
+    """
+    owner_user = sign_in(client, db_session)
+    organizations_for(db_session, owner_user)
+    add_solution(db_session, code="first_code", name="Первое", position=1)
+    second = add_solution(db_session, code="second_code", name="Второе", position=5)
+
+    response = client.patch(
+        f"{PLATFORM_CATALOG_URL}/{second.id}", headers=OPERATOR_HEADERS, json={"position": 0}
+    )
+
+    assert response.status_code == 200, response.text
+    items = client.get(CATALOG_URL).json()["items"]
+    assert [item["code"] for item in items] == ["second_code", "first_code"]
+
+
+def test_equal_positions_put_the_smaller_id_first(
+    client: TestClient, db_session: Session, operator_token: None
+) -> None:
+    """Ничья по `position` решается `id`: это контракт порядка, а не дефект.
+
+    Одинаковые `position` разрешены (колонка без `UNIQUE`), поэтому админка может
+    выставить двум строкам одно число. Витрина показывает ту, что заведена раньше.
+    """
+    owner_user = sign_in(client, db_session)
+    organizations_for(db_session, owner_user)
+    add_solution(db_session, code="first_code", name="Первое", position=1)
+    second = add_solution(db_session, code="second_code", name="Второе", position=5)
+
+    response = client.patch(
+        f"{PLATFORM_CATALOG_URL}/{second.id}", headers=OPERATOR_HEADERS, json={"position": 1}
+    )
+
+    assert response.status_code == 200, response.text
+    items = client.get(CATALOG_URL).json()["items"]
     assert [item["code"] for item in items] == ["first_code", "second_code"]
 
 

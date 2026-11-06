@@ -37,6 +37,7 @@ import io
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import pytest
@@ -48,8 +49,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import billing_forms, solutions
+from app.amount_words import amount_in_words
 from app.api.billing import SOLUTION_NOT_FOUND_DETAIL
-from app.billing_forms import EMPTY_VALUE
 from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
 from app.models.company_details import SINGLE_ROW_ID, CompanyDetails
 from app.models.document import Document
@@ -58,7 +59,7 @@ from app.models.organization import Organization
 from app.models.solution import OrganizationSolution, Solution
 from app.models.tariff import Tariff
 from app.offer import OFFER_ACCEPTANCE_REQUIRED_DETAIL, OFFER_DOCUMENT_CODE
-from app.pricing import format_amount, format_invoice_amount
+from app.pricing import format_amount
 from app.schemas.invoice import SOLUTION_ALONE_MESSAGE
 from app.seats import (
     EXTRA_MEMBER_CODE,
@@ -809,14 +810,35 @@ def pdf_text(body: bytes) -> str:
     return "\n".join(pdf_pages(body)).replace(NBSP, " ")
 
 
+def pdf_text_starts(body: bytes) -> list[tuple[str, float]]:
+    """Начала текстовых строк файла и их `x` в пунктах: по ним мерится геометрия.
+
+    Кириллица читается через ToUnicode-CMap, а `tm[4]` из матрицы текста — это
+    горизонталь, с которой строка начинается в готовом файле. Так проверяется
+    раскладка (центровка заголовка), а не только наличие подстроки.
+    """
+    spans: list[tuple[str, float]] = []
+
+    def visitor(text: str, cm: Any, tm: Any, font: Any, size: Any) -> None:
+        if text.strip():
+            spans.append((text.strip(), float(tm[4])))
+
+    for page in PdfReader(io.BytesIO(body)).pages:
+        page.extract_text(visitor_text=visitor)
+    return spans
+
+
 def amount_text(invoice: Invoice) -> str:
-    """Сумма счёта такой, какой она должна быть в файле: без неразрывного пробела."""
-    label = format_invoice_amount(invoice.amount, invoice.currency, invoice.tariff_period)
-    return label.replace(NBSP, " ")
+    """Сумма счёта такой, какой она должна быть в итоговой строке файла.
+
+    Итог печатается голой суммой без окончания по периоду: период стоит в
+    наименовании позиции, а итог отвечает на вопрос «сколько платить».
+    """
+    return money(invoice.amount)
 
 
 def money(amount: Decimal) -> str:
-    """Сумма позиции без окончания по периоду: «2 700 ₽», уже без неразрывного."""
+    """Сумма: «2 700 ₽», уже без неразрывного пробела."""
     return f"{format_amount(amount)} ₽".replace(NBSP, " ")
 
 
@@ -849,11 +871,11 @@ def test_invoice_file_is_downloaded_as_a_pdf(client: TestClient, db_session: Ses
     pages = pdf_pages(response.content)
     assert len(pages) == 1
     text = pdf_text(response.content)
-    assert f"Счёт № {invoice.number}" in text
-    assert f"Дата: {invoice.created_at:%d.%m.%Y}" in text
-    assert "Поставщик" in text
-    assert "Покупатель" in text
-    assert "Предмет" in text
+    assert f"Счёт на оплату № {invoice.number} от {invoice.created_at:%d.%m.%Y}" in text
+    assert "ИСПОЛНИТЕЛЬ" in text
+    assert "ЗАКАЗЧИК" in text
+    assert "Наименование" in text
+    assert "Всего к оплате:" in text
     assert BUYER_NAME in text
     assert BUYER_INN in text
     assert BUYER_KPP in text
@@ -862,7 +884,7 @@ def test_invoice_file_is_downloaded_as_a_pdf(client: TestClient, db_session: Ses
     assert invoice.tariff_name is not None
     assert invoice.tariff_name in text
     assert amount_text(invoice) in text
-    # Поставщика в проекте нет: блок подписан заглушкой, а не выдуманными данными.
+    # Поставщика в проекте нет: блок исполнителя подписан заглушкой, а не выдуманными данными.
     assert "данные поставщика будут заполнены позже" in text
 
 
@@ -898,11 +920,14 @@ def test_seats_invoice_file_shows_the_quantity(client: TestClient, db_session: S
 
     text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
 
-    assert "Дополнительные места · 3 —" in text
-    # 900 ₽ — цена места, три места — 2 700 ₽: оба числа стоят в строке позиции.
-    assert f"{money(Decimal('2700.00'))} ({money(Decimal('900.00'))} × 3)" in text
-    assert "Итого:" in text
+    assert "Дополнительные места · 3 (900 ₽ × 3)" in text
+    # 2 700 ₽ — сумма позиции; цена места и множитель стоят в наименовании.
+    assert money(Decimal("2700.00")) in text
+    assert "Всего к оплате:" in text
     assert amount_text(invoice) in text
+    # Сумма прописью — требование образца первичного документа: проверяется в
+    # готовом файле, а не только в `amount_in_words`.
+    assert amount_in_words(invoice.amount, invoice.currency) in text
 
 
 def test_tariff_invoice_file_has_no_quantity_row(client: TestClient, db_session: Session) -> None:
@@ -917,14 +942,22 @@ def test_tariff_invoice_file_has_no_quantity_row(client: TestClient, db_session:
     text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
 
     assert "Количество" not in text
-    assert f"Тариф «Старт» — {amount_text(invoice)}" in text
+    assert "Тариф «Старт» в месяц" in text
     assert amount_text(invoice) in text
+    # Сумма прописью — требование образца первичного документа: проверяется в
+    # готовом файле, а не только в `amount_in_words`.
+    assert amount_in_words(invoice.amount, invoice.currency) in text
 
 
-def test_invoice_file_draws_a_dash_for_an_empty_requisite(
+def test_invoice_file_omits_an_empty_buyer_requisite(
     client: TestClient, db_session: Session
 ) -> None:
-    """У индивидуального предпринимателя нет КПП: пустая ячейка — прочерк."""
+    """У индивидуального предпринимателя нет КПП: реквизит выпадает целиком.
+
+    Прочерк в строке «ИНН … · КПП —» выглядел бы как реквизит, которого на самом
+    деле нет: формат образца печатает только заполненные части, поэтому «КПП»
+    из документа выпадает вместе с подписью, а не заменяется прочерком.
+    """
     organization = owner(client, db_session)
     organization.kpp = None
     db_session.commit()
@@ -933,8 +966,8 @@ def test_invoice_file_draws_a_dash_for_an_empty_requisite(
 
     text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
 
-    assert "КПП" in text
-    assert EMPTY_VALUE in text
+    assert "ИНН" in text
+    assert "КПП" not in text
 
 
 def test_missing_font_fails_with_a_clear_message(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1056,7 +1089,7 @@ def test_invoice_prints_the_placeholder_when_no_field_is_filled(
 def test_invoice_prints_the_vat_line_after_the_subject(
     client: TestClient, db_session: Session
 ) -> None:
-    """Строка про НДС стоит сразу после раздела «Предмет», а не в шапке."""
+    """Строка про НДС стоит сразу после итога и суммы прописью, а не в шапке."""
     owner(client, db_session)
     tariff = add_tariff(db_session)
     invoice_id = purchase_id(client, tariff.id)
@@ -1065,7 +1098,7 @@ def test_invoice_prints_the_vat_line_after_the_subject(
     text = supplier_text(client, invoice_id)
 
     assert "НДС не облагается" in text
-    assert text.index("Предмет") < text.index("НДС не облагается")
+    assert text.index("Всего к оплате:") < text.index("НДС не облагается")
 
 
 def test_invoice_has_no_vat_line_when_the_note_is_empty(
@@ -1107,16 +1140,58 @@ def test_act_prints_the_same_supplier_block_and_vat_line(
     assert "ПАО «Банк поставщика»" in text
     assert "044525225" in text
     assert "НДС не облагается" in text
-    assert text.index("Предмет") < text.index("НДС не облагается")
+    assert text.index("Всего к оплате:") < text.index("НДС не облагается")
 
 
-def test_supplier_label_column_fits_the_widest_label() -> None:
-    """Колонка подписей шире «Корреспондентского счёта», иначе значение поверх неё.
+def test_table_columns_fill_the_page_width(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Таблица позиций рисуется ровно теми колонками, что заполняют полосу набора.
 
-    Дефект Б1: `cell(LABEL_WIDTH, …)` печатал подпись в 45 мм без переноса, а
-    подпись занимает 56,63 мм — номер счёта рисовался поверх слова «счёт» в счёте
-    и в акте. Наложение ловится глазами в готовом PDF, а его причина — здесь:
-    ширина колонки считается по метрикам шрифта, а не берётся константой.
+    Дефект Б1 прошлой приёмки был про геометрию: подпись рисовалась поверх
+    значения. У таблицы та же ловушка — сумма колонок, подобранная на глаз,
+    выводит правую границу за поле или оставляет пустую полосу справа. Поэтому
+    проверяются не константы модуля, а ширины, с которыми `_subject_table`
+    действительно зовёт `_table_row`: правка ширин в самой таблице тест ломает.
+    """
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+    )
+    invoice = Invoice(number="СЧ-2026-1", amount=Decimal("10000.00"), currency="RUB")
+    drawn: list[tuple[float, ...]] = []
+    original = billing_forms._table_row
+
+    def spy(
+        pdf_: FPDF,
+        widths: tuple[float, float, float],
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        drawn.append(widths)
+        original(pdf_, widths, *args, **kwargs)
+
+    monkeypatch.setattr(billing_forms, "_table_row", spy)
+    billing_forms._register_fonts(pdf)
+    pdf.add_page()
+
+    billing_forms._subject_table(pdf, invoice)
+
+    assert drawn, "таблица позиций не нарисовала ни одной строки"
+    for widths in drawn:
+        assert widths == billing_forms._column_widths(pdf)
+        assert sum(widths) == pytest.approx(pdf.epw)
+        # Наименование — самая широкая колонка: сумма 40 мм и номер 15 мм.
+        assert widths[1] > billing_forms.AMOUNT_WIDTH
+
+
+def test_the_logo_takes_its_own_line_above_the_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Заголовок начинается ниже знака, а не рядом с ним.
+
+    Замечание человека к первой версии формы: «Счёт …» шёл рядом со знаком, и
+    знак читался как его часть. Проверяются вертикали самих строк: где нарисован
+    знак и где напечатана первая строка заголовка. Курсор после шапки для этого
+    не годится — он уходит ниже и у формы, где знак поделил строку с заголовком.
     """
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(
@@ -1125,29 +1200,36 @@ def test_supplier_label_column_fits_the_widest_label() -> None:
         billing_forms.PAGE_MARGIN,
     )
     billing_forms._register_fonts(pdf)
-    pdf.set_font(billing_forms.FONT_FAMILY, "B", billing_forms.BODY_SIZE)
+    pdf.add_page()
+    top = pdf.get_y()
 
-    labels = [label for label, _ in billing_forms.SUPPLIER_ROWS]
-    width = billing_forms._label_width(pdf, labels)
-    widest = "Корреспондентский счёт"
+    marks: dict[str, float] = {}
+    draw_logo = billing_forms._draw_logo
+    text = billing_forms._text
 
-    assert max(labels, key=pdf.get_string_width) == widest
-    assert pdf.get_string_width(widest) > billing_forms.LABEL_WIDTH
-    # Значение начинается за подписью, а не поверх неё.
-    assert width > pdf.get_string_width(widest)
-    # Короткие блоки не съеживаются ниже прежней колонки, а значению остаётся место.
-    assert width >= billing_forms.LABEL_WIDTH
-    assert pdf.epw - width >= billing_forms.MIN_VALUE_WIDTH
-    # Замер не оставляет жирный шрифт: следующий абзац (заглушка) печатается обычным.
-    assert pdf.font_style == ""
+    def spy_logo(pdf_: FPDF) -> None:
+        marks.setdefault("logo", pdf_.get_y())
+        draw_logo(pdf_)
+
+    def spy_text(pdf_: FPDF, value: str, **kwargs: Any) -> None:
+        marks.setdefault("title", pdf_.get_y())
+        text(pdf_, value, **kwargs)
+
+    monkeypatch.setattr(billing_forms, "_draw_logo", spy_logo)
+    monkeypatch.setattr(billing_forms, "_text", spy_text)
+
+    billing_forms._header(pdf, "Счёт на оплату № ИВ-2026-1 от 06.11.2026")
+
+    assert marks["logo"] == pytest.approx(top)
+    assert marks["title"] >= marks["logo"] + billing_forms.LOGO_HEIGHT
 
 
 def test_the_logo_asset_is_present_and_sized() -> None:
     """Ассет знака лежит рядом с модулем и объявляет размер: без него PDF не собрать.
 
     `width` и `height` в корне SVG обязательны: `fpdf2` берёт из них размер при
-    вставке. Сам знак проверяется глазами в готовом PDF — неподдерживаемые
-    элементы SVG `fpdf2` рисует молча пусто, и подстрокой в файле это не ловится.
+    вставке. Что знак действительно нарисован, а не пропущен молча, проверяет
+    `test_the_logo_is_drawn_as_shapes_in_the_header`.
     """
     source = billing_forms.LOGO_PATH.read_text(encoding="utf-8")
 
@@ -1155,6 +1237,46 @@ def test_the_logo_asset_is_present_and_sized() -> None:
     assert 'viewBox="0 0 40 40"' in source
     assert 'width="40"' in source
     assert 'height="40"' in source
+
+
+def test_the_logo_is_drawn_as_shapes_in_the_header() -> None:
+    """Знак действительно нарисован: 11 мм на левом верхнем поле.
+
+    «Файл ассета на месте» ничего не доказывает: `fpdf2` рисует SVG сам, но
+    неподдерживаемые элементы пропускает молча, и PDF вышел бы без знака при
+    зелёном тесте. Проверяется поток страницы — знак вставлен отдельным
+    масштабом 0.275 (11 мм при viewBox 40) от левого верхнего поля, плашка
+    залита #DCEEE4, а дом нарисован тремя штрихами #27313D, как в `SiteHeader`.
+    """
+    invoice = Invoice(number="СЧ-2026-1", amount=Decimal("10000.00"), currency="RUB")
+    page = PdfReader(io.BytesIO(billing_forms.invoice_pdf(invoice, None))).pages[0]
+    contents = page.get_contents()
+    assert contents is not None
+    content = contents.get_data().decode("latin-1")
+
+    assert "q 0.275 0 0 0.275 15 15 cm" in content
+    assert "0.8627 0.9333 0.8941 rg" in content
+    assert content.count("0.1529 0.1922 0.2392 RG") == 3
+
+
+def test_the_title_is_centered_on_the_type_area() -> None:
+    """Заголовок стоит по центру страницы, а не съезжает вправо от знака.
+
+    Ревьюер сомневался, возвращает ли `pdf.image()` курсор на левое поле: если
+    бы курсор остался правее знака, заголовок центрировался бы не по странице.
+    Проверяется готовый файл: середина строки заголовка совпадает с серединой
+    страницы, а середина считается из начала строки и ширины её текста.
+    """
+    invoice = Invoice(number="СЧ-2026-5", amount=Decimal("10000.00"), currency="RUB")
+    title, start = pdf_text_starts(billing_forms.invoice_pdf(invoice, None))[0]
+    assert title.startswith("Счёт на оплату № СЧ-2026-5")
+
+    measure = FPDF(orientation="P", unit="mm", format="A4")
+    billing_forms._register_fonts(measure)
+    measure.set_font(billing_forms.FONT_FAMILY, "B", billing_forms.TITLE_SIZE)
+    center = start * 25.4 / 72 + measure.get_string_width(title) / 2
+
+    assert center == pytest.approx(measure.w / 2, abs=0.5)
 
 
 def test_missing_logo_fails_with_a_clear_message(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1198,8 +1320,7 @@ def test_act_file_is_downloaded_after_payment(client: TestClient, db_session: Se
 
     assert len(pdf_pages(response.content)) == 1
     text = pdf_text(response.content)
-    assert f"Акт № {invoice.number}" in text
-    assert f"Дата: {invoice.paid_at:%d.%m.%Y}" in text
+    assert f"Акт № {invoice.number} от {invoice.paid_at:%d.%m.%Y}" in text
     assert BUYER_NAME in text
     assert BUYER_INN in text
     assert amount_text(invoice) in text

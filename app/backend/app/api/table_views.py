@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import OwnDormitory, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.api.organization import Membership
 from app.db import get_db
 from app.models.organization import Organization
@@ -70,14 +70,14 @@ def save(
     return response(row)
 
 
-@router.get("/dormitories/{dormitory_id}/table-views/{key}")
+@router.get("/dormitories/{dormitory_id}/table-views/{key}", responses=SUBSCRIBED_USER_RESPONSES)
 def read_dormitory_view(
     key: ViewKey, _user: SubscribedUser, dorm: OwnDormitory, db: DbSession
 ) -> dict[str, Any]:
     return response(db.get(TableView, (dorm.organization_id, f"dormitory-{dorm.id}", key)))
 
 
-@router.put("/dormitories/{dormitory_id}/table-views/{key}")
+@router.put("/dormitories/{dormitory_id}/table-views/{key}", responses=SUBSCRIBED_USER_RESPONSES)
 def save_dormitory_view(
     key: ViewKey, payload: SaveView, _user: SubscribedUser, dorm: OwnDormitory, db: DbSession
 ) -> dict[str, Any]:
@@ -128,14 +128,14 @@ def save_dormitory_view(
     return save(db, dorm.organization_id, f"dormitory-{dorm.id}", key, payload)
 
 
-@router.get("/personnel/table-views/{key}")
+@router.get("/personnel/table-views/{key}", responses=SUBSCRIBED_USER_RESPONSES)
 def read_personnel_view(
     key: ViewKey, _user: SubscribedUser, membership: Membership, db: DbSession
 ) -> dict[str, Any]:
     return response(db.get(TableView, (membership.organization_id, "personnel", key)))
 
 
-@router.put("/personnel/table-views/{key}")
+@router.put("/personnel/table-views/{key}", responses=SUBSCRIBED_USER_RESPONSES)
 def save_personnel_view(
     key: ViewKey, payload: SaveView, _user: SubscribedUser, membership: Membership, db: DbSession
 ) -> dict[str, Any]:

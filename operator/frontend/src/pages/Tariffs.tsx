@@ -226,6 +226,9 @@ export function Tariffs(): JSX.Element {
   function handleCancel(): void {
     clearActionError();
     setMembersError(null);
+    // Нажатая «Отмена» исчезает из DOM вместе с формой: без возврата фокуса
+    // следующий Tab начал бы обход таблицы сначала.
+    focusAfterRender.current = editingId;
     setEditingId(null);
     setForm(null);
   }
@@ -302,7 +305,9 @@ export function Tariffs(): JSX.Element {
   }
 
   /** Отказ от подтверждения: строка возвращается в прежний вид. */
-  function declineDelete(): void {
+  function declineDelete(id: number): void {
+    // «Не надо» исчезает из DOM так же, как «Подтвердить»: фокус — обратно в строку.
+    focusAfterRender.current = id;
     setConfirmingId(null);
   }
 
@@ -536,7 +541,7 @@ export function Tariffs(): JSX.Element {
                                     <button
                                       className="btn btn--ghost btn--compact"
                                       type="button"
-                                      onClick={declineDelete}
+                                      onClick={() => declineDelete(item.id)}
                                       disabled={busy}
                                       data-testid="operator-tariff-delete-decline"
                                     >

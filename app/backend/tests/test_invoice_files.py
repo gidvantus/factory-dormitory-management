@@ -165,7 +165,7 @@ def test_the_saved_pdf_is_readable_and_contains_the_invoice_number(
     body = client.get(f"{INVOICE_URL}/{invoice_id}/file").content
 
     invoice = fresh_invoice(db_session, invoice_id)
-    assert f"Счёт № {invoice.number}" in pdf_text(body)
+    assert f"Счёт на оплату № {invoice.number}" in pdf_text(body)
 
 
 def test_the_download_name_stays_the_same(client: TestClient, db_session: Session) -> None:
