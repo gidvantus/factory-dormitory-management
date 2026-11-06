@@ -238,3 +238,54 @@ class UpdateInvoiceStatusRequest(ForwardedBody):
     """
 
     status: str | None = None
+
+
+# --- Тарифы платформы --------------------------------------------------------
+# Те же правила, что у трёх предыдущих разделов: модель повторяет форму ответа
+# основного API (`TariffResponse` из `app/backend/app/schemas/tariff.py`) один в
+# один, а тело правки проверяется там же, наверху. `amount` едет строкой
+# (`"4900.00"`), `price_label` собирает основной API — кабинет его не считает.
+
+
+class Tariff(BaseModel):
+    """Строка прайса в кабинете оператора.
+
+    Поля — ровно `TariffResponse` основного API, включая скрытые от покупателя
+    признаки яруса (`tooltip`, `group_code`) и `position`: кабинет показывает
+    прайс целиком, в том числе строки со `is_visible = false`.
+
+    `max_members = null` — «без ограничения», а не «ноль мест».
+    """
+
+    id: int
+    name: str
+    description: str | None
+    amount: str
+    currency: str
+    period: str
+    unit_label: str | None
+    position: int
+    is_visible: bool
+    max_members: int | None
+    tooltip: str | None
+    group_code: str | None
+    price_label: str
+
+
+class UpdateTariffRequest(ForwardedBody):
+    """Тело правки тарифа — то, что кабинет передаёт основному API.
+
+    Поля необязательны, и уходят только присланные: `PATCH` одного описания не
+    обнуляет цену. Значения не проверяются здесь вовсе — пустое название,
+    отрицательная цена, слишком большая цена, неизвестный период и
+    отрицательное количество пользователей отсекает основной API, и его `422`
+    уходит клиенту дословно. Вторая копия правил и текстов разошлась бы с
+    оригиналом на первой же правке.
+    """
+
+    name: str | None = None
+    description: str | None = None
+    amount: str | None = None
+    period: str | None = None
+    max_members: int | None = None
+    is_visible: bool | None = None

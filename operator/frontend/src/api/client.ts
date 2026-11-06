@@ -366,6 +366,90 @@ export function updateInvoiceStatus(id: number, status: InvoiceStatus): Promise<
   });
 }
 
+// --- Тарифы платформы -------------------------------------------------------
+// Форма ответа — та же, что у основного API (`app/backend/app/schemas/tariff.py`)
+// и у кабинета (`operator/backend/app/schemas.py`): экран её не переписывает.
+// `price_label` собирает сервер, клиент его не считает: формула цены одна на
+// весь API (`app/backend/app/pricing.py`). `amount` — строка, чтобы копейки не
+// терялись на округлении.
+
+/** Период списания: коды, объявленные `TariffPeriod` в схеме основного API. */
+export type TariffPeriod = 'month' | 'quarter' | 'half_year' | 'year' | 'once';
+
+/**
+ * Строка прайса.
+ *
+ * `description` и `max_members` равны `null` у тарифа без описания и без
+ * ограничения мест. `position` — порядок прайса, `group_code` — код яруса:
+ * строки одного яруса делят описание и предел мест.
+ */
+export interface Tariff {
+  id: number;
+  name: string;
+  description: string | null;
+  /** Сумма строкой: `Numeric` едет по JSON как «13200.00». */
+  amount: string;
+  currency: string;
+  period: TariffPeriod;
+  unit_label: string | null;
+  position: number;
+  is_visible: boolean;
+  /** `null` — без ограничения мест, а не «ноль пользователей». */
+  max_members: number | null;
+  tooltip: string | null;
+  group_code: string | null;
+  /** Готовая цена от сервера: «13 200 ₽ за 3 месяца». Экран печатает её как есть. */
+  price_label: string;
+}
+
+/**
+ * Тело правки `PATCH /api/tariffs/{id}`.
+ *
+ * Меняются только присланные поля (правило основного API,
+ * `app/backend/app/schemas/platform_tariff.py`). Экран правки отправляет все
+ * пять полей строки — `name`, `description`, `amount`, `period`, `max_members`,
+ * — а «Опубликовать» только `is_visible: true`. `null` в описании — «описания
+ * нет», `null` в количестве пользователей — «без ограничения».
+ */
+export interface TariffPatch {
+  name?: string;
+  description?: string | null;
+  amount?: string;
+  period?: TariffPeriod;
+  /** `null` — без ограничения; пустое поле формы уходит именно так. */
+  max_members?: number | null;
+  is_visible?: boolean;
+}
+
+/**
+ * Весь прайс: включая снятые с продажи строки, порядок `position, id`.
+ *
+ * Пагинации нет намеренно: строк в прайсе около пятнадцати, и основной API
+ * отдаёт такой же плоский список.
+ */
+export function listTariffs(): Promise<Tariff[]> {
+  return request<Tariff[]>('/tariffs');
+}
+
+/** Правка тарифа: ответ — то, что сохранил основной API (`price_label` уже пересчитан). */
+export function updateTariff(id: number, payload: TariffPatch): Promise<Tariff> {
+  return request<Tariff>(`/tariffs/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Снять тариф с продажи: `204` без тела.
+ *
+ * Строка не удаляется — основной API ставит `is_visible = false`, и экран
+ * помечает строку сам: тела с новым состоянием в ответе нет. Повторный вызов
+ * идемпотентен.
+ */
+export function deleteTariff(id: number): Promise<void> {
+  return request<void>(`/tariffs/${id}`, { method: 'DELETE' });
+}
+
 /**
  * Адрес PDF счёта или акта для обычной ссылки `href`.
  *

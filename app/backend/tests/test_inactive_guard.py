@@ -57,6 +57,12 @@ EXEMPT_PATHS = frozenset(
         "/api/platform/invoices/{invoice_id}",
         "/api/platform/invoices/{invoice_id}/file",
         "/api/platform/invoices/{invoice_id}/act-file",
+        # Тарифы платформы — четвёртый раздел того же контура: весь прайс,
+        # правка полей и снятие с продажи. Авторизация тоже заголовком
+        # `X-Operator-Token`, поэтому cookie и guard кабинета клиента к ним
+        # неприменимы.
+        "/api/platform/tariffs",
+        "/api/platform/tariffs/{tariff_id}",
         # Раздача файлов: это не операция кабинета, а ссылка на файл, и она живёт
         # вне `/api`. Отказы там свои и закреплены контрактом: аноним получает
         # `404` (существование файла не подтверждается), вошедший без прав —
