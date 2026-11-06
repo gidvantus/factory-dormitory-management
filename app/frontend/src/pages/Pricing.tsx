@@ -10,7 +10,6 @@ import { SiteActions } from '../components/SiteActions';
 import { SiteHeader } from '../components/SiteHeader';
 import { SiteFooter } from '../components/landing/SiteFooter';
 import { siteNav } from '../components/siteNav';
-import { formatTariffDate } from '../components/tariffText';
 import { useAuthDialog } from '../components/useAuthDialog';
 import { PurchaseConfirmDialog } from '../components/PurchaseConfirmDialog';
 
@@ -92,9 +91,9 @@ function licenseOptions(tariffs: Tariff[]): LicenseOption[] {
  * «дополнительные сотрудники не продаются», а не сбой страницы: счётчик просто
  * не показывается.
  *
- * Если тариф у организации уже есть, страница называет его над калькулятором и
- * заранее выбирает его срок: срок и дни считает сервер (`/api/tariffs/current`),
- * страница показывает `ends_at` как есть и не вычитает дни из даты сама.
+ * Если тариф у организации уже есть, страница заранее выбирает его срок: срок
+ * считает сервер (`/api/tariffs/current`), а сама подписка на странице прайса не
+ * показывается — её место в кабинете.
  */
 export function Pricing(): JSX.Element {
   const [licenses, setLicenses] = useState<LicenseOption[]>([]);
@@ -107,7 +106,7 @@ export function Pricing(): JSX.Element {
   const [buyError, setBuyError] = useState('');
   // Заказ из калькулятора: пока он задан, открыто окно подтверждения.
   const [pending, setPending] = useState<LicenseOrder | null>(null);
-  // Подписка организации: по ней страница называет действующую лицензию.
+  // Подписка организации: по ней калькулятор заранее выбирает срок лицензии.
   const [subscription, setSubscription] = useState<OrganizationTariff | null>(null);
   const { openLogin, openRegister, dialogElement } = useAuthDialog();
   const { status: sessionStatus } = useSession();
@@ -187,8 +186,7 @@ export function Pricing(): JSX.Element {
   }, [attempt]);
 
   /**
-   * Действующая лицензия организации — чтобы назвать её над калькулятором и
-   * заранее выбрать её срок.
+   * Действующая лицензия организации — чтобы калькулятор заранее выбрал её срок.
    *
    * Аноним ничего не покупал, и лишний запрос ему ни к чему. У вошедшего без
    * организации ручка отвечает `404`, а не «нет тарифа», — и это тоже просто
@@ -259,15 +257,6 @@ export function Pricing(): JSX.Element {
             {status === 'ready' && licenses.length === 0 && (
               <p className="pricing__note" data-testid="pricing-empty">
                 Тарифы ещё не опубликованы
-              </p>
-            )}
-
-            {status === 'ready' && subscription?.tariff && (
-              <p className="pricing__note" data-testid="pricing-subscription">
-                Действующая лицензия: «{subscription.tariff.name}»
-                {subscription.ends_at
-                  ? `, оплачена до ${formatTariffDate(subscription.ends_at)}`
-                  : ''}
               </p>
             )}
 

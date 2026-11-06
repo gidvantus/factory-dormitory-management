@@ -428,18 +428,18 @@ describe('шапка и подвал страницы тарифов', () => {
     expect(header.queryByTestId('nav-cabinet')).not.toBeInTheDocument();
   });
 
-  it('вошедшему показывает личный кабинет и действующую лицензию', async () => {
+  it('вошедшему показывает личный кабинет и не называет действующую лицензию', async () => {
     mockFetch(
       signedInRoutes(undefined, {
         current: {
           status: 200,
           body: {
             ...NO_SUBSCRIPTION,
-            tariff: LICENSES[0],
-            ends_at: '2026-11-02T12:00:00Z',
-            days_left: 5,
-            is_expiring: true,
-            member_limit: 5,
+            tariff: LICENSES[1],
+            ends_at: '2027-01-01T00:00:00Z',
+            days_left: 300,
+            is_expiring: false,
+            member_limit: 10,
           },
         },
       }),
@@ -449,9 +449,16 @@ describe('шапка и подвал страницы тарифов', () => {
     const header = within(await screen.findByTestId('site-header'));
 
     expect(await header.findByTestId('nav-cabinet')).toBeInTheDocument();
-    expect(await screen.findByTestId('pricing-subscription')).toHaveTextContent(
-      'Действующая лицензия: «Домовой · 6 месяцев»',
+    // Ждём, когда подписка применилась: калькулятор выбрал срок действующей
+    // лицензии. Только после этого проверка «строки нет» что-то значит.
+    await waitFor(
+      () => expect(screen.getByTestId('license-term-year')).toHaveAttribute('aria-pressed', 'true'),
+      { timeout: 2000 },
     );
+    // Действующая лицензия — не предмет продающей страницы: её место в кабинете.
+    // Строки «Действующая лицензия: «…», оплачена до …» на прайсе нет.
+    expect(screen.queryByTestId('pricing-subscription')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Действующая лицензия/)).not.toBeInTheDocument();
   });
 
   it('подставляет срок действующей лицензии, когда подписка пришла позже прайса', async () => {
