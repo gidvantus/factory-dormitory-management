@@ -15,8 +15,26 @@ git: в core-шрифтах PDF кириллицы нет, и молчалива
 не запасной вариант.
 
 Данные покупателя берутся из снимка в счёте, а не из карточки организации: счёт
-показывает то, что было в момент покупки. Блок поставщика пуст и подписан
-заглушкой — банковских реквизитов в проекте нет, а выдумывать их нельзя.
+показывает то, что было в момент покупки.
+
+**Поставщик и НДС (#179).** Реквизиты поставщика и строку про НДС приносит
+вызывающий код — готовая строка `CompanyDetails` или `None`. Модуль по-прежнему
+не читает базу: строку ему передаёт `app/invoice_files.py` через
+`app/company_details.py`, поэтому форму можно проверять тестом без сессии.
+
+* Блок «Поставщик» печатает только заполненные поля и в фиксированном порядке.
+  Не заполнено ни одного (или `company is None`) — печатается прежняя заглушка
+  одним абзацем: прочерки вместо названия и банка выглядели бы как реквизиты,
+  которых нет. `_value` для этого блока поэтому не применяется.
+* Ширина колонки подписей считается по метрикам шрифта, а не берётся константой:
+  «Корреспондентский счёт» шире 45 мм, и в фиксированной колонке значение
+  печаталось поверх подписи.
+* Строка про НДС — тот же абзац в обеих формах: в проекте один налоговый режим
+  и один поставщик, и второй источник разошёлся бы с первым. Пустой `vat_note` —
+  строки нет вовсе.
+* Знак сервиса — SVG-ассет в образе (`app/assets/logo.svg`). Отсутствие файла —
+  `RuntimeError` с внятным текстом, ровно как у шрифта: PDF без знака молча
+  выдавать нельзя.
 
 Модуль ничего не читает из базы и ничего не пишет на диск: на вход идут готовые
 поля счёта, а наружу — готовые байты, поэтому его можно проверять тестом без
@@ -33,6 +51,7 @@ from urllib.parse import quote
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
+from app.models.company_details import CompanyDetails
 from app.models.invoice import (
     SEATS_ITEM_KIND,
     SOLUTION_ITEM_KIND,
@@ -48,8 +67,32 @@ FONT_FAMILY = "DejaVu"
 FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
-# Заглушка блока поставщика: реквизитов поставщика в проекте нет вовсе.
+# Знак сервиса: SVG рядом с модулем. В образ попадает существующим `COPY app ./app`
+# (`app/backend/Dockerfile`), отдельного тома и настройки у него нет намеренно:
+# знак — часть формы, а не данные. `fpdf2` рисует SVG сам, бинарник не нужен.
+LOGO_PATH = Path(__file__).parent / "assets" / "logo.svg"
+
+# Заглушка блока поставщика: печатается, пока не заполнено ни одного реквизита.
 SUPPLIER_PLACEHOLDER = "данные поставщика будут заполнены позже"
+
+# Подпись раздела поставщика.
+SUPPLIER_HEADING = "Поставщик"
+
+# Поля блока «Поставщик» и их подписи — в том порядке, в каком они печатаются.
+# Поле модели названо строкой, а не значением: блок собирается из `CompanyDetails`,
+# и порядок строк — часть вида документа.
+SUPPLIER_ROWS = (
+    ("Название", "name"),
+    ("ИНН", "inn"),
+    ("КПП", "kpp"),
+    ("ОГРН", "ogrn"),
+    ("Адрес", "address"),
+    ("Банк", "bank_name"),
+    ("БИК", "bank_bic"),
+    ("Расчётный счёт", "bank_account"),
+    ("Корреспондентский счёт", "corr_account"),
+    ("Подписант", "signatory"),
+)
 
 # Пустое значение показывается прочерком, а не пустой ячейкой: у индивидуального
 # предпринимателя КПП отсутствует, и это нормальное состояние счёта.
@@ -58,17 +101,30 @@ EMPTY_VALUE = "—"
 # Дата в печатной форме — день месяца словами не нужен, но год обязателен.
 DATE_FORMAT = "%d.%m.%Y"
 
-# Геометрия страницы в миллиметрах: A4, поля по 15, подпись 45, значение —
-# остаток ширины. Содержимое формы умещается в одну страницу с большим запасом,
-# а автоматический перенос оставлен как страховка от очень длинного адреса.
+# Геометрия страницы в миллиметрах: A4, поля по 15, подпись — не уже 45,
+# значение — остаток ширины. Колонка подписей не константа: она считается по
+# метрикам шрифта (`_label_width`), потому что «Корреспондентский счёт» шире 45 мм
+# и, напечатанный `cell` в 45 мм, наезжал на номер счёта. 45 — нижняя граница,
+# чтобы короткие блоки («Покупатель») не съеживались.
 PAGE_MARGIN = 15.0
 LABEL_WIDTH = 45.0
+# Отступ между подписью и значением: половина уходит на внутренние поля ячейки.
+LABEL_GAP = 4.0
+# Минимум, который остаётся значению: длинная подпись не съедает весь ряд.
+MIN_VALUE_WIDTH = 60.0
 LINE_HEIGHT = 6.0
 TITLE_HEIGHT = 9.0
 SECTION_GAP = 5.0
 TITLE_SIZE = 16
 HEADING_SIZE = 13
 BODY_SIZE = 11
+
+# Знак сервиса в шапке: высота 11 мм в левом верхнем углу, заголовок — справа от
+# него на той же линии. Знак квадратный (40×40 во viewBox), поэтому ширина равна
+# высоте; отступ между знаком и заголовком — 4 мм.
+LOGO_HEIGHT = 11.0
+LOGO_WIDTH = LOGO_HEIGHT
+LOGO_GAP = 4.0
 
 # Склейка подряд идущих дефисов в ASCII-запасном имени файла: кириллица из
 # «invoice-СЧ-2026-1.pdf» выпадает и оставляет «invoice--2026-1.pdf».
@@ -202,26 +258,156 @@ def _heading(pdf: FPDF, text: str) -> None:
     pdf.set_font(FONT_FAMILY, "", BODY_SIZE)
 
 
-def _row(pdf: FPDF, label: str, value: str | None) -> None:
-    """Подпись слева, значение справа: длинное значение переносится целиком."""
+def _filled(value: str | None) -> bool:
+    """Заполнено ли значение: пустая строка и пробелы — это «не заполнено»."""
+    return bool((value or "").strip())
+
+
+def _supplier_rows(company: CompanyDetails | None) -> list[tuple[str, str]]:
+    """Заполненные реквизиты поставщика в порядке печати.
+
+    Пустые поля не печатаются вовсе, а не прочерком: строка «Название —» ничего
+    не сообщает, а «данные поставщика будут заполнены позже» говорит правду.
+    Поэтому здесь не применяется `_value`: блок поставщика прочерками не
+    добивается.
+    """
+    if company is None:
+        return []
+    rows: list[tuple[str, str]] = []
+    for label, field in SUPPLIER_ROWS:
+        value: str | None = getattr(company, field)
+        if _filled(value):
+            rows.append((label, (value or "").strip()))
+    return rows
+
+
+def _vat_note(company: CompanyDetails | None) -> str:
+    """Строка про НДС: `vat_note` из реквизитов или пустая строка — «нет строки»."""
+    if company is None:
+        return ""
+    return (company.vat_note or "").strip()
+
+
+def _draw_logo(pdf: FPDF) -> None:
+    """Знак сервиса в левом верхнем углу шапки.
+
+    Отсутствие файла — отказ с внятным текстом, а не PDF без знака: молчаливая
+    потеря знака незаметна, а ассет лежит в образе и не зависит от настроек.
+    """
+    if not LOGO_PATH.is_file():
+        raise RuntimeError(
+            "Не найден знак сервиса для PDF-форм счёта и акта: "
+            f"{LOGO_PATH}. Ассет лежит в app/backend/app/assets/logo.svg и попадает "
+            "в образ API вместе с `COPY app ./app`; без него шапка документа "
+            "осталась бы без знака."
+        )
+    pdf.image(str(LOGO_PATH), x=pdf.l_margin, y=pdf.get_y(), h=LOGO_HEIGHT)
+
+
+def _label_width(pdf: FPDF, labels: list[str]) -> float:
+    """Ширина колонки подписей по самой длинной из них.
+
+    Подписи печатаются тем же жирным шрифтом, что и в документе, поэтому ширину
+    даёт `get_string_width`, а не константа: «Корреспондентский счёт» занимает
+    56,63 мм при 45, и `cell(45, …)` печатал его без переноса — номер счёта
+    рисовался поверх слова «счёт» (замечание Б1). Ниже `LABEL_WIDTH` колонка не
+    опускается, чтобы короткие блоки не съеживались, а справа всегда остаётся
+    `MIN_VALUE_WIDTH` — иначе длинная подпись съела бы место значения. Шрифт
+    после замера возвращается к обычному: следующий за блоком абзац (заглушка или
+    строка про НДС) печатается не жирным.
+    """
+    if not labels:
+        return LABEL_WIDTH
+    pdf.set_font(FONT_FAMILY, "B", BODY_SIZE)
+    widest = max(pdf.get_string_width(label) for label in labels)
+    # Шрифт замера — не шрифт документа: следующий абзац печатается обычным.
+    pdf.set_font(FONT_FAMILY, "", BODY_SIZE)
+    return min(max(LABEL_WIDTH, widest + LABEL_GAP), pdf.epw - MIN_VALUE_WIDTH)
+
+
+def _row(
+    pdf: FPDF,
+    label: str,
+    value: str | None,
+    label_width: float = LABEL_WIDTH,
+) -> None:
+    """Подпись слева, значение справа: длинное значение переносится целиком.
+
+    `label_width` приходит из `_label_width`: у блока поставщика он шире 45 мм,
+    иначе длинная подпись наезжает на значение. Подпись тоже печатается
+    `multi_cell` — если она не влезла в отведённую колонку, она переносится на
+    вторую строку, а не рисуется поверх значения; курсор уходит ниже той из двух
+    колонок, которая оказалась длиннее.
+    """
     x = pdf.l_margin
     y = pdf.get_y()
     pdf.set_font(FONT_FAMILY, "B", BODY_SIZE)
     pdf.set_xy(x, y)
-    pdf.cell(LABEL_WIDTH, LINE_HEIGHT, label)
-    pdf.set_font(FONT_FAMILY, "", BODY_SIZE)
-    pdf.set_xy(x + LABEL_WIDTH, y)
     pdf.multi_cell(
-        pdf.epw - LABEL_WIDTH,
+        label_width,
+        LINE_HEIGHT,
+        label,
+        align=ALIGN_LEFT,
+        new_x=XPos.LMARGIN,
+        new_y=YPos.NEXT,
+    )
+    label_bottom = pdf.get_y()
+    pdf.set_font(FONT_FAMILY, "", BODY_SIZE)
+    pdf.set_xy(x + label_width, y)
+    pdf.multi_cell(
+        pdf.epw - label_width,
         LINE_HEIGHT,
         _value(value),
         align=ALIGN_LEFT,
         new_x=XPos.LMARGIN,
         new_y=YPos.NEXT,
     )
+    if pdf.get_y() < label_bottom:
+        pdf.set_y(label_bottom)
 
 
-def _document(heading: str, invoice: Invoice, date: datetime | None) -> bytes:
+def _header(pdf: FPDF, heading: str, date: datetime | None) -> None:
+    """Шапка документа: знак слева, заголовок справа от него, дата под заголовком.
+
+    Заголовок и дата выровнены по одной вертикали справа от знака: знак выше
+    строки заголовка, и дата не должна «подныривать» под него. `multi_cell`
+    возвращает курсор к левому полю, поэтому `x` заголовка выставляется явно
+    перед датой.
+    """
+    top = pdf.get_y()
+    _draw_logo(pdf)
+    title_x = pdf.l_margin + LOGO_WIDTH + LOGO_GAP
+    title_width = pdf.epw - LOGO_WIDTH - LOGO_GAP
+    pdf.set_font(FONT_FAMILY, "B", TITLE_SIZE)
+    pdf.set_xy(title_x, top)
+    pdf.multi_cell(
+        title_width,
+        TITLE_HEIGHT,
+        heading,
+        align=ALIGN_LEFT,
+        new_x=XPos.LMARGIN,
+        new_y=YPos.NEXT,
+    )
+    pdf.set_font(FONT_FAMILY, "", BODY_SIZE)
+    # Дата идёт под заголовком, но не выше нижней кромки знака: иначе у
+    # трёхстрочного заголовка она наезжала бы на знак.
+    pdf.set_xy(title_x, max(pdf.get_y(), top + LOGO_HEIGHT))
+    pdf.multi_cell(
+        title_width,
+        LINE_HEIGHT,
+        f"Дата: {_date(date)}",
+        align=ALIGN_LEFT,
+        new_x=XPos.LMARGIN,
+        new_y=YPos.NEXT,
+    )
+
+
+def _document(
+    heading: str,
+    invoice: Invoice,
+    date: datetime | None,
+    company: CompanyDetails | None,
+) -> bytes:
     """Общая обвязка печатной формы: счёт и акт отличаются заголовком и датой."""
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN)
@@ -231,48 +417,66 @@ def _document(heading: str, invoice: Invoice, date: datetime | None) -> bytes:
     pdf.set_title(heading)
     pdf.add_page()
 
-    pdf.set_font(FONT_FAMILY, "B", TITLE_SIZE)
-    pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(
-        pdf.epw,
-        TITLE_HEIGHT,
-        heading,
-        align=ALIGN_LEFT,
-        new_x=XPos.LMARGIN,
-        new_y=YPos.NEXT,
-    )
-    pdf.set_font(FONT_FAMILY, "", BODY_SIZE)
-    _paragraph(pdf, f"Дата: {_date(date)}")
+    _header(pdf, heading, date)
 
-    _heading(pdf, "Поставщик")
-    _paragraph(pdf, SUPPLIER_PLACEHOLDER)
+    _heading(pdf, SUPPLIER_HEADING)
+    rows = _supplier_rows(company)
+    # Колонка подписей одна на оба блока: значения в «Поставщике» и «Покупателе»
+    # стоят на одной вертикали, и «Корреспондентский счёт» не выводит её из 45 мм.
+    buyer_rows = _buyer_rows(invoice)
+    label_width = _label_width(
+        pdf,
+        [label for label, _ in rows] + [label for label, _ in buyer_rows],
+    )
+    if rows:
+        for label, text in rows:
+            _row(pdf, label, text, label_width)
+    else:
+        # Ни одного заполненного реквизита — честная заглушка одним абзацем.
+        _paragraph(pdf, SUPPLIER_PLACEHOLDER)
 
     _heading(pdf, "Покупатель")
-    for label, value in _buyer_rows(invoice):
-        _row(pdf, label, value)
+    for label, value in buyer_rows:
+        _row(pdf, label, value, label_width)
 
     _heading(pdf, SUBJECT_HEADING)
     for line in _subject_lines(invoice):
         _paragraph(pdf, line)
 
+    # Строка про НДС — сразу после «Предмета», в обеих формах одна и та же.
+    note = _vat_note(company)
+    if note:
+        _paragraph(pdf, note)
+
     return bytes(pdf.output())
 
 
-def invoice_pdf(invoice: Invoice) -> bytes:
-    """Печатная форма счёта: доступна с момента выставления."""
+def invoice_pdf(invoice: Invoice, company: CompanyDetails | None) -> bytes:
+    """Печатная форма счёта: доступна с момента выставления.
+
+    `company` — реквизиты поставщика из `app/company_details.py` или `None`.
+    Модуль базу не читает: строку передаёт вызывающий код (`app/invoice_files.py`),
+    поэтому форма проверяется тестом без сессии.
+    """
     return _document(
         heading=f"Счёт № {invoice.number}",
         invoice=invoice,
         date=invoice.created_at,
+        company=company,
     )
 
 
-def act_pdf(invoice: Invoice) -> bytes:
-    """Печатная форма акта: появляется после оплаты счёта."""
+def act_pdf(invoice: Invoice, company: CompanyDetails | None) -> bytes:
+    """Печатная форма акта: появляется после оплаты счёта.
+
+    Блок поставщика и строка про НДС — те же, что у счёта: налоговый режим и
+    поставщик у акта не свои, а общие.
+    """
     return _document(
         heading=f"Акт № {invoice.number}",
         invoice=invoice,
         date=invoice.paid_at,
+        company=company,
     )
 
 

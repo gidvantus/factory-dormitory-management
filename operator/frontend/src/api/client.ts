@@ -4,8 +4,10 @@
  * Ручки ровно те, что отдаёт `operator-api`: вход, «кто вошёл», выход
  * (`operator/backend/app/api/auth.py`), организации платформы
  * (`operator/backend/app/api/organizations.py`), пользователи
- * (`operator/backend/app/api/users.py`) и счета
- * (`operator/backend/app/api/invoices.py`). Токен не хранится в JS: сессия
+ * (`operator/backend/app/api/users.py`), счета
+ * (`operator/backend/app/api/invoices.py`), тарифы
+ * (`operator/backend/app/api/tariffs.py`) и реквизиты поставщика
+ * (`operator/backend/app/api/company.py`). Токен не хранится в JS: сессия
  * живёт в httpOnly cookie `operator_session`, поэтому каждый запрос идёт с
  * `credentials: 'include'`.
  *
@@ -458,4 +460,72 @@ export function deleteTariff(id: number): Promise<void> {
  */
 export function invoiceFileUrl(id: number, kind: 'invoice' | 'act'): string {
   return kind === 'act' ? `/api/invoices/${id}/act-file` : `/api/invoices/${id}/file`;
+}
+
+// --- Реквизиты поставщика ---------------------------------------------------
+// Форма ответа — та же, что у основного API (`app/backend/app/schemas/company_details.py`)
+// и у кабинета (`operator/backend/app/schemas.py`): экран её не переписывает.
+// Все поля присутствуют всегда, пустое значение приходит как `null` и означает
+// «поле не заполнено» — `null` и пустая строка для реквизитов одно и то же.
+// Строка одна (`id: 1`): поставщик в проекте один, и заводить её из кабинета
+// нельзя — она засеяна миграцией основного API.
+
+/** Реквизиты поставщика: одиннадцать правимых полей плюс `id` и `updated_at`. */
+export interface CompanyDetails {
+  id: number;
+  name: string | null;
+  inn: string | null;
+  kpp: string | null;
+  ogrn: string | null;
+  address: string | null;
+  bank_name: string | null;
+  bank_bic: string | null;
+  bank_account: string | null;
+  corr_account: string | null;
+  signatory: string | null;
+  /** Строка про НДС в печатных формах: пусто — строки в документе нет. */
+  vat_note: string | null;
+  /** ISO-8601 из API; `null`, пока строку не засеяли. */
+  updated_at: string | null;
+}
+
+/**
+ * Тело правки `PATCH /api/company-details`.
+ *
+ * Экран отправляет все одиннадцать полей, как требует контракт: пустое поле
+ * уходит как `null`, и это и есть очистка. Формат ИНН, КПП, ОГРН, БИК и счетов,
+ * длины колонок — правило основного API, поэтому проверок здесь нет: его `422`
+ * показывается дословно.
+ */
+export interface CompanyDetailsUpdate {
+  name: string | null;
+  inn: string | null;
+  kpp: string | null;
+  ogrn: string | null;
+  address: string | null;
+  bank_name: string | null;
+  bank_bic: string | null;
+  bank_account: string | null;
+  corr_account: string | null;
+  signatory: string | null;
+  vat_note: string | null;
+}
+
+/**
+ * Реквизиты поставщика.
+ *
+ * Пустая база — тоже успех: основной API отвечает `200` со всеми `null`, и
+ * экран показывает пустую форму. `404 «Реквизиты поставщика не заведены»` —
+ * не засеянная строка, а не потерянный ресурс.
+ */
+export function getCompanyDetails(): Promise<CompanyDetails> {
+  return request<CompanyDetails>('/company-details');
+}
+
+/** Правка реквизитов: ответ — то, что сохранил основной API. */
+export function updateCompanyDetails(payload: CompanyDetailsUpdate): Promise<CompanyDetails> {
+  return request<CompanyDetails>('/company-details', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
 }

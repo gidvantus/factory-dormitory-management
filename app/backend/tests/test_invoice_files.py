@@ -140,7 +140,7 @@ def test_the_second_download_returns_the_saved_bytes_without_rendering(
     first = client.get(f"{INVOICE_URL}/{invoice_id}/file")
     assert first.status_code == 200, first.text
 
-    def other_pdf(invoice: Invoice) -> bytes:
+    def other_pdf(invoice: Invoice, company: object) -> bytes:
         return b"%PDF-1.4 other bytes"
 
     monkeypatch.setattr(billing_forms, "invoice_pdf", other_pdf)

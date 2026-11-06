@@ -36,10 +36,12 @@
 import io
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
+from fpdf import FPDF
 from httpx import Response
 from pypdf import PdfReader
 from sqlalchemy import select
@@ -49,6 +51,7 @@ from app import billing_forms, solutions
 from app.api.billing import SOLUTION_NOT_FOUND_DETAIL
 from app.billing_forms import EMPTY_VALUE
 from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
+from app.models.company_details import SINGLE_ROW_ID, CompanyDetails
 from app.models.document import Document
 from app.models.invoice import Invoice, InvoiceDocument
 from app.models.organization import Organization
@@ -944,7 +947,223 @@ def test_missing_font_fails_with_a_clear_message(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(billing_forms, "FONT_REGULAR", "/nowhere/DejaVuSans.ttf")
 
     with pytest.raises(RuntimeError, match="fonts-dejavu-core"):
-        billing_forms.invoice_pdf(invoice)
+        billing_forms.invoice_pdf(invoice, None)
+
+
+# --- 5a. Реквизиты поставщика и строка про НДС (#179) --------------------------
+#
+# Блок «Поставщик» и строка про НДС приходят из таблицы `company_details`
+# (`app/company_details.py`), которую правят в кабинете оператора. Схема
+# юнит-тестов собирается из моделей, без миграций, поэтому засева в ней нет:
+# `None` — это и есть «реквизитов пока нет», а печать в этом случае показывает
+# заглушку. Тесты с заполненными реквизитами вставляют строку сами.
+
+
+def add_company(db_session: Session, **fields: object) -> CompanyDetails:
+    """Единственная строка реквизитов прямо в базе: засев миграции не выполняется."""
+    row = CompanyDetails(id=SINGLE_ROW_ID, **fields)
+    db_session.add(row)
+    db_session.commit()
+    db_session.refresh(row)
+    return row
+
+
+def supplier_text(client: TestClient, invoice_id: int) -> str:
+    """Текст свежего счёта: файла ещё нет, форма собирается первым скачиванием."""
+    response = client.get(f"{INVOICE_URL}/{invoice_id}/file")
+    assert response.status_code == 200, response.text
+    return pdf_text(response.content)
+
+
+def test_invoice_prints_the_filled_supplier_details(
+    client: TestClient, db_session: Session
+) -> None:
+    """Заполненные реквизиты печатаются строками вместо заглушки."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(
+        db_session,
+        name="ООО «Поставщик»",
+        inn="7701111111",
+        kpp="770101001",
+        ogrn="1027700132195",
+        address="г. Москва, ул. Поставщиков, д. 2",
+        bank_name="ПАО «Банк поставщика»",
+        bank_bic="044525225",
+        bank_account="40702810100000000001",
+        corr_account="30101810400000000225",
+        signatory="Директор Петров П. П.",
+        vat_note="НДС не облагается",
+    )
+
+    text = supplier_text(client, invoice_id)
+
+    assert "ООО «Поставщик»" in text
+    assert "7701111111" in text
+    assert "770101001" in text
+    assert "1027700132195" in text
+    assert "г. Москва, ул. Поставщиков, д. 2" in text
+    assert "ПАО «Банк поставщика»" in text
+    assert "044525225" in text
+    assert "40702810100000000001" in text
+    assert "30101810400000000225" in text
+    assert "Директор Петров П. П." in text
+    # Заглушка не нужна: реквизиты есть.
+    assert "данные поставщика будут заполнены позже" not in text
+
+
+def test_invoice_prints_only_the_filled_supplier_fields(
+    client: TestClient, db_session: Session
+) -> None:
+    """Пустые поля не печатаются и не добиваются прочерками.
+
+    Прочерк вместо банка выглядел бы как реквизит, которого нет: в блоке
+    поставщика `_value` не применяется, поэтому строк «Банк —», «БИК —» в
+    документе не бывает.
+    """
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(db_session, name="ООО «Поставщик»", inn="7701111111")
+
+    text = supplier_text(client, invoice_id)
+
+    assert "ООО «Поставщик»" in text
+    assert "7701111111" in text
+    assert "Банк" not in text
+    assert "БИК" not in text
+    assert "Расчётный счёт" not in text
+    assert "Подписант" not in text
+    assert "данные поставщика будут заполнены позже" not in text
+
+
+def test_invoice_prints_the_placeholder_when_no_field_is_filled(
+    client: TestClient, db_session: Session
+) -> None:
+    """Строка есть, но пустая: печатается та же заглушка, что и без строки."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(db_session)
+
+    text = supplier_text(client, invoice_id)
+
+    assert "данные поставщика будут заполнены позже" in text
+    assert "Банк" not in text
+
+
+def test_invoice_prints_the_vat_line_after_the_subject(
+    client: TestClient, db_session: Session
+) -> None:
+    """Строка про НДС стоит сразу после раздела «Предмет», а не в шапке."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(db_session, vat_note="НДС не облагается")
+
+    text = supplier_text(client, invoice_id)
+
+    assert "НДС не облагается" in text
+    assert text.index("Предмет") < text.index("НДС не облагается")
+
+
+def test_invoice_has_no_vat_line_when_the_note_is_empty(
+    client: TestClient, db_session: Session
+) -> None:
+    """Пустой `vat_note` — строки нет вовсе: слова «НДС» в документе не остаётся."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(db_session, name="ООО «Поставщик»", vat_note=None)
+
+    text = supplier_text(client, invoice_id)
+
+    assert "НДС" not in text
+    # Реквизиты при этом печатаются: пустая строка про НДС не гасит блок.
+    assert "ООО «Поставщик»" in text
+
+
+def test_act_prints_the_same_supplier_block_and_vat_line(
+    client: TestClient, db_session: Session
+) -> None:
+    """Акт берёт те же реквизиты и ту же строку про НДС, что и счёт."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(
+        db_session,
+        name="ООО «Поставщик»",
+        bank_name="ПАО «Банк поставщика»",
+        bank_bic="044525225",
+        vat_note="НДС не облагается",
+    )
+    set_status(client, invoice_id, PAID)
+
+    response = client.get(f"{INVOICE_URL}/{invoice_id}/act-file")
+
+    assert response.status_code == 200, response.text
+    text = pdf_text(response.content)
+    assert "ПАО «Банк поставщика»" in text
+    assert "044525225" in text
+    assert "НДС не облагается" in text
+    assert text.index("Предмет") < text.index("НДС не облагается")
+
+
+def test_supplier_label_column_fits_the_widest_label() -> None:
+    """Колонка подписей шире «Корреспондентского счёта», иначе значение поверх неё.
+
+    Дефект Б1: `cell(LABEL_WIDTH, …)` печатал подпись в 45 мм без переноса, а
+    подпись занимает 56,63 мм — номер счёта рисовался поверх слова «счёт» в счёте
+    и в акте. Наложение ловится глазами в готовом PDF, а его причина — здесь:
+    ширина колонки считается по метрикам шрифта, а не берётся константой.
+    """
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+    )
+    billing_forms._register_fonts(pdf)
+    pdf.set_font(billing_forms.FONT_FAMILY, "B", billing_forms.BODY_SIZE)
+
+    labels = [label for label, _ in billing_forms.SUPPLIER_ROWS]
+    width = billing_forms._label_width(pdf, labels)
+    widest = "Корреспондентский счёт"
+
+    assert max(labels, key=pdf.get_string_width) == widest
+    assert pdf.get_string_width(widest) > billing_forms.LABEL_WIDTH
+    # Значение начинается за подписью, а не поверх неё.
+    assert width > pdf.get_string_width(widest)
+    # Короткие блоки не съеживаются ниже прежней колонки, а значению остаётся место.
+    assert width >= billing_forms.LABEL_WIDTH
+    assert pdf.epw - width >= billing_forms.MIN_VALUE_WIDTH
+    # Замер не оставляет жирный шрифт: следующий абзац (заглушка) печатается обычным.
+    assert pdf.font_style == ""
+
+
+def test_the_logo_asset_is_present_and_sized() -> None:
+    """Ассет знака лежит рядом с модулем и объявляет размер: без него PDF не собрать.
+
+    `width` и `height` в корне SVG обязательны: `fpdf2` берёт из них размер при
+    вставке. Сам знак проверяется глазами в готовом PDF — неподдерживаемые
+    элементы SVG `fpdf2` рисует молча пусто, и подстрокой в файле это не ловится.
+    """
+    source = billing_forms.LOGO_PATH.read_text(encoding="utf-8")
+
+    assert billing_forms.LOGO_PATH.is_file()
+    assert 'viewBox="0 0 40 40"' in source
+    assert 'width="40"' in source
+    assert 'height="40"' in source
+
+
+def test_missing_logo_fails_with_a_clear_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Без знака форма не собирается: молчаливый PDF без логотипа недопустим."""
+    invoice = Invoice(number="СЧ-2026-1", amount=Decimal("10000.00"), currency="RUB")
+    monkeypatch.setattr(billing_forms, "LOGO_PATH", Path("/nowhere/logo.svg"))
+
+    with pytest.raises(RuntimeError, match=r"logo\.svg"):
+        billing_forms.invoice_pdf(invoice, None)
 
 
 def test_act_file_is_not_found_before_payment(client: TestClient, db_session: Session) -> None:

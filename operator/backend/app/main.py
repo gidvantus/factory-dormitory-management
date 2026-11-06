@@ -8,7 +8,7 @@ nginx кабинета проксировал один путь `/api/` и фр�
 
 from fastapi import FastAPI
 
-from app.api import auth, health, invoices, organizations, tariffs, users
+from app.api import auth, company, health, invoices, organizations, tariffs, users
 from app.config import get_settings
 
 API_PREFIX = "/api"
@@ -44,6 +44,10 @@ def create_app() -> FastAPI:
     # полей и снятие с продажи. Кабинет только проксирует их в основной API —
     # правил правки и своей базы у него нет.
     application.include_router(tariffs.router, prefix=API_PREFIX)
+    # Реквизиты поставщика — пятый раздел того же контура: кабинет только
+    # проксирует их в основной API по сервисному токену. Своей базы и своих
+    # правил проверки значений у него по-прежнему нет.
+    application.include_router(company.router, prefix=API_PREFIX)
     application.include_router(health.router, prefix=API_PREFIX)
     return application
 

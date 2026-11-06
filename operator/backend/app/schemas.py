@@ -289,3 +289,61 @@ class UpdateTariffRequest(ForwardedBody):
     period: str | None = None
     max_members: int | None = None
     is_visible: bool | None = None
+
+
+# --- Реквизиты поставщика ----------------------------------------------------
+# Те же правила, что у четырёх предыдущих разделов: модель повторяет форму ответа
+# основного API (`CompanyDetailsResponse` из
+# `app/backend/app/schemas/company_details.py`) один в один, а тело правки
+# проверяется там же, наверху. Кабинет не переименовывает и не сокращает поля:
+# иначе фронтенд знал бы два контракта на одни и те же данные.
+#
+# `updated_at` бывает `null`: пока строки реквизитов нет, момента правки у неё
+# тоже нет, и `null` — честный ответ, а не «сейчас».
+
+
+class CompanyDetails(BaseModel):
+    """Реквизиты поставщика в кабинете оператора.
+
+    Одиннадцать полей плюс `id` и `updated_at` — ровно форма ответа основного
+    API. Пустое значение приходит как `null`: `null` и пустая строка для
+    реквизитов означают одно и то же — «поле не заполнено», — и экран не выводит
+    прочерк вместо пустого поля.
+    """
+
+    id: int
+    name: str | None
+    inn: str | None
+    kpp: str | None
+    ogrn: str | None
+    address: str | None
+    bank_name: str | None
+    bank_bic: str | None
+    bank_account: str | None
+    corr_account: str | None
+    signatory: str | None
+    vat_note: str | None
+    updated_at: datetime | None
+
+
+class UpdateCompanyDetailsRequest(ForwardedBody):
+    """Тело правки реквизитов поставщика — то, что кабинет передаёт основному API.
+
+    Поля необязательны, и уходят только присланные: `PATCH` одной строки про НДС
+    не обнуляет банк. Значения не проверяются здесь вовсе — формат ИНН, КПП,
+    ОГРН, БИК и счетов, длины колонок и очистка поля пустой строкой это правило
+    основного API, и его `422` уходит клиенту дословно. Вторая копия правил и
+    текстов разошлась бы с оригиналом на первой же правке.
+    """
+
+    name: str | None = None
+    inn: str | None = None
+    kpp: str | None = None
+    ogrn: str | None = None
+    address: str | None = None
+    bank_name: str | None = None
+    bank_bic: str | None = None
+    bank_account: str | None = None
+    corr_account: str | None = None
+    signatory: str | None = None
+    vat_note: str | None = None
