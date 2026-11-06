@@ -1,18 +1,21 @@
 import { Link, useLocation } from 'react-router-dom';
 
 /**
- * Навигация кабинета: три раздела — организации, счета и пользователи.
+ * Навигация кабинета: четыре раздела — организации, счета, тарифы и пользователи.
  *
  * Активный раздел помечен `aria-current="page"` и подчёркиванием на линии шапки:
  * цвет в метке не участвует, а скринридер читает «текущая страница». Раздел
  * «Организации» — корень кабинета (`/`), его карточки (`/organizations/:id`) тоже
  * относятся к нему, поэтому активность считается по префиксу пути, а не
- * сравнением с `/`. У счетов своей карточки нет: строка реестра — единственное
- * место действий, но префикс считается так же, как у остальных разделов.
+ * сравнением с `/`. У счетов и тарифов своих карточек нет: строка реестра —
+ * единственное место действий, но префикс считается так же, как у остальных
+ * разделов. Порядок вкладок — порядок макета постановки (`mockups/178/`):
+ * тарифы стоят между счетами и пользователями.
  */
 export function OperatorNav(): JSX.Element {
   const { pathname } = useLocation();
   const onUsers = pathname === '/users' || pathname.startsWith('/users/');
+  const onTariffs = pathname === '/tariffs' || pathname.startsWith('/tariffs/');
   const onInvoices = pathname === '/invoices' || pathname.startsWith('/invoices/');
   const onOrganizations = pathname === '/' || pathname.startsWith('/organizations/');
 
@@ -33,6 +36,14 @@ export function OperatorNav(): JSX.Element {
         data-testid="operator-nav-invoices"
       >
         Счета
+      </Link>
+      <Link
+        className="nav__link"
+        to="/tariffs"
+        aria-current={onTariffs ? 'page' : undefined}
+        data-testid="operator-nav-tariffs"
+      >
+        Тарифы
       </Link>
       <Link
         className="nav__link"
