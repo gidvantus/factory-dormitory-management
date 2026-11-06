@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -18,6 +18,47 @@ const DETAILS = {
   created_at: '2026-03-14T10:00:00',
   members_count: 12,
   dormitories_count: 3,
+};
+
+/** Состояние подписки: действующий тариф на 5 мест, 3 докуплено, три права. */
+const SUBSCRIPTION = {
+  tariff: {
+    id: 21,
+    name: 'Домовой · 6 месяцев',
+    period: 'half_year',
+    max_members: 5,
+    price_label: '60 000 ₽ за 6 месяцев',
+    ends_at: '2027-06-30T20:59:59.999999Z',
+    paid_until: '2027-06-30',
+    is_live: true,
+  },
+  days_left: 236,
+  next: null,
+  extra_seats: 3,
+  member_limit: 8,
+  solutions: [
+    {
+      code: 'telegram_notifications',
+      name: 'Уведомления в Telegram',
+      expires_at: '2027-02-14T20:59:59.999999Z',
+      paid_until: '2027-02-14',
+      is_live: true,
+    },
+    {
+      code: 'solution_journal',
+      name: 'Журнал действий',
+      expires_at: null,
+      paid_until: null,
+      is_live: true,
+    },
+    {
+      code: 'extra_seats',
+      name: 'Дополнительные сотрудники',
+      expires_at: '2026-10-31T20:59:59.999999Z',
+      paid_until: '2026-10-31',
+      is_live: false,
+    },
+  ],
 };
 
 /** Карточка в настоящем роутере: переход «К списку» проверяем по подмене. */
@@ -43,9 +84,30 @@ async function renderLoaded(steps: MockStep[]) {
   return network;
 }
 
+/**
+ * Открыть карточку с подпиской.
+ *
+ * Панель грузит своё состояние отдельным запросом, поэтому в очереди ответов
+ * у неё своя строка — сразу после карточки и до действий пользователя.
+ */
+async function renderReady(subscription: unknown = SUBSCRIPTION, rest: MockStep[] = []) {
+  const network = await renderLoaded([
+    { status: 200, body: DETAILS },
+    { status: 200, body: subscription },
+    ...rest,
+  ]);
+  await screen.findByTestId('operator-subscription-tariff-name');
+  return network;
+}
+
+/** Ответы карточки и панели — по порядку их запросов. */
+function cardAndSubscription(rest: MockStep[] = []): MockStep[] {
+  return [{ status: 200, body: DETAILS }, { status: 200, body: SUBSCRIPTION }, ...rest];
+}
+
 describe('карточка организации кабинета оператора', () => {
   it('показывает реквизиты, счётчики и дату создания', async () => {
-    const network = await renderLoaded([{ status: 200, body: DETAILS }]);
+    const network = await renderLoaded(cardAndSubscription());
 
     expect(screen.getByTestId('operator-organization-name')).toHaveTextContent(
       'ООО «Северный дом»',
@@ -68,7 +130,7 @@ describe('карточка организации кабинета операт�
   });
 
   it('в шапке загруженной карточки остаётся навигация разделов', async () => {
-    await renderLoaded([{ status: 200, body: DETAILS }]);
+    await renderLoaded(cardAndSubscription());
 
     // Шапка одна на все состояния экрана: после загрузки переключатель
     // разделов не должен пропадать — иначе из карточки не уйти в «Пользователи».
@@ -101,8 +163,7 @@ describe('карточка организации кабинета операт�
   });
 
   it('сохранение отправляет все пять полей и показывает ответ сервера', async () => {
-    const network = await renderLoaded([
-      { status: 200, body: DETAILS },
+    const network = await renderReady(SUBSCRIPTION, [
       { status: 200, body: { ...DETAILS, inn: '7716123456', address: 'Ленинградский пр-т, 1' } },
     ]);
     const user = userEvent.setup();
@@ -120,9 +181,8 @@ describe('карточка организации кабинета операт�
       'Ленинградский пр-т, 1',
     );
 
-    const [patch] = network.calls.slice(1);
+    const [patch] = network.calls.filter((call) => call.init.method === 'PATCH');
     expect(patch.url).toBe('/api/organizations/131');
-    expect(patch.init.method).toBe('PATCH');
     expect(JSON.parse(String(patch.init.body))).toEqual({
       name: 'ООО «Северный дом»',
       inn: '7716123456',
@@ -133,10 +193,9 @@ describe('карточка организации кабинета операт�
   });
 
   it('409 на занятый ИНН показывает текст дословно и не сбрасывает введённое', async () => {
-    await renderLoaded([
-      { status: 200, body: DETAILS },
-      { status: 409, body: { detail: 'Организация с таким ИНН уже есть' } },
-    ]);
+    await renderLoaded(
+      cardAndSubscription([{ status: 409, body: { detail: 'Организация с таким ИНН уже есть' } }]),
+    );
     const user = userEvent.setup();
 
     await user.click(screen.getByTestId('operator-organization-edit'));
@@ -153,21 +212,22 @@ describe('карточка организации кабинета операт�
   });
 
   it('422 на пустое название показывает текст основного API дословно', async () => {
-    await renderLoaded([
-      { status: 200, body: DETAILS },
-      {
-        status: 422,
-        body: {
-          detail: [
-            {
-              type: 'value_error',
-              loc: ['body', 'name'],
-              msg: 'Value error, Название не может быть пустым',
-            },
-          ],
+    await renderLoaded(
+      cardAndSubscription([
+        {
+          status: 422,
+          body: {
+            detail: [
+              {
+                type: 'value_error',
+                loc: ['body', 'name'],
+                msg: 'Value error, Название не может быть пустым',
+              },
+            ],
+          },
         },
-      },
-    ]);
+      ]),
+    );
     const user = userEvent.setup();
 
     await user.click(screen.getByTestId('operator-organization-edit'));
@@ -179,7 +239,7 @@ describe('карточка организации кабинета операт�
   });
 
   it('«Отмена» возвращает значения последнего ответа сервера', async () => {
-    await renderLoaded([{ status: 200, body: DETAILS }]);
+    await renderLoaded(cardAndSubscription());
     const user = userEvent.setup();
 
     await user.click(screen.getByTestId('operator-organization-edit'));
@@ -200,7 +260,7 @@ describe('карточка организации кабинета операт�
     const pending = new Promise<{ status: number; body: unknown }>((resolve) => {
       release = resolve;
     });
-    await renderLoaded([{ status: 200, body: DETAILS }, () => pending]);
+    await renderLoaded(cardAndSubscription([() => pending]));
     const user = userEvent.setup();
 
     await user.click(screen.getByTestId('operator-organization-edit'));
@@ -214,5 +274,327 @@ describe('карточка организации кабинета операт�
 
     release({ status: 200, body: DETAILS });
     expect(await screen.findByTestId('operator-organization-edit')).toBeInTheDocument();
+  });
+});
+
+describe('панель «Тариф и расширения»', () => {
+  it('грузится своим запросом и не блокирует реквизиты', async () => {
+    let release: (response: { status: number; body: unknown }) => void = () => undefined;
+    const pending = new Promise<{ status: number; body: unknown }>((resolve) => {
+      release = resolve;
+    });
+    const network = await renderLoaded([{ status: 200, body: DETAILS }, () => pending]);
+
+    expect(network.calls[1].url).toBe('/api/organizations/131/subscription');
+    const loading = screen.getByTestId('operator-subscription-loading');
+    expect(loading).toHaveAttribute('role', 'status');
+    expect(loading).toHaveTextContent('Загружаем тариф…');
+    // Реквизиты выше уже на экране: панель грузится отдельно от карточки.
+    expect(screen.getByTestId('operator-organization-inn')).toHaveTextContent('7716234567');
+
+    release({ status: 200, body: SUBSCRIPTION });
+    expect(await screen.findByTestId('operator-subscription-tariff-name')).toHaveTextContent(
+      'Домовой · 6 месяцев',
+    );
+  });
+
+  it('отказ загрузки показывает detail дословно, «Повторить» перечитывает состояние', async () => {
+    const network = await renderLoaded([
+      { status: 200, body: DETAILS },
+      { status: 502, body: { detail: 'Основной API недоступен' } },
+      { status: 200, body: SUBSCRIPTION },
+    ]);
+    const user = userEvent.setup();
+
+    const error = await screen.findByTestId('operator-subscription-error');
+    expect(error).toHaveAttribute('role', 'alert');
+    expect(error).toHaveTextContent(/^Основной API недоступен$/);
+    expect(screen.getByTestId('operator-organization-inn')).toHaveTextContent('7716234567');
+
+    await user.click(screen.getByTestId('operator-subscription-retry'));
+
+    expect(await screen.findByTestId('operator-subscription-tariff-name')).toHaveTextContent(
+      'Домовой · 6 месяцев',
+    );
+    expect(network.calls.at(-1)?.url).toBe('/api/organizations/131/subscription');
+  });
+
+  it('действующий тариф: название, срок, остаток дней и разложение мест', async () => {
+    await renderLoaded(cardAndSubscription());
+    await screen.findByTestId('operator-subscription-tariff-name');
+
+    expect(screen.getByTestId('operator-subscription-tariff-name')).toHaveTextContent(
+      'Домовой · 6 месяцев',
+    );
+    expect(screen.getByTestId('operator-subscription-tariff-state')).toHaveTextContent(
+      /^действует$/,
+    );
+    expect(screen.getByTestId('operator-subscription-tariff-until')).toHaveTextContent(
+      'по 30.06.2027',
+    );
+    expect(screen.getByText('236')).toBeInTheDocument();
+    expect(screen.getByText('дней осталось')).toBeInTheDocument();
+    expect(screen.getByText('8')).toBeInTheDocument();
+    expect(screen.getByText('мест: 5 по тарифу и 3 докуплено')).toBeInTheDocument();
+  });
+
+  it('оплаченный вперёд слот — отдельной строкой только для чтения', async () => {
+    await renderReady({
+      ...SUBSCRIPTION,
+      next: {
+        tariff: {
+          ...SUBSCRIPTION.tariff,
+          id: 22,
+          name: 'Домовой · 12 месяцев',
+          max_members: 10,
+        },
+        ends_at: '2028-06-30T20:59:59.999999Z',
+        paid_until: '2028-06-30',
+      },
+    });
+
+    const next = screen.getByTestId('operator-subscription-next');
+    expect(next).toHaveTextContent('Оплачен вперёд:');
+    expect(next).toHaveTextContent('Домовой · 12 месяцев, по 30.06.2028');
+    // Будущий слот не правится и не снимается: кнопок внутри строки нет.
+    expect(next.querySelector('button')).toBeNull();
+  });
+
+  it('истёкший тариф: «не действует», дата окончания и неактивное снятие', async () => {
+    await renderReady({
+      ...SUBSCRIPTION,
+      tariff: { ...SUBSCRIPTION.tariff, paid_until: '2026-10-31', is_live: false },
+      days_left: 0,
+    });
+
+    expect(screen.getByTestId('operator-subscription-tariff-state')).toHaveTextContent(
+      /^не действует$/,
+    );
+    expect(screen.getByTestId('operator-subscription-tariff-until')).toHaveTextContent(
+      'срок истёк 31.10.2026',
+    );
+    expect(screen.getByTestId('operator-subscription-tariff-deactivate')).toBeDisabled();
+    // У истёкшего тарифа блока остатка нет: ноль ничего не добавляет.
+    expect(screen.queryByText('дней осталось')).not.toBeInTheDocument();
+  });
+
+  it('бессрочный тариф говорит «бессрочно» и не рисует остаток дней', async () => {
+    await renderReady({
+      ...SUBSCRIPTION,
+      tariff: { ...SUBSCRIPTION.tariff, ends_at: null, paid_until: null },
+      extra_seats: 0,
+      member_limit: 5,
+    });
+
+    expect(screen.getByTestId('operator-subscription-tariff-until')).toHaveTextContent('бессрочно');
+    expect(screen.queryByText('дней осталось')).not.toBeInTheDocument();
+    expect(screen.getByText('мест по тарифу')).toBeInTheDocument();
+  });
+
+  it('пустое состояние: «Тариф не назначен» и «Расширений нет»', async () => {
+    await renderReady({
+      tariff: null,
+      days_left: 0,
+      next: null,
+      extra_seats: 0,
+      member_limit: null,
+      solutions: [],
+    });
+
+    expect(screen.getByTestId('operator-subscription-tariff-name')).toHaveTextContent(
+      'Тариф не назначен',
+    );
+    expect(screen.getByTestId('operator-subscription-solutions-empty')).toHaveTextContent(
+      'Расширений нет',
+    );
+    expect(screen.queryByTestId('operator-subscription-tariff-edit')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('operator-subscription-tariff-deactivate')).not.toBeInTheDocument();
+  });
+
+  it('расширения: действует по дате, бессрочно, не действует; у недействующего снятие неактивно', async () => {
+    await renderLoaded(cardAndSubscription());
+    await screen.findByTestId('operator-subscription-solutions');
+
+    const states = screen.getAllByTestId('operator-subscription-solution-state');
+    expect(states[0]).toHaveTextContent('действует по 14.02.2027');
+    expect(states[1]).toHaveTextContent('бессрочно');
+    expect(states[2]).toHaveTextContent('не действует');
+
+    const buttons = screen.getAllByTestId('operator-subscription-solution-deactivate');
+    expect(buttons[0]).toBeEnabled();
+    expect(buttons[2]).toBeDisabled();
+  });
+
+  it('правка срока отправляет paid_until и показывает дату из ответа, а не из поля', async () => {
+    const network = await renderLoaded(
+      cardAndSubscription([
+        {
+          status: 200,
+          body: { ...SUBSCRIPTION, tariff: { ...SUBSCRIPTION.tariff, paid_until: '2028-06-30' } },
+        },
+      ]),
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId('operator-subscription-tariff-edit'));
+    const input = screen.getByTestId('operator-subscription-tariff-until-input');
+    expect(input).toHaveValue('2027-06-30');
+    fireEvent.change(input, { target: { value: '2027-01-15' } });
+    await user.click(screen.getByTestId('operator-subscription-tariff-save'));
+
+    expect(await screen.findByTestId('operator-subscription-tariff-edit')).toBeInTheDocument();
+    expect(screen.getByTestId('operator-subscription-tariff-until')).toHaveTextContent(
+      'по 30.06.2028',
+    );
+
+    const [patch] = network.calls.filter((call) => call.init.method === 'PATCH');
+    expect(patch.url).toBe('/api/organizations/131/subscription');
+    expect(JSON.parse(String(patch.init.body))).toEqual({ paid_until: '2027-01-15' });
+    // Повторного чтения после действия нет: экран взял состояние из ответа.
+    expect(network.calls.filter((call) => call.init.method === 'PATCH')).toHaveLength(1);
+    expect(network.calls).toHaveLength(3);
+  });
+
+  it('отказ правки показывается дословно, значение не сбрасывается, поле помечено aria-invalid', async () => {
+    await renderLoaded(
+      cardAndSubscription([
+        {
+          status: 422,
+          body: {
+            detail: [
+              {
+                type: 'value_error',
+                loc: ['body', 'paid_until'],
+                msg: 'Value error, Укажите срок действия в формате ГГГГ-ММ-ДД',
+              },
+            ],
+          },
+        },
+      ]),
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId('operator-subscription-tariff-edit'));
+    fireEvent.change(screen.getByTestId('operator-subscription-tariff-until-input'), {
+      target: { value: '2027-01-15' },
+    });
+    await user.click(screen.getByTestId('operator-subscription-tariff-save'));
+
+    const error = await screen.findByTestId('operator-subscription-action-error');
+    expect(error).toHaveAttribute('role', 'alert');
+    expect(error).toHaveTextContent(/^Укажите срок действия в формате ГГГГ-ММ-ДД$/);
+    expect(screen.getByTestId('operator-subscription-tariff-until-input')).toHaveValue(
+      '2027-01-15',
+    );
+    expect(screen.getByTestId('operator-subscription-tariff-until-input')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+    // Форма остаётся открытой: срок можно исправить и отправить снова.
+    expect(screen.getByTestId('operator-subscription-tariff-cancel')).toBeInTheDocument();
+  });
+
+  it('на отправке срока «Сохранить» неактивна, поле заблокировано и говорит «Сохраняем…»', async () => {
+    let release: (response: { status: number; body: unknown }) => void = () => undefined;
+    const pending = new Promise<{ status: number; body: unknown }>((resolve) => {
+      release = resolve;
+    });
+    await renderLoaded(cardAndSubscription([() => pending]));
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId('operator-subscription-tariff-edit'));
+    await user.click(screen.getByTestId('operator-subscription-tariff-save'));
+
+    const save = screen.getByTestId('operator-subscription-tariff-save');
+    expect(save).toBeDisabled();
+    expect(save).toHaveTextContent('Сохраняем…');
+    expect(save).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByTestId('operator-subscription-tariff-until-input')).toBeDisabled();
+
+    release({ status: 200, body: SUBSCRIPTION });
+    expect(await screen.findByTestId('operator-subscription-tariff-edit')).toBeInTheDocument();
+  });
+
+  it('снятие тарифа двухшаговое: запрос уходит только с «Подтвердить»', async () => {
+    const network = await renderLoaded(
+      cardAndSubscription([
+        {
+          status: 200,
+          body: {
+            ...SUBSCRIPTION,
+            tariff: { ...SUBSCRIPTION.tariff, paid_until: '2026-11-06', is_live: false },
+            days_left: 0,
+          },
+        },
+      ]),
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId('operator-subscription-tariff-deactivate'));
+    expect(
+      screen.getByTestId('operator-subscription-tariff-deactivate-confirm'),
+    ).toBeInTheDocument();
+    // Пока подтверждения нет, запроса нет.
+    expect(network.calls).toHaveLength(2);
+
+    await user.click(screen.getByTestId('operator-subscription-tariff-deactivate-decline'));
+    expect(screen.getByTestId('operator-subscription-tariff-deactivate')).toBeInTheDocument();
+    expect(network.calls).toHaveLength(2);
+
+    await user.click(screen.getByTestId('operator-subscription-tariff-deactivate'));
+    await user.click(screen.getByTestId('operator-subscription-tariff-deactivate-confirm'));
+
+    expect(await screen.findByText('срок истёк 06.11.2026')).toBeInTheDocument();
+    const [call] = network.calls.slice(2);
+    expect(call.url).toBe('/api/organizations/131/subscription/deactivate');
+    expect(call.init.method).toBe('POST');
+    // Состояние взято из ответа: повторного чтения нет.
+    expect(network.calls).toHaveLength(3);
+  });
+
+  it('снятие права на расширение двухшаговое и обновляет строку ответом', async () => {
+    const afterDeactivate = {
+      ...SUBSCRIPTION,
+      solutions: SUBSCRIPTION.solutions.map((right) =>
+        right.code === 'telegram_notifications' ? { ...right, is_live: false } : right,
+      ),
+    };
+    const network = await renderLoaded(
+      cardAndSubscription([{ status: 200, body: afterDeactivate }]),
+    );
+    const user = userEvent.setup();
+
+    await screen.findByTestId('operator-subscription-solutions');
+    const buttons = screen.getAllByTestId('operator-subscription-solution-deactivate');
+    await user.click(buttons[0]);
+    expect(
+      screen.getByTestId('operator-subscription-solution-deactivate-confirm'),
+    ).toBeInTheDocument();
+    expect(network.calls).toHaveLength(2);
+
+    await user.click(screen.getByTestId('operator-subscription-solution-deactivate-confirm'));
+
+    const states = await screen.findAllByTestId('operator-subscription-solution-state');
+    expect(states[0]).toHaveTextContent('не действует');
+    const [call] = network.calls.slice(2);
+    expect(call.url).toBe('/api/organizations/131/solutions/telegram_notifications/deactivate');
+    expect(call.init.method).toBe('POST');
+  });
+
+  it('отказ действия показывается под кнопками тарифа дословно', async () => {
+    await renderLoaded(
+      cardAndSubscription([{ status: 502, body: { detail: 'Основной API недоступен' } }]),
+    );
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId('operator-subscription-tariff-deactivate'));
+    await user.click(screen.getByTestId('operator-subscription-tariff-deactivate-confirm'));
+
+    const error = await screen.findByTestId('operator-subscription-action-error');
+    expect(error).toHaveAttribute('role', 'alert');
+    expect(error).toHaveTextContent(/^Основной API недоступен$/);
+    // Отказ не мешает остальному экрану: расширения и кнопки тарифа на месте.
+    expect(screen.getByTestId('operator-subscription-tariff-deactivate')).toBeInTheDocument();
+    expect(screen.getByTestId('operator-subscription-solutions')).toBeInTheDocument();
   });
 });

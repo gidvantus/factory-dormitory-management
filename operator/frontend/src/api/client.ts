@@ -554,6 +554,133 @@ export function invoiceFileUrl(id: number, kind: 'invoice' | 'act'): string {
   return kind === 'act' ? `/api/invoices/${id}/act-file` : `/api/invoices/${id}/file`;
 }
 
+// --- Тариф и расширения организации -----------------------------------------
+// Форма ответа — та же, что у основного API
+// (`app/backend/app/schemas/platform_subscription.py`) и у кабинета
+// (`operator/backend/app/schemas.py`): экран её не переписывает. `paid_until`,
+// `days_left` и `is_live` считает сервер — второй формулы срока на клиенте нет,
+// а «бессрочно» (`ends_at: null`) и «истёк» выводятся из `is_live`, а не из даты.
+
+/**
+ * Записанный слот подписки: строка прайса и её срок.
+ *
+ * Данные — ровно то, что лежит в базе, без «виртуального переезда» наступившего
+ * будущего слота: оператор видит запись. `ends_at: null` — бессрочный тариф,
+ * тогда и `paid_until: null`. `price_label` собирает сервер.
+ */
+export interface SubscriptionTariff {
+  id: number;
+  name: string;
+  period: TariffPeriod;
+  /** `null` — без ограничения мест, а не «ноль пользователей». */
+  max_members: number | null;
+  /** Готовая подпись цены от сервера — экран печатает её как есть. */
+  price_label: string;
+  /** ISO-8601 из API; `null` — бессрочно. */
+  ends_at: string | null;
+  /** Последний включённый день в МСК (`YYYY-MM-DD`); `null` — бессрочно. */
+  paid_until: string | null;
+  is_live: boolean;
+}
+
+/** Оплаченный вперёд слот: показывается, но не правится и не снимается. */
+export interface NextSubscription {
+  tariff: SubscriptionTariff;
+  ends_at: string | null;
+  paid_until: string | null;
+}
+
+/** Право организации на расширение — включая истёкшие (`is_live: false`). */
+export interface SubscriptionRight {
+  /** Машинный код решения и гейт платной функции; уходит в путь снятия. */
+  code: string;
+  name: string;
+  expires_at: string | null;
+  /** Последний включённый день в МСК; `null` — бессрочно. */
+  paid_until: string | null;
+  is_live: boolean;
+}
+
+/** Состояние подписки: один и тот же объект у всех четырёх ручек. */
+export interface SubscriptionState {
+  /** Записанный текущий слот; `null` — «Тариф не назначен». */
+  tariff: SubscriptionTariff | null;
+  /** Остаток дней у действующего слота; у истёкшего — `0`. */
+  days_left: number;
+  next: NextSubscription | null;
+  /** Докупленные места сверх тарифа. */
+  extra_seats: number;
+  /** Действующий предел мест: `max_members` плюс докупленные; `null` — без предела. */
+  member_limit: number | null;
+  /** Все права организации в порядке витрины, включая истёкшие. */
+  solutions: SubscriptionRight[];
+}
+
+/**
+ * Тело правки срока: единственное поле — последний включённый день.
+ *
+ * Формат `YYYY-MM-DD` проверяет основной API, и его `422` с русским текстом
+ * показывается дословно: собственной проверки даты на клиенте нет.
+ */
+export interface SubscriptionUpdate {
+  paid_until: string;
+}
+
+/**
+ * Тариф и расширения организации.
+ *
+ * Неизвестный `id` — `ApiError` со статусом 404 с текстом основного API.
+ */
+export function getSubscription(organizationId: number): Promise<SubscriptionState> {
+  return request<SubscriptionState>(`/organizations/${organizationId}/subscription`);
+}
+
+/**
+ * Новый срок тарифа: ответ — новое состояние целиком.
+ *
+ * Экран показывает дату из ответа, а не из поля ввода: расхождение здесь —
+ * дефект, а не повод перезапросить состояние.
+ */
+export function updateSubscription(
+  organizationId: number,
+  paidUntil: string,
+): Promise<SubscriptionState> {
+  const payload: SubscriptionUpdate = { paid_until: paidUntil };
+  return request<SubscriptionState>(`/organizations/${organizationId}/subscription`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Снять активность текущего тарифа: без тела, ответ — новое состояние.
+ *
+ * `204` в контуре не появляется, поэтому экран не перезапрашивает чтение.
+ * Повторное снятие — тоже `200`, а слот без тарифа — `409 «Тариф не назначен»`
+ * дословно. Оплаченный вперёд слот не меняется.
+ */
+export function deactivateSubscription(organizationId: number): Promise<SubscriptionState> {
+  return request<SubscriptionState>(`/organizations/${organizationId}/subscription/deactivate`, {
+    method: 'POST',
+  });
+}
+
+/**
+ * Снять активность права на решение: без тела, ответ — новое состояние.
+ *
+ * `code` — машинный код из ответа чтения. Неизвестный код — `404 «Расширение не
+ * найдено»` дословно; повторное снятие — `200`.
+ */
+export function deactivateOrganizationSolution(
+  organizationId: number,
+  code: string,
+): Promise<SubscriptionState> {
+  return request<SubscriptionState>(
+    `/organizations/${organizationId}/solutions/${encodeURIComponent(code)}/deactivate`,
+    { method: 'POST' },
+  );
+}
+
 // --- Реквизиты поставщика ---------------------------------------------------
 // Форма ответа — та же, что у основного API (`app/backend/app/schemas/company_details.py`)
 // и у кабинета (`operator/backend/app/schemas.py`): экран её не переписывает.
