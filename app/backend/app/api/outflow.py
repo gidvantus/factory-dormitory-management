@@ -62,7 +62,7 @@ def list_outflow(
                     PersonnelOutflow.departure_date.between(from_date, to_date),
                 ),
             )
-            .order_by(PersonnelOutflow.id)
+            .order_by(PersonnelOutflow.id.desc())
         )
     )
 
