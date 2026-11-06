@@ -1,8 +1,10 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { api } from '../api/client';
+import type { Invoice } from '../api/client';
 import { callsTo, mockFetch } from '../test/mockFetch';
 import type { MockHandler, MockResponse } from '../test/mockFetch';
 import { Shop } from './Shop';
@@ -50,6 +52,50 @@ const INVOICE: MockResponse = {
 
 const NOT_FOUND: MockResponse = { status: 404, body: { detail: 'Не найдено' } };
 
+/**
+ * Строка каталога «Дополнительные сотрудники»: места докупаются отдельным
+ * предметом счёта, поэтому это не право доступа — цены за место и количества.
+ */
+const SEATS_SOLUTION = {
+  id: 12,
+  code: 'extra_member',
+  name: 'Дополнительные сотрудники',
+  description: 'Каждый дополнительный сотрудник сверх мест тарифа.',
+  amount: '900.00',
+  currency: 'RUB',
+  period: 'once',
+  price_label: '900 ₽ разово',
+  is_owned: false,
+  expires_at: null,
+};
+
+/** Счёт за три места: количество и сумму считает сервер. */
+const SEATS_INVOICE: MockResponse = {
+  status: 201,
+  body: {
+    id: 12,
+    number: 'СЧ-2026-12',
+    status: 'new',
+    status_label: 'Новый',
+    item_kind: 'seats',
+    quantity: 3,
+    amount: '2700.00',
+    currency: 'RUB',
+    amount_label: '2 700 ₽ разово',
+    tariff_name: 'Дополнительные сотрудники',
+    tariff_period: 'once',
+    buyer_name: 'ООО «Домовой»',
+    buyer_inn: '7701234567',
+    buyer_kpp: null,
+    buyer_ogrn: null,
+    buyer_address: null,
+    has_act: false,
+    can_manage: true,
+    paid_at: null,
+    created_at: '2026-01-01T00:00:00Z',
+  },
+};
+
 /** Магазин без сессии: каталог мокается отдельно, всё остальное — 404. */
 function shopRoutes(catalog: MockResponse, purchase: MockResponse = INVOICE): MockHandler {
   return (url, init) => {
@@ -81,6 +127,7 @@ function renderShop(handler: MockHandler): ReturnType<typeof mockFetch> {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('магазин улучшений', () => {
@@ -255,5 +302,127 @@ describe('магазин улучшений', () => {
     expect(JSON.parse(String((calls[0][1] as RequestInit).body))).toEqual({
       solution_id: other.id,
     });
+  });
+});
+
+describe('докупка мест в магазине', () => {
+  it('показывает счётчик, цену за место и итог по одному месту', async () => {
+    renderShop(shopRoutes({ status: 200, body: { items: [SEATS_SOLUTION] } }));
+
+    const card = await screen.findByTestId('solution-card');
+    expect(within(card).getByTestId('solution-name')).toHaveTextContent(
+      'Дополнительные сотрудники',
+    );
+    // Цена за место приходит с сервера готовой подписью.
+    expect(within(card).getByTestId('solution-price')).toHaveTextContent('900 ₽ разово');
+    // По умолчанию одно место: итог — цена за место.
+    expect(within(card).getByTestId('seats-quantity')).toHaveValue(1);
+    expect(within(card).getByTestId('seats-total')).toHaveTextContent('900 ₽ × 1 = 900 ₽');
+    // Места — не право доступа: «Подключено», срока и кнопки решения нет.
+    expect(within(card).queryByTestId('solution-owned')).not.toBeInTheDocument();
+    expect(within(card).queryByTestId('solution-expiry')).not.toBeInTheDocument();
+    expect(within(card).queryByTestId('solution-buy')).not.toBeInTheDocument();
+    // Счётчик доступен с клавиатуры: у каждой кнопки есть подпись, минус на
+    // нижней границе задизейблен.
+    expect(within(card).getByLabelText('Количество мест')).toHaveValue(1);
+    expect(within(card).getByRole('button', { name: 'Уменьшить количество мест' })).toBeDisabled();
+    expect(within(card).getByRole('button', { name: 'Увеличить количество мест' })).toBeEnabled();
+    expect(within(card).getByTestId('seats-buy')).toBeEnabled();
+  });
+
+  it('считает итог по выбранному количеству и отправляет только количество', async () => {
+    const user = userEvent.setup();
+    const fetchMock = renderShop(
+      shopRoutes({ status: 200, body: { items: [SEATS_SOLUTION] } }, SEATS_INVOICE),
+    );
+
+    const card = await screen.findByTestId('solution-card');
+    const plus = within(card).getByRole('button', { name: 'Увеличить количество мест' });
+    await user.click(plus);
+    await user.click(plus);
+
+    expect(within(card).getByTestId('seats-quantity')).toHaveValue(3);
+    expect(within(card).getByTestId('seats-total')).toHaveTextContent('900 ₽ × 3 = 2 700 ₽');
+
+    await user.click(within(card).getByTestId('seats-buy'));
+
+    expect(await screen.findByText('Страница документов')).toBeInTheDocument();
+    const calls = callsTo(fetchMock, '/api/billing/invoices');
+    expect(calls).toHaveLength(1);
+    // Сумму счёта считает сервер: в теле только количество мест.
+    expect(JSON.parse(String((calls[0][1] as RequestInit).body))).toEqual({ seats: 3 });
+  });
+
+  it('принимает количество с клавиатуры и не пускает дальше ста мест', async () => {
+    const user = userEvent.setup();
+    renderShop(shopRoutes({ status: 200, body: { items: [SEATS_SOLUTION] } }));
+
+    const card = await screen.findByTestId('solution-card');
+    const quantity = within(card).getByTestId('seats-quantity');
+
+    await user.clear(quantity);
+    await user.type(quantity, '100');
+    expect(within(card).getByTestId('seats-total')).toHaveTextContent('900 ₽ × 100 = 90 000 ₽');
+    expect(within(card).getByTestId('seats-buy')).toBeEnabled();
+    expect(within(card).getByRole('button', { name: 'Увеличить количество мест' })).toBeDisabled();
+
+    await user.clear(quantity);
+    await user.type(quantity, '101');
+    // Верхняя граница — контракт сервера (`le=100`): счёт не выставляется,
+    // а поле объясняет предел и помечено невалидным.
+    expect(within(card).getByTestId('seats-quantity-error')).toHaveTextContent(
+      'Введите целое число от 1 до 100',
+    );
+    expect(quantity).toHaveAttribute('aria-invalid', 'true');
+    expect(within(card).getByTestId('seats-buy')).toBeDisabled();
+    expect(within(card).getByTestId('seats-total')).toHaveTextContent('—');
+  });
+
+  it('показывает отказ сервера на покупке мест дословно и остаётся в магазине', async () => {
+    const user = userEvent.setup();
+    renderShop(
+      shopRoutes(
+        { status: 200, body: { items: [SEATS_SOLUTION] } },
+        {
+          status: 409,
+          body: { detail: 'Тариф без ограничения по сотрудникам: докупать места не нужно' },
+        },
+      ),
+    );
+
+    await user.click(await screen.findByTestId('seats-buy'));
+
+    // Текст отказа принадлежит серверу: экран его не переписывает.
+    expect(await screen.findByTestId('shop-buy-error')).toHaveTextContent(
+      'Тариф без ограничения по сотрудникам: докупать места не нужно',
+    );
+    expect(screen.getByTestId('shop-page')).toBeInTheDocument();
+    expect(screen.queryByText('Страница документов')).not.toBeInTheDocument();
+  });
+
+  it('блокирует вторую покупку и пишет «Выставляем счёт…», пока идёт запрос', async () => {
+    const user = userEvent.setup();
+    renderShop(shopRoutes({ status: 200, body: { items: [SEATS_SOLUTION] } }));
+    let settle!: (invoice: Invoice) => void;
+    const purchase = vi.spyOn(api, 'purchaseInvoice').mockImplementation(
+      () =>
+        new Promise<Invoice>((done) => {
+          settle = done;
+        }),
+    );
+
+    const card = await screen.findByTestId('solution-card');
+    const buy = within(card).getByTestId('seats-buy');
+    await user.click(buy);
+
+    await waitFor(() => expect(buy).toBeDisabled());
+    expect(buy).toHaveTextContent('Выставляем счёт…');
+    // Второй клик по занятой кнопке не выставляет второй счёт.
+    await user.click(buy);
+    expect(purchase).toHaveBeenCalledTimes(1);
+    expect(purchase).toHaveBeenCalledWith({ seats: 1 });
+
+    settle(SEATS_INVOICE.body as Invoice);
+    await waitFor(() => expect(screen.getByText('Страница документов')).toBeInTheDocument());
   });
 });

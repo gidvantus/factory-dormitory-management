@@ -1,9 +1,14 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import type { Solution } from '../api/client';
 import { TariffPrice } from '../components/TariffPrice';
 import { ArrowRightIcon, CheckIcon } from '../components/landing/icons';
-import { TELEGRAM_NOTIFICATIONS_CODE } from './solutions';
+import {
+  EXTRA_MEMBER_CODE,
+  MAX_SEATS_PER_PURCHASE,
+  TELEGRAM_NOTIFICATIONS_CODE,
+} from './solutions';
 import { WorkspaceIcon } from './WorkspaceIcon';
 import styles from './Shop.module.css';
 
@@ -12,6 +17,9 @@ const TELEGRAM_FEATURES = [
   'Выбор нужных уведомлений',
   'Тестовое сообщение для проверки связи',
 ];
+
+/** Нижняя граница счётчика мест: контракт `CreateInvoiceRequest.seats` (`gt=0`). */
+const MIN_SEATS = 1;
 
 function TelegramIcon({ bell = false }: { bell?: boolean }): JSX.Element {
   return (
@@ -78,6 +86,33 @@ function expiryLabel(solution: Solution): string {
   return `Действует до ${date.toLocaleDateString('ru-RU')}`;
 }
 
+/**
+ * Сумма денег для показа человеку.
+ *
+ * Считается **только для подсказки о цене места**: сумму счёта складывает сервер,
+ * и в теле запроса её нет. Точную подпись счёта («2 700 ₽ разово») экран получает
+ * готовой в `amount_label` после покупки.
+ */
+function money(amount: string, currency: string): string {
+  const value = Number(amount);
+  const symbol = currency === 'RUB' ? '₽' : currency;
+  if (!Number.isFinite(value)) return `${amount} ${symbol}`;
+  const formatted = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
+  return `${formatted} ${symbol}`;
+}
+
+/**
+ * Итог по количеству мест: «900 ₽ × 3 = 2 700 ₽».
+ *
+ * Ничего не отправляется на сервер: это подсказка перед покупкой, а сумму счёта
+ * считает бэкенд (`amount = row.amount * quantity`).
+ */
+function seatsTotalLabel(solution: Solution, seats: number): string {
+  const unit = money(solution.amount, solution.currency);
+  const total = money(String(Number(solution.amount) * seats), solution.currency);
+  return `${unit} × ${seats} = ${total}`;
+}
+
 /** «01 Витрина»: данные и состояние покупки принадлежат каталогу, а не макету. */
 export function ShopSolutionCard({
   solution,
@@ -86,16 +121,37 @@ export function ShopSolutionCard({
 }: {
   solution: Solution;
   buying: number | null;
-  onBuy: (id: number) => void;
+  onBuy: (id: number, seats?: number) => void;
 }): JSX.Element {
   const telegram = solution.code === TELEGRAM_NOTIFICATIONS_CODE;
+  const extraSeats = solution.code === EXTRA_MEMBER_CODE;
   const pending = buying === solution.id;
   const action = solution.is_owned && solution.period !== 'once' ? 'Продлить' : 'Купить';
+  // Счётчик количества живёт в карточке: мест покупают одно решение, и второй
+  // карточке это число не принадлежит. Строкой, а не числом, — чтобы поле можно
+  // было очистить и ввести число заново, не теряя курсор.
+  const [draft, setDraft] = useState(String(MIN_SEATS));
+  const seats = Number(draft);
+  const seatsValid =
+    /^\d+$/.test(draft) &&
+    Number.isInteger(seats) &&
+    seats >= MIN_SEATS &&
+    seats <= MAX_SEATS_PER_PURCHASE;
+
+  function stepSeats(delta: number): void {
+    const next = Math.min(
+      MAX_SEATS_PER_PURCHASE,
+      Math.max(MIN_SEATS, (Number.isInteger(seats) ? seats : MIN_SEATS) + delta),
+    );
+    setDraft(String(next));
+  }
+
   return (
     <article
       className={styles.showcase}
       data-testid="solution-card"
       data-owned={solution.is_owned || undefined}
+      data-seats={extraSeats || undefined}
       aria-labelledby={`solution-${solution.id}-title`}
     >
       <div className={styles.main} data-telegram={telegram}>
@@ -104,14 +160,19 @@ export function ShopSolutionCard({
             <span className={styles.productIcon}>
               {telegram ? <TelegramIcon /> : <WorkspaceIcon name="info" />}
             </span>
-            <span
-              className={styles.status}
-              data-owned={solution.is_owned}
-              data-testid={solution.is_owned ? 'solution-owned' : undefined}
-            >
-              <span />
-              {solution.is_owned ? 'Подключено' : 'Дополнительное решение'}
-            </span>
+            {/* Места — предмет счёта, а не право доступа: «Подключено» и срок
+                у них не выводятся, счётчик мест растёт только оплатой. */}
+            {!extraSeats && (
+              <span
+                className={styles.status}
+                data-owned={solution.is_owned}
+                data-testid={solution.is_owned ? 'solution-owned' : undefined}
+              >
+                <span />
+                {solution.is_owned ? 'Подключено' : 'Дополнительное решение'}
+              </span>
+            )}
+            {extraSeats && <span className={styles.status}>Докупается сверх тарифа</span>}
           </div>
           <h2
             className={styles.name}
@@ -149,7 +210,9 @@ export function ShopSolutionCard({
       </div>
       <div className={styles.purchaseBar}>
         <div>
-          <span className={styles.caption}>Дополнительно к вашему тарифу</span>
+          <span className={styles.caption}>
+            {extraSeats ? 'Цена за одно место' : 'Дополнительно к вашему тарифу'}
+          </span>
           <TariffPrice
             label={solution.price_label}
             className={styles.price}
@@ -157,23 +220,101 @@ export function ShopSolutionCard({
           />
         </div>
         <div className={styles.purchaseAction}>
-          {solution.is_owned && (
-            <span className={styles.caption} data-testid="solution-expiry">
-              {expiryLabel(solution)}
-            </span>
+          {extraSeats ? (
+            <>
+              <div className={styles.quantityRow}>
+                <label className="field__label" htmlFor={`seats-quantity-${solution.id}`}>
+                  Количество мест
+                </label>
+                <div className={styles.stepper}>
+                  <button
+                    className="btn btn--ghost btn--compact"
+                    type="button"
+                    aria-label="Уменьшить количество мест"
+                    disabled={pending || (seatsValid && seats === MIN_SEATS)}
+                    onClick={() => stepSeats(-1)}
+                  >
+                    −
+                  </button>
+                  <input
+                    id={`seats-quantity-${solution.id}`}
+                    data-testid="seats-quantity"
+                    type="number"
+                    inputMode="numeric"
+                    min={MIN_SEATS}
+                    max={MAX_SEATS_PER_PURCHASE}
+                    step={1}
+                    value={draft}
+                    disabled={pending}
+                    aria-invalid={!seatsValid || undefined}
+                    aria-describedby={`seats-quantity-hint-${solution.id}${
+                      seatsValid ? '' : ` seats-quantity-error-${solution.id}`
+                    }`}
+                    onChange={(event) => setDraft(event.target.value)}
+                  />
+                  <button
+                    className="btn btn--ghost btn--compact"
+                    type="button"
+                    aria-label="Увеличить количество мест"
+                    disabled={pending || (seatsValid && seats === MAX_SEATS_PER_PURCHASE)}
+                    onClick={() => stepSeats(1)}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+              {!seatsValid && (
+                <p
+                  className={styles.quantityError}
+                  id={`seats-quantity-error-${solution.id}`}
+                  role="alert"
+                  data-testid="seats-quantity-error"
+                >
+                  Введите целое число от {MIN_SEATS} до {MAX_SEATS_PER_PURCHASE}.
+                </p>
+              )}
+              <span
+                className={styles.seatsTotal}
+                id={`seats-quantity-hint-${solution.id}`}
+                aria-live="polite"
+                data-testid="seats-total"
+              >
+                {seatsValid ? seatsTotalLabel(solution, seats) : '—'}
+              </span>
+              <button
+                className={`btn btn--primary btn--compact ${styles.action}`}
+                type="button"
+                data-testid="seats-buy"
+                aria-label={`${pending ? 'Выставляем счёт' : 'Купить места'}: ${solution.name}`}
+                aria-busy={pending || undefined}
+                disabled={buying !== null || !seatsValid}
+                onClick={() => onBuy(solution.id, seats)}
+              >
+                {pending ? 'Выставляем счёт…' : 'Купить места'}
+                <ArrowRightIcon />
+              </button>
+            </>
+          ) : (
+            <>
+              {solution.is_owned && (
+                <span className={styles.caption} data-testid="solution-expiry">
+                  {expiryLabel(solution)}
+                </span>
+              )}
+              <button
+                className={`btn btn--primary btn--compact ${styles.action}`}
+                type="button"
+                data-testid="solution-buy"
+                aria-label={`${pending ? 'Выставляем счёт' : action}: ${solution.name}`}
+                aria-busy={pending || undefined}
+                disabled={buying !== null}
+                onClick={() => onBuy(solution.id)}
+              >
+                {pending ? 'Выставляем счёт…' : action}
+                <ArrowRightIcon />
+              </button>
+            </>
           )}
-          <button
-            className={`btn btn--primary btn--compact ${styles.action}`}
-            type="button"
-            data-testid="solution-buy"
-            aria-label={`${pending ? 'Выставляем счёт' : action}: ${solution.name}`}
-            aria-busy={pending || undefined}
-            disabled={buying !== null}
-            onClick={() => onBuy(solution.id)}
-          >
-            {pending ? 'Выставляем счёт…' : action}
-            <ArrowRightIcon />
-          </button>
         </div>
       </div>
     </article>

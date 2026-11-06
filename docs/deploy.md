@@ -120,7 +120,7 @@ Windows-машины, приходит с `\r`, ssh такой файл не ч�
 | 2 | `Проверка: деплой только из ветки main` | пускает запуск только из `refs/heads/main` | нажали «Run workflow», выбрав `develop-m` или ветку задачи: шаг красный, деплой не начался — рабочая ветка попадает на сервер только через слияние в `main` |
 | 3 | `Проверка: секреты деплоя заданы` | перечисляет отсутствующие `CRM_SSH_KEY`/`CRM_SSH_HOST`/`CRM_SSH_USER` и падает | секреты не заведены или заведены в Environment вместо Repository: пока их нет, падение обязано быть здесь, до SSH |
 | 4 | `Ревизия: какой коммит поедет на сервер` | печатает ветку, `github.sha`, `git log -1` | ошибки нет; шаг нужен, чтобы в логе деплоя остался точный коммит |
-| 5 | `Проверка: одна голова миграций alembic` | запускает `python3 _tools/alembic-heads.py`: разбирает `app/backend/alembic/versions` и требует ровно одну голову; alembic и зависимости api на раннере не нужны | в дереве две головы: параллельно слили develop-s и develop-m (`#169`, `#170`) или две ветки независимо добавили сводящую ревизию. `api` на таком дереве уходит в цикл перезапуска на `alembic upgrade head`, а сайт отдаёт 502 — поэтому шаг красный ДО SSH и до бэкапа. Нужна сводящая ревизия (`down_revision` — кортеж голов), образец — `0063_merge_main_heads.py` |
+| 5 | `Проверка: одна голова миграций alembic` | запускает `python3 _tools/alembic-heads.py`: разбирает `app/backend/alembic/versions` и требует ровно одну голову; alembic и зависимости api на раннере не нужны | в дереве две головы: параллельно слили develop-s и develop-m (`#169`, `#170`) или две ветки независимо добавили сводящую ревизию. `api` на таком дереве уходит в цикл перезапуска на `alembic upgrade head`, а сайт отдаёт 502 — поэтому шаг красный ДО SSH и до бэкапа. Лечится одной командой `python _tools/alembic-heads.py --merge` (вручную — образец `0063_merge_main_heads.py`) |
 | 6 | `SSH: настроить ключ доступа` | пишет ключ в `~/.ssh/id_ed25519`, чистит CRLF, проверяет читаемость `ssh-keygen -y` и заводит псевдоним `crm-deploy` в `~/.ssh/config` (ключ, порт, `BatchMode`, `ConnectTimeout`) — дальше все шаги обращаются к серверу только по нему | ключ скопирован с CRLF или обрезан (нет `-----END`): `ssh-keygen` не читает файл |
 | 7 | `SSH: проверка подключения` | `ssh` с `BatchMode=yes`, печатает `===SSH-OK===`, `hostname`, `whoami` | публичная часть ключа не в `authorized_keys`, не тот пользователь, закрыт порт, `CRM_SSH_HOST` указывает не туда — `Permission denied (publickey)` или таймаут |
 | 8 | `Сервер: проверка .env по чек-листу TLS` | читает `.env` сервера и требует непустые `SITE_DOMAIN`, `ACME_EMAIL`, `CADDY_ACME_CA`, `FRONTEND_PORT`, `API_PORT`, `FRONTEND_BASE_URL`, `JWT_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_SERVICE_TOKEN`, `OPERATOR_USERNAME`, `OPERATOR_PASSWORD`, `OPERATOR_TOKEN_SECRET`, `SESSION_COOKIE_SECURE=true`, `OPERATOR_SESSION_COOKIE_SECURE=true`; порты `FRONTEND_PORT`, `API_PORT`, `OPERATOR_API_PORT`, `OPERATOR_FRONTEND_PORT` обязаны начинаться с `127.0.0.1`; заглушки `.env.example` (`OPERATOR_PASSWORD=change-me`, `JWT_SECRET` и `OPERATOR_TOKEN_SECRET` с `local-stand-only` или `change-me`) отклоняются | файла нет, ключ пуст, `FRONTEND_PORT=8080` без `127.0.0.1` (тогда caddy не получит порт 80), `OPERATOR_FRONTEND_PORT=8081` без `127.0.0.1` или `OPERATOR_API_PORT=0.0.0.0:8002`, `SESSION_COOKIE_SECURE` или `OPERATOR_SESSION_COOKIE_SECURE` не `true`, не заданы токены бота (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_SERVICE_TOKEN`), не заданы `JWT_SECRET`/`OPERATOR_USERNAME`/`OPERATOR_PASSWORD`/`OPERATOR_TOKEN_SECRET`, оставлены заглушки `change-me` или `local-stand-only-…` — сообщение называет конкретный ключ и отправляет в `docs/ssl.md` и `docs/deploy.md` |
@@ -128,7 +128,7 @@ Windows-машины, приходит с `\r`, ssh такой файл не ч�
 | 10 | `Архив: упаковать и передать на сервер` | `git archive` в `/tmp/deploy.tar` и `scp` на сервер | архив не собрался из-за автоконвертации строк (`core.autocrlf` уже отключён) или `scp` упёрся в квоту и место в `/tmp` сервера |
 | 11 | `Сервер: распаковка в $REMOTE_DIR` | `tar -xf` в `/tmp/crm-deploy-stage` и `rsync -a --delete` с исключениями `.env` и `backups/` | нет прав на `/srv/crm-dormitory` (каталог принадлежит другому пользователю); исключения сломаны — тогда уехали бы `.env` и дампы, поэтому их ровно два и `.env*` исключать нельзя (`.env.example` обязателен compose) |
 | 12 | `Сервер: сборка образов` | `docker compose --profile tls build` в `/srv/crm-dormitory`; собираются четыре образа — `api`, `web`, `operator-api`, `operator-web` | кончилось место под образы, долгая сборка фронта по памяти, ошибка в `Dockerfile` — старый контейнер при этом ещё работает, простой не начался |
-| 13 | `Сервер: запуск стека (здесь же миграции)` | `docker compose --profile tls up -d --no-build --remove-orphans --wait --wait-timeout 300`; миграции применяет `api` при старте | упавшая миграция роняет `api` и теперь краснит ЭТОТ шаг (у `api` есть healthcheck), а не превращается в 502 на шаге 17; пустые `TELEGRAM_BOT_TOKEN`/`TELEGRAM_SERVICE_TOKEN` в `.env` роняют `bot` в рестарт по кругу (но такие `.env` отсекает шаг 8 — если красный всё-таки здесь, смотрите `docker compose logs bot`); `bind: address already in use` на `8081` — это `OPERATOR_FRONTEND_PORT` по умолчанию занял порт `FRONTEND_PORT`, задайте `OPERATOR_FRONTEND_PORT=127.0.0.1:8082`; `operator-api` в рестарте из-за пустого `OPERATOR_PASSWORD` (смотрите `docker compose logs operator-api`); `--wait` проверяет `db`, `api`, `caddy` и оба сервиса кабинета оператора, а у `web` и `bot` healthcheck'ов нет — настоящие проверки работоспособности ниже, шаги 16 и 17 |
+| 13 | `Сервер: запуск стека (здесь же миграции)` | `docker compose --profile tls up -d --no-build --remove-orphans --wait --wait-timeout 300`; миграции применяет `api` при старте, а перед ними `app/backend/entrypoint.sh` требует ровно одну голову и падает с русской причиной в логах | упавшая миграция роняет `api` и теперь краснит ЭТОТ шаг (у `api` есть healthcheck), а не превращается в 502 на шаге 17; «ОШИБКА: в дереве миграций 2 головы» в логах — сводите головы (`--merge`, шаг 5 не пропустил бы такое в `main`); пустые `TELEGRAM_BOT_TOKEN`/`TELEGRAM_SERVICE_TOKEN` в `.env` роняют `bot` в рестарт по кругу (но такие `.env` отсекает шаг 8 — если красный всё-таки здесь, смотрите `docker compose logs bot`); `bind: address already in use` на `8081` — это `OPERATOR_FRONTEND_PORT` по умолчанию занял порт `FRONTEND_PORT`, задайте `OPERATOR_FRONTEND_PORT=127.0.0.1:8082`; `operator-api` в рестарте из-за пустого `OPERATOR_PASSWORD` (смотрите `docker compose logs operator-api`); `--wait` проверяет `db`, `api`, `caddy` и оба сервиса кабинета оператора, а у `web` и `bot` healthcheck'ов нет — настоящие проверки работоспособности ниже, шаги 16 и 17 |
 | 14 | `Сервер: ANALYZE после миграций` | находит контейнер БД через `docker compose ps -q db` и выполняет `psql -c 'ANALYZE'` | контейнер БД не найден (стек не поднялся) или `psql` недоступен в образе БД — шаг красный, деплой остановлен |
 | 15 | `Сервер: перечитать конфиг caddy` | `docker exec <id> caddy reload --config /etc/caddy/Caddyfile`, при ошибке — `up -d --force-recreate caddy` | `reload` падает на синтаксисе `Caddyfile`; тогда контейнер пересоздаётся, сертификаты переживают это в томе `caddy_data` — том не удалять |
 | 16 | `Проверка: /healthz по HTTP на сервере` | `curl http://localhost/healthz`, требует 200 | caddy не поднялся или сломан блок `:80` в `caddy/Caddyfile` (он обязан отдавать 200 без редиректа) |
@@ -151,23 +151,68 @@ docker compose --profile tls ps
 docker compose --profile tls logs --tail=50 api
 ```
 
-**Причина, которая уже случалась четырежды** — две головы alembic: `api`
-начинает старт с `alembic upgrade head`, получает «Multiple head revisions» и
-уходит в цикл перезапуска (`Restarting (1)` в `ps`). Проверяется без сервера:
+**Причина, которая уже случалась четырежды** — две головы alembic. `api`
+проверяет это первым делом (`app/backend/entrypoint.sh`) и падает сразу с
+русским сообщением в логах, а не трассировкой alembic: в `docker compose logs
+api` будет «ОШИБКА: в дереве миграций 2 головы…», а в `ps` — цикл перезапуска
+(`Restarting (1)`). Без этого сообщения то же самое видно как
+«Multiple head revisions» от `alembic upgrade head`. Без сервера проверяется так:
 
 ```bash
 python _tools/alembic-heads.py
 ```
 
-**Исправление** — сводящая ревизия (образец — `0063_merge_main_heads.py`),
-merge в `main` и повторный запуск деплоя. На сервер такое теперь не уезжает:
-шаг 5 проверяет головы до SSH, а pull request — до слияния
-(`.github/workflows/alembic-heads.yml`).
+**Исправление** — одна команда, схему она не трогает:
+
+```bash
+python _tools/alembic-heads.py --merge     # создаст 00NN_merge_heads.py
+git add app/backend/alembic/versions/00NN_merge_heads.py
+git commit -m "Свести головы alembic"
+```
+
+Скрипт берёт следующий свободный номер, подставляет **все** текущие головы в
+`down_revision` и сразу перепроверяет дерево. `--name <слаг>` даёт осмысленное
+имя файла, `--dry-run` показывает его без записи, а повторный запуск на одной
+голове честно отвечает «сводить нечего» — команду можно ставить в цикл и в
+автоматику. Дальше merge и повторный запуск деплоя.
+
+На сервер две головы теперь не уезжают: шаг 5 проверяет их до SSH, проверка
+pull request — до слияния (`.github/workflows/alembic-heads.yml`), обновление
+стенда — до пересборки (`.github/workflows/stand.yml`).
 
 **Если `api` в `restarting` не из-за голов** — те же логи называют причину:
 пустой `JWT_SECRET` (обычно отсекает шаг 8), недоступная база, упавшая
 миграция. Если `api` `healthy`, а 502 остался — смотрите логи `web`:
 nginx не смог разрешить имя `api` в сети compose (стек поднимали не целиком).
+
+## Миграции: как добавить ревизию
+
+Ревизия создаётся **только** хелпером — он же проверяет, что дерево цело:
+
+```bash
+git pull
+python _tools/new_migration.py "добавить поле согласия в заявку"
+# app/backend/alembic/versions/20261105155639_dobavit_pole_soglasiya_v_zayavku.py
+```
+
+Почему не голый `alembic revision`:
+
+- **идентификатор из метки времени UTC**, а не порядковый номер: два
+  параллельных разработчика получают разные идентификаторы и не сталкиваются
+  номерами — так в проекте и разошлись `0062_table_views` и
+  `0060_merge_stand_heads`;
+- **отказ при двух головах**: пока дерево разъехано, хелпер не даст нарастить
+  развилку и отправит в `--merge`;
+- описание на русском остаётся в докстроке, а в имени файла — транслит
+  (`dobavit_pole_soglasiya_v_zayavku`), чтобы имя читалось.
+
+Правила те же, что у миграций Vahta (`AGENTS.md`, правило 9): перед созданием —
+`git pull`, PR с миграцией мержить сразу (чем дольше живёт ветка, тем больше
+шанс развилки), схема меняется только миграциями.
+
+Тесты миграций теперь идут в CI: job `migration-tests` в
+`.github/workflows/alembic-heads.yml` (`python -m pytest -q tests/ -k migration`,
+135 тестов, база не нужна). Локально — та же команда из `app/backend`.
 
 ## Первый деплой (чистый сервер)
 
@@ -271,6 +316,20 @@ rebase: иначе следующие слияния сломаются), пос
 
 ## Изменения
 
+- 2026-11-05 — развилка миграций не создаётся и видна сразу (по образцу Vahta,
+  `AGENTS.md` правило 9): ревизии создаются только хелпером
+  `_tools/new_migration.py` — идентификатор из метки времени UTC и отказ, пока
+  в дереве не одна голова; `app/backend/entrypoint.sh` перед `alembic upgrade
+  head` проверяет головы и падает с русской причиной в логах; тесты миграций
+  (135 штук) идут в CI job `migration-tests`. Разбор дерева вынесен в
+  `_tools/alembic_tree.py`, чтобы два инструмента не разъезжались.
+- 2026-11-05 — две головы alembic лечатся одной командой, а не ручной правкой:
+  `_tools/alembic-heads.py --merge` сам берёт следующий номер, подставляет все
+  головы в `down_revision` и перепроверяет дерево (`--name`, `--dry-run`,
+  повторный запуск безопасен). Та же проверка стоит в трёх местах: шаг 5
+  деплоя (до SSH), `pull_request` в `develop-m`/`main`
+  (`.github/workflows/alembic-heads.yml`) и обновление стенда до пересборки
+  (`.github/workflows/stand.yml`).
 - 2026-11-05 — деплой перестал прятать упавший `api`: проверка «одна голова
   миграций» стала шагом 5 (до SSH и до бэкапа) и workflow проверок pull request
   (`_tools/alembic-heads.py`, `.github/workflows/alembic-heads.yml`); у `api`
@@ -285,7 +344,7 @@ rebase: иначе следующие слияния сломаются), пос
   остаются резервом для SSH-туннеля.
 - 2026-11-03 — добавлен ежедневный бэкап БД в S3
   (`.github/workflows/backup-db.yml`, `app/backend/app/backup_cli.py`) и runbook
-  `docs/backup.md`: `pg_dump` по cron, выгрузка в `crm-prod/backup/db/`,
+  `docs/backup.md`: `pg_dump` по cron, выгрузка в `crmdormitory-prod/backup/db/`,
   ротация последних 10 дампов. Шаг 8 деплоя не изменился.
 - 2026-11-02 — деплой переведён на ветку `main`; шаг 7 проверяет переменные
   кабинета оператора.

@@ -15,6 +15,15 @@
 прежними, а переименование колонок в `item_name`/`item_period` — отдельная
 задача.
 
+**Третий вид предмета — места сверх тарифа (`'seats'`).** Счёт за места — не
+строка каталога решений с количеством: у него есть `quantity` (сколько мест
+докуплено), а сумма равна цене места × количество. `quantity` появился вместе с
+этим видом и остаётся nullable: у тарифных и решенческих счетов количество
+**неприменимо**, и `NULL` — честное «не про количество», а не «один». У счёта за
+места количество всегда `> 0` — это держит `CHECK` `ck_invoices_quantity_positive`.
+Снимок названия и периода у него тоже заполнен (`'Дополнительные сотрудники'`,
+`'once'`), поэтому печатные формы и ответ счёта читают его как любой другой.
+
 Покупательские поля nullable: пустая заготовка организации — нормальное
 состояние (её заполняет поиск по ИНН), а счёт выставляется только у организации
 с названием и ИНН — это проверяет ручка покупки, а не схема таблицы.
@@ -28,6 +37,16 @@
 снимок `documents.updated_at`, без отдельной таблицы принятий. Счёт за решение
 покупается без отметки, и его `offer_*` остаются `NULL`.
 
+**Позиции счёта — `invoice_items`.** Один документ может описывать несколько
+предметов: покупка «тариф + места» — это одна сделка, одна сумма и один платёж,
+но две строки позиций (#177). Позиция хранит свой снимок названия и периода,
+количество (только у мест), цену единицы и сумму, поэтому состав покупки читается
+и печатается из неё, а не собирается заново по прайсу. `invoices.amount`
+остаётся канонической суммой и равен сумме позиций; вид первой позиции дублируется
+в `invoices.item_kind`, чтобы прежние читатели счёта не меняли контракт. Счёт без
+позиций (выставленный до ревизии `0066_invoice_items` или мимо ручки покупки)
+читается одной позицией из своего снимка — `subject_items`.
+
 `invoice_documents` — строки печатных форм счёта. Сам счёт отдаётся файлом без
 строки в этой таблице: он есть всегда, а вот акт появляется только при переходе
 счёта в статус «оплачен». Уникальность пары `(invoice_id, kind)` не даёт завести
@@ -39,7 +58,7 @@
 
 import secrets
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import (
     CheckConstraint,
@@ -51,7 +70,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 
@@ -63,14 +82,16 @@ INVOICE_STATUSES = ("new", "paid", "closed", "cancelled")
 INVOICE_STATUSES_SQL = ", ".join(f"'{value}'" for value in INVOICE_STATUSES)
 
 # Виды предмета счёта. `tariff` — подписка организации на кабинет, `solution` —
-# право на одну функцию магазина улучшений. Поле появилось вместе с решениями,
-# поэтому у всех прежних счетов стоит `tariff`: они все тарифные.
-INVOICE_ITEM_KINDS = ("tariff", "solution")
+# право на одну функцию магазина улучшений, `seats` — докупленные места сверх
+# тарифа. Поле появилось вместе с решениями, поэтому у всех прежних счетов стоит
+# `tariff`: они все тарифные.
+INVOICE_ITEM_KINDS = ("tariff", "solution", "seats")
 
 INVOICE_ITEM_KINDS_SQL = ", ".join(f"'{value}'" for value in INVOICE_ITEM_KINDS)
 
 TARIFF_ITEM_KIND = "tariff"
 SOLUTION_ITEM_KIND = "solution"
+SEATS_ITEM_KIND = "seats"
 
 # Виды печатных форм, которые хранятся строками. Счёт сюда не входит: он
 # собирается из самой строки счёта и существует всегда, а акт — только после
@@ -102,12 +123,15 @@ def pending_invoice_number() -> str:
 
 
 class Invoice(Base):
-    """Счёт организации за тариф или за решение магазина улучшений."""
+    """Счёт организации за тариф, за решение магазина улучшений или за места."""
 
     __tablename__ = "invoices"
     __table_args__ = (
         CheckConstraint(f"status IN ({INVOICE_STATUSES_SQL})", name="ck_invoices_status"),
         CheckConstraint(f"item_kind IN ({INVOICE_ITEM_KINDS_SQL})", name="ck_invoices_item_kind"),
+        # Количество неприменимо к тарифу и решению, поэтому `NULL`, но у счёта за
+        # места оно положительное: «счёт за ноль мест» смысла не имеет.
+        CheckConstraint("quantity IS NULL OR quantity > 0", name="ck_invoices_quantity_positive"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -127,6 +151,9 @@ class Invoice(Base):
     solution_id: Mapped[int | None] = mapped_column(
         ForeignKey("solutions.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Сколько мест докуплено: заполняется только у счёта с `item_kind = 'seats'`.
+    # `NULL` у тарифов и решений — количество там неприменимо, а не «один».
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     number: Mapped[str] = mapped_column(String(NUMBER_MAX_LENGTH), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="new")
     amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
@@ -170,6 +197,102 @@ class Invoice(Base):
     # пуста до первого обращения. На раздачу это не влияет: имя файла строится
     # из `number`, а не из ключа.
     invoice_file_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Позиции счёта: одна строка `invoice_items` на каждый предмет. У счёта за
+    # «тариф + места» их две, у счёта за тариф, решение или места — одна.
+    # `selectin` — чтобы список счетов не делал по запросу на счёт, а получал
+    # позиции вторым запросом на всю страницу.
+    items: Mapped[list["InvoiceItem"]] = relationship(
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        order_by="InvoiceItem.position",
+        lazy="selectin",
+    )
+
+
+class InvoiceItem(Base):
+    """Позиция счёта: что именно куплено, сколько и за какую сумму.
+
+    Один документ на покупку «тариф + места» — это одна строка `invoices` и две
+    строки здесь, а не два счёта. Позиция хранит собственный снимок названия и
+    периода: строку прайса или каталога могут поправить или удалить, а документ
+    обязан показывать то, за что заплатили.
+
+    `kind` — тот же набор видов, что у `invoices.item_kind`: `tariff`,
+    `solution`, `seats`. `unit_amount` у тарифа и решения равен сумме (цена
+    предмета), у мест — цена одного места со скидкой ступени; `amount` — итог по
+    позиции, и сумма позиций равна `invoices.amount`.
+    """
+
+    __tablename__ = "invoice_items"
+    __table_args__ = (
+        # Позиции одного счёта нумеруются подряд и не повторяются: по `position`
+        # печатная форма выводит строки в том порядке, в каком их собрала покупка.
+        UniqueConstraint("invoice_id", "position", name="uq_invoice_items_invoice_position"),
+        CheckConstraint(f"kind IN ({INVOICE_ITEM_KINDS_SQL})", name="ck_invoice_items_kind"),
+        # Количество неприменимо к тарифу и решению (`NULL`), у мест — всегда
+        # положительное: позиция «ноль мест» смысла не имеет.
+        CheckConstraint(
+            "quantity IS NULL OR quantity > 0", name="ck_invoice_items_quantity_positive"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(
+        ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Порядок строки в документе: 1 — первая. Тариф всегда идёт первым.
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    # Снимок названия и периода на момент покупки.
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    period: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Сколько мест в позиции. `NULL` у тарифа и решения — «не про количество».
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Цена одной единицы предмета: у мест — со скидкой ступени.
+    unit_amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    # Ссылки на строки прайса и каталога: `SET NULL`, как у самого счёта —
+    # удаление строки не должно ни удалять документ, ни мешать удалению.
+    tariff_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tariffs.id", ondelete="SET NULL"), nullable=True
+    )
+    solution_id: Mapped[int | None] = mapped_column(
+        ForeignKey("solutions.id", ondelete="SET NULL"), nullable=True
+    )
+    invoice: Mapped["Invoice"] = relationship(back_populates="items")
+
+
+def subject_items(invoice: Invoice) -> list[InvoiceItem]:
+    """Позиции счёта: строки `invoice_items`, а у старого счёта — одна позиция.
+
+    Счета, выставленные до появления позиций, разложены бэкфиллом ревизии
+    `0066_invoice_items`; но счёт может быть создан и мимо ручки покупки —
+    тестом, вручную в базе, — и тогда позиций у него нет. Такой счёт читается по
+    снимку в своей строке: одна позиция того вида, что записан в `item_kind`.
+    Ветка не «заглушка ради тестов»: именно она не даёт историческому документу
+    остаться без предмета, если бэкфилл не отработал.
+
+    У возвращённой синтетической позиции `invoice_id` не заполнен: это чтение, а
+    не строка таблицы, и в базу она не попадает.
+    """
+    if invoice.items:
+        return list(invoice.items)
+    unit = invoice.amount
+    if invoice.quantity is not None and invoice.quantity > 0:
+        unit = (invoice.amount / invoice.quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return [
+        InvoiceItem(
+            position=1,
+            kind=invoice.item_kind,
+            name=invoice.tariff_name,
+            period=invoice.tariff_period,
+            quantity=invoice.quantity,
+            unit_amount=unit,
+            amount=invoice.amount,
+            tariff_id=invoice.tariff_id,
+            solution_id=invoice.solution_id,
+        )
+    ]
 
 
 class InvoiceDocument(Base):

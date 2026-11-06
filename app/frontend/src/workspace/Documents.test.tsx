@@ -39,6 +39,8 @@ const NEW_INVOICE = {
   number: 'СЧ-2026-1',
   status: 'new',
   status_label: 'Новый',
+  item_kind: 'tariff',
+  quantity: null,
   amount: '10000.00',
   currency: 'RUB',
   amount_label: '10 000 ₽ в месяц',
@@ -53,6 +55,16 @@ const NEW_INVOICE = {
   can_manage: true,
   paid_at: null,
   created_at: '2026-01-15T10:00:00Z',
+  items: [
+    {
+      kind: 'tariff',
+      name: 'Старт',
+      period: 'month',
+      quantity: null,
+      unit_amount: '10000.00',
+      amount: '10000.00',
+    },
+  ],
 };
 
 const PAID_INVOICE = {
@@ -70,6 +82,77 @@ const SOLUTION_INVOICE = {
   tariff_name: 'Уведомления в Telegram',
   amount: '500.00',
   amount_label: '500 ₽ в месяц',
+  items: [
+    {
+      kind: 'solution',
+      name: 'Уведомления в Telegram',
+      period: 'month',
+      quantity: null,
+      unit_amount: '500.00',
+      amount: '500.00',
+    },
+  ],
+};
+
+/** Счёт «тариф + места»: один документ из двух позиций (#177). */
+const SEATS_INVOICE = {
+  ...NEW_INVOICE,
+  id: 3,
+  number: 'СЧ-2026-3',
+  amount: '67500.00',
+  amount_label: '67 500 ₽',
+  tariff_name: 'Домовой · 6 месяцев',
+  tariff_period: 'half_year',
+  items: [
+    {
+      kind: 'tariff',
+      name: 'Домовой · 6 месяцев',
+      period: 'half_year',
+      quantity: null,
+      unit_amount: '60000.00',
+      amount: '60000.00',
+    },
+    {
+      kind: 'seats',
+      // Имя позиции мест сервер берёт из строки каталога `extra_member`.
+      name: 'Дополнительные сотрудники',
+      period: null,
+      quantity: 5,
+      unit_amount: '1500.00',
+      amount: '7500.00',
+    },
+  ],
+};
+
+/** Докупка мест из магазина: один счёт из одной позиции `seats`. */
+const SEATS_ONLY_INVOICE = {
+  ...NEW_INVOICE,
+  id: 5,
+  number: 'СЧ-2026-5',
+  item_kind: 'seats',
+  quantity: 3,
+  amount: '4500.00',
+  amount_label: '4 500 ₽',
+  tariff_name: 'Дополнительные сотрудники',
+  tariff_period: 'month',
+  items: [
+    {
+      kind: 'seats',
+      name: 'Дополнительные сотрудники',
+      period: 'month',
+      quantity: 3,
+      unit_amount: '1500.00',
+      amount: '4500.00',
+    },
+  ],
+};
+
+/** Исторический счёт до бэкфилла: позиций нет, колонка берёт снимок. */
+const LEGACY_INVOICE = {
+  ...NEW_INVOICE,
+  id: 4,
+  number: 'СЧ-2025-4',
+  items: undefined,
 };
 
 /** Строка каталога решений: право выдаётся оплатой, но не на этом экране. */
@@ -114,12 +197,57 @@ describe('раздел «Документы» в кабинете', () => {
     expect(screen.getAllByTestId('documents-row')).toHaveLength(1);
     expect(screen.getByTestId('document-number')).toHaveTextContent('СЧ-2026-1');
     expect(screen.getByTestId('document-date')).not.toBeEmptyDOMElement();
-    expect(screen.getByTestId('document-tariff')).toHaveTextContent('Старт');
+    expect(screen.getByTestId('documents-items')).toHaveTextContent('Старт');
     // Сумму собирает сервер: строка показывает `amount_label` как есть.
     expect(screen.getByTestId('document-amount')).toHaveTextContent('10 000 ₽ в месяц');
     expect(screen.getByTestId('document-status')).toHaveTextContent('Новый');
     expect(screen.getByTestId('document-status')).toHaveClass(styles['tag--wait']);
     expect(document.title).toBe('Документы — Домовой');
+  });
+
+  it('показывает состав счёта «тариф + места» из позиций', async () => {
+    mockFetch(routes({ status: 200, body: [SEATS_INVOICE] }));
+    renderApp('/cabinet/documents');
+
+    await screen.findByTestId('documents-row');
+
+    // Один документ, две позиции: колонка называет обе, а не только тариф.
+    expect(screen.getByTestId('documents-items')).toHaveTextContent('Домовой · 6 месяцев + 5 мест');
+    // Сумму и статус по-прежнему отдаёт сервер.
+    expect(screen.getByTestId('document-amount')).toHaveTextContent('67 500 ₽');
+    expect(screen.getByTestId('document-status')).toHaveTextContent('Новый');
+  });
+
+  it('называет предмет у счёта за места, а не только их количество', async () => {
+    // Докупка из магазина даёт счёт с одной позицией `seats`: строка «3 места»
+    // не отвечает на вопрос, что куплено, поэтому имя позиции выводится тоже.
+    mockFetch(routes({ status: 200, body: [SEATS_ONLY_INVOICE] }));
+    renderApp('/cabinet/documents');
+
+    await screen.findByTestId('documents-row');
+
+    expect(screen.getByTestId('documents-items')).toHaveTextContent(
+      'Дополнительные сотрудники · 3 места',
+    );
+  });
+
+  it('называет решение магазина в составе счёта', async () => {
+    mockFetch(routes({ status: 200, body: [SOLUTION_INVOICE] }));
+    renderApp('/cabinet/documents');
+
+    await screen.findByTestId('documents-row');
+
+    expect(screen.getByTestId('documents-items')).toHaveTextContent('Уведомления в Telegram');
+  });
+
+  it('не ломается на историческом счёте без позиций', async () => {
+    // До бэкфилла `invoice_items` у счёта нет позиций: колонка берёт снимок.
+    mockFetch(routes({ status: 200, body: [LEGACY_INVOICE] }));
+    renderApp('/cabinet/documents');
+
+    await screen.findByTestId('documents-row');
+
+    expect(screen.getByTestId('documents-items')).toHaveTextContent('Старт');
   });
 
   it('скачивает счёт и акт обычной ссылкой, без fetch', async () => {

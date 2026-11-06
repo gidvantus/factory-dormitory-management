@@ -11,7 +11,9 @@ from app.security import ACTIVATION_REQUIRED_DETAIL, issue_activation_token
 from tests.conftest import create_user, login, organizations_for
 
 # Свободные от guard адреса: вход, регистрация, активация, здоровье, /api/me,
-# публичный прайс (`GET /api/tariffs`, страница `/pricing`) и публичные документы
+# публичный прайс (`GET /api/tariffs`, страница `/pricing`) и его параметры
+# докупки мест (`GET /api/tariffs/extra-seats`, #177 — та же публичная страница
+# показывает таблицу ступеней), а также публичные документы
 # (`GET /api/documents`, `/api/documents/{code}`, страница `/documents/<код>`).
 # Всё это открыто анониму, и неактивированный кабинет здесь ничего не меняет.
 EXEMPT_PREFIXES = ("/api/auth", "/api/health")
@@ -19,6 +21,10 @@ EXEMPT_PATHS = frozenset(
     {
         "/api/me",
         "/api/tariffs",
+        # Ступени скидки за места — часть публичного прайса: их читает страница
+        # `/pricing`, открытая анониму. Закрывать их guard'ом кабинета значило бы
+        # спрятать половину витрины от человека без аккаунта.
+        "/api/tariffs/extra-seats",
         "/api/documents",
         "/api/documents/{code}",
         # Ручки бота Telegram: это не операции кабинета, а служебный интерфейс
@@ -51,6 +57,24 @@ EXEMPT_PATHS = frozenset(
         "/api/platform/invoices/{invoice_id}",
         "/api/platform/invoices/{invoice_id}/file",
         "/api/platform/invoices/{invoice_id}/act-file",
+        # Тарифы платформы — четвёртый раздел того же контура: весь прайс,
+        # правка полей и снятие с продажи. Авторизация тоже заголовком
+        # `X-Operator-Token`, поэтому cookie и guard кабинета клиента к ним
+        # неприменимы.
+        "/api/platform/tariffs",
+        "/api/platform/tariffs/{tariff_id}",
+        # Реквизиты поставщика — пятый раздел того же контура: их правят в
+        # кабинете оператора, печатные формы берут оттуда блок «Поставщик» и
+        # строку про НДС (#179). Авторизация тоже заголовком
+        # `X-Operator-Token`, поэтому cookie и guard кабинета клиента к ним
+        # неприменимы.
+        "/api/platform/company-details",
+        # Каталог решений магазина — шестой раздел того же контура: весь каталог,
+        # правка полей и снятие с продажи (#188). Авторизация тоже заголовком
+        # `X-Operator-Token`, поэтому cookie и guard кабинета клиента к ним
+        # неприменимы.
+        "/api/platform/solutions",
+        "/api/platform/solutions/{solution_id}",
         # Раздача файлов: это не операция кабинета, а ссылка на файл, и она живёт
         # вне `/api`. Отказы там свои и закреплены контрактом: аноним получает
         # `404` (существование файла не подтверждается), вошедший без прав —

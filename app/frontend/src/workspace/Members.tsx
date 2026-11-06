@@ -76,13 +76,25 @@ export function Members(): JSX.Element {
   const focusAfterSend = useRef<'email' | 'full_name' | null>(null);
 
   /**
-   * Предел мест: `max_members` действующего тарифа либо пробный предел из
+   * Предел мест: готовое число из `/api/tariffs/current` (`member_limit` —
+   * `max_members` тарифа плюс докупленные места) либо пробный предел из
    * `/api/trial`; `null` — предела нет (и на тарифе, и на пробном периоде он
-   * может быть не задан). Считает его сервер и отказывает он тоже сам — здесь
-   * число нужно только для подсказки и счётчика, а не для проверки.
+   * может быть не задан). Считает его сервер (`app/subscription.py`) и отказывает
+   * он тоже сам — здесь число нужно только для подсказки и счётчика, а не для
+   * проверки.
+   *
+   * Экран не складывает `max_members` и `extra_seats` сам: `?? null`/`?? 0`
+   * стоят только на случай сервера без этих полей, и тогда подсказки о пределе
+   * нет вовсе — показать посчитанное по-своему число было бы хуже.
    */
   const tariff = subscription?.tariff ?? null;
-  const memberLimit = tariff ? tariff.max_members : trial?.is_active ? trial.member_limit : null;
+  const memberLimit = tariff
+    ? (subscription?.member_limit ?? null)
+    : trial?.is_active
+      ? trial.member_limit
+      : null;
+  // Докупленные места нужны только для разбивки в подсказке, а не для счёта.
+  const extraSeats = tariff ? (subscription?.extra_seats ?? 0) : 0;
   // Место занимает сотрудник, а не владелец: сервер считает предел по
   // `_employee_count` (`role != 'owner'`), а владелец в списке участников есть.
   // Счёт по длине списка врал бы в обе стороны — писал «мест нет», когда одно
@@ -260,14 +272,26 @@ export function Members(): JSX.Element {
                 {tariff && memberLimit !== null && (
                   // Предел тарифа: понижение лимита никого не выгоняет, поэтому
                   // подсказка говорит об этом прямо — иначе счётчик читается как
-                  // «лишних уберут».
+                  // «лишних уберут». При докупленных местах рядом с пределом
+                  // печатается разбивка: числа берутся из ответа сервера, экран
+                  // их не складывает.
                   <p
                     className={styles['organization-hint']}
                     data-testid="members-seat-limit"
                     data-limit={memberLimit}
+                    data-extra-seats={extraSeats > 0 ? extraSeats : undefined}
                   >
-                    Тариф допускает до {memberLimit} сотрудников. Занято {seatsUsed} из{' '}
-                    {memberLimit}
+                    {extraSeats > 0 ? (
+                      <>
+                        Тариф допускает до {memberLimit} сотрудников ({tariff.max_members} по тарифу
+                        + {extraSeats} докуплено). Занято {seatsUsed} из {memberLimit}
+                      </>
+                    ) : (
+                      <>
+                        Тариф допускает до {memberLimit} сотрудников. Занято {seatsUsed} из{' '}
+                        {memberLimit}
+                      </>
+                    )}
                     {seatsFull
                       ? '. Сотрудники, приглашённые раньше, продолжают работать — предел касается только новых приглашений.'
                       : '.'}

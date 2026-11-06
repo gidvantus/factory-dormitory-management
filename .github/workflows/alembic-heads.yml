@@ -1,4 +1,4 @@
-name: Одна голова alembic
+name: Миграции
 
 # Зачем: `api` начинает старт с `alembic upgrade head` (app/backend/entrypoint.sh).
 # Две головы в дереве ревизий — и alembic выходит с «Multiple head revisions»,
@@ -9,15 +9,17 @@ name: Одна голова alembic
 #
 # Тест-страховка на одну голову в репозитории была
 # (`app/backend/tests/migration_support.py`, `assert_single_head`), но её никто
-# не запускал: workflow на `pull_request` не существовало. Этот файл его
-# заменяет — ровно одной проверкой, без линтеров и тестов, чтобы первый же
-# красный прогон означал именно то, что написано, и гейт не спорил с
-# известными расхождениями в тестах.
+# не запускал: workflow на `pull_request` не существовало. Здесь две вещи:
 #
-# Команда та же, что в деплое и на машине разработчика:
+#   1. `single-head` — та самая проверка, без зависимостей и без базы: падает
+#      первой и говорит, что делать (`_tools/alembic-heads.py --merge`);
+#   2. `migration-tests` — тесты миграций из `app/backend/tests`: они проверяют
+#      головы, родителей и DDL каждой ревизии, но до сих пор запускались только
+#      руками.
+#
+# Команды те же, что у разработчика и в образе стенда:
 #   python _tools/alembic-heads.py
-# Ни alembic, ни зависимости `app/backend` не нужны: скрипт разбирает файлы
-# ревизий как текст модуля (`ast`), а не импортом.
+#   cd app/backend && pip install -e ".[dev]" && python -m pytest -q tests/ -k migration
 
 on:
   pull_request:
@@ -48,3 +50,44 @@ jobs:
         # app/backend/alembic/versions/0063_merge_main_heads.py). Лечится до
         # слияния, а не деплоем на боевой сервер.
         run: python3 _tools/alembic-heads.py
+
+      - name: "Проверка: хелпер создания миграции работает"
+        # `--dry-run` ничего не пишет, но прогоняет весь путь хелпера: разбор
+        # дерева, проверку «одна голова», слаг из русского описания, шаблон.
+        # Без этого шага поломка `new_migration.py` всплыла бы у разработчика.
+        run: |
+          set -euo pipefail
+          python3 _tools/new_migration.py --dry-run "проверка хелпера в CI"
+          python3 _tools/alembic-heads.py
+
+  migration-tests:
+    # Тест-страховка «одна голова» в репозитории была
+    # (`app/backend/tests/migration_support.py`, `assert_single_head`), но её
+    # никто не запускал: workflow на `pull_request` не существовало. Этот job
+    # закрывает вторую половину дыры — сами тесты миграций, 135 штук, без базы.
+    name: Тесты миграций
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app/backend
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/backend/pyproject.toml
+
+      - name: "Зависимости: как у разработчика"
+        # Та же команда, что ставит зависимости в образ api (Dockerfile):
+        # расхождение между CI и локальным прогоном нам не нужно.
+        run: pip install -e ".[dev]"
+
+      - name: "pytest: миграции (одна голова, цепочка, DDL)"
+        # Отбор по имени файлов `test_*_migration.py`: они не требуют базы и
+        # проверяют то, что ломается при развилке, — головы, родителей и DDL
+        # каждой ревизии.
+        run: python -m pytest -q tests/ -k migration

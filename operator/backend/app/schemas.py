@@ -167,8 +167,11 @@ class UpdatePlatformUserRequest(ForwardedBody):
 # таблице `invoices`; значение приходит с сервера и уходит в браузер дословно.
 InvoiceStatus = Literal["new", "paid", "closed", "cancelled"]
 
-# Вид предмета счёта: тариф или решение магазина улучшений.
-InvoiceItemKind = Literal["tariff", "solution"]
+# Вид предмета счёта: тариф, решение магазина улучшений или докупленные сверх
+# тарифа места (`seats`, #168). Набор обязан совпадать с основным API: без
+# третьего значения счёт за места не прошёл бы проверку схемы, и кабинет
+# оператора отвечал бы `500` вместо строки реестра.
+InvoiceItemKind = Literal["tariff", "solution", "seats"]
 
 
 class PlatformInvoice(BaseModel):
@@ -181,6 +184,13 @@ class PlatformInvoice(BaseModel):
     `organization_name` бывает `null` у пустой заготовки организации.
     `can_manage` в платформенном контуре всегда `true`: право даёт сервисный
     токен, ролей организации здесь нет, и фронт на это поле не ветвится.
+
+    **`quantity` — копия поля основного API, а не своё.** У счёта за места
+    (`item_kind = "seats"`) это число докупленных мест, у тарифа и решения —
+    `null` («количество неприменимо»). Поле объявлено здесь явно: модель — ручная
+    копия `PlatformInvoice` основного API, а pydantic лишние для модели поля
+    молча отбрасывает, поэтому без этой строки реестр оператора показывал бы счёт
+    за 100 мест так же, как за одно.
     """
 
     id: int
@@ -188,6 +198,8 @@ class PlatformInvoice(BaseModel):
     status: InvoiceStatus
     status_label: str
     item_kind: InvoiceItemKind
+    # Сколько мест докуплено: `null` у тарифа и решения.
+    quantity: int | None
     amount: str
     currency: str
     amount_label: str
@@ -226,3 +238,178 @@ class UpdateInvoiceStatusRequest(ForwardedBody):
     """
 
     status: str | None = None
+
+
+# --- Тарифы платформы --------------------------------------------------------
+# Те же правила, что у трёх предыдущих разделов: модель повторяет форму ответа
+# основного API (`TariffResponse` из `app/backend/app/schemas/tariff.py`) один в
+# один, а тело правки проверяется там же, наверху. `amount` едет строкой
+# (`"4900.00"`), `price_label` собирает основной API — кабинет его не считает.
+
+
+class Tariff(BaseModel):
+    """Строка прайса в кабинете оператора.
+
+    Поля — ровно `TariffResponse` основного API, включая скрытые от покупателя
+    признаки яруса (`tooltip`, `group_code`) и `position`: кабинет показывает
+    прайс целиком, в том числе строки со `is_visible = false`.
+
+    `max_members = null` — «без ограничения», а не «ноль мест».
+    """
+
+    id: int
+    name: str
+    description: str | None
+    amount: str
+    currency: str
+    period: str
+    unit_label: str | None
+    position: int
+    is_visible: bool
+    max_members: int | None
+    tooltip: str | None
+    group_code: str | None
+    price_label: str
+
+
+class UpdateTariffRequest(ForwardedBody):
+    """Тело правки тарифа — то, что кабинет передаёт основному API.
+
+    Поля необязательны, и уходят только присланные: `PATCH` одного описания не
+    обнуляет цену. Значения не проверяются здесь вовсе — пустое название,
+    отрицательная цена, слишком большая цена, неизвестный период и
+    отрицательное количество пользователей отсекает основной API, и его `422`
+    уходит клиенту дословно. Вторая копия правил и текстов разошлась бы с
+    оригиналом на первой же правке.
+    """
+
+    name: str | None = None
+    description: str | None = None
+    amount: str | None = None
+    period: str | None = None
+    max_members: int | None = None
+    is_visible: bool | None = None
+
+
+# --- Реквизиты поставщика ----------------------------------------------------
+# Те же правила, что у четырёх предыдущих разделов: модель повторяет форму ответа
+# основного API (`CompanyDetailsResponse` из
+# `app/backend/app/schemas/company_details.py`) один в один, а тело правки
+# проверяется там же, наверху. Кабинет не переименовывает и не сокращает поля:
+# иначе фронтенд знал бы два контракта на одни и те же данные.
+#
+# `updated_at` бывает `null`: пока строки реквизитов нет, момента правки у неё
+# тоже нет, и `null` — честный ответ, а не «сейчас».
+
+
+class CompanyDetails(BaseModel):
+    """Реквизиты поставщика в кабинете оператора.
+
+    Одиннадцать полей плюс `id` и `updated_at` — ровно форма ответа основного
+    API. Пустое значение приходит как `null`: `null` и пустая строка для
+    реквизитов означают одно и то же — «поле не заполнено», — и экран не выводит
+    прочерк вместо пустого поля.
+    """
+
+    id: int
+    name: str | None
+    inn: str | None
+    kpp: str | None
+    ogrn: str | None
+    address: str | None
+    bank_name: str | None
+    bank_bic: str | None
+    bank_account: str | None
+    corr_account: str | None
+    signatory: str | None
+    vat_note: str | None
+    updated_at: datetime | None
+
+
+class UpdateCompanyDetailsRequest(ForwardedBody):
+    """Тело правки реквизитов поставщика — то, что кабинет передаёт основному API.
+
+    Поля необязательны, и уходят только присланные: `PATCH` одной строки про НДС
+    не обнуляет банк. Значения не проверяются здесь вовсе — формат ИНН, КПП,
+    ОГРН, БИК и счетов, длины колонок и очистка поля пустой строкой это правило
+    основного API, и его `422` уходит клиенту дословно. Вторая копия правил и
+    текстов разошлась бы с оригиналом на первой же правке.
+    """
+
+    name: str | None = None
+    inn: str | None = None
+    kpp: str | None = None
+    ogrn: str | None = None
+    address: str | None = None
+    bank_name: str | None = None
+    bank_bic: str | None = None
+    bank_account: str | None = None
+    corr_account: str | None = None
+    signatory: str | None = None
+    vat_note: str | None = None
+
+
+# --- Решения магазина --------------------------------------------------------
+# Те же правила, что у остальных разделов платформенного контура: модель
+# повторяет форму ответа основного API (`SolutionAdminResponse` из
+# `app/backend/app/schemas/platform_solution.py`) один в один, а тело правки
+# проверяется там же, наверху. `amount` едет строкой (`"500.00"`), `price_label`
+# собирает основной API — кабинет его не считает.
+#
+# `code` есть только в ответе: это машинное имя решения и гейт платной функции
+# (`app.solutions.has_solution`), поэтому правке оно не подлежит и в теле
+# отсутствует. Строка каталога заводится миграцией: создания из кабинета нет.
+
+
+class Solution(BaseModel):
+    """Строка каталога решений в кабинете оператора.
+
+    Поля — ровно `SolutionAdminResponse` основного API: кабинет показывает
+    каталог целиком, в том числе строки со `is_visible = false` («не в
+    каталоге»). `position` — порядок витрины магазина: меньше — выше, ничья
+    решается `id`.
+    """
+
+    id: int
+    code: str
+    name: str
+    description: str | None
+    amount: str
+    currency: str
+    period: str
+    position: int
+    is_visible: bool
+    price_label: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class UpdateSolutionRequest(ForwardedBody):
+    """Тело правки решения — то, что кабинет передаёт основному API.
+
+    Поля необязательны, и уходят только присланные: `PATCH` одного описания не
+    обнуляет цену.
+
+    **Типы полей здесь `Any`, а не `str`/`int`/`bool`, намеренно** (доработка по
+    ревью №1, #188). С `int | None` в `position` и `bool | None` в `is_visible`
+    `pydantic` приводил присланное до отправки: `"3"` и `true` становились числом
+    и уходили наверх как `3` и `1`, `1` становился `true`, — и кабинет отвечал
+    `200` там, где основной API отвечает `422`; а на `1.5` и `"да"` клиент получал
+    английский текст `pydantic` вместо русского текста контракта. Фронтенд вешает
+    `aria-invalid` на поле, названное в `detail`, поэтому текст обязан приходить
+    из основного API.
+
+    Проверять и приводить значения — работа основного API: пустое название,
+    отрицательную или слишком большую цену, валюту не из трёх заглавных букв,
+    неизвестный период, нецелый порядок и состояние не `true`/`false` отсекает он,
+    и его `422` уходит клиенту дословно. Вторая копия правил и текстов разошлась
+    бы с оригиналом на первой же правке.
+    """
+
+    name: Any = None
+    description: Any = None
+    amount: Any = None
+    currency: Any = None
+    period: Any = None
+    position: Any = None
+    is_visible: Any = None

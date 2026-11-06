@@ -21,7 +21,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Периоды списания — те же, что разрешает `CHECK` в таблице.
 TariffPeriod = Literal["month", "quarter", "half_year", "year", "once"]
@@ -78,6 +78,13 @@ class OrganizationTariffResponse(BaseModel):
     `0`: конца, до которого можно считать дни, нет. `is_expiring` — осталось
     `EXPIRING_DAYS` суток или меньше; блок предупреждения показывается только по
     этому признаку.
+
+    **Предел мест едет готовым.** `member_limit` — сколько сотрудников допускает
+    действующая подписка: `max_members` тарифа плюс `extra_seats` докупленных
+    мест; `null` — без ограничения (безлимитный ярус или нет действующего
+    тарифа). Экран не складывает `max_members` и `extra_seats` сам и не держит
+    вторую копию правила: числа приходят посчитанными, а `extra_seats` едет
+    рядом, чтобы показать разбивку «сколько по тарифу + сколько докуплено».
     """
 
     tariff: TariffResponse | None
@@ -85,3 +92,41 @@ class OrganizationTariffResponse(BaseModel):
     days_left: int
     is_expiring: bool
     next: NextTariffResponse | None
+    # Предел мест по подписке: `max_members` тарифа плюс докупленные места.
+    member_limit: int | None
+    # Сколько мест докуплено сверх тарифа. `0` — не докупали.
+    extra_seats: int
+
+
+class SeatBandResponse(BaseModel):
+    """Ступень скидки за места: границы, процент и готовая цена места.
+
+    `from` и `to` — границы включительно: `{"from": 10, "to": 19}` — места с
+    десятого по девятнадцатое. Поле в JSON называется `from`, а не `start`,
+    потому что ровно это имя читает экран; в Python `from` — ключевое слово,
+    поэтому само поле объявлено как `start`, а в JSON уходит псевдонимом
+    сериализации.
+    """
+
+    start: int = Field(serialization_alias="from")
+    to: int
+    discount_percent: int
+    # Цена одного места на этой ступени. Считает сервер (`app/seats.py`): экран
+    # показывает готовое число и скидку сам не выводит.
+    unit_amount: Decimal
+
+
+class ExtraSeatsResponse(BaseModel):
+    """Параметры докупки мест для экрана: база, потолок и все ступени.
+
+    `base_amount` — цена места без скидки из строки каталога, `max_quantity` —
+    сколько мест можно докупить одним счётом. У последней ступени `to` равен
+    `max_quantity`: «пятьдесят и больше» в ответе ограничено тем, что вообще
+    продаётся. `404` ручки означает, что строки каталога нет или она скрыта —
+    дополнительные сотрудники не продаются.
+    """
+
+    base_amount: Decimal
+    currency: str
+    max_quantity: int
+    bands: list[SeatBandResponse]

@@ -11,7 +11,11 @@
 * слоты продления: пустая подписка и истёкший срок дают текущий слот, живой
   период — будущий, оба занятых (и бессрочный тариф) — ни одного;
 * `record_payment` начинает период от оплаты, заполняет будущий слот от конца
-  текущего и отказывает `409` на третий период.
+  текущего и отказывает `409` на третий период;
+* **предел мест (#168):** `member_limit` — это `max_members` действующего тарифа
+  плюс `extra_seats` докупленных мест, `None` — без ограничения (и на
+  безлимитном ярусе места предела не создают), а продление тарифа счётчик не
+  сбрасывает.
 
 Тесты идут на SQLite без HTTP: срок — это вычисление, и проверяется оно без
 ручек. Тексты и коды отказа через API — в `tests/test_billing.py`.
@@ -243,6 +247,68 @@ def test_deleted_tariff_row_leaves_the_organization_without_a_tariff(
 
     assert state.tariff is None
     assert state.is_active is False
+
+
+# --- 1a. Предел мест: тариф плюс докупленные места (#168) ---------------------
+
+
+def test_member_limit_adds_the_bought_seats(db_session: Session) -> None:
+    """Предел — `max_members` тарифа плюс `extra_seats`, посчитанный на сервере."""
+    organization_row = organization(db_session)
+    tariff = add_tariff(db_session, max_members=15)
+    bind(db_session, organization_row, tariff, MONTH_LATER)
+    organization_row.extra_seats = 3
+    db_session.commit()
+
+    state = subscription_state(db_session, organization_row.id, NOW)
+
+    assert state.extra_seats == 3
+    assert state.member_limit == 18
+
+
+def test_member_limit_without_bought_seats_is_the_tier_limit(db_session: Session) -> None:
+    """Мест не докупали — предел остаётся прежним, поведение не меняется."""
+    organization_row = organization(db_session)
+    tariff = add_tariff(db_session, max_members=5)
+    bind(db_session, organization_row, tariff, MONTH_LATER)
+
+    state = subscription_state(db_session, organization_row.id, NOW)
+
+    assert state.extra_seats == 0
+    assert state.member_limit == 5
+
+
+def test_unlimited_tier_has_no_member_limit_even_with_bought_seats(
+    db_session: Session,
+) -> None:
+    """На безлимитном ярусе предел остаётся `None`: места его не превращают в число."""
+    organization_row = organization(db_session)
+    tariff = add_tariff(db_session, max_members=None)
+    bind(db_session, organization_row, tariff, MONTH_LATER)
+    organization_row.extra_seats = 3
+    db_session.commit()
+
+    state = subscription_state(db_session, organization_row.id, NOW)
+
+    assert state.extra_seats == 3
+    assert state.member_limit is None
+
+
+def test_bought_seats_survive_a_renewal(db_session: Session) -> None:
+    """Место живёт вместе с подпиской: продление тарифа счётчик не сбрасывает."""
+    organization_row = organization(db_session)
+    current = add_tariff(db_session, name="Месяц", max_members=5)
+    bind(db_session, organization_row, current, MONTH_LATER)
+    organization_row.extra_seats = 3
+    db_session.commit()
+
+    record_payment(organization_row, current.id, "month", NOW)
+
+    state = organization_subscription(db_session, organization_row, NOW)
+
+    assert state.extra_seats == 3
+    assert state.member_limit == 8
+    assert organization_row.next_tariff_id == current.id
 
 
 # --- 2. Слоты продления -------------------------------------------------------

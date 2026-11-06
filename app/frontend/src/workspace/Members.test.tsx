@@ -55,6 +55,8 @@ const EMPTY_SUBSCRIPTION = {
   days_left: 0,
   is_expiring: false,
   next: null,
+  member_limit: null,
+  extra_seats: 0,
 };
 
 /** Тариф яруса «Рост»: пятнадцать мест, срок ещё идёт. */
@@ -73,7 +75,12 @@ const GROWTH_TARIFF = {
   price_label: '9 900 ₽ в месяц',
 };
 
-function subscriptionWith(maxMembers: number | null): MockResponse {
+/**
+ * Подписка с действующим тарифом: предел мест считает сервер и отдаёт готовым
+ * (`member_limit` = `max_members` тарифа + `extra_seats`), поэтому фикстура
+ * повторяет ответ `GET /api/tariffs/current`, а не собирает предел сама.
+ */
+function subscriptionWith(maxMembers: number | null, extraSeats = 0): MockResponse {
   return {
     status: 200,
     body: {
@@ -82,6 +89,8 @@ function subscriptionWith(maxMembers: number | null): MockResponse {
       days_left: 12,
       is_expiring: true,
       next: null,
+      member_limit: maxMembers === null ? null : maxMembers + extraSeats,
+      extra_seats: extraSeats,
     },
   };
 }
@@ -554,5 +563,48 @@ describe('предел мест в организации', () => {
     const error = await screen.findByTestId('invite-error');
     expect(error).toHaveTextContent('Достигнут предел мест (1). Перейдите на тариф «Рост»');
     expect(error).toHaveAttribute('data-member-limit', '1');
+  });
+
+  it('берёт предел из member_limit сервера, а не из max_members тарифа', async () => {
+    // Тариф «Рост» — 15 мест, докуплено ещё 3: сервер отдаёт предел 18 готовым.
+    // Экран, сложивший числа сам или взявший `max_members`, напечатал бы 15.
+    mountMembers({ status: 200, body: [OWNER] }, undefined, TRIAL_ACTIVE, subscriptionWith(15, 3));
+    renderApp('/cabinet/organization/members');
+
+    const hint = await screen.findByTestId('members-seat-limit');
+
+    expect(hint).toHaveAttribute('data-limit', '18');
+    expect(hint).toHaveTextContent('Тариф допускает до 18 сотрудников');
+    expect(hint).toHaveTextContent('Занято 0 из 18');
+    expect(hint).toHaveTextContent('15 по тарифу + 3 докуплено');
+  });
+
+  it('при докупленных местах считает занятые места от нового предела', async () => {
+    mountMembers(
+      { status: 200, body: [OWNER, INVITED] },
+      undefined,
+      TRIAL_ACTIVE,
+      subscriptionWith(15, 3),
+    );
+    renderApp('/cabinet/organization/members');
+
+    const hint = await screen.findByTestId('members-seat-limit');
+
+    expect(hint).toHaveAttribute('data-extra-seats', '3');
+    expect(hint).toHaveTextContent('Занято 1 из 18');
+    // Предел не исчерпан: предупреждения о «приглашённых раньше» быть не должно.
+    expect(hint).not.toHaveTextContent('Сотрудники, приглашённые раньше');
+  });
+
+  it('без докупленных мест оставляет прежний текст и не печатает разбивку', async () => {
+    mountMembers({ status: 200, body: [OWNER] }, undefined, TRIAL_ACTIVE, subscriptionWith(15));
+    renderApp('/cabinet/organization/members');
+
+    const hint = await screen.findByTestId('members-seat-limit');
+
+    expect(hint).toHaveAttribute('data-limit', '15');
+    expect(hint).not.toHaveAttribute('data-extra-seats');
+    expect(hint).toHaveTextContent('Тариф допускает до 15 сотрудников. Занято 0 из 15.');
+    expect(hint).not.toHaveTextContent('докуплено');
   });
 });

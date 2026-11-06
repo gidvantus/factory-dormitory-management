@@ -1,6 +1,39 @@
-/* Сумма в окне подтверждения: тот же `TariffPrice`, что в карточке, но крупнее —
-   это главный факт после названия тарифа, а не строка в списке. Цвета, шрифты и
-   деление на сумму с периодом остаются из `TariffPrice.module.css`. */
-.amount {
-  font-size: var(--text-h2);
+/*
+ * Окно подтверждения заказа: состав из двух позиций и итог. Числа приходят из
+ * калькулятора уже готовыми, окно их только раскладывает — ни цен, ни скидок
+ * здесь нет.
+ */
+
+.items {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+}
+
+.items > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.items dd {
+  margin: 0;
+  white-space: nowrap;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.items .total {
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border);
+  font-size: var(--text-body);
+}
+
+.items .total dt,
+.items .total dd {
+  font-weight: 900;
 }

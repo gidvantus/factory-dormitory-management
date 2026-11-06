@@ -7,20 +7,21 @@
     python -m app.backup_cli upload /tmp/crm_20261103_030000.dump crm_20261103_030000.dump
     python -m app.backup_cli rotate backup/db 10
 
-`check` печатает класс хранилища и префикс среды и отказывает, если пишем не в
-S3 или не в боевой префикс `crm-prod`: при `S3_ENV=test` дамп уехал бы в
-`crm-agent-test`, а при выключенном S3 — в локальный каталог `uploads`, то есть
-на тот же сервер, с которого его и снимали.
+`check` печатает класс хранилища, `S3_ENV` и префикс среды из настроек и
+отказывает, если пишем не в S3, если среда не `prod` или если боевой префикс
+пуст либо совпадает с тестовым: при `S3_ENV=test` дамп уехал бы в тестовый
+префикс, а при выключенном S3 — в локальный каталог `uploads`, то есть на тот
+же сервер, с которого его и снимали.
 
 `upload` кладёт файл ровно под ключ `backup/db/<имя>` внутри префикса среды,
-например `crm-prod/backup/db/crm_20261103_030000.dump`. `rotate` оставляет
+например `<префикс>/backup/db/crm_20261103_030000.dump`. `rotate` оставляет
 `keep` самых новых дампов в папке, остальные удаляет.
 
 Имя объекта — часть контракта с `.github/workflows/backup-db.yml`: шаблон
 `crm_ГГГГММДД_ЧЧММСС.dump` сортируется лексикографически в том же порядке, что и
 по времени, поэтому ротации не нужны ни даты объектов, ни их метаданные.
 Всё, что под шаблон не подходит, ротация не трогает никогда: под префиксом
-`crm-prod` лежат ещё и файлы пользователей (`<ГГГГ-ММ-ДД>/<uuid>.xlsx`).
+среды лежат ещё и файлы пользователей (`<ГГГГ-ММ-ДД>/<uuid>.xlsx`).
 """
 
 import re
@@ -36,9 +37,9 @@ from app.storage import S3Storage, Storage, StorageError, get_storage
 # пользователей, и от удаления этих файлов.
 BACKUP_FOLDER = "backup/db"
 BACKUP_ROOT = "backup/"
-# Префикс боевой среды (`S3_ENV=prod`). Дамп содержит персональные данные, и
-# тестовый префикс — не место для боевой копии.
-PROD_PREFIX = "crm-prod"
+# Префикс боевой среды. Дамп содержит персональные данные, и тестовый префикс —
+# не место для боевой копии. Сам префикс — настройка (`S3_PREFIX_PROD`), а не
+# константа: сравнение с литералом врало бы, как только префикс переопределят.
 # Шаблон имени дампа: `crm_20261103_030000.dump`.
 DUMP_NAME = re.compile(r"^crm_\d{8}_\d{6}\.dump$")
 
@@ -57,8 +58,14 @@ def _is_dump_in(folder: str, key: str) -> bool:
     return parent == folder and bool(DUMP_NAME.match(name))
 
 
-def check_backup_storage(storage: Storage, prefix: str) -> str:
+def check_backup_storage(storage: Storage, *, env: str, prefix: str, test_prefix: str) -> str:
     """Проверяет, что бэкап уйдёт в S3 и в боевой префикс. Возвращает описание.
+
+    Проверяются НАСТРОЙКИ приложения (`S3_ENV`, `S3_PREFIX_PROD`,
+    `S3_PREFIX_TEST`), а не константа: `S3_PREFIX_PROD` объявлен
+    переопределяемым, и сравнение с зашитым литералом отказывало бы на
+    правильной настройке. «Нельзя в тестовый префикс» обеспечивается сравнением
+    боевого префикса с тестовым, «нельзя в корень бакета» — отказом на пустой.
 
     Отказ, а не предупреждение: `::warning::` в Vahta был нужен, потому что там
     бэкап снимался и на первом деплое, когда базы ещё нет. Здесь «первого
@@ -71,13 +78,22 @@ def check_backup_storage(storage: Storage, prefix: str) -> str:
             "(пусты S3_BUCKET или ключи активной среды в .env сервера). Бэкап "
             "остался бы на том же диске, с которого снят"
         )
-    if prefix != PROD_PREFIX:
+    if env != "prod":
         raise BackupError(
-            f"префикс хранилища {prefix!r}, а боевой бэкап пишется только в "
-            f"{PROD_PREFIX!r}: проверьте S3_ENV в .env сервера — при S3_ENV=test "
-            "дамп уедет в crm-agent-test"
+            f"S3_ENV={env!r}, а боевой бэкап снимается только при S3_ENV=prod: "
+            f"при S3_ENV=test дамп уехал бы в {test_prefix!r}"
         )
-    return f"Хранилище: {type(storage).__name__}, префикс: {prefix}"
+    if not prefix.strip():
+        raise BackupError(
+            "префикс боевой среды пуст: задайте S3_PREFIX_PROD в .env сервера — "
+            "иначе дамп лёг бы в корень бакета"
+        )
+    if prefix.strip() == test_prefix.strip():
+        raise BackupError(
+            f"префикс боевой среды совпадает с тестовым {test_prefix!r}: "
+            "дамп с персональными данными уехал бы в тестовый префикс"
+        )
+    return f"Хранилище: {type(storage).__name__}, S3_ENV={env}, префикс: {prefix}"
 
 
 def upload(storage: Storage, local_path: str | Path, name: str) -> str:
@@ -128,15 +144,16 @@ def _parse_keep(raw: str) -> int:
         raise BackupError(f"keep={raw!r} — не число") from e
 
 
-def run(argv: Sequence[str], storage: Storage, prefix: str) -> int:
+def run(argv: Sequence[str], storage: Storage, *, env: str, prefix: str, test_prefix: str) -> int:
     """Выполняет команду и возвращает код выхода. Ошибки — одной строкой в stderr.
 
-    Хранилище и префикс приходят аргументами, а не берутся из настроек: юнит-тест
-    подаёт `LocalStorage(tmp_path)` и не поднимает приложение.
+    Хранилище и настройки префиксов приходят аргументами, а не читаются здесь из
+    `get_settings()`: юнит-тест подаёт `LocalStorage(tmp_path)` и не поднимает
+    приложение.
     """
     try:
         if list(argv) == ["check"]:
-            print(check_backup_storage(storage, prefix))
+            print(check_backup_storage(storage, env=env, prefix=prefix, test_prefix=test_prefix))
             return 0
         if len(argv) == 3 and argv[0] == "upload":
             key = upload(storage, argv[1], argv[2])
@@ -161,9 +178,16 @@ def run(argv: Sequence[str], storage: Storage, prefix: str) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Точка входа `python -m app.backup_cli`: хранилище из настроек приложения."""
+    """Точка входа `python -m app.backup_cli`: хранилище и префиксы из настроек."""
     args = list(sys.argv[1:] if argv is None else argv)
-    return run(args, get_storage(), get_settings().s3_prefix)
+    settings = get_settings()
+    return run(
+        args,
+        get_storage(),
+        env=settings.s3_env,
+        prefix=settings.s3_prefix,
+        test_prefix=settings.s3_prefix_test,
+    )
 
 
 if __name__ == "__main__":

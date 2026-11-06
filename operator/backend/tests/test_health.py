@@ -44,6 +44,18 @@ def test_openapi_documents_the_contract(client: TestClient) -> None:
         "/api/invoices/{invoice_id}",
         "/api/invoices/{invoice_id}/file",
         "/api/invoices/{invoice_id}/act-file",
+        # Тарифы платформы: четвёртый раздел — весь прайс, правка полей и
+        # снятие с продажи.
+        "/api/tariffs",
+        "/api/tariffs/{tariff_id}",
+        # Реквизиты поставщика — пятый раздел: единственная строка, которую
+        # правят в кабинете и из которой печатные формы берут блок «Поставщик» и
+        # строку про НДС (#179).
+        "/api/company-details",
+        # Решения магазина улучшений — шестой раздел: весь каталог, правка полей
+        # и снятие с продажи (#188).
+        "/api/solutions",
+        "/api/solutions/{solution_id}",
     }
     login = schema["paths"]["/api/auth/login"]["post"]
     assert login["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
@@ -114,3 +126,74 @@ def test_openapi_documents_the_invoices_contour(client: TestClient) -> None:
     assert update["responses"]["422"] is not None
     assert invoice_file["responses"]["404"] is not None
     assert act_file["responses"]["404"] is not None
+
+
+def test_openapi_documents_the_tariffs_contour(client: TestClient) -> None:
+    """Тарифы: список — `list[Tariff]`, удаление — `204` без тела."""
+    schema = client.get("/openapi.json").json()
+    listing = schema["paths"]["/api/tariffs"]["get"]
+    update = schema["paths"]["/api/tariffs/{tariff_id}"]["patch"]
+    delete = schema["paths"]["/api/tariffs/{tariff_id}"]["delete"]
+
+    assert listing["responses"]["200"]["content"]["application/json"]["schema"]["items"][
+        "$ref"
+    ].endswith("Tariff")
+    for operation in (listing, update, delete):
+        assert operation["responses"]["401"]["description"] == UNAUTHORIZED_DETAIL
+        assert operation["responses"]["502"] is not None
+        assert operation["responses"]["503"] is not None
+    assert update["responses"]["404"] is not None
+    assert update["responses"]["409"] is not None
+    assert update["responses"]["422"] is not None
+    # `DELETE` отвечает пустым телом: 204 объявлен, а 200 у него нет.
+    assert "204" in delete["responses"]
+    assert "200" not in delete["responses"]
+
+
+def test_openapi_documents_the_solutions_contour(client: TestClient) -> None:
+    """Решения магазина: список — `list[Solution]`, удаление — `204` без тела.
+
+    Отказы — контракт кабинета: `404`/`409`/`422` приходят из основного API
+    дословно, поэтому коды обязаны быть в схеме, которую читает фронтенд.
+    """
+    schema = client.get("/openapi.json").json()
+    listing = schema["paths"]["/api/solutions"]["get"]
+    update = schema["paths"]["/api/solutions/{solution_id}"]["patch"]
+    delete = schema["paths"]["/api/solutions/{solution_id}"]["delete"]
+
+    assert listing["responses"]["200"]["content"]["application/json"]["schema"]["items"][
+        "$ref"
+    ].endswith("Solution")
+    for operation in (listing, update, delete):
+        assert operation["responses"]["401"]["description"] == UNAUTHORIZED_DETAIL
+        assert operation["responses"]["502"] is not None
+        assert operation["responses"]["503"] is not None
+    assert update["responses"]["404"] is not None
+    assert update["responses"]["409"] is not None
+    assert update["responses"]["422"] is not None
+    assert delete["responses"]["404"] is not None
+    # `DELETE` отвечает пустым телом: 204 объявлен, а 200 у него нет.
+    assert "204" in delete["responses"]
+    assert "200" not in delete["responses"]
+
+
+def test_openapi_documents_the_company_contour(client: TestClient) -> None:
+    """Реквизиты поставщика: чтение и правка, отказы — контракт кабинета.
+
+    `422` объявлен у правки: тексты форматов приходят из основного API и
+    показываются дословно, поэтому код обязан быть в схеме, которую читает
+    фронтенд. `404` — «строка не заведена»: создавать её кабинет не умеет.
+    """
+    schema = client.get("/openapi.json").json()
+    reading = schema["paths"]["/api/company-details"]["get"]
+    update = schema["paths"]["/api/company-details"]["patch"]
+
+    assert reading["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "CompanyDetails"
+    )
+    for operation in (reading, update):
+        assert operation["responses"]["401"]["description"] == UNAUTHORIZED_DETAIL
+        assert operation["responses"]["502"] is not None
+        assert operation["responses"]["503"] is not None
+    assert update["responses"]["404"] is not None
+    assert update["responses"]["422"] is not None
