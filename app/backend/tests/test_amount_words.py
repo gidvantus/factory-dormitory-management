@@ -49,8 +49,13 @@ def test_other_currencies_are_spelled_with_their_own_words() -> None:
 
 
 def test_a_currency_without_words_is_printed_by_its_code() -> None:
-    """Незнакомую валюту не склоняют выдуманными словами и не роняют печать."""
-    assert amount_in_words(Decimal("5"), "KZT").startswith("Пять KZT ")
+    """Незнакомую валюту не склоняют выдуманными словами и не роняют печать.
+
+    Дробная часть у неё печатается числом: «копеек» — слово рубля, и подставлять
+    его чужой валюте значит выдумать склонение, которого у неё нет.
+    """
+    assert amount_in_words(Decimal("5"), "KZT") == "Пять KZT 00"
+    assert amount_in_words(Decimal("12.34"), "KZT") == "Двенадцать KZT 34"
 
 
 def test_too_large_an_amount_is_refused_loudly() -> None:

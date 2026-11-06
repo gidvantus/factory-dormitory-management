@@ -37,6 +37,7 @@ import io
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import pytest
@@ -1117,12 +1118,14 @@ def test_act_prints_the_same_supplier_block_and_vat_line(
     assert text.index("Всего к оплате:") < text.index("НДС не облагается")
 
 
-def test_table_columns_fill_the_page_width() -> None:
-    """Колонки таблицы позиций укладываются в полосу набора ровно и без остатка.
+def test_table_columns_fill_the_page_width(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Таблица позиций рисуется ровно теми колонками, что заполняют полосу набора.
 
     Дефект Б1 прошлой приёмки был про геометрию: подпись рисовалась поверх
     значения. У таблицы та же ловушка — сумма колонок, подобранная на глаз,
-    выводит правую границу за поле или оставляет пустую полосу справа.
+    выводит правую границу за поле или оставляет пустую полосу справа. Поэтому
+    проверяются не константы модуля, а ширины, с которыми `_subject_table`
+    действительно зовёт `_table_row`: правка ширин в самой таблице тест ломает.
     """
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(
@@ -1130,22 +1133,40 @@ def test_table_columns_fill_the_page_width() -> None:
         billing_forms.PAGE_MARGIN,
         billing_forms.PAGE_MARGIN,
     )
+    invoice = Invoice(number="СЧ-2026-1", amount=Decimal("10000.00"), currency="RUB")
+    drawn: list[tuple[float, ...]] = []
+    original = billing_forms._table_row
 
-    name_width = pdf.epw - billing_forms.NUMBER_WIDTH - billing_forms.AMOUNT_WIDTH
+    def spy(
+        pdf_: FPDF,
+        widths: tuple[float, float, float],
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        drawn.append(widths)
+        original(pdf_, widths, *args, **kwargs)
 
-    # Наименование — самая широкая колонка: сумма в 40 мм и номер в 15 мм.
-    assert name_width > billing_forms.AMOUNT_WIDTH
-    assert billing_forms.NUMBER_WIDTH + name_width + billing_forms.AMOUNT_WIDTH == pytest.approx(
-        pdf.epw
-    )
+    monkeypatch.setattr(billing_forms, "_table_row", spy)
+    billing_forms._register_fonts(pdf)
+    pdf.add_page()
+
+    billing_forms._subject_table(pdf, invoice)
+
+    assert drawn, "таблица позиций не нарисовала ни одной строки"
+    for widths in drawn:
+        assert widths == billing_forms._column_widths(pdf)
+        assert sum(widths) == pytest.approx(pdf.epw)
+        # Наименование — самая широкая колонка: сумма 40 мм и номер 15 мм.
+        assert widths[1] > billing_forms.AMOUNT_WIDTH
 
 
-def test_the_logo_takes_its_own_line_above_the_title() -> None:
-    """Знак занимает отдельную строку, а заголовок начинается ниже него.
+def test_the_logo_takes_its_own_line_above_the_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Заголовок начинается ниже знака, а не рядом с ним.
 
     Замечание человека к первой версии формы: «Счёт …» шёл рядом со знаком, и
-    знак читался как его часть. Проверяется курсор: после шапки он ниже знака на
-    его высоту плюс отбивку.
+    знак читался как его часть. Проверяются вертикали самих строк: где нарисован
+    знак и где напечатана первая строка заголовка. Курсор после шапки для этого
+    не годится — он уходит ниже и у формы, где знак поделил строку с заголовком.
     """
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(
@@ -1157,9 +1178,25 @@ def test_the_logo_takes_its_own_line_above_the_title() -> None:
     pdf.add_page()
     top = pdf.get_y()
 
+    marks: dict[str, float] = {}
+    draw_logo = billing_forms._draw_logo
+    text = billing_forms._text
+
+    def spy_logo(pdf_: FPDF) -> None:
+        marks.setdefault("logo", pdf_.get_y())
+        draw_logo(pdf_)
+
+    def spy_text(pdf_: FPDF, value: str, **kwargs: Any) -> None:
+        marks.setdefault("title", pdf_.get_y())
+        text(pdf_, value, **kwargs)
+
+    monkeypatch.setattr(billing_forms, "_draw_logo", spy_logo)
+    monkeypatch.setattr(billing_forms, "_text", spy_text)
+
     billing_forms._header(pdf, "Счёт на оплату № ИВ-2026-1 от 06.11.2026")
 
-    assert pdf.get_y() >= top + billing_forms.LOGO_HEIGHT + billing_forms.LOGO_GAP
+    assert marks["logo"] == pytest.approx(top)
+    assert marks["title"] >= marks["logo"] + billing_forms.LOGO_HEIGHT
 
 
 def test_the_logo_asset_is_present_and_sized() -> None:

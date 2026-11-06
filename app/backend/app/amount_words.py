@@ -68,9 +68,8 @@ GROUP_WORDS = (
     ("миллиард", "миллиарда", "миллиардов"),
 )
 
-# Разряд, в котором числительное женского рода: тысяча — она.
-FEMININE_GROUP = 1
-
+# Разряд, в котором числительное женского рода: тысяча — она. Порядок разрядов
+# совпадает с `GROUP_WORDS`: единицы, тысячи, миллионы, миллиарды.
 FEMININE = (False, True, False, False)
 
 # Названия валюты и её копеек: (единственное, 2–4, остальные). Евро не
@@ -153,18 +152,20 @@ def integer_in_words(value: int) -> str:
 def amount_in_words(amount: Decimal, currency: str) -> str:
     """Сумма прописью: «Две тысячи рублей 00 копеек».
 
-    Валюта, которой нет в словаре, печатается своим кодом: выдумывать склонение
-    незнакомой валюты нельзя, а уронить печать документа из-за неё — тем более.
+    Валюта, которой нет в словаре, печатается своим кодом, а её дробная часть —
+    числом без слова: «рублей» и «копеек» — это склонение рубля, и подставлять
+    его чужой валюте значило бы выдумать слова, которых у неё нет. Уронить
+    печать документа из-за незнакомой валюты — тем более нельзя.
     """
     quantized = amount.quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
     whole = int(quantized)
     fraction = int(abs(quantized - whole) * 100)
-    currency_forms, fraction_forms = CURRENCY_WORDS.get(
-        currency, ((currency, currency, currency), CURRENCY_WORDS["RUB"][1])
-    )
     words = integer_in_words(whole)
     # Первое слово — с заглавной: сумма прописью открывает строку документа.
     text = f"{words[0].upper()}{words[1:]}"
+    if currency not in CURRENCY_WORDS:
+        return f"{text} {currency} {fraction:{FRACTION_FORMAT}}"
+    currency_forms, fraction_forms = CURRENCY_WORDS[currency]
     return (
         f"{text} {_plural(whole, currency_forms)} "
         f"{fraction:{FRACTION_FORMAT}} {_plural(fraction, fraction_forms)}"
