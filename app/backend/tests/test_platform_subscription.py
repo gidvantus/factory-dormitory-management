@@ -12,9 +12,11 @@
   `max_members` плюс докупленные места;
 * `PATCH` меняет **только** `tariff_ends_at`, `POST` снятия — только срок, и ни один
   из них не трогает `next_*`;
-* снятие расширения пишет `expires_at = сейчас`, строка права остаётся в ответе с
-  `is_live = false`; неизвестный `code` — `404 «Расширение не найдено»`;
-* повторное снятие активности — `200`, а не отказ;
+* снятие расширения **удаляет** строку права (после #195 записанный срок ничего не
+  выключает): в ответе расширения нет, `has_solution` ложно при живом тарифе;
+  неизвестный `code` и повторное снятие — `404 «Расширение не найдено»`;
+* истёкшая записанная строка права остаётся в чтении как история (`is_live =
+  false`), но правом распоряжается тариф организации;
 * тексты `422` приходят из валидатора схемы по-русски, лишнее поле — `422`;
 * у трёх write-действий в журнале читаемое название из `ACTION_TITLES`, а не код.
 
@@ -698,33 +700,27 @@ def test_rights_include_an_expired_one(
     assert rights[1]["expires_at"] is None
 
 
-def test_deactivate_right_writes_the_current_moment_and_keeps_the_row(
+def test_deactivate_right_removes_the_solution_from_the_list(
     client: TestClient, db_session: Session, operator_token: None
 ) -> None:
-    """Снятие активности пишет момент в `expires_at` и строку не удаляет.
+    """Отзыв расширения удаляет строку права: иначе кнопка ничего не выключала бы.
 
-    На платную функцию этот момент больше не влияет: с #195 право живёт по тарифу
-    организации (`app.solutions.owned_codes`), а `expires_at` стал историей
-    записанных сроков — поэтому `has_solution` после снятия по-прежнему `true`,
-    пока жив тариф. Отзыв права из кабинета оператора — отдельная задача; здесь
-    проверяется ровно запись и сохранность строки.
+    После #195 право живёт по тарифу организации, а `expires_at` строки код не
+    читает — запись «срок в прошлом» оставила бы платную функцию работающей до
+    конца оплаченного тарифа. Поэтому отзыв стирает строку: в ответе расширений
+    нет, `has_solution` ложно при живом тарифе.
     """
     organization, _ = make_organization(db_session)
     solution = give_solution(db_session, organization, code=JOURNAL_CODE)
+    assert solutions_module.has_solution(db_session, organization.id, solution.code)
 
-    before = datetime.now(UTC)
     response = client.post(
         f"{PLATFORM}/{organization.id}/solutions/{solution.code}/deactivate",
         headers=OPERATOR_HEADERS,
     )
-    after = datetime.now(UTC)
 
     assert response.status_code == 200, response.text
-    rights = response.json()["solutions"]
-    assert len(rights) == 1
-    assert rights[0]["code"] == solution.code
-    assert rights[0]["is_live"] is False
-    # Срок в прошлом, а не удаление строки.
+    assert response.json()["solutions"] == []
     db_session.expire_all()
     row = db_session.scalar(
         select(OrganizationSolution).where(
@@ -732,18 +728,15 @@ def test_deactivate_right_writes_the_current_moment_and_keeps_the_row(
             OrganizationSolution.solution_id == solution.id,
         )
     )
-    assert row is not None
-    expires_at = row.expires_at
-    assert expires_at is not None, "срок права не записан: снятие активности не записало"
-    stored = subscription.as_utc(expires_at)
-    assert before - timedelta(seconds=2) <= stored <= after + timedelta(seconds=2)
-    # Записанный срок — история: право действует, пока действует тариф.
-    assert solutions_module.has_solution(db_session, organization.id, solution.code)
+    assert row is None, "строка права осталась: отзыв ничего не выключит"
+    # Тариф организации действует — закрылось именно право, а не кабинет.
+    assert solutions_module.has_solution(db_session, organization.id, solution.code) is False
 
 
-def test_deactivate_right_twice_is_not_a_failure(
+def test_repeated_deactivate_right_is_not_found(
     client: TestClient, db_session: Session, operator_token: None
 ) -> None:
+    """Повторный отзыв — `404`: строки права уже нет, снимать нечего."""
     organization, _ = make_organization(db_session)
     solution = give_solution(db_session, organization, code=JOURNAL_CODE)
     path = f"{PLATFORM}/{organization.id}/solutions/{solution.code}/deactivate"
@@ -752,8 +745,8 @@ def test_deactivate_right_twice_is_not_a_failure(
     second = client.post(path, headers=OPERATOR_HEADERS)
 
     assert first.status_code == 200, first.text
-    assert second.status_code == 200, second.text
-    assert second.json()["solutions"][0]["is_live"] is False
+    assert second.status_code == 404, second.text
+    assert second.json() == {"detail": SOLUTION_NOT_FOUND_DETAIL}
 
 
 def test_unknown_solution_code_is_not_found(

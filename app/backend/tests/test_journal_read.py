@@ -237,17 +237,19 @@ def test_other_organization_roles_are_forbidden(
     assert response.json()["detail"] == ORGANIZATION_EDIT_FORBIDDEN_DETAIL
 
 
-def test_journal_openapi_documents_all_three_refusals(client: TestClient) -> None:
-    """403 у ручки описан тремя текстами: активация, роль, решение.
+def test_journal_openapi_documents_all_four_refusals(client: TestClient) -> None:
+    """403 у ручки описан четырьмя текстами: активация, роль, тариф, решение.
 
-    Открытая схема — контракт с кабинетом: пропавший третий текст означал бы, что
-    гейт права перестал быть частью контракта.
+    Открытая схема — контракт с кабинетом: пропавший текст означал бы, что
+    соответствующая проверка перестала быть частью контракта. Текст про тариф
+    добавлен в #195 вместе с третьей причиной отказа (`require_solution_access`).
     """
     schema = client.get("/openapi.json").json()
     description = schema["paths"]["/api/journal"]["get"]["responses"]["403"]["description"]
 
     assert ACTIVATION_REQUIRED_DETAIL in description
     assert ORGANIZATION_EDIT_FORBIDDEN_DETAIL in description
+    assert TRIAL_EXPIRED_DETAIL in description
     assert SOLUTION_REQUIRED_DETAIL in description
 
 
