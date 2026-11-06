@@ -1,0 +1,1994 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Макет #189 — карточка организации: тариф и расширения</title>
+    <style>
+      /* ==========================================================================
+         Токены кабинета оператора: дословно из `operator/frontend/src/index.css`.
+         Новых цветов, гарнитур и радиусов в макете нет — оформление
+         «natural neutral» уже задано продуктом.
+         ========================================================================== */
+      :root {
+        --n-beige: #e2d9ca;
+        --n-linen: #e8e1d7;
+        --n-sage: #9ca590;
+        --n-sage-dark: #8c9581;
+        --n-grey: #79726a;
+        --n-grey-deep: #3a362f;
+        --n-ink: #262420;
+
+        --n-brick: #8a4b33;
+        --n-brick-tint: #f3e6df;
+        --n-brick-line: #e2cdc1;
+
+        --color-bg-page: #f0eee8;
+        --color-bg-surface: #ffffff;
+        --color-bg-open: #faf7f0;
+        --color-border: #dedbd3;
+        --color-border-strong: #c9c4b9;
+        --color-text: var(--n-ink);
+        --color-text-body: #55534d;
+        --color-text-muted: #6d6960;
+        --color-text-placeholder: #9a958b;
+        --color-accent: var(--n-sage);
+        --color-accent-hover: var(--n-sage-dark);
+        --color-on-accent: var(--n-ink);
+        --color-focus: var(--n-sage);
+        --color-danger: var(--n-brick);
+
+        --font-display: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        --font-body: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        --text-sm: 0.9375rem;
+
+        --radius-xs: 6px;
+        --radius-sm: 10px;
+        --radius-md: 14px;
+        --control-h: 44px;
+        --control-h-sm: 36px;
+        --shadow-card: 0 1px 2px rgba(58, 54, 47, 0.04);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #e6e1d6;
+        color: var(--color-text);
+        font-family: var(--font-body);
+        font-size: 16px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: 2px;
+        border-radius: var(--radius-xs);
+      }
+
+      :where(a, button, input, textarea, select) {
+        font: inherit;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* --- Оправа галереи: не часть интерфейса продукта ---------------------- */
+
+      .gallery__head {
+        display: grid;
+        gap: 6px;
+        padding: 28px 40px 24px;
+        border-bottom: 1px solid #d5cec0;
+      }
+
+      .gallery__title {
+        margin: 0;
+        font: 600 18px/1.3 var(--font-display);
+        letter-spacing: -0.2px;
+        color: #2f2b26;
+      }
+
+      .gallery__note {
+        max-width: 84ch;
+        margin: 0;
+        color: #5f5a52;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .gallery__note code,
+      .frame__caption code {
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: #ddd6c8;
+        font-size: 12.5px;
+      }
+
+      .frame {
+        display: grid;
+        gap: 14px;
+        padding: 26px 0 0;
+        border-bottom: 1px solid #d5cec0;
+      }
+
+      .frame__caption {
+        max-width: 96ch;
+        margin: 0 40px;
+        color: #4b473f;
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      .frame__caption b {
+        color: #2f2b26;
+      }
+
+      .frame__body {
+        background: var(--color-bg-page);
+      }
+
+      /* ==========================================================================
+         Продукт: `operator/frontend/src/index.css`, значения один в один.
+         ========================================================================== */
+
+      .screen {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+        background: var(--color-bg-page);
+        color: var(--color-text);
+        font-family: var(--font-body);
+      }
+
+      .topbar {
+        display: flex;
+        flex: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        height: 68px;
+        padding: 0 40px;
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-bg-surface);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        width: fit-content;
+        color: var(--color-text);
+        text-decoration: none;
+      }
+
+      .brand__mark {
+        display: block;
+        width: 34px;
+        height: 34px;
+        flex: none;
+      }
+
+      .brand__name {
+        font: 600 19px/1.15 var(--font-display);
+        letter-spacing: -0.2px;
+      }
+
+      .topbar__right {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .account {
+        color: var(--color-text-muted);
+        font-size: 13px;
+      }
+
+      .nav {
+        display: flex;
+        align-items: stretch;
+        gap: 2px;
+        margin-left: 32px;
+        margin-right: auto;
+        margin-bottom: -1px;
+      }
+
+      .nav__link {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 12px;
+        border-bottom: 2px solid transparent;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        text-decoration: none;
+        white-space: nowrap;
+        transition:
+          color 160ms ease,
+          border-color 160ms ease;
+      }
+
+      .nav__link:first-child {
+        padding-left: 0;
+      }
+
+      .nav__link[aria-current='page'] {
+        border-bottom-color: var(--color-accent);
+        color: var(--n-ink);
+      }
+
+      .screen__main {
+        flex: 1;
+        padding: 32px 40px 48px;
+      }
+
+      .page {
+        display: grid;
+        gap: 20px;
+        width: 100%;
+        max-width: 1120px;
+      }
+
+      .page--card {
+        max-width: 880px;
+      }
+
+      .page__head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .page__head--card {
+        align-items: flex-start;
+        gap: 24px;
+      }
+
+      .page__head-main {
+        display: grid;
+        gap: 5px;
+        min-width: 0;
+      }
+
+      .page__title {
+        margin: 0;
+        font: 600 26px/1.25 var(--font-display);
+        letter-spacing: -0.4px;
+        color: var(--n-ink);
+        overflow-wrap: anywhere;
+      }
+
+      .page__meta {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .page__back {
+        margin: 0;
+      }
+
+      .link {
+        color: var(--color-text-body);
+        font-size: 13.5px;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        text-decoration-color: var(--color-border-strong);
+      }
+
+      .panel {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        box-shadow: var(--shadow-card);
+        overflow: hidden;
+      }
+
+      .panel__head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      .panel__title {
+        margin: 0;
+        font: 600 15px/1.3 var(--font-display);
+        letter-spacing: -0.1px;
+        color: var(--n-ink);
+      }
+
+      .panel__note {
+        margin: 0;
+        padding: 12px 24px 14px;
+        border-top: 1px solid var(--color-border);
+        background: var(--color-bg-page);
+        color: var(--color-text-muted);
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+
+      .req {
+        margin: 0;
+        padding: 2px 24px;
+      }
+
+      .req__row {
+        display: grid;
+        grid-template-columns: 172px minmax(0, 1fr);
+        gap: 16px;
+        align-items: baseline;
+        padding: 13px 0;
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      .req__row:last-child {
+        border-bottom: 0;
+      }
+
+      .req__key {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+      }
+
+      .req__val {
+        margin: 0;
+        color: var(--n-ink);
+        font-size: 15px;
+        overflow-wrap: anywhere;
+      }
+
+      .counts {
+        display: flex;
+        gap: 56px;
+        padding: 16px 24px 18px;
+        border-top: 1px solid var(--color-border);
+        background: var(--color-bg-page);
+      }
+
+      .counts__item {
+        display: grid;
+        gap: 1px;
+      }
+
+      .counts__value {
+        font: 600 22px/1.2 var(--font-display);
+        font-variant-numeric: tabular-nums;
+        color: var(--n-ink);
+      }
+
+      .counts__label {
+        color: var(--color-text-muted);
+        font-size: 12.5px;
+      }
+
+      .flag {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--color-text-body);
+        font-size: 13.5px;
+        white-space: nowrap;
+      }
+
+      .flag__dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--color-accent);
+      }
+
+      .flag--off {
+        color: var(--color-text-muted);
+      }
+
+      .flag--off .flag__dot {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--color-border-strong);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: var(--control-h);
+        padding: 10px 18px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        background: none;
+        white-space: nowrap;
+        flex: none;
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 14.5px;
+        letter-spacing: 0.01em;
+        text-decoration: none;
+        cursor: pointer;
+        transition:
+          background-color 160ms ease,
+          border-color 160ms ease,
+          color 160ms ease;
+      }
+
+      .btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .btn--primary {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+      }
+
+      .btn--ghost {
+        background: transparent;
+        border-color: var(--color-border-strong);
+        color: var(--n-grey-deep);
+      }
+
+      .btn--compact {
+        min-height: var(--control-h-sm);
+        padding: 7px 13px;
+        border-radius: var(--radius-xs);
+        font-size: 13px;
+      }
+
+      .btn--danger {
+        border-color: var(--n-brick-line);
+        color: var(--color-danger);
+      }
+
+      .btn[aria-busy='true'] {
+        cursor: progress;
+      }
+
+      .btn[aria-busy='true']::after {
+        content: '';
+        width: 0.85em;
+        height: 0.85em;
+        border: 1.5px solid currentcolor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: btn-spin 700ms linear infinite;
+      }
+
+      @keyframes btn-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .alert {
+        margin: 0;
+        padding: 11px 14px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        font-size: 13.5px;
+        font-weight: 500;
+        line-height: 1.45;
+      }
+
+      .alert--error {
+        border-color: var(--n-brick-line);
+        background: var(--n-brick-tint);
+        color: var(--color-danger);
+      }
+
+      .form {
+        display: grid;
+        gap: 18px;
+      }
+
+      .field {
+        display: grid;
+        gap: 7px;
+      }
+
+      .field__label {
+        font-weight: 600;
+        font-size: 12.5px;
+        letter-spacing: 0.01em;
+        color: var(--color-text-body);
+      }
+
+      .field__input {
+        width: 100%;
+        min-height: var(--control-h);
+        padding: 11px 14px;
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-sm);
+        background: var(--color-bg-surface);
+        color: var(--color-text);
+        font: inherit;
+        font-size: var(--text-sm);
+        transition:
+          border-color 160ms ease,
+          background-color 160ms ease;
+      }
+
+      .field__input[aria-invalid='true'] {
+        border-color: var(--color-danger);
+        background: #fdf9f7;
+      }
+
+      .field__hint {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+
+      .form--panel {
+        padding: 22px 24px 24px;
+        margin: 0;
+      }
+
+      .form__grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px 18px;
+      }
+
+      .form__actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .state {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 0;
+        padding: 30px 24px;
+        color: var(--color-text-muted);
+        font-size: 14px;
+      }
+
+      .spinner {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        border: 1.5px solid var(--color-border-strong);
+        border-top-color: var(--n-sage);
+        border-radius: 50%;
+        animation: btn-spin 800ms linear infinite;
+      }
+
+      .empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 252px;
+        padding: 36px 24px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        text-align: center;
+      }
+
+      .empty__icon {
+        display: grid;
+        place-items: center;
+        margin-bottom: 8px;
+        color: var(--n-grey);
+      }
+
+      .empty__icon svg {
+        width: 26px;
+        height: 26px;
+        stroke-width: 1.4;
+      }
+
+      .empty h2 {
+        margin: 0;
+        font: 600 17px/1.3 var(--font-display);
+        color: var(--n-ink);
+      }
+
+      .empty p {
+        max-width: 42ch;
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      /* ==========================================================================
+         Новое в этом макете: панель «Тариф и расширения».
+
+         Внутри панели нет ни одной новой краски: она собрана из тех же
+         поверхностей, линий 1px, малых радиусов и счётчиков `.counts`, что уже
+         есть в карточке организации. Новые классы — только раскладка.
+         ========================================================================== */
+
+      .sub {
+        padding: 0;
+      }
+
+      .sub__head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 20px 24px 0;
+      }
+
+      .sub__main {
+        display: grid;
+        gap: 3px;
+        min-width: 0;
+      }
+
+      .sub__name {
+        margin: 0;
+        font: 600 19px/1.3 var(--font-display);
+        letter-spacing: -0.2px;
+        color: var(--n-ink);
+        overflow-wrap: anywhere;
+      }
+
+      .sub__name--none {
+        color: var(--color-text-body);
+      }
+
+      .sub__state {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        flex-wrap: wrap;
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+      }
+
+      .sub__state-text {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .sub__actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex: none;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .sub__hint {
+        max-width: 62ch;
+        margin: 0;
+        padding: 10px 24px 20px;
+        color: var(--color-text-muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      /* Счётчики повторяют подвал «Реквизитов»: фон страницы, линия сверху.
+         Здесь они отвечают на вопрос «сколько ещё», а не «сколько всего». */
+      .sub__counts {
+        margin: 18px 0 0;
+      }
+
+      .sub__counts .counts__label {
+        max-width: 34ch;
+      }
+
+      .sub__next {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 0;
+        padding: 13px 24px;
+        border-top: 1px solid var(--color-border);
+        color: var(--color-text-muted);
+        font-size: 13px;
+      }
+
+      .sub__next-value {
+        color: var(--color-text-body);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .sub__solutions {
+        border-top: 1px solid var(--color-border);
+      }
+
+      .sub__section {
+        margin: 0;
+        padding: 16px 24px 2px;
+        color: var(--color-text-body);
+        font: 600 12.5px/1.4 var(--font-body);
+        letter-spacing: 0.01em;
+      }
+
+      .sub__list {
+        margin: 0;
+        padding: 0 24px 6px;
+        list-style: none;
+      }
+
+      .sub__solution {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 6px 16px;
+        padding: 11px 0;
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      .sub__solution:last-child {
+        border-bottom: 0;
+      }
+
+      .sub__solution-name {
+        color: var(--n-ink);
+        font-size: 14.5px;
+        font-weight: 600;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+      }
+
+      .sub__solution-state {
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      /* Пара «Подтвердить» / «Не надо» — один блок в третьей колонке строки:
+         иначе вторая кнопка уезжает на новую строку и тянется на всю ширину. */
+      .sub__solution-actions {
+        display: flex;
+        align-items: center;
+        flex: none;
+        gap: 8px;
+      }
+
+      /* Недействующее право остаётся в списке: срок в прошлом — это запись,
+         а не удаление. Гаснет название, срок и так тихий. */
+      .sub__solution--off .sub__solution-name {
+        color: var(--color-text-muted);
+        font-weight: 500;
+      }
+
+      .sub__empty {
+        margin: 0;
+        padding: 4px 24px 20px;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+      }
+
+      /* Правка срока — форма внутри панели, как правка строки в прайсе:
+         тот же тёплый фон, что у раскрытой строки. */
+      .form--sub {
+        gap: 0;
+        padding: 0;
+        background: var(--color-bg-open);
+        border-top: 1px solid var(--color-border);
+      }
+
+      .form--sub .field {
+        gap: 6px;
+        padding: 18px 24px 0;
+        max-width: 272px;
+      }
+
+      .form--sub .field__hint {
+        margin: 8px 24px 0;
+      }
+
+      .form--sub .alert {
+        margin: 14px 24px 0;
+      }
+
+      .form--sub .form__actions {
+        padding: 16px 24px 20px;
+      }
+
+      .sub__error {
+        margin: 14px 24px 20px;
+      }
+
+      /* Отказ загрузки: текст `detail` и «Повторить» одной строкой. */
+      .alert-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 24px 20px;
+      }
+
+      .alert-line .alert {
+        flex: 1 1 auto;
+      }
+
+      /* --- Обёртка фрагмента: кадры 2–6 показывают панель без шапки ---------- */
+
+      .fragment {
+        padding: 24px 40px 28px;
+      }
+
+      .fragment .page {
+        max-width: 880px;
+      }
+
+      .fragment--stack {
+        display: grid;
+        gap: 18px;
+        max-width: 880px;
+      }
+
+      .fragment__label {
+        margin: 0;
+        color: #5f5a52;
+        font-size: 12.5px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+
+      /* ==========================================================================
+         Узкие окна: правила продуктового `index.css` для карточки и панели.
+         ========================================================================== */
+
+      @media (max-width: 1100px) {
+        .req__row {
+          grid-template-columns: 148px minmax(0, 1fr);
+        }
+      }
+
+      @media (max-width: 760px) {
+        .gallery__head {
+          padding: 22px 20px 18px;
+        }
+
+        .frame__caption {
+          margin: 0 20px;
+        }
+
+        .topbar {
+          height: 60px;
+          padding: 0 20px;
+        }
+
+        /* Шапка разделов в две строки: марка, логин и «Выйти» сверху,
+           навигация — под линией. Пять разделов в 375 в одну строку не встают,
+           поэтому строки навигации переносятся, а не прокручиваются. */
+        .topbar--nav {
+          flex-wrap: wrap;
+          height: auto;
+          padding: 0;
+        }
+
+        .topbar--nav .brand {
+          height: 56px;
+          margin-left: 20px;
+        }
+
+        .topbar--nav .topbar__right {
+          height: 56px;
+          margin-left: auto;
+          padding-right: 20px;
+        }
+
+        .topbar--nav .nav {
+          order: 3;
+          flex-basis: 100%;
+          flex-wrap: wrap;
+          height: auto;
+          margin: 0;
+          padding: 0 14px;
+          border-top: 1px solid var(--color-border);
+        }
+
+        .topbar--nav .nav__link {
+          flex: 1 1 auto;
+          height: 44px;
+          justify-content: center;
+          padding: 0 10px;
+        }
+
+        .topbar--nav .nav__link:first-child {
+          padding-left: 10px;
+        }
+
+        .brand__mark {
+          width: 30px;
+          height: 30px;
+        }
+
+        .brand__name {
+          font-size: 17px;
+        }
+
+        .screen__main {
+          padding: 24px 20px 32px;
+        }
+
+        .page {
+          gap: 16px;
+        }
+
+        .page__title {
+          font-size: 21px;
+        }
+
+        .page__head--card {
+          flex-direction: column;
+          gap: 14px;
+        }
+
+        .page__head--card .btn {
+          width: 100%;
+        }
+
+        .req {
+          padding: 2px 20px;
+        }
+
+        .req__row {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 2px;
+          padding: 12px 0;
+        }
+
+        .req__key {
+          font-size: 12.5px;
+        }
+
+        .counts {
+          gap: 36px;
+          padding: 15px 20px 17px;
+        }
+
+        .panel__note {
+          padding: 12px 20px 14px;
+        }
+
+        .fragment {
+          padding: 20px;
+        }
+
+        /* Панель в столбик: название и срок сверху, действия — на всю ширину,
+           счётчики друг под другом, строка расширения — название со сроком и
+           кнопка под ними. Горизонтального переполнения нет. */
+        .sub__head {
+          flex-direction: column;
+          gap: 12px;
+          padding: 18px 20px 0;
+        }
+
+        .sub__name {
+          font-size: 17px;
+        }
+
+        .sub__actions {
+          width: 100%;
+          justify-content: stretch;
+        }
+
+        .sub__actions .btn {
+          flex: 1 1 auto;
+        }
+
+        .sub__hint {
+          padding: 10px 20px 18px;
+        }
+
+        .sub__counts {
+          flex-direction: column;
+          gap: 14px;
+          margin-top: 16px;
+        }
+
+        .sub__next {
+          padding: 12px 20px;
+        }
+
+        .sub__section {
+          padding: 14px 20px 2px;
+        }
+
+        .sub__list {
+          padding: 0 20px 4px;
+        }
+
+        .sub__solution {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 3px;
+          padding: 13px 0;
+        }
+
+        .sub__solution-state {
+          text-align: start;
+        }
+
+        .sub__solution .btn {
+          grid-column: 1 / -1;
+          width: 100%;
+          margin-top: 8px;
+        }
+
+        .sub__solution-actions {
+          grid-column: 1 / -1;
+          width: 100%;
+          margin-top: 8px;
+        }
+
+        .sub__solution-actions .btn {
+          flex: 1 1 50%;
+          margin-top: 0;
+        }
+
+        .sub__empty {
+          padding: 4px 20px 18px;
+        }
+
+        .form--sub .field {
+          max-width: none;
+          padding: 16px 20px 0;
+        }
+
+        .form--sub .field__hint {
+          margin: 8px 20px 0;
+        }
+
+        .form--sub .alert {
+          margin: 14px 20px 0;
+        }
+
+        .form--sub .form__actions {
+          flex-direction: column;
+          align-items: stretch;
+          padding: 14px 20px 18px;
+        }
+
+        .sub__error {
+          padding: 0 20px 18px;
+        }
+
+        .alert-line {
+          flex-direction: column;
+          align-items: stretch;
+          padding: 16px 20px 18px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+
+        .btn[aria-busy='true']::after {
+          display: none;
+        }
+
+        .spinner {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="gallery__head">
+      <h1 class="gallery__title">Макет #189 — карточка организации: тариф и расширения</h1>
+      <p class="gallery__note">
+        Статичный макет постановки. Открывается двойным щелчком, без сборки, зависимостей и сети.
+        Кадры идут сверху вниз: 1 — карточка целиком на 1440, 2–6 — панель «Тариф и расширения»
+        крупным планом в разных состояниях. Токены, шапка, навигация, панель, строки реквизитов,
+        счётчики, кнопки, поля, алерт и индикаторы сняты с
+        <code>operator/frontend/src/index.css</code>; новых цветов, гарнитур и радиусов нет.
+        Данные — настоящие строки продукта: тарифы из <code>0065_license_prices</code>
+        («Домовой · 6 месяцев», «Домовой · 12 месяцев»), решения из
+        <code>0035_solutions</code> / <code>0049_solution_journal</code> /
+        <code>0064_extra_seats</code> («Уведомления в Telegram», «Журнал действий»,
+        «Дополнительные сотрудники»). Даты считаются от 6 ноября 2026 — дня постановки.
+      </p>
+    </header>
+
+    <!-- ================================================================
+         1. Карточка целиком: тариф действует
+         ================================================================ -->
+    <section class="frame" id="frame-1">
+      <p class="frame__caption">
+        <b>Карточка организации · 1440.</b> Панель «Тариф и расширения» встала под «Реквизитами» —
+        ниже счётчиков, во всю ширину карточки. Порядок чтения: что за тариф, до какого дня, сколько
+        осталось, сколько мест, что оплачено вперёд, какие расширения куплены. Срок и остаток дней
+        стоят рядом намеренно: дата отвечает «до когда», число — «сколько у меня времени».
+      </p>
+      <div class="frame__body">
+        <div class="screen">
+          <header class="topbar topbar--nav">
+            <span class="brand" aria-label="Домовой — кабинет оператора">
+              <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+                <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+                <g
+                  fill="none"
+                  stroke="#3A362F"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+                </g>
+              </svg>
+              <span class="brand__name">Домовой</span>
+            </span>
+            <nav class="nav" aria-label="Разделы кабинета">
+              <a class="nav__link" href="#frame-1" aria-current="page">Организации</a>
+              <a class="nav__link" href="#frame-1">Счета</a>
+              <a class="nav__link" href="#frame-1">Тарифы</a>
+              <a class="nav__link" href="#frame-1">Пользователи</a>
+              <a class="nav__link" href="#frame-1">Реквизиты</a>
+            </nav>
+            <div class="topbar__right">
+              <span class="account" title="Логин, под которым открыт кабинет">operator</span>
+              <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+            </div>
+          </header>
+
+          <main class="screen__main">
+            <div class="page page--card">
+              <p class="page__back"><a class="link" href="#frame-1">К списку</a></p>
+
+              <div class="page__head page__head--card">
+                <div class="page__head-main">
+                  <h1 class="page__title">ООО «Северное общежитие»</h1>
+                  <p class="page__meta">Организация №41 · создана 12 марта 2026</p>
+                </div>
+                <button class="btn btn--ghost" type="button">Редактировать</button>
+              </div>
+
+              <div class="panel">
+                <div class="panel__head">
+                  <h2 class="panel__title">Реквизиты</h2>
+                </div>
+                <dl class="req">
+                  <div class="req__row">
+                    <dt class="req__key">Название</dt>
+                    <dd class="req__val">ООО «Северное общежитие»</dd>
+                  </div>
+                  <div class="req__row">
+                    <dt class="req__key">ИНН</dt>
+                    <dd class="req__val">7811234567</dd>
+                  </div>
+                  <div class="req__row">
+                    <dt class="req__key">КПП</dt>
+                    <dd class="req__val">781101001</dd>
+                  </div>
+                  <div class="req__row">
+                    <dt class="req__key">ОГРН</dt>
+                    <dd class="req__val">1177847000123</dd>
+                  </div>
+                  <div class="req__row">
+                    <dt class="req__key">Адрес</dt>
+                    <dd class="req__val">196240, Санкт-Петербург, ул. Костюшко, 21, корп. 2</dd>
+                  </div>
+                </dl>
+                <div class="counts">
+                  <div class="counts__item">
+                    <span class="counts__value">38</span>
+                    <span class="counts__label">участников</span>
+                  </div>
+                  <div class="counts__item">
+                    <span class="counts__value">4</span>
+                    <span class="counts__label">общежития</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel" data-testid="operator-subscription">
+                <div class="panel__head">
+                  <h2 class="panel__title">Тариф и расширения</h2>
+                </div>
+
+                <div class="sub">
+                  <div class="sub__head">
+                    <div class="sub__main">
+                      <p class="sub__name" data-testid="operator-subscription-tariff-name">
+                        Домовой · 6 месяцев
+                      </p>
+                      <p class="sub__state" data-testid="operator-subscription-tariff-until">
+                        <span class="flag" data-testid="operator-subscription-tariff-state">
+                          <span class="flag__dot" aria-hidden="true"></span>
+                          действует
+                        </span>
+                        <span class="sub__state-text">по 30.06.2027</span>
+                      </p>
+                    </div>
+                    <div class="sub__actions">
+                      <button
+                        class="btn btn--ghost btn--compact"
+                        type="button"
+                        data-testid="operator-subscription-tariff-edit"
+                      >
+                        Изменить срок
+                      </button>
+                      <button
+                        class="btn btn--ghost btn--compact btn--danger"
+                        type="button"
+                        data-testid="operator-subscription-tariff-deactivate"
+                      >
+                        Снять активность
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="counts sub__counts">
+                    <div class="counts__item">
+                      <span class="counts__value">236</span>
+                      <span class="counts__label">дней осталось</span>
+                    </div>
+                    <div class="counts__item">
+                      <span class="counts__value">8</span>
+                      <span class="counts__label">мест: 5 по тарифу и 3 докуплено</span>
+                    </div>
+                  </div>
+
+                  <p class="sub__next" data-testid="operator-subscription-next">
+                    Оплачен вперёд:
+                    <span class="sub__next-value">Домовой · 12 месяцев, по 30.06.2028</span>
+                  </p>
+
+                  <div class="sub__solutions" data-testid="operator-subscription-solutions">
+                    <h3 class="sub__section">Расширения</h3>
+                    <ul class="sub__list">
+                      <li class="sub__solution" data-testid="operator-subscription-solution-row">
+                        <span
+                          class="sub__solution-name"
+                          data-testid="operator-subscription-solution-name"
+                        >
+                          Уведомления в Telegram
+                        </span>
+                        <span
+                          class="sub__solution-state"
+                          data-testid="operator-subscription-solution-state"
+                        >
+                          действует по 14.02.2027
+                        </span>
+                        <button
+                          class="btn btn--ghost btn--compact btn--danger"
+                          type="button"
+                          data-testid="operator-subscription-solution-deactivate"
+                        >
+                          Снять активность
+                        </button>
+                      </li>
+                      <li class="sub__solution" data-testid="operator-subscription-solution-row">
+                        <span
+                          class="sub__solution-name"
+                          data-testid="operator-subscription-solution-name"
+                        >
+                          Журнал действий
+                        </span>
+                        <span
+                          class="sub__solution-state"
+                          data-testid="operator-subscription-solution-state"
+                        >
+                          бессрочно
+                        </span>
+                        <button
+                          class="btn btn--ghost btn--compact btn--danger"
+                          type="button"
+                          data-testid="operator-subscription-solution-deactivate"
+                        >
+                          Снять активность
+                        </button>
+                      </li>
+                      <li
+                        class="sub__solution sub__solution--off"
+                        data-testid="operator-subscription-solution-row"
+                      >
+                        <span
+                          class="sub__solution-name"
+                          data-testid="operator-subscription-solution-name"
+                        >
+                          Дополнительные сотрудники
+                        </span>
+                        <span
+                          class="sub__solution-state"
+                          data-testid="operator-subscription-solution-state"
+                        >
+                          не действует
+                        </span>
+                        <button
+                          class="btn btn--ghost btn--compact btn--danger"
+                          type="button"
+                          disabled
+                          data-testid="operator-subscription-solution-deactivate"
+                        >
+                          Снять активность
+                        </button>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <p class="panel__note">
+                    Снятие активности не удаляет запись: оно записывает срок в прошлое. Вернуть
+                    активность из кабинета нельзя — тариф и права появляются после оплаты.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         2. Правка срока
+         ================================================================ -->
+    <section class="frame" id="frame-2">
+      <p class="frame__caption">
+        <b>Правка срока.</b> «Изменить срок» раскрывает форму прямо в панели, тариф и расширения
+        остаются на месте — оператор правит поле, видя, к чему оно относится. В поле стоит тот же
+        день, что подписан в панели: <code>paid_until</code> из ответа, а не локальная дата браузера.
+        Кнопка и результат говорят одним словом: «Сохранить» → «Сохранено» не рисуется — после
+        ответа панель показывает дату из ответа сервера и форму закрывает.
+      </p>
+      <div class="frame__body">
+        <div class="fragment">
+          <div class="page">
+            <div class="panel" data-testid="operator-subscription">
+              <div class="panel__head">
+                <h2 class="panel__title">Тариф и расширения</h2>
+              </div>
+
+              <div class="sub">
+                <div class="sub__head">
+                  <div class="sub__main">
+                    <p class="sub__name" data-testid="operator-subscription-tariff-name">
+                      Домовой · 6 месяцев
+                    </p>
+                    <p class="sub__state" data-testid="operator-subscription-tariff-until">
+                      <span class="flag" data-testid="operator-subscription-tariff-state">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        действует
+                      </span>
+                      <span class="sub__state-text">по 30.06.2027</span>
+                    </p>
+                  </div>
+                </div>
+
+                <form class="form form--sub">
+                  <div class="field">
+                    <label class="field__label" for="subscription-until">
+                      Действует по
+                    </label>
+                    <input
+                      class="field__input"
+                      id="subscription-until"
+                      type="date"
+                      value="2027-06-30"
+                      data-testid="operator-subscription-tariff-until-input"
+                    />
+                  </div>
+                  <p class="field__hint">
+                    Последний включённый день. Запишется как 23:59:59 по Москве — в клиентском
+                    кабинете тариф будет действовать до этого дня.
+                  </p>
+                  <div class="form__actions">
+                    <button
+                      class="btn btn--primary"
+                      type="submit"
+                      data-testid="operator-subscription-tariff-save"
+                    >
+                      Сохранить
+                    </button>
+                    <button
+                      class="btn btn--ghost"
+                      type="button"
+                      data-testid="operator-subscription-tariff-cancel"
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         3. Снятие активности: два шага
+         ================================================================ -->
+    <section class="frame" id="frame-3">
+      <p class="frame__caption">
+        <b>Снятие активности · два шага.</b> «Снять активность» заменяется парой «Подтвердить» /
+        «Не надо» — тем же языком, что «Удалить» в прайсе тарифов. Пара у тарифа и у расширения
+        выглядит одинаково: оператор не учит второй раз. Пока подтверждения нет, запроса нет;
+        «Не надо» возвращает кнопку без изменений. Уже недействующая строка кнопку не предлагает —
+        она неактивна, потому что снимать нечего.
+      </p>
+      <div class="frame__body">
+        <div class="fragment">
+          <div class="page">
+            <div class="panel" data-testid="operator-subscription">
+              <div class="panel__head">
+                <h2 class="panel__title">Тариф и расширения</h2>
+              </div>
+
+              <div class="sub">
+                <div class="sub__head">
+                  <div class="sub__main">
+                    <p class="sub__name" data-testid="operator-subscription-tariff-name">
+                      Домовой · 6 месяцев
+                    </p>
+                    <p class="sub__state" data-testid="operator-subscription-tariff-until">
+                      <span class="flag" data-testid="operator-subscription-tariff-state">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        действует
+                      </span>
+                      <span class="sub__state-text">по 30.06.2027</span>
+                    </p>
+                  </div>
+                  <div class="sub__actions">
+                    <button
+                      class="btn btn--ghost btn--compact btn--danger"
+                      type="button"
+                      data-testid="operator-subscription-tariff-deactivate-confirm"
+                    >
+                      Подтвердить
+                    </button>
+                    <button
+                      class="btn btn--ghost btn--compact"
+                      type="button"
+                      data-testid="operator-subscription-tariff-deactivate-decline"
+                    >
+                      Не надо
+                    </button>
+                  </div>
+                </div>
+
+                <div class="counts sub__counts">
+                  <div class="counts__item">
+                    <span class="counts__value">236</span>
+                    <span class="counts__label">дней осталось</span>
+                  </div>
+                  <div class="counts__item">
+                    <span class="counts__value">8</span>
+                    <span class="counts__label">мест: 5 по тарифу и 3 докуплено</span>
+                  </div>
+                </div>
+
+                <p class="sub__next" data-testid="operator-subscription-next">
+                  Оплачен вперёд:
+                  <span class="sub__next-value">Домовой · 12 месяцев, по 30.06.2028</span>
+                </p>
+
+                <div class="sub__solutions" data-testid="operator-subscription-solutions">
+                  <h3 class="sub__section">Расширения</h3>
+                  <ul class="sub__list">
+                    <li class="sub__solution" data-testid="operator-subscription-solution-row">
+                      <span
+                        class="sub__solution-name"
+                        data-testid="operator-subscription-solution-name"
+                      >
+                        Уведомления в Telegram
+                      </span>
+                      <span
+                        class="sub__solution-state"
+                        data-testid="operator-subscription-solution-state"
+                      >
+                        действует по 14.02.2027
+                      </span>
+                      <div class="sub__solution-actions">
+                        <button
+                          class="btn btn--ghost btn--compact btn--danger"
+                          type="button"
+                          data-testid="operator-subscription-solution-deactivate-confirm"
+                        >
+                          Подтвердить
+                        </button>
+                        <button
+                          class="btn btn--ghost btn--compact"
+                          type="button"
+                          data-testid="operator-subscription-solution-deactivate-decline"
+                        >
+                          Не надо
+                        </button>
+                      </div>
+                    </li>
+                    <li class="sub__solution" data-testid="operator-subscription-solution-row">
+                      <span
+                        class="sub__solution-name"
+                        data-testid="operator-subscription-solution-name"
+                      >
+                        Журнал действий
+                      </span>
+                      <span
+                        class="sub__solution-state"
+                        data-testid="operator-subscription-solution-state"
+                      >
+                        бессрочно
+                      </span>
+                      <button
+                        class="btn btn--ghost btn--compact btn--danger"
+                        type="button"
+                        data-testid="operator-subscription-solution-deactivate"
+                      >
+                        Снять активность
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+
+                <p class="panel__note">
+                  Снятие активности не удаляет запись: оно записывает срок в прошлое. Вернуть
+                  активность из кабинета нельзя — тариф и права появляются после оплаты.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         4. Отправка и отказ
+         ================================================================ -->
+    <section class="frame" id="frame-4">
+      <p class="frame__caption">
+        <b>Отправка и отказ.</b> На время запроса кнопка неактивна и говорит «Сохраняем…», поле тоже
+        неактивно: два нажатия не уйдут. Отказ сервера показывается его же словами
+        (<code>detail</code> дословно, у <code>422</code> — первое <code>msg</code>), введённое
+        значение не сбрасывается, поле помечено <code>aria-invalid</code>, фокус уходит на алерт.
+        Третий блок — отказ действия: он стоит под кнопками тарифа и не мешает расширениям.
+      </p>
+      <div class="frame__body">
+        <div class="fragment">
+          <div class="fragment--stack">
+            <p class="fragment__label">Идёт сохранение</p>
+            <div class="panel" data-testid="operator-subscription">
+              <div class="panel__head">
+                <h2 class="panel__title">Тариф и расширения</h2>
+              </div>
+              <div class="sub">
+                <div class="sub__head">
+                  <div class="sub__main">
+                    <p class="sub__name" data-testid="operator-subscription-tariff-name">
+                      Домовой · 6 месяцев
+                    </p>
+                    <p class="sub__state" data-testid="operator-subscription-tariff-until">
+                      <span class="flag" data-testid="operator-subscription-tariff-state">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        действует
+                      </span>
+                      <span class="sub__state-text">по 30.06.2027</span>
+                    </p>
+                  </div>
+                </div>
+                <form class="form form--sub">
+                  <div class="field">
+                    <label class="field__label" for="subscription-until-busy">Действует по</label>
+                    <input
+                      class="field__input"
+                      id="subscription-until-busy"
+                      type="date"
+                      value="2028-06-30"
+                      disabled
+                      data-testid="operator-subscription-tariff-until-input"
+                    />
+                  </div>
+                  <p class="field__hint">
+                    Последний включённый день. Запишется как 23:59:59 по Москве — в клиентском
+                    кабинете тариф будет действовать до этого дня.
+                  </p>
+                  <div class="form__actions">
+                    <button
+                      class="btn btn--primary"
+                      type="submit"
+                      disabled
+                      aria-busy="true"
+                      data-testid="operator-subscription-tariff-save"
+                    >
+                      Сохраняем…
+                    </button>
+                    <button
+                      class="btn btn--ghost"
+                      type="button"
+                      disabled
+                      data-testid="operator-subscription-tariff-cancel"
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            <p class="fragment__label">Срок не принят: поле пустое</p>
+            <div class="panel" data-testid="operator-subscription">
+              <div class="panel__head">
+                <h2 class="panel__title">Тариф и расширения</h2>
+              </div>
+              <div class="sub">
+                <div class="sub__head">
+                  <div class="sub__main">
+                    <p class="sub__name" data-testid="operator-subscription-tariff-name">
+                      Домовой · 6 месяцев
+                    </p>
+                    <p class="sub__state" data-testid="operator-subscription-tariff-until">
+                      <span class="flag" data-testid="operator-subscription-tariff-state">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        действует
+                      </span>
+                      <span class="sub__state-text">по 30.06.2027</span>
+                    </p>
+                  </div>
+                </div>
+                <form class="form form--sub">
+                  <div class="field">
+                    <label class="field__label" for="subscription-until-bad">Действует по</label>
+                    <input
+                      class="field__input"
+                      id="subscription-until-bad"
+                      type="date"
+                      aria-invalid="true"
+                      aria-describedby="subscription-until-error"
+                      data-testid="operator-subscription-tariff-until-input"
+                    />
+                  </div>
+                  <p class="field__hint">
+                    Последний включённый день. Запишется как 23:59:59 по Москве — в клиентском
+                    кабинете тариф будет действовать до этого дня.
+                  </p>
+                  <p class="alert alert--error" role="alert" id="subscription-until-error">
+                    Укажите срок действия в формате ГГГГ-ММ-ДД
+                  </p>
+                  <div class="form__actions">
+                    <button
+                      class="btn btn--primary"
+                      type="submit"
+                      data-testid="operator-subscription-tariff-save"
+                    >
+                      Сохранить
+                    </button>
+                    <button
+                      class="btn btn--ghost"
+                      type="button"
+                      data-testid="operator-subscription-tariff-cancel"
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            <p class="fragment__label">Отказ действия</p>
+            <div class="panel" data-testid="operator-subscription">
+              <div class="panel__head">
+                <h2 class="panel__title">Тариф и расширения</h2>
+              </div>
+              <div class="sub">
+                <div class="sub__head">
+                  <div class="sub__main">
+                    <p class="sub__name" data-testid="operator-subscription-tariff-name">
+                      Домовой · 6 месяцев
+                    </p>
+                    <p class="sub__state" data-testid="operator-subscription-tariff-until">
+                      <span class="flag" data-testid="operator-subscription-tariff-state">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        действует
+                      </span>
+                      <span class="sub__state-text">по 30.06.2027</span>
+                    </p>
+                  </div>
+                  <div class="sub__actions">
+                    <button
+                      class="btn btn--ghost btn--compact"
+                      type="button"
+                      data-testid="operator-subscription-tariff-edit"
+                    >
+                      Изменить срок
+                    </button>
+                    <button
+                      class="btn btn--ghost btn--compact btn--danger"
+                      type="button"
+                      data-testid="operator-subscription-tariff-deactivate"
+                    >
+                      Снять активность
+                    </button>
+                  </div>
+                </div>
+                <p
+                  class="alert alert--error sub__error"
+                  role="alert"
+                  data-testid="operator-subscription-action-error"
+                >
+                  Основной API недоступен
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         5. Тариф истёк и бессрочный тариф
+         ================================================================ -->
+    <section class="frame" id="frame-5">
+      <p class="frame__caption">
+        <b>Истёкший и бессрочный тариф.</b> У истёкшего срока гаснет слово, а «Снять активность»
+        неактивна: срок уже в прошлом, снимать нечего — так повторное снятие и не меняет ничего на
+        сервере. Остатка дней здесь нет: ноль не добавляет ничего к «срок истёк». У бессрочного
+        тарифа в контракте <code>ends_at: null</code>, и панель говорит «бессрочно» словом, а не
+        выдуманной датой — дату считает сервер, не экран.
+      </p>
+      <div class="frame__body">
+        <div class="fragment">
+          <div class="fragment--stack">
+            <p class="fragment__label">Срок истёк: снятие уже сработало</p>
+            <div class="panel" data-testid="operator-subscription">
+              <div class="panel__head">
+                <h2 class="panel__title">Тариф и расширения</h2>
+              </div>
+              <div class="sub">
+                <div class="sub__head">
+                  <div class="sub__main">
+                    <p class="sub__name" data-testid="operator-subscription-tariff-name">
+                      Домовой · 12 месяцев
+                    </p>
+                    <p class="sub__state" data-testid="operator-subscription-tariff-until">
+                      <span
+                        class="flag flag--off"
+                        data-testid="operator-subscription-tariff-state"
+                      >
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        не действует
+                      </span>
+                      <span class="sub__state-text">срок истёк 31.10.2026</span>
+                    </p>
+                  </div>
+                  <div class="sub__actions">
+                    <button
+                      class="btn btn--ghost btn--compact btn--danger"
+                      type="button"
+                      disabled
+                      data-testid="operator-subscription-tariff-deactivate"
+                    >
+                      Снять активность
+                    </button>
+                  </div>
+                </div>
+
+                <p class="sub__next" data-testid="operator-subscription-next">
+                  Оплачен вперёд:
+                  <span class="sub__next-value">Домовой · 6 месяцев, по 31.12.2026</span>
+                </p>
+
+                <div class="sub__solutions" data-testid="operator-subscription-solutions">
+                  <h3 class="sub__section">Расширения</h3>
+                  <ul class="sub__list">
+                    <li
+                      class="sub__solution sub__solution--off"
+                      data-testid="operator-subscription-solution-row"
+                    >
+                      <span
+                        class="sub__solution-name"
+                        data-testid="operator-subscription-solution-name"
+                      >
+                        Журнал действий
+                      </span>
+                      <span
+                        class="sub__solution-state"
+                        data-testid="operator-subscription-solution-state"
+                      >
+                        не действует
+                      </span>
+                      <button
+                        class="btn btn--ghost btn--compact btn--danger"
+                        type="button"
+                        disabled
+                        data-testid="operator-subscription-solution-deactivate"
+                      >
+                        Снять активность
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+
+                <p class="panel__note">
+                  Пока тариф не действует, клиентский кабинет закрыт: открытыми остаются обзор и
+                  тариф. Оплаченный вперёд слот не тронут — он вступит в силу сам.
+                </p>
+              </div>
+            </div>
+
+            <p class="fragment__label">Бессрочный тариф</p>
+            <div class="panel" data-testid="operator-subscription">
+              <div class="panel__head">
+                <h2 class="panel__title">Тариф и расширения</h2>
+              </div>
+              <div class="sub">
+                <div class="sub__head">
+                  <div class="sub__main">
+                    <p class="sub__name" data-testid="operator-subscription-tariff-name">
+                      Домовой · 12 месяцев
+                    </p>
+                    <p class="sub__state" data-testid="operator-subscription-tariff-until">
+                      <span class="flag" data-testid="operator-subscription-tariff-state">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        действует
+                      </span>
+                      <span class="sub__state-text">бессрочно</span>
+                    </p>
+                  </div>
+                  <div class="sub__actions">
+                    <button
+                      class="btn btn--ghost btn--compact"
+                      type="button"
+                      data-testid="operator-subscription-tariff-edit"
+                    >
+                      Изменить срок
+                    </button>
+                    <button
+                      class="btn btn--ghost btn--compact btn--danger"
+                      type="button"
+                      data-testid="operator-subscription-tariff-deactivate"
+                    >
+                      Снять активность
+                    </button>
+                  </div>
+                </div>
+
+                <div class="counts sub__counts">
+                  <div class="counts__item">
+                    <span class="counts__value">10</span>
+                    <span class="counts__label">мест по тарифу</span>
+                  </div>
+                </div>
+
+                <div class="sub__solutions" data-testid="operator-subscription-solutions">
+                  <h3 class="sub__section">Расширения</h3>
+                  <ul class="sub__list">
+                    <li class="sub__solution" data-testid="operator-subscription-solution-row">
+                      <span
+                        class="sub__solution-name"
+                        data-testid="operator-subscription-solution-name"
+                      >
+                        Уведомления в Telegram
+                      </span>
+                      <span
+                        class="sub__solution-state"
+                        data-testid="operator-subscription-solution-state"
+                      >
+                        бессрочно
+                      </span>
+                      <button
+                        class="btn btn--ghost btn--compact btn--danger"
+                        type="button"
+                        data-testid="operator-subscription-solution-deactivate"
+                      >
+                        Снять активность
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+
+                <p class="panel__note">
+                  «Изменить срок» на бессрочном тарифе ставит дату: бессрочность снимается этой
+                  правкой и только ею. Обратно в бессрочный из кабинета не вернуть.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         6. Загрузка, отказ загрузки, пусто
+         ================================================================ -->
+    <section class="frame" id="frame-6">
+      <p class="frame__caption">
+        <b>Состояния панели.</b> Панель грузится своим запросом: пока данных нет, реквизиты выше уже
+        на экране. Загрузка — строка с индикатором в <code>role="status"</code>, отказ — текст
+        <code>detail</code> дословно и «Повторить» в <code>role="alert"</code>, пусто — «Тариф не
+        назначен» и «Расширений нет». Пустое состояние объясняет, как тариф появляется, а не
+        рисует грусть.
+      </p>
+      <div class="frame__body">
+        <div class="fragment">
+          <div class="fragment--stack">
+            <p class="fragment__label">Загрузка</p>
+            <div class="panel" data-testid="operator-subscription">
+              <div class="panel__head">
+                <h2 class="panel__title">Тариф и расширения</h2>
+              </div>
+              <p class="state" role="status" data-testid="operator-subscription-loading">
+                <span class="spinner" aria-hidden="true"></span>
+                Загружаем тариф…
+              </p>
+            </div>
+
+            <p class="fragment__label">Отказ загрузки</p>
+            <div class="panel" data-testid="operator-subscription">
+              <div class="panel__head">
+                <h2 class="panel__title">Тариф и расширения</h2>
+              </div>
+              <div class="alert-line">
+                <p class="alert alert--error" role="alert" data-testid="operator-subscription-error">
+                  Основной API недоступен
+                </p>
+                <button
+                  class="btn btn--ghost btn--compact"
+                  type="button"
+                  data-testid="operator-subscription-retry"
+                >
+                  Повторить
+                </button>
+              </div>
+            </div>
+
+            <p class="fragment__label">Тарифа нет и прав нет</p>
+            <div class="panel" data-testid="operator-subscription">
+              <div class="panel__head">
+                <h2 class="panel__title">Тариф и расширения</h2>
+              </div>
+              <div class="sub">
+                <div class="sub__head">
+                  <div class="sub__main">
+                    <p
+                      class="sub__name sub__name--none"
+                      data-testid="operator-subscription-tariff-name"
+                    >
+                      Тариф не назначен
+                    </p>
+                  </div>
+                </div>
+                <p class="sub__hint">
+                  Тариф появляется после оплаты счёта; назначить его из кабинета нельзя.
+                </p>
+                <div class="sub__solutions" data-testid="operator-subscription-solutions">
+                  <h3 class="sub__section">Расширения</h3>
+                  <p class="sub__empty" data-testid="operator-subscription-solutions-empty">
+                    Расширений нет
+                  </p>
+                </div>
+                <p class="panel__note">
+                  Бесплатный пробный период этой организации уже закончился — клиентский кабинет
+                  закрыт до оплаты.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>
