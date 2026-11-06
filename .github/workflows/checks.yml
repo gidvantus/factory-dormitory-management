@@ -169,3 +169,27 @@ jobs:
 
       - name: vitest
         run: npm test
+
+  workflows:
+    name: workflows
+    runs-on: ubuntu-latest
+    # Тела `run:` у Windows-jobs раннер исполняет через Windows PowerShell, и
+    # ошибка разбора там валит весь шаг до первого оператора — например
+    # `"...in $dir: ..."`, где PowerShell видит `$dir:` как переменную со scope.
+    # На раннере это видно только после пуша (так 6 ноября встало обновление
+    # стенда), поэтому разбор идёт в PR. Разбирает настоящий PowerShell: pwsh
+    # есть на ubuntu-раннере, а ошибки этого класса в 7 и 5.1 одинаковые.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Единственная зависимость самого скрипта проверки; версия закреплена,
+      # чтобы проверка не меняла поведение между прогонами.
+      - name: Установить PyYAML
+        run: pip install pyyaml==6.0.2
+
+      - name: PowerShell разбирает тела run в Windows-jobs
+        run: python _tools/check-workflow-powershell.py
