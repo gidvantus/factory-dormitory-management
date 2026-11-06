@@ -90,6 +90,9 @@ docker compose up -d --build
 | `GET` | `/api/tariffs` | `200 [{"id", "name", "description", "amount", "currency", "period", "unit_label", "position", "is_visible", "max_members", "tooltip", "group_code", "price_label"}]` — **все** строки прайса, включая `is_visible = false`, порядок `position, id`; пагинации нет |
 | `PATCH` | `/api/tariffs/{id}` | `200` — та же строка целиком, с пересчитанным `price_label`. Тело: только присланные поля из `name`, `description`, `amount` (строка `"4900.00"`), `period`, `max_members` (`null` — без ограничения), `is_visible` |
 | `DELETE` | `/api/tariffs/{id}` | `204` без тела: `is_visible = false`, строка **не удаляется**; повторный вызов — тоже `204` |
+| `GET` | `/api/solutions` | `200 [{"id", "code", "name", "description", "amount", "currency", "period", "position", "is_visible", "price_label", "created_at", "updated_at"}]` — **все** строки каталога решений, включая `is_visible = false`, порядок `position, id`; пагинации нет |
+| `PATCH` | `/api/solutions/{id}` | `200` — та же строка целиком, с пересчитанным `price_label`. Тело: только присланные поля из `name`, `description` (`null` — описания нет), `amount` (строка `"500.00"`), `currency` (три заглавные латинские буквы), `period`, `position` (целое ≥ 0), `is_visible`. Поля `code` в теле нет: присланный отсекает `422` |
+| `DELETE` | `/api/solutions/{id}` | `204` без тела: `is_visible = false`, строка **не удаляется** (на неё ссылаются `invoices.solution_id` и `organization_solutions`); повторный вызов — тоже `204` |
 
 Сессия — httpOnly cookie `operator_session`, в JS токена нет.
 
@@ -122,6 +125,26 @@ docker compose up -d --build
 Текстом отказа владеет основной API: кабинет-API его не переписывает, а
 фронтенд показывает дословно. `502` — не истёкшая сессия: кабинет при этом не
 разлогинивает.
+
+Ручки решений идут теми же путями через прокси
+(`operator/backend/app/api/solutions.py`) и отвечают теми же кодами и текстами,
+что основной API:
+
+| Код | `detail` | Когда |
+| --- | --- | --- |
+| `404` | `Решение не найдено` | неизвестный `id` |
+| `409` | `Решение с таким названием уже есть` | название занято другой строкой, в том числе в другом регистре |
+| `422` | `Название не может быть пустым`, `Название длиннее 120 символов`, `Описание должно быть строкой`, `Цена не может быть отрицательной`, `Слишком большая цена`, `Цена должна быть числом`, `Валюта должна состоять из 3 заглавных латинских букв`, `Неизвестный период оплаты`, `Порядок должен быть целым числом`, `Порядок не может быть отрицательным`, `Слишком большой порядок`, `Состояние должно быть true или false` | правка вне правил основного API; фронт снимает приставку `Value error, ` |
+| `422` | стандартный текст `pydantic` про лишнее поле | в теле `PATCH` пришёл `code` — он не правится |
+| `502` | `Основной API не принял сервисный токен` | основной API ответил `401` |
+| `502` | `Основной API недоступен` | сеть, таймаут или `5xx` основного API |
+| `503` | `Кабинет не настроен: не задан OPERATOR_SERVICE_TOKEN` | пустой секрет; в сеть запрос не уходит |
+
+Публичный каталог магазина (`GET /api/solutions` основного API) этот раздел не
+меняет: он по-прежнему отдаёт только `is_visible = true` и в том же порядке
+`position, id`. Порядок витрины — **единственное**, что связывает две половины:
+`position` из кабинета не пересчитывается на клиенте, а карточки магазина идут в
+порядке ответа `GET /api/solutions`.
 
 ### Реквизиты поставщика (issue #179)
 
@@ -161,6 +184,8 @@ docker compose up -d --build
   `/login`. Шапка с логином и «Выйти» живёт на обоих экранах кабинета;
 - `/organizations/:id` — карточка организации под той же проверкой сессии;
 - `/tariffs` — прайс платформы: список, правка полей и снятие с продажи;
+- `/solutions` — каталог решений магазина улучшений: список, правка полей,
+  порядок витрины и снятие с продажи;
 - `/company` — реквизиты поставщика и строка про НДС: форма из одиннадцати полей;
 - остальные адреса редиректят на `/`.
 
@@ -217,9 +242,38 @@ docker compose up -d --build
 - создания тарифа, назначения тарифа организации и правки `currency`,
   `unit_label`, `position`, `group_code`, `tooltip` на экране нет.
 
+Каталог решений магазина (`/solutions`, макет `mockups/188/`):
+
+- загрузка — «Загружаем решения…» в `role="status"`, счётчик не показывается;
+- ошибка загрузки — текст `detail` дословно в `role="alert"` и кнопка
+  «Повторить» рядом с ним (в том числе «Основной API недоступен» и «Кабинет не
+  настроен: не задан OPERATOR_SERVICE_TOKEN»);
+- пусто — «Решений пока нет»: строки каталога приходят из миграций базы, завести
+  решение из кабинета нельзя;
+- список: «Порядок», «Название», «Код», «Описание», «Цена», «Период»,
+  «Состояние», «Создано», «Изменено», действия. Порядок строк — порядок ответа
+  сервера (`position, id`): экран его не пересортировывает, потому что это и есть
+  порядок карточек в магазине клиента. Цену печатает готовый `price_label`
+  ответа — формулу цены экран не повторяет. Код показан целиком и не правится:
+  это гейт платной функции. Счётчик в заголовке: «3 решения · 2 в каталоге»;
+- правка — форма разворачивается под строкой: название, описание, порядок,
+  состояние, цена, валюта, период из пяти значений. «Сохранить» отправляет все
+  семь редактируемых полей, пустое описание уходит как `null`. На отправке кнопка
+  неактивна («Сохраняем…»), кнопки строки заперты; отказ (`409`, `422`)
+  показывается дословно над списком, форма остаётся развёрнутой, введённые
+  значения не сбрасываются, а поле, которое назвал сервер, помечается
+  `aria-invalid` (`409` — всегда «Название»);
+- «Удалить» двухшаговое: первая кнопка заменяется парой «Подтвердить» /
+  «Не надо», и только «Подтвердить» отправляет `DELETE`. Строка **не исчезает**:
+  `204` значит «снято с продажи», поэтому строка остаётся на месте с «Не в
+  каталоге», а на месте «Удалить» появляется «Опубликовать» (`PATCH
+  {"is_visible": true}` возвращает решение в каталог);
+- подпись под списком: снятие с продажи убирает карточку из магазина, и у
+  организации с действующим правом пропадает пункт меню, хотя платная функция на
+  сервере продолжает работать.
+
 Реквизиты поставщика (`/company`, макет `mockups/179/`, если постановка его
 положила):
-
 - одиннадцать полей: «Название», «ИНН», «КПП», «ОГРН», «Адрес», «Банк», «БИК»,
   «Расчётный счёт», «Корреспондентский счёт», «Подписант», «Строка про НДС»;
   пустая форма — нормальное первое состояние, прочерк вместо пустого поля не
@@ -241,6 +295,7 @@ docker compose up -d --build
 | список | `operator-organizations`, `operator-organizations-empty`, `operator-organizations-error`, `operator-organizations-more`, `operator-organization-row` (на каждой строке), `operator-organization-open` |
 | карточка | `operator-organization-card`, `operator-organization-name`, `operator-organization-inn`, `operator-organization-kpp`, `operator-organization-ogrn`, `operator-organization-address`, `operator-organization-edit`, `operator-organization-save`, `operator-organization-cancel`, `operator-organization-error`, `operator-organization-back` (ссылка «К списку») |
 | тарифы | `operator-nav-tariffs` (пункт навигации), `operator-tariffs` (таблица), `operator-tariffs-count` (счётчик в заголовке), `operator-tariffs-loading`, `operator-tariffs-empty`, `operator-tariffs-error`, `operator-tariff-row` (на каждой строке), `operator-tariff-name`, `operator-tariff-description`, `operator-tariff-price`, `operator-tariff-period`, `operator-tariff-members`, `operator-tariff-state`, `operator-tariff-edit`, `operator-tariff-name-input`, `operator-tariff-description-input`, `operator-tariff-amount-input`, `operator-tariff-period-input`, `operator-tariff-members-input`, `operator-tariff-save`, `operator-tariff-cancel`, `operator-tariff-delete`, `operator-tariff-delete-confirm`, `operator-tariff-delete-decline`, `operator-tariff-publish`, `operator-tariff-error` |
+| решения | `operator-nav-solutions` (пункт навигации), `operator-solutions` (таблица), `operator-solutions-count` (счётчик в заголовке), `operator-solutions-loading`, `operator-solutions-empty`, `operator-solutions-error` (отказ загрузки, рядом `operator-solutions-retry`), `operator-solution-row` (на каждой строке), `operator-solution-position`, `operator-solution-name`, `operator-solution-code`, `operator-solution-description`, `operator-solution-price`, `operator-solution-period`, `operator-solution-state`, `operator-solution-created`, `operator-solution-updated`, `operator-solution-edit`, `operator-solution-delete`, `operator-solution-delete-confirm`, `operator-solution-delete-decline`, `operator-solution-publish`, `operator-solution-name-input`, `operator-solution-description-input`, `operator-solution-amount-input`, `operator-solution-currency-input`, `operator-solution-period-input`, `operator-solution-position-input`, `operator-solution-visible-input`, `operator-solution-save`, `operator-solution-cancel`, `operator-solution-error` (отказ правки, удаления и публикации) |
 | реквизиты поставщика | `operator-nav-company` (пункт навигации), `operator-company` (форма), `operator-company-name`, `operator-company-inn`, `operator-company-kpp`, `operator-company-ogrn`, `operator-company-address`, `operator-company-bank-name`, `operator-company-bank-bic`, `operator-company-account`, `operator-company-corr-account`, `operator-company-signatory`, `operator-company-vat-note`, `operator-company-save`, `operator-company-saved`, `operator-company-error`, `operator-company-retry` |
 
 В режиме правки те же `operator-organization-name/-inn/-kpp/-ogrn/-address`
@@ -262,8 +317,8 @@ Vite проксирует `/api` на `http://localhost:8002` (порт `operato
 конфига.
 
 Оформление — «natural neutral» из макетов (`mockups/126/` — вход, `mockups/131/` —
-список и карточка, `mockups/178/` — тарифы): свои токены в
-`operator/frontend/src/index.css`, продуктовые
+список и карточка, `mockups/178/` — тарифы, `mockups/188/` — решения магазина): свои
+токены в `operator/frontend/src/index.css`, продуктовые
 стили `app/frontend` не переиспользуются. Шрифты — системный стек, по сети
 ничего не грузится.
 
@@ -332,6 +387,11 @@ npm run test       # vitest run
   оператора. «Удаление» тарифа — это снятие с продажи: строку из базы оно не
   убирает (на неё ссылаются организации и счета), подписки доживают оплаченный
   период, лимит мест не меняется.
+- Создания решения магазина и физического удаления строки каталога: за новой
+  строкой в коде нет платной функции, а `code` — гейт права и `UNIQUE` в таблице,
+  поэтому он только показывается и не правится. Прав организации
+  (`organization_solutions`: выдача, отзыв, продление) в кабинете тоже нет.
+  «Удаление» решения — снятие с продажи, как у тарифа.
 - CORS и обмена с фронтендом основного кабинета (`app/frontend`): браузер
   кабинета ходит только в свой `operator-api` через nginx того же origin.
 - Своей базы, alembic и миграций.
