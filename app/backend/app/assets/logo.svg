@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Знак сервиса для печатных форм счёта и акта.
+
+  Геометрия взята из разметки шапки сайта (`app/frontend/src/components/SiteHeader.tsx`)
+  без изменений: скруглённый квадрат 40×40 с домом внутри. `width` и `height`
+  обязательны — без них `fpdf2` не знает размер картинки при вставке в PDF.
+
+  Слово «Домовой» сюда не входит: это слово интерфейса, а не реквизит документа.
+  Файл текстовый, поэтому в git он лежит как обычный текст (`.gitattributes`
+  помечает binary только png/jpg/webp/woff2).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <rect width="40" height="40" rx="12" fill="#DCEEE4" />
+  <path
+    d="M9 19 20 9l11 10"
+    fill="none"
+    stroke="#27313D"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M12.5 19v12h15V19"
+    fill="none"
+    stroke="#27313D"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M17 31v-6h6v6"
+    fill="none"
+    stroke="#27313D"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

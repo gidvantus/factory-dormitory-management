@@ -123,6 +123,33 @@ docker compose up -d --build
 фронтенд показывает дословно. `502` — не истёкшая сессия: кабинет при этом не
 разлогинивает.
 
+### Реквизиты поставщика (issue #179)
+
+Это **единственное место**, где правятся реквизиты поставщика и строка про НДС.
+Из них печатные формы счёта и акта (`app/backend/app/billing_forms.py`) собирают
+блок «Поставщик» и строку про НДС: пока не заполнено ни одного поля, вместо блока
+печатается заглушка «данные поставщика будут заполнены позже», а пустая строка
+про НДС означает, что строки в документе нет вовсе (не прочерк). Правка действует
+только на документы, собранные **после** неё: уже выданный PDF лежит в хранилище и
+не перерисовывается (`app/backend/app/invoice_files.py`), поэтому у старых счетов
+шапка остаётся прежней.
+
+| Метод | Путь | Ответ |
+| --- | --- | --- |
+| `GET` | `/api/company-details` | `200 {"id": 1, "name", "inn", "kpp", "ogrn", "address", "bank_name", "bank_bic", "bank_account", "corr_account", "signatory", "vat_note", "updated_at"}` — все поля всегда присутствуют, пустые приходят как `null`; строки в базе нет — тоже `200` с пустыми значениями, а не `404` |
+| `PATCH` | `/api/company-details` | `200` — та же строка целиком. Тело: **только присланные** поля из тех же одиннадцати; `null` и пустая строка после `strip()` очищают поле, отсутствующее поле не трогается |
+
+Ручки открывает сессия кабинета и проксирует их в основной API
+(`/api/platform/company-details`) с заголовком `X-Operator-Token`; создания
+строки нет — её засеяла миграция `0067_company_details`. Отказы:
+
+| Код | `detail` | Когда |
+| --- | --- | --- |
+| `422` | `ИНН должен состоять из 10 или 12 цифр`, `КПП должен состоять из 9 символов`, `ОГРН должен состоять из 13 или 15 цифр`, `БИК банка должен состоять из 9 цифр`, `Расчётный счёт должен состоять из 20 цифр`, `Корреспондентский счёт должен состоять из 20 цифр`, `Название длиннее 255 символов`, `Адрес длиннее 500 символов`, `Банк длиннее 255 символов`, `Подписант длиннее 300 символов`, `Строка про НДС длиннее 200 символов` | значение не по формату или длиннее колонки; фронт снимает приставку `Value error, ` |
+| `404` | `Реквизиты поставщика не заведены` | строки нет в базе (не засеяна); кабинет её не создаёт |
+| `502` | `Основной API не принял сервисный токен` / `Основной API недоступен` | как у остальных разделов |
+| `503` | `Кабинет не настроен: не задан OPERATOR_SERVICE_TOKEN` | пустой секрет; в сеть запрос не уходит |
+
 ## Фронтенд
 
 Маршруты:
@@ -134,6 +161,7 @@ docker compose up -d --build
   `/login`. Шапка с логином и «Выйти» живёт на обоих экранах кабинета;
 - `/organizations/:id` — карточка организации под той же проверкой сессии;
 - `/tariffs` — прайс платформы: список, правка полей и снятие с продажи;
+- `/company` — реквизиты поставщика и строка про НДС: форма из одиннадцати полей;
 - остальные адреса редиректят на `/`.
 
 Форма входа: пусто; отправка (кнопка неактивна, «Вход…»); клиентская проверка
@@ -189,6 +217,21 @@ docker compose up -d --build
 - создания тарифа, назначения тарифа организации и правки `currency`,
   `unit_label`, `position`, `group_code`, `tooltip` на экране нет.
 
+Реквизиты поставщика (`/company`, макет `mockups/179/`, если постановка его
+положила):
+
+- одиннадцать полей: «Название», «ИНН», «КПП», «ОГРН», «Адрес», «Банк», «БИК»,
+  «Расчётный счёт», «Корреспондентский счёт», «Подписант», «Строка про НДС»;
+  пустая форма — нормальное первое состояние, прочерк вместо пустого поля не
+  выводится;
+- «Сохранить» отправляет все одиннадцать полей, пустое поле уходит как `null`; на
+  отправке кнопка неактивна («Сохраняем…»), успех — «Сохранено» без перезагрузки
+  страницы;
+- загрузка — «Загружаем реквизиты…»; ошибка загрузки — текст `detail` дословно и
+  «Повторить»; отказ `422` — текст дословно в `role="alert"` над формой, введённые
+  значения не сбрасываются;
+- пункт навигации «Реквизиты» стоит после «Пользователей».
+
 Для тестировщика `data-testid`:
 
 | Экран | `data-testid` |
@@ -198,6 +241,7 @@ docker compose up -d --build
 | список | `operator-organizations`, `operator-organizations-empty`, `operator-organizations-error`, `operator-organizations-more`, `operator-organization-row` (на каждой строке), `operator-organization-open` |
 | карточка | `operator-organization-card`, `operator-organization-name`, `operator-organization-inn`, `operator-organization-kpp`, `operator-organization-ogrn`, `operator-organization-address`, `operator-organization-edit`, `operator-organization-save`, `operator-organization-cancel`, `operator-organization-error`, `operator-organization-back` (ссылка «К списку») |
 | тарифы | `operator-nav-tariffs` (пункт навигации), `operator-tariffs` (таблица), `operator-tariffs-count` (счётчик в заголовке), `operator-tariffs-loading`, `operator-tariffs-empty`, `operator-tariffs-error`, `operator-tariff-row` (на каждой строке), `operator-tariff-name`, `operator-tariff-description`, `operator-tariff-price`, `operator-tariff-period`, `operator-tariff-members`, `operator-tariff-state`, `operator-tariff-edit`, `operator-tariff-name-input`, `operator-tariff-description-input`, `operator-tariff-amount-input`, `operator-tariff-period-input`, `operator-tariff-members-input`, `operator-tariff-save`, `operator-tariff-cancel`, `operator-tariff-delete`, `operator-tariff-delete-confirm`, `operator-tariff-delete-decline`, `operator-tariff-publish`, `operator-tariff-error` |
+| реквизиты поставщика | `operator-nav-company` (пункт навигации), `operator-company` (форма), `operator-company-name`, `operator-company-inn`, `operator-company-kpp`, `operator-company-ogrn`, `operator-company-address`, `operator-company-bank-name`, `operator-company-bank-bic`, `operator-company-account`, `operator-company-corr-account`, `operator-company-signatory`, `operator-company-vat-note`, `operator-company-save`, `operator-company-saved`, `operator-company-error`, `operator-company-retry` |
 
 В режиме правки те же `operator-organization-name/-inn/-kpp/-ogrn/-address`
 носят поля формы: выписка на это время заменяется формой, и один

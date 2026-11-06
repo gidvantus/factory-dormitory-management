@@ -48,6 +48,10 @@ def test_openapi_documents_the_contract(client: TestClient) -> None:
         # снятие с продажи.
         "/api/tariffs",
         "/api/tariffs/{tariff_id}",
+        # Реквизиты поставщика — пятый раздел: единственная строка, которую
+        # правят в кабинете и из которой печатные формы берут блок «Поставщик» и
+        # строку про НДС (#179).
+        "/api/company-details",
     }
     login = schema["paths"]["/api/auth/login"]["post"]
     assert login["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
@@ -140,3 +144,25 @@ def test_openapi_documents_the_tariffs_contour(client: TestClient) -> None:
     # `DELETE` отвечает пустым телом: 204 объявлен, а 200 у него нет.
     assert "204" in delete["responses"]
     assert "200" not in delete["responses"]
+
+
+def test_openapi_documents_the_company_contour(client: TestClient) -> None:
+    """Реквизиты поставщика: чтение и правка, отказы — контракт кабинета.
+
+    `422` объявлен у правки: тексты форматов приходят из основного API и
+    показываются дословно, поэтому код обязан быть в схеме, которую читает
+    фронтенд. `404` — «строка не заведена»: создавать её кабинет не умеет.
+    """
+    schema = client.get("/openapi.json").json()
+    reading = schema["paths"]["/api/company-details"]["get"]
+    update = schema["paths"]["/api/company-details"]["patch"]
+
+    assert reading["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "CompanyDetails"
+    )
+    for operation in (reading, update):
+        assert operation["responses"]["401"]["description"] == UNAUTHORIZED_DETAIL
+        assert operation["responses"]["502"] is not None
+        assert operation["responses"]["503"] is not None
+    assert update["responses"]["404"] is not None
+    assert update["responses"]["422"] is not None
