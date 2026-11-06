@@ -347,3 +347,58 @@ class UpdateCompanyDetailsRequest(ForwardedBody):
     corr_account: str | None = None
     signatory: str | None = None
     vat_note: str | None = None
+
+
+# --- Решения магазина --------------------------------------------------------
+# Те же правила, что у остальных разделов платформенного контура: модель
+# повторяет форму ответа основного API (`SolutionAdminResponse` из
+# `app/backend/app/schemas/platform_solution.py`) один в один, а тело правки
+# проверяется там же, наверху. `amount` едет строкой (`"500.00"`), `price_label`
+# собирает основной API — кабинет его не считает.
+#
+# `code` есть только в ответе: это машинное имя решения и гейт платной функции
+# (`app.solutions.has_solution`), поэтому правке оно не подлежит и в теле
+# отсутствует. Строка каталога заводится миграцией: создания из кабинета нет.
+
+
+class Solution(BaseModel):
+    """Строка каталога решений в кабинете оператора.
+
+    Поля — ровно `SolutionAdminResponse` основного API: кабинет показывает
+    каталог целиком, в том числе строки со `is_visible = false` («не в
+    каталоге»). `position` — порядок витрины магазина: меньше — выше, ничья
+    решается `id`.
+    """
+
+    id: int
+    code: str
+    name: str
+    description: str | None
+    amount: str
+    currency: str
+    period: str
+    position: int
+    is_visible: bool
+    price_label: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class UpdateSolutionRequest(ForwardedBody):
+    """Тело правки решения — то, что кабинет передаёт основному API.
+
+    Поля необязательны, и уходят только присланные: `PATCH` одного описания не
+    обнуляет цену. Значения не проверяются здесь вовсе — пустое название,
+    отрицательную или слишком большую цену, валюту не из трёх заглавных букв,
+    неизвестный период, нецелый порядок и состояние не `true`/`false` отсекает
+    основной API, и его `422` уходит клиенту дословно. Вторая копия правил и
+    текстов разошлась бы с оригиналом на первой же правке.
+    """
+
+    name: str | None = None
+    description: str | None = None
+    amount: str | None = None
+    currency: str | None = None
+    period: str | None = None
+    position: int | None = None
+    is_visible: bool | None = None
