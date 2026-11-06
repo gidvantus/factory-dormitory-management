@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { CompanyDetails } from './CompanyDetails';
 import { OperatorContext } from '../auth/operatorContext';
@@ -199,6 +199,55 @@ describe('реквизиты поставщика в кабинете опера
       inn: '7701234567',
       vat_note: 'НДС не облагается',
     });
+  });
+
+  it('после сохранения экран возвращает фокус на «Сохранить»', async () => {
+    let release: (response: { status: number; body: unknown }) => void = () => undefined;
+    const pending = new Promise<{ status: number; body: unknown }>((resolve) => {
+      release = resolve;
+    });
+    await renderLoaded([{ status: 200, body: EMPTY_DETAILS }, () => pending]);
+    const user = userEvent.setup();
+    const save = screen.getByTestId('operator-company-save');
+
+    await user.click(save);
+    // На время запроса кнопка `disabled`, и браузер снимает с неё фокус. jsdom
+    // сам возвращает фокус на кнопку, когда `disabled` снимают, поэтому
+    // `toHaveFocus` здесь ничего не доказывает: проверяется сам вызов — экран
+    // обязан попросить фокус, а не надеяться на площадку (замечание Ф1).
+    (document.activeElement as HTMLElement | null)?.blur();
+    const focus = vi.spyOn(save, 'focus');
+
+    release({ status: 200, body: DETAILS });
+
+    expect(await screen.findByTestId('operator-company-saved')).toBeInTheDocument();
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(save).toHaveFocus();
+  });
+
+  it('после отказа фокус тоже возвращается на «Сохранить»', async () => {
+    let release: (response: { status: number; body: unknown }) => void = () => undefined;
+    const pending = new Promise<{ status: number; body: unknown }>((resolve) => {
+      release = resolve;
+    });
+    await renderLoaded([{ status: 200, body: EMPTY_DETAILS }, () => pending]);
+    const user = userEvent.setup();
+    const save = screen.getByTestId('operator-company-save');
+
+    await user.click(save);
+    // Отказ виден над формой, а точка продолжения — та же кнопка: введённое
+    // осталось в полях, и клавиатурный пользователь правит его, а не ищет форму
+    // заново с начала страницы.
+    (document.activeElement as HTMLElement | null)?.blur();
+    const focus = vi.spyOn(save, 'focus');
+
+    release({ status: 502, body: { detail: 'Основной API недоступен' } });
+
+    expect(await screen.findByTestId('operator-company-error')).toHaveTextContent(
+      'Основной API недоступен',
+    );
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(save).toHaveFocus();
   });
 
   it('пустое поле уходит как null: очистка поля — это PATCH с null', async () => {

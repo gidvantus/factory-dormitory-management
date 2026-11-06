@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 
 import { ApiError, getCompanyDetails, updateCompanyDetails } from '../api/client';
@@ -248,6 +248,26 @@ export function CompanyDetails(): JSX.Element {
   // Повтор загрузки: «Повторить» — это новый номер попытки, а не второй запрос
   // поверх первого.
   const [attempt, setAttempt] = useState(0);
+  const saveButton = useRef<HTMLButtonElement | null>(null);
+  // Фокус нужен после ближайшей перерисовки: на время запроса кнопка неактивна,
+  // и браузер снимает с неё фокус — без возврата он уезжает на `body`.
+  const focusSaveAfterRender = useRef(false);
+
+  /**
+   * Возврат фокуса на «Сохранить» после ответа сервера.
+   *
+   * `disabled={saving}` снимает фокус с кнопки и обратно его не возвращает, и
+   * клавиатурный пользователь начинал бы обход страницы заново с начала. Просим
+   * фокус в `finally` запроса, а не до него: пока кнопка неактивна, фокус на неё
+   * не встанет. Кнопка живёт дольше запроса (её текст меняется, а не элемент),
+   * поэтому `ref` остаётся валидным и после отказа — введённое в поля при отказе
+   * сохраняется, и «Сохранить» остаётся той же точкой продолжения.
+   */
+  useEffect(() => {
+    if (!focusSaveAfterRender.current) return;
+    focusSaveAfterRender.current = false;
+    saveButton.current?.focus();
+  });
 
   useEffect(() => {
     let active = true;
@@ -296,6 +316,9 @@ export function CompanyDetails(): JSX.Element {
       setSaveError(text);
       setErrorField(invalidField(text));
     } finally {
+      // Кнопка снова станет активной — вернуть на неё фокус, которого её лишил
+      // `disabled` на время запроса.
+      focusSaveAfterRender.current = true;
       setSaving(false);
     }
   }
@@ -407,6 +430,7 @@ export function CompanyDetails(): JSX.Element {
                   <button
                     className="btn btn--primary"
                     type="submit"
+                    ref={saveButton}
                     disabled={saving}
                     aria-busy={saving ? true : undefined}
                     data-testid="operator-company-save"

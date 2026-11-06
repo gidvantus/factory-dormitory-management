@@ -41,6 +41,7 @@ from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
+from fpdf import FPDF
 from httpx import Response
 from pypdf import PdfReader
 from sqlalchemy import select
@@ -1107,6 +1108,38 @@ def test_act_prints_the_same_supplier_block_and_vat_line(
     assert "044525225" in text
     assert "НДС не облагается" in text
     assert text.index("Предмет") < text.index("НДС не облагается")
+
+
+def test_supplier_label_column_fits_the_widest_label() -> None:
+    """Колонка подписей шире «Корреспондентского счёта», иначе значение поверх неё.
+
+    Дефект Б1: `cell(LABEL_WIDTH, …)` печатал подпись в 45 мм без переноса, а
+    подпись занимает 56,63 мм — номер счёта рисовался поверх слова «счёт» в счёте
+    и в акте. Наложение ловится глазами в готовом PDF, а его причина — здесь:
+    ширина колонки считается по метрикам шрифта, а не берётся константой.
+    """
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+    )
+    billing_forms._register_fonts(pdf)
+    pdf.set_font(billing_forms.FONT_FAMILY, "B", billing_forms.BODY_SIZE)
+
+    labels = [label for label, _ in billing_forms.SUPPLIER_ROWS]
+    width = billing_forms._label_width(pdf, labels)
+    widest = "Корреспондентский счёт"
+
+    assert max(labels, key=pdf.get_string_width) == widest
+    assert pdf.get_string_width(widest) > billing_forms.LABEL_WIDTH
+    # Значение начинается за подписью, а не поверх неё.
+    assert width > pdf.get_string_width(widest)
+    # Короткие блоки не съеживаются ниже прежней колонки, а значению остаётся место.
+    assert width >= billing_forms.LABEL_WIDTH
+    assert pdf.epw - width >= billing_forms.MIN_VALUE_WIDTH
+    # Замер не оставляет жирный шрифт: следующий абзац (заглушка) печатается обычным.
+    assert pdf.font_style == ""
 
 
 def test_the_logo_asset_is_present_and_sized() -> None:

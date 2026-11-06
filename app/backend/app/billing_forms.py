@@ -26,6 +26,9 @@ git: в core-шрифтах PDF кириллицы нет, и молчалива
   Не заполнено ни одного (или `company is None`) — печатается прежняя заглушка
   одним абзацем: прочерки вместо названия и банка выглядели бы как реквизиты,
   которых нет. `_value` для этого блока поэтому не применяется.
+* Ширина колонки подписей считается по метрикам шрифта, а не берётся константой:
+  «Корреспондентский счёт» шире 45 мм, и в фиксированной колонке значение
+  печаталось поверх подписи.
 * Строка про НДС — тот же абзац в обеих формах: в проекте один налоговый режим
   и один поставщик, и второй источник разошёлся бы с первым. Пустой `vat_note` —
   строки нет вовсе.
@@ -98,11 +101,17 @@ EMPTY_VALUE = "—"
 # Дата в печатной форме — день месяца словами не нужен, но год обязателен.
 DATE_FORMAT = "%d.%m.%Y"
 
-# Геометрия страницы в миллиметрах: A4, поля по 15, подпись 45, значение —
-# остаток ширины. Содержимое формы умещается в одну страницу с большим запасом,
-# а автоматический перенос оставлен как страховка от очень длинного адреса.
+# Геометрия страницы в миллиметрах: A4, поля по 15, подпись — не уже 45,
+# значение — остаток ширины. Колонка подписей не константа: она считается по
+# метрикам шрифта (`_label_width`), потому что «Корреспондентский счёт» шире 45 мм
+# и, напечатанный `cell` в 45 мм, наезжал на номер счёта. 45 — нижняя граница,
+# чтобы короткие блоки («Покупатель») не съеживались.
 PAGE_MARGIN = 15.0
 LABEL_WIDTH = 45.0
+# Отступ между подписью и значением: половина уходит на внутренние поля ячейки.
+LABEL_GAP = 4.0
+# Минимум, который остаётся значению: длинная подпись не съедает весь ряд.
+MIN_VALUE_WIDTH = 60.0
 LINE_HEIGHT = 6.0
 TITLE_HEIGHT = 9.0
 SECTION_GAP = 5.0
@@ -295,23 +304,66 @@ def _draw_logo(pdf: FPDF) -> None:
     pdf.image(str(LOGO_PATH), x=pdf.l_margin, y=pdf.get_y(), h=LOGO_HEIGHT)
 
 
-def _row(pdf: FPDF, label: str, value: str | None) -> None:
-    """Подпись слева, значение справа: длинное значение переносится целиком."""
+def _label_width(pdf: FPDF, labels: list[str]) -> float:
+    """Ширина колонки подписей по самой длинной из них.
+
+    Подписи печатаются тем же жирным шрифтом, что и в документе, поэтому ширину
+    даёт `get_string_width`, а не константа: «Корреспондентский счёт» занимает
+    56,63 мм при 45, и `cell(45, …)` печатал его без переноса — номер счёта
+    рисовался поверх слова «счёт» (замечание Б1). Ниже `LABEL_WIDTH` колонка не
+    опускается, чтобы короткие блоки не съеживались, а справа всегда остаётся
+    `MIN_VALUE_WIDTH` — иначе длинная подпись съела бы место значения. Шрифт
+    после замера возвращается к обычному: следующий за блоком абзац (заглушка или
+    строка про НДС) печатается не жирным.
+    """
+    if not labels:
+        return LABEL_WIDTH
+    pdf.set_font(FONT_FAMILY, "B", BODY_SIZE)
+    widest = max(pdf.get_string_width(label) for label in labels)
+    # Шрифт замера — не шрифт документа: следующий абзац печатается обычным.
+    pdf.set_font(FONT_FAMILY, "", BODY_SIZE)
+    return min(max(LABEL_WIDTH, widest + LABEL_GAP), pdf.epw - MIN_VALUE_WIDTH)
+
+
+def _row(
+    pdf: FPDF,
+    label: str,
+    value: str | None,
+    label_width: float = LABEL_WIDTH,
+) -> None:
+    """Подпись слева, значение справа: длинное значение переносится целиком.
+
+    `label_width` приходит из `_label_width`: у блока поставщика он шире 45 мм,
+    иначе длинная подпись наезжает на значение. Подпись тоже печатается
+    `multi_cell` — если она не влезла в отведённую колонку, она переносится на
+    вторую строку, а не рисуется поверх значения; курсор уходит ниже той из двух
+    колонок, которая оказалась длиннее.
+    """
     x = pdf.l_margin
     y = pdf.get_y()
     pdf.set_font(FONT_FAMILY, "B", BODY_SIZE)
     pdf.set_xy(x, y)
-    pdf.cell(LABEL_WIDTH, LINE_HEIGHT, label)
-    pdf.set_font(FONT_FAMILY, "", BODY_SIZE)
-    pdf.set_xy(x + LABEL_WIDTH, y)
     pdf.multi_cell(
-        pdf.epw - LABEL_WIDTH,
+        label_width,
+        LINE_HEIGHT,
+        label,
+        align=ALIGN_LEFT,
+        new_x=XPos.LMARGIN,
+        new_y=YPos.NEXT,
+    )
+    label_bottom = pdf.get_y()
+    pdf.set_font(FONT_FAMILY, "", BODY_SIZE)
+    pdf.set_xy(x + label_width, y)
+    pdf.multi_cell(
+        pdf.epw - label_width,
         LINE_HEIGHT,
         _value(value),
         align=ALIGN_LEFT,
         new_x=XPos.LMARGIN,
         new_y=YPos.NEXT,
     )
+    if pdf.get_y() < label_bottom:
+        pdf.set_y(label_bottom)
 
 
 def _header(pdf: FPDF, heading: str, date: datetime | None) -> None:
@@ -369,16 +421,23 @@ def _document(
 
     _heading(pdf, SUPPLIER_HEADING)
     rows = _supplier_rows(company)
+    # Колонка подписей одна на оба блока: значения в «Поставщике» и «Покупателе»
+    # стоят на одной вертикали, и «Корреспондентский счёт» не выводит её из 45 мм.
+    buyer_rows = _buyer_rows(invoice)
+    label_width = _label_width(
+        pdf,
+        [label for label, _ in rows] + [label for label, _ in buyer_rows],
+    )
     if rows:
         for label, text in rows:
-            _row(pdf, label, text)
+            _row(pdf, label, text, label_width)
     else:
         # Ни одного заполненного реквизита — честная заглушка одним абзацем.
         _paragraph(pdf, SUPPLIER_PLACEHOLDER)
 
     _heading(pdf, "Покупатель")
-    for label, value in _buyer_rows(invoice):
-        _row(pdf, label, value)
+    for label, value in buyer_rows:
+        _row(pdf, label, value, label_width)
 
     _heading(pdf, SUBJECT_HEADING)
     for line in _subject_lines(invoice):
