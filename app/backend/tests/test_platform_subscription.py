@@ -165,6 +165,19 @@ def stored_ends_at(db_session: Session, organization_id: int) -> datetime | None
     return organization.tariff_ends_at
 
 
+def stored_end(db_session: Session, organization_id: int) -> datetime:
+    """Срок текущего слота из базы — с проверкой, что он вообще записан.
+
+    Отдельно от `stored_ends_at`: там `None` — ожидаемый ответ («срок не записан»,
+    так проверяется отказ на пустом слоте), а здесь это падение теста. Без такой
+    развилки пришлось бы либо глушить `None` в каждом вызове, либо сравнивать
+    момент с отсутствием значения и молча проходить проверку.
+    """
+    ends_at = stored_ends_at(db_session, organization_id)
+    assert ends_at is not None, "срок текущего слота не записан"
+    return ends_at
+
+
 # --- Токен ------------------------------------------------------------------
 
 
@@ -450,7 +463,7 @@ def test_patch_writes_the_last_included_day_of_moscow(
     assert body["tariff"]["is_live"] is True
     assert body["days_left"] > 0
     # В базу лёг конец московских суток — тот же момент, что и `23:59:59.999999 МСК`.
-    assert subscription.as_utc(stored_ends_at(db_session, organization.id)) == end_of_day(
+    assert subscription.as_utc(stored_end(db_session, organization.id)) == end_of_day(
         date(2027, 6, 30)
     ).astimezone(UTC)
 
@@ -476,7 +489,9 @@ def test_patch_does_not_touch_the_paid_forward_slot(
     refreshed = db_session.get(Organization, organization.id)
     assert refreshed is not None
     assert refreshed.next_tariff_id == upcoming.id
-    assert subscription.as_utc(refreshed.next_tariff_ends_at) == next_ends_at
+    stored_next = refreshed.next_tariff_ends_at
+    assert stored_next is not None, "срок оплаченного вперёд слота не записан"
+    assert subscription.as_utc(stored_next) == next_ends_at
     assert response.json()["next"]["tariff"]["id"] == upcoming.id
 
 
@@ -589,7 +604,7 @@ def test_deactivate_writes_the_current_moment(
     assert body["days_left"] == 0
     # Ничего не удалено: строка тарифа на месте, срок — в прошлом.
     assert body["tariff"]["id"] == tariff.id
-    stored = subscription.as_utc(stored_ends_at(db_session, organization.id))
+    stored = subscription.as_utc(stored_end(db_session, organization.id))
     assert before - timedelta(seconds=2) <= stored <= after + timedelta(seconds=2)
 
 
@@ -631,7 +646,9 @@ def test_deactivation_does_not_touch_the_paid_forward_slot(
     refreshed = db_session.get(Organization, organization.id)
     assert refreshed is not None
     assert refreshed.next_tariff_id == upcoming.id
-    assert subscription.as_utc(refreshed.next_tariff_ends_at) == next_ends_at
+    stored_next = refreshed.next_tariff_ends_at
+    assert stored_next is not None, "срок оплаченного вперёд слота не записан"
+    assert subscription.as_utc(stored_next) == next_ends_at
 
 
 def test_deactivation_closes_the_client_cabinet(
@@ -706,7 +723,9 @@ def test_deactivate_right_writes_the_current_moment_and_keeps_the_row(
         )
     )
     assert row is not None
-    stored = subscription.as_utc(row.expires_at)
+    expires_at = row.expires_at
+    assert expires_at is not None, "срок права не записан: снятие активности не записало"
+    stored = subscription.as_utc(expires_at)
     assert before - timedelta(seconds=2) <= stored <= after + timedelta(seconds=2)
     # Платная функция организации права больше не видит.
     assert solutions_module.has_solution(db_session, organization.id, solution.code) is False
@@ -812,6 +831,27 @@ def test_openapi_documents_the_same_refusals_for_both_write_routes(
     assert PAID_UNTIL_FORMAT_MESSAGE in update["responses"]["422"]["description"]
 
 
+def test_openapi_declares_paid_until_required_and_never_null(
+    client: TestClient, operator_token: None
+) -> None:
+    """Опубликованная схема тела обещает то же, что делает ручка.
+
+    Рантайм отвечал правильно и раньше, но `date | None = None` читался в
+    `/openapi.json` как «поле необязательное, `null` допустим»: контракт обещает
+    обязательную строку `ГГГГ-ММ-ДД`, и по схеме клиент решает, что слать.
+    """
+    components = client.get("/openapi.json").json()["components"]["schemas"]
+    body = components["UpdateSubscriptionRequest"]
+
+    assert body["required"] == ["paid_until"]
+    assert body["additionalProperties"] is False
+    paid_until = body["properties"]["paid_until"]
+    assert paid_until["type"] == "string"
+    assert paid_until["format"] == "date"
+    # `null` не принимается: иначе схема снова разошлась бы с отказом в ручке.
+    assert "anyOf" not in paid_until
+
+
 # --- Правила срока без HTTP -------------------------------------------------
 
 
@@ -833,7 +873,7 @@ def test_set_current_end_round_trips_through_paid_until(db_session: Session) -> 
     subscription.set_current_end(organization, date(2027, 6, 30))
     db_session.commit()
 
-    stored = subscription.as_utc(stored_ends_at(db_session, organization.id))
+    stored = subscription.as_utc(stored_end(db_session, organization.id))
     assert subscription.paid_until(stored) == date(2027, 6, 30)
     assert stored == end_of_day(date(2027, 6, 30)).astimezone(UTC)
 

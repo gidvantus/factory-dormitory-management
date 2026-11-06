@@ -27,7 +27,7 @@
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Текст отказа формата даты — часть контракта: его показывает фронтенд дословно.
 PAID_UNTIL_FORMAT_MESSAGE = "Укажите срок действия в формате ГГГГ-ММ-ДД"
@@ -119,17 +119,35 @@ class UpdateSubscriptionRequest(BaseModel):
 
     Лишнее поле — `422` (`extra="forbid"`): контракт обещает одно поле, и молчаливое
     «проигнорировали» скрывало бы ошибку клиента. Отсутствие поля, `null`, пустая
-    строка и мусор дают один и тот же `422` с русским текстом — за него отвечает
-    этот валидатор, а не типы pydantic (у типов текст английский).
+    строка и мусор дают один и тот же `422` с русским текстом — за него отвечают
+    валидаторы ниже, а не типы pydantic (у типов текст английский).
 
-    `validate_default` включает валидатор и для умолчания: без него пропущенное
-    поле прошло бы как «не прислали» и дало стандартный английский `Field required`
-    вместо текста контракта.
+    **Поле объявлено обязательным и не-nullable, и это часть контракта.** Схема
+    публикуется в `/openapi.json`, по ней клиенты и тестировщик читают контракт:
+    `paid_until: date` без умолчания говорит «поле обязательно и это дата», а
+    `date | None = None` говорил бы «присылать не обязательно, null допустим» —
+    при том, что ручка такой запрос отклоняет. Обязательность обеспечивает
+    `model_validator(mode="before")`: он ловит отсутствие поля до проверки типов и
+    отвечает русским текстом вместо английского `Field required`.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    paid_until: date | None = Field(default=None, validate_default=True)
+    paid_until: date
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_paid_until(cls, data: Any) -> Any:
+        """Пропущенное поле — тот же отказ, что и мусор в нём.
+
+        Проверка стоит до типов: иначе отсутствие поля дало бы стандартный
+        английский `Field required`, а контракт обещает один русский текст на все
+        негодные тела. Присланный `null` сюда не попадает — его разбирает
+        `validate_paid_until`, и текст там тот же.
+        """
+        if isinstance(data, dict) and "paid_until" not in data:
+            raise ValueError(PAID_UNTIL_FORMAT_MESSAGE)
+        return data
 
     @field_validator("paid_until", mode="before")
     @classmethod

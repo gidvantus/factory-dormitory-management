@@ -8,6 +8,7 @@
 
 import json
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -283,7 +284,10 @@ SOLUTION = f"{ORGANIZATIONS}/7/solutions/journal/deactivate"
 MAIN_API_SUBSCRIPTION = "/api/platform/organizations/7/subscription"
 MAIN_API_SOLUTION = "/api/platform/organizations/7/solutions/journal/deactivate"
 
-TARIFF = {
+# Состояние подписки — образец ответа основного API. Аннотации `dict[str, Any]`
+# нужны, чтобы тесты могли собирать из него варианты по полям: без них mypy
+# считает `STATE["solutions"]` объектом и запрещает индексацию элемента списка.
+TARIFF: dict[str, Any] = {
     "id": 4,
     "name": "Домовой · 12 месяцев",
     "period": "year",
@@ -293,21 +297,21 @@ TARIFF = {
     "paid_until": "2027-06-30",
     "is_live": True,
 }
-STATE = {
+# Право на расширение: бессрочное, поэтому `expires_at` и `paid_until` пусты.
+SOLUTION_RIGHT: dict[str, Any] = {
+    "code": "journal",
+    "name": "Журнал действий",
+    "expires_at": None,
+    "paid_until": None,
+    "is_live": True,
+}
+STATE: dict[str, Any] = {
     "tariff": TARIFF,
     "days_left": 236,
     "next": None,
     "extra_seats": 3,
     "member_limit": 8,
-    "solutions": [
-        {
-            "code": "journal",
-            "name": "Журнал действий",
-            "expires_at": None,
-            "paid_until": None,
-            "is_live": True,
-        }
-    ],
+    "solutions": [SOLUTION_RIGHT],
 }
 PAID_UNTIL_MESSAGE = "Укажите срок действия в формате ГГГГ-ММ-ДД"
 # Текст отказа основного API на слот без тарифа (ревью №1, Б1): кабинет его не

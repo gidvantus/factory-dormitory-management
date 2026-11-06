@@ -42,8 +42,8 @@
 показывает в `role="alert"`.
 """
 
-from datetime import UTC, date, datetime
-from typing import Annotated, cast
+from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -277,8 +277,7 @@ def update_subscription(
     """
     organization = load_organization(db, organization_id)
     _require_tariff_slot(db, organization)
-    # Валидатор схемы не пропустит `None`: пришедшая дата — всегда дата.
-    set_current_end(organization, cast(date, payload.paid_until))
+    set_current_end(organization, payload.paid_until)
     db.commit()
     db.refresh(organization)
     return _state(db, organization)
