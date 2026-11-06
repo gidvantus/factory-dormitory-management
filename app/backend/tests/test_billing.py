@@ -810,6 +810,24 @@ def pdf_text(body: bytes) -> str:
     return "\n".join(pdf_pages(body)).replace(NBSP, " ")
 
 
+def pdf_text_starts(body: bytes) -> list[tuple[str, float]]:
+    """Начала текстовых строк файла и их `x` в пунктах: по ним мерится геометрия.
+
+    Кириллица читается через ToUnicode-CMap, а `tm[4]` из матрицы текста — это
+    горизонталь, с которой строка начинается в готовом файле. Так проверяется
+    раскладка (центровка заголовка), а не только наличие подстроки.
+    """
+    spans: list[tuple[str, float]] = []
+
+    def visitor(text: str, cm: Any, tm: Any, font: Any, size: Any) -> None:
+        if text.strip():
+            spans.append((text.strip(), float(tm[4])))
+
+    for page in PdfReader(io.BytesIO(body)).pages:
+        page.extract_text(visitor_text=visitor)
+    return spans
+
+
 def amount_text(invoice: Invoice) -> str:
     """Сумма счёта такой, какой она должна быть в итоговой строке файла.
 
@@ -1210,8 +1228,8 @@ def test_the_logo_asset_is_present_and_sized() -> None:
     """Ассет знака лежит рядом с модулем и объявляет размер: без него PDF не собрать.
 
     `width` и `height` в корне SVG обязательны: `fpdf2` берёт из них размер при
-    вставке. Сам знак проверяется глазами в готовом PDF — неподдерживаемые
-    элементы SVG `fpdf2` рисует молча пусто, и подстрокой в файле это не ловится.
+    вставке. Что знак действительно нарисован, а не пропущен молча, проверяет
+    `test_the_logo_is_drawn_as_shapes_in_the_header`.
     """
     source = billing_forms.LOGO_PATH.read_text(encoding="utf-8")
 
@@ -1219,6 +1237,46 @@ def test_the_logo_asset_is_present_and_sized() -> None:
     assert 'viewBox="0 0 40 40"' in source
     assert 'width="40"' in source
     assert 'height="40"' in source
+
+
+def test_the_logo_is_drawn_as_shapes_in_the_header() -> None:
+    """Знак действительно нарисован: 11 мм на левом верхнем поле.
+
+    «Файл ассета на месте» ничего не доказывает: `fpdf2` рисует SVG сам, но
+    неподдерживаемые элементы пропускает молча, и PDF вышел бы без знака при
+    зелёном тесте. Проверяется поток страницы — знак вставлен отдельным
+    масштабом 0.275 (11 мм при viewBox 40) от левого верхнего поля, плашка
+    залита #DCEEE4, а дом нарисован тремя штрихами #27313D, как в `SiteHeader`.
+    """
+    invoice = Invoice(number="СЧ-2026-1", amount=Decimal("10000.00"), currency="RUB")
+    page = PdfReader(io.BytesIO(billing_forms.invoice_pdf(invoice, None))).pages[0]
+    contents = page.get_contents()
+    assert contents is not None
+    content = contents.get_data().decode("latin-1")
+
+    assert "q 0.275 0 0 0.275 15 15 cm" in content
+    assert "0.8627 0.9333 0.8941 rg" in content
+    assert content.count("0.1529 0.1922 0.2392 RG") == 3
+
+
+def test_the_title_is_centered_on_the_type_area() -> None:
+    """Заголовок стоит по центру страницы, а не съезжает вправо от знака.
+
+    Ревьюер сомневался, возвращает ли `pdf.image()` курсор на левое поле: если
+    бы курсор остался правее знака, заголовок центрировался бы не по странице.
+    Проверяется готовый файл: середина строки заголовка совпадает с серединой
+    страницы, а середина считается из начала строки и ширины её текста.
+    """
+    invoice = Invoice(number="СЧ-2026-5", amount=Decimal("10000.00"), currency="RUB")
+    title, start = pdf_text_starts(billing_forms.invoice_pdf(invoice, None))[0]
+    assert title.startswith("Счёт на оплату № СЧ-2026-5")
+
+    measure = FPDF(orientation="P", unit="mm", format="A4")
+    billing_forms._register_fonts(measure)
+    measure.set_font(billing_forms.FONT_FAMILY, "B", billing_forms.TITLE_SIZE)
+    center = start * 25.4 / 72 + measure.get_string_width(title) / 2
+
+    assert center == pytest.approx(measure.w / 2, abs=0.5)
 
 
 def test_missing_logo_fails_with_a_clear_message(monkeypatch: pytest.MonkeyPatch) -> None:
