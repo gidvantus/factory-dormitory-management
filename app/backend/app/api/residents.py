@@ -84,7 +84,7 @@ def list_residents(
     if month.day != 1:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите первый день месяца")
     residents = db.scalars(
-        select(Resident).where(Resident.dormitory_id == dormitory_id).order_by(Resident.id)
+        select(Resident).where(Resident.dormitory_id == dormitory_id).order_by(Resident.id.desc())
     ).all()
     hostels = db.scalars(
         select(Hostel)

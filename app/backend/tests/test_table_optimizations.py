@@ -147,7 +147,7 @@ def test_report_drag_order_preserves_formulas(client: TestClient, db_session: Se
 
 
 @pytest.mark.parametrize("table", ["residents", "inflow", "outflow"])
-def test_excel_import_preserves_file_order_in_working_table(
+def test_excel_import_shows_newest_rows_first_in_working_table(
     client: TestClient, db_session: Session, table: str
 ) -> None:
     sign_in(client, db_session)
@@ -170,4 +170,8 @@ def test_excel_import_preserves_file_order_in_working_table(
     result = client.get(f"/api/dormitories/{dorm}/{table}{query}")
     assert result.status_code == 200, result.text
     loaded = result.json()["residents"] if table == "residents" else result.json()
-    assert [row["full_name"] for row in loaded] == names
+    # Импорт создаёт строки в последовательности файла, а список отдаёт записи по
+    # убыванию идентификатора: новые строки показываются первыми, поэтому на
+    # экране импортированный файл читается снизу вверх (docs/table-optimizations.md).
+    # Экспорт xlsx при этом остаётся в прямом порядке файла.
+    assert [row["full_name"] for row in loaded] == list(reversed(names))
