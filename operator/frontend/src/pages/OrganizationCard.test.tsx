@@ -510,9 +510,16 @@ describe('панель «Тариф и расширения»', () => {
     expect(save).toHaveTextContent('Сохраняем…');
     expect(save).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByTestId('operator-subscription-tariff-until-input')).toBeDisabled();
+    // Пока сохраняется срок, второй записи не уходит: кнопки снятия у расширений
+    // неактивны — иначе две записи в полёте и экран взял бы состояние последней.
+    for (const button of screen.getAllByTestId('operator-subscription-solution-deactivate')) {
+      expect(button).toBeDisabled();
+    }
 
     release({ status: 200, body: SUBSCRIPTION });
     expect(await screen.findByTestId('operator-subscription-tariff-edit')).toBeInTheDocument();
+    // Ответ пришёл — кнопки снова доступны.
+    expect(screen.getAllByTestId('operator-subscription-solution-deactivate')[0]).toBeEnabled();
   });
 
   it('снятие тарифа двухшаговое: запрос уходит только с «Подтвердить»', async () => {
