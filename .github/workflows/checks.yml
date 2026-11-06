@@ -1,0 +1,171 @@
+# Проверки pull request: то, что должно быть зелёным до слияния в develop-m/main.
+#
+# Зачем это здесь: три слияния develop-s подряд (#133, #139, #159) принесли в
+# дерево alembic по две головы, и каждый раз это ловилось уже на стенде падением
+# `api` в цикле перезапуска, а не в pull request. Тест-страховка на одну голову
+# (`app/backend/tests/migration_support.py:134`) в репозитории была, но её никто
+# не запускал: workflow на pull_request не существовало.
+#
+# Команды ровно те же, что README предписывает разработчику, и те же, что
+# запускаются внутри образов стенда (`docker compose exec api pytest`), поэтому
+# локальный прогон и CI не расходятся:
+#
+#   ruff check . ; mypy app ; pytest -q       — app/backend
+#   ruff check . ; mypy app ; pytest -q       — operator/backend
+#   npm run typecheck ; npm run lint ; npm test — фронтенды
+#
+# Два отступления от README, оба осознанные:
+#
+# 1. `mypy app`, а не `mypy .`: на момент этой задачи `mypy .` на develop-m даёт
+#    24 ошибки, и все — в tests/ (нет аннотаций у фикстур, optional в
+#    проверках). Исходники при этом чистые: `mypy app` проходит. Пока тесты не
+#    типизированы, проверка стоит на пакете, иначе красным стал бы весь
+#    репозиторий с первого же PR.
+# 2. `npm test` пока только у operator/frontend. У app/frontend красны четыре
+#    теста, и это не окружение, а расхождение с кодом:
+#      src/design-system.test.ts            — литералы `background: white;`
+#                                             в pages/overview-preview/OverviewDesignPreview.module.css
+#      src/components/SiteHeader.layout.test.ts — разметку меню изменили без обновления теста
+#    Чинить их — задача разработчика, а не проверки. Как только они позеленеют,
+#    строку `npm test` достаточно добавить в job `frontend-app`.
+
+name: Проверки
+
+on:
+  pull_request:
+    branches:
+      - develop-m
+      - main
+
+# Старый прогон по тому же PR отменяется: незачем ждать его, если пришёл новый коммит.
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend-app:
+    name: app/backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/backend/pyproject.toml
+
+      # Тот же шрифт, что и в образе api (Dockerfile ставит fonts-dejavu-core):
+      # app/billing_forms.py встраивает DejaVu в PDF счёта и акта, без пакета
+      # тесты печатных форм падают на отсутствующем .ttf.
+      - name: Шрифт для PDF (как в образе api)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-dejavu-core
+
+      - name: Установить зависимости
+        run: pip install -e ".[dev]"
+
+      - name: ruff
+        run: ruff check .
+
+      - name: mypy
+        run: mypy app
+
+      - name: pytest
+        run: pytest -q
+
+      # Именно этому шагу слияния develop-s ломали стенд. `alembic heads` печатает
+      # по строке на голову: больше одной строки — `upgrade head` упадёт, а вместе
+      # с ним и `entrypoint.sh` сервиса api.
+      - name: alembic — ровно одна голова
+        run: |
+          heads="$(alembic heads)"
+          echo "$heads"
+          if [ "$(printf '%s\n' "$heads" | wc -l)" -ne 1 ]; then
+            echo "::error::В дереве alembic несколько голов: сведите их пустой merge-ревизией (см. 0042_merge_develop_s.py)"
+            exit 1
+          fi
+
+  backend-operator:
+    name: operator/backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: operator/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: operator/backend/pyproject.toml
+
+      - name: Установить зависимости
+        run: pip install -e ".[dev]"
+
+      - name: ruff
+        run: ruff check .
+
+      - name: mypy
+        run: mypy app
+
+      - name: pytest
+        run: pytest -q
+
+  frontend-app:
+    name: app/frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      # Версия совпадает с базовым образом сборки (app/frontend/Dockerfile: node:22-alpine).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/frontend/package-lock.json
+
+      - name: Установить зависимости
+        run: npm ci
+
+      - name: tsc
+        run: npm run typecheck
+
+      - name: eslint
+        run: npm run lint
+
+  frontend-operator:
+    name: operator/frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: operator/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: operator/frontend/package-lock.json
+
+      - name: Установить зависимости
+        run: npm ci
+
+      - name: tsc
+        run: npm run typecheck
+
+      - name: eslint
+        run: npm run lint
+
+      - name: vitest
+        run: npm test
