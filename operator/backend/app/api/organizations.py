@@ -79,7 +79,7 @@ PageOffset = Annotated[int, Query(ge=0)]
 
 # Отказы раздела тарифа и расширений (#189). Тексты не переписываются: `404`
 # приходит из основного API дословно («Организация не найдена», «Расширение не
-# найдено»), а `422` — его валидатор формата даты.
+# найдено»), `409` — «Тариф не назначен», а `422` — его валидатор формата даты.
 SUBSCRIPTION_RESPONSES: dict[int | str, dict[str, object]] = {
     **UNAUTHORIZED_RESPONSES,
     **GATEWAY_RESPONSES,
@@ -89,13 +89,18 @@ SUBSCRIPTION_RESPONSES: dict[int | str, dict[str, object]] = {
     },
 }
 
-UPDATE_SUBSCRIPTION_RESPONSES: dict[int | str, dict[str, object]] = {
-    **UNAUTHORIZED_RESPONSES,
-    **GATEWAY_RESPONSES,
-    status.HTTP_404_NOT_FOUND: {
+# Обе write-ручки подписки отказывают одинаково, когда менять нечего: `409`
+# приходит из основного API дословно, как и остальные отказы данных.
+WRITE_SUBSCRIPTION_RESPONSES: dict[int | str, dict[str, object]] = {
+    **SUBSCRIPTION_RESPONSES,
+    status.HTTP_409_CONFLICT: {
         "model": ErrorResponse,
-        "description": "Организация не найдена",
+        "description": "Тариф не назначен — отказ основного API",
     },
+}
+
+UPDATE_SUBSCRIPTION_RESPONSES: dict[int | str, dict[str, object]] = {
+    **WRITE_SUBSCRIPTION_RESPONSES,
     status.HTTP_422_UNPROCESSABLE_ENTITY: {
         "model": ErrorResponse,
         "description": "Срок не в формате ГГГГ-ММ-ДД, лишнее поле или тело не по схеме — "
@@ -218,9 +223,11 @@ def update_subscription(
     """Передать новый срок в основной API и вернуть состояние из ответа.
 
     Значение не проверяется и не приводится здесь вовсе: формат даты проверяет
-    основной API, и его `422` с русским текстом уходит клиенту дословно. Ответ —
-    тот же объект состояния, что у чтения, поэтому фронтенд показывает дату из
-    него, а не из того, что ввели в поле.
+    основной API, и его `422` с русским текстом уходит клиенту дословно. Слот без
+    тарифа основной API отвергает `409 «Тариф не назначен»` — этот код тоже
+    проходит насквозь (`app/main_api.py`). Ответ — тот же объект состояния, что у
+    чтения, поэтому фронтенд показывает дату из него, а не из того, что ввели в
+    поле.
     """
     response = call(
         client,
@@ -235,7 +242,7 @@ def update_subscription(
     "/{organization_id}/subscription/deactivate",
     response_model=SubscriptionState,
     summary="Снять активность тарифа организации",
-    responses=SUBSCRIPTION_RESPONSES,
+    responses=WRITE_SUBSCRIPTION_RESPONSES,
 )
 def deactivate_subscription(
     organization_id: int,
@@ -246,7 +253,8 @@ def deactivate_subscription(
 
     `204` в контуре не появляется: команда отвечает тем же объектом состояния,
     что и чтение, и фронтенд после нажатия показывает ответ, ничего не
-    перезапрашивая. Повторный вызов — тоже `200`.
+    перезапрашивая. Повторный вызов — тоже `200`. Слот без тарифа — `409 «Тариф не
+    назначен»` из основного API, дословно.
     """
     response = call(
         client,

@@ -34,7 +34,10 @@ from sqlalchemy.orm import Session
 from app import audit, subscription
 from app import solutions as solutions_module
 from app.api.organization import ORGANIZATION_NOT_FOUND_DETAIL
-from app.api.platform_subscription import SOLUTION_NOT_FOUND_DETAIL
+from app.api.platform_subscription import (
+    SOLUTION_NOT_FOUND_DETAIL,
+    TARIFF_NOT_ASSIGNED_DETAIL,
+)
 from app.config import get_settings
 from app.models.audit import AuditEvent
 from app.models.organization import Organization
@@ -241,6 +244,66 @@ def test_empty_subscription_has_no_tariff_and_no_rights(
     }
 
 
+# --- Слот без строки тарифа (доработка по ревью №1, Б1) ---------------------
+# У любой только что зарегистрированной организации `tariff_id IS NULL`: тариф
+# появляется оплатой счёта. Чтение такого состояния открыто — по нему рисуется
+# кадр «Тариф не назначен», — а запись отказывает: срок невидимого тарифа не
+# сохраняется молча, потому что первая же оплата его перезапишет.
+
+
+def test_patch_on_a_slot_without_a_tariff_is_refused(
+    client: TestClient, db_session: Session, operator_token: None
+) -> None:
+    organization, _ = make_organization(db_session)
+
+    response = client.patch(
+        f"{PLATFORM}/{organization.id}/subscription",
+        headers=OPERATOR_HEADERS,
+        json={"paid_until": "2027-06-30"},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": TARIFF_NOT_ASSIGNED_DETAIL}
+    # Отказ ничего не записал: срока, которого не видно в ответе, в базе тоже нет.
+    assert stored_ends_at(db_session, organization.id) is None
+
+
+def test_deactivate_on_a_slot_without_a_tariff_is_refused(
+    client: TestClient, db_session: Session, operator_token: None
+) -> None:
+    """«Уже не действует» не притворяется успешным действием: снимать нечего."""
+    organization, _ = make_organization(db_session)
+
+    response = client.post(
+        f"{PLATFORM}/{organization.id}/subscription/deactivate", headers=OPERATOR_HEADERS
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": TARIFF_NOT_ASSIGNED_DETAIL}
+    assert stored_ends_at(db_session, organization.id) is None
+
+
+def test_slot_of_a_deleted_tariff_row_is_refused_too(
+    client: TestClient, db_session: Session, operator_token: None
+) -> None:
+    """`ON DELETE SET NULL`: строку прайса удалили — менять срок нечего."""
+    organization, _ = make_organization(db_session)
+    tariff = add_tariff(db_session)
+    bind_slot(db_session, organization, tariff, datetime.now(UTC) + timedelta(days=30))
+    db_session.delete(tariff)
+    organization.tariff_id = None
+    db_session.commit()
+
+    response = client.patch(
+        f"{PLATFORM}/{organization.id}/subscription",
+        headers=OPERATOR_HEADERS,
+        json={"paid_until": "2027-06-30"},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": TARIFF_NOT_ASSIGNED_DETAIL}
+
+
 # --- Действующий тариф ------------------------------------------------------
 
 
@@ -327,6 +390,42 @@ def test_expired_slot_is_shown_as_recorded(
     client_side = client.get("/api/tariffs/current")
     assert client_side.status_code == 200, client_side.text
     assert client_side.json()["tariff"]["id"] == upcoming.id
+
+
+def test_member_limit_comes_from_the_active_tariff(
+    client: TestClient, db_session: Session, operator_token: None
+) -> None:
+    """Предел мест — действующий, а не «по записанному слоту» (ревью №1, Б2).
+
+    Истёкший текущий слот даёт 5 мест, оплаченный следующий — 10, докуплено ещё 2.
+    Арифметика по записи показала бы оператору 7, а приглашения в продукте
+    считаются по действующему тарифу: 12. Оба кабинета обязаны показать одно
+    число, поэтому клиентский `GET /api/tariffs/current` сверяется здесь же.
+    """
+    organization, email = make_organization(db_session, extra_seats=2)
+    current = add_tariff(db_session, max_members=5)
+    upcoming = add_tariff(
+        db_session, name="Домовой · 6 месяцев", period="half_year", max_members=10
+    )
+    bind_slot(db_session, organization, current, datetime.now(UTC) - timedelta(days=10))
+    bind_next_slot(db_session, organization, upcoming, datetime.now(UTC) + timedelta(days=180))
+
+    response = client.get(f"{PLATFORM}/{organization.id}/subscription", headers=OPERATOR_HEADERS)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # Запись слота остаётся записью: тариф истёк, и это видно.
+    assert body["tariff"]["id"] == current.id
+    assert body["tariff"]["is_live"] is False
+    # Предел и разбивка — действующего тарифа, тем же правилом, что приглашения.
+    assert body["extra_seats"] == 2
+    assert body["member_limit"] == 12
+
+    login(client, email)
+    client_side = client.get("/api/tariffs/current")
+    assert client_side.status_code == 200, client_side.text
+    assert client_side.json()["member_limit"] == body["member_limit"]
+    assert client_side.json()["extra_seats"] == body["extra_seats"]
 
 
 # --- Правка срока -----------------------------------------------------------
@@ -684,6 +783,33 @@ def test_write_actions_have_a_readable_title_in_the_journal(
     row = events(db_session)[-1]
     assert audit.action_title(row.action) == title
     assert audit.action_title(row.action) != row.action
+
+
+# --- Схема отказов ----------------------------------------------------------
+# Отказы — часть контракта: их сверяет тестировщик по `/openapi.json`. У ручек
+# одного объекта описания общие, а не скопированные (ревью №1, Б3): здесь это и
+# держится — правка текста не может разойтись между двумя ручками.
+
+
+def test_openapi_documents_the_same_refusals_for_both_write_routes(
+    client: TestClient, operator_token: None
+) -> None:
+    schema = client.get("/openapi.json").json()["paths"]
+    base = f"{PLATFORM}/{{organization_id}}/subscription"
+    reading = schema[base]["get"]
+    update = schema[base]["patch"]
+    deactivate = schema[f"{base}/deactivate"]["post"]
+
+    # Чтение отказывает только по неизвестной организации.
+    assert reading["responses"]["404"]["description"] == ORGANIZATION_NOT_FOUND_DETAIL
+    assert "409" not in reading["responses"]
+    # Обе write-ручки объявляют 404 и 409 одним и тем же описанием.
+    for operation in (update, deactivate):
+        assert operation["responses"]["404"] == reading["responses"]["404"]
+        assert operation["responses"]["409"]["description"] == TARIFF_NOT_ASSIGNED_DETAIL
+    assert update["responses"]["409"] == deactivate["responses"]["409"]
+    # Формат даты объявлен у правки: текст отказа — часть контракта кабинета.
+    assert PAID_UNTIL_FORMAT_MESSAGE in update["responses"]["422"]["description"]
 
 
 # --- Правила срока без HTTP -------------------------------------------------

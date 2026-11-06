@@ -17,14 +17,27 @@
 признаки «действует» считают `app/subscription.py` и `app/pricing.py` — второй
 формулы срока и цены здесь нет.
 
+**Предел мест — исключение и намеренно не «по записи».** `member_limit` и
+`extra_seats` берутся из `organization_subscription`: предел приглашений в
+продукте считает **действующий** тариф, и оператор должен видеть то же число, что
+проверка приглашений и клиентский `GET /api/tariffs/current`. Своя арифметика по
+записанному слоту дала бы устаревшее число, когда текущий слот истёк, а следующий
+оплачен.
+
 **Что здесь пишется.** Только сроки: `tariff_ends_at` (правка срока и снятие
 тарифа) и `organization_solutions.expires_at` (снятие расширения). Ничего не
 удаляется и не обнуляется — «не действует» в проекте это срок в прошлом, а не
 флаг. Оплаченный вперёд слот не меняется ни одним из действий.
 
+**Слот без строки тарифа — не запись, а отказ.** У новой организации
+`tariff_id IS NULL` (тариф появляется оплатой счёта), поэтому правка срока и
+снятие активности отвечают `409 «Тариф не назначен»`: записанный срок такого слота
+не виден ни в ответе, ни в клиентском кабинете, а первая оплата его перезапишет.
+Чтение при этом открыто — кадр «Тариф не назначен» макета рисуется по ответу `GET`.
+
 **Тексты отказов — контракт.** `404 «Организация не найдена»` приходит из
-`load_organization` (тот же текст, что во всём API), `404 «Расширение не найдено»`
-и тексты валидатора схемы объявлены здесь и в
+`load_organization` (тот же текст, что во всём API), `404 «Расширение не найдено»`,
+`409 «Тариф не назначен»` и тексты валидатора схемы объявлены здесь и в
 `app/schemas/platform_subscription.py`. Кабинет передаёт их дословно, а фронтенд
 показывает в `role="alert"`.
 """
@@ -57,6 +70,7 @@ from app.subscription import (
     deactivate_current,
     is_live,
     next_slot,
+    organization_subscription,
     paid_until,
     set_current_end,
 )
@@ -81,6 +95,15 @@ DbSession = Annotated[Session, Depends(get_db)]
 # найдена»: оператор должен понимать, чего именно нет.
 SOLUTION_NOT_FOUND_DETAIL = "Расширение не найдено"
 
+# Отказ, когда в текущем слоте нет строки тарифа: менять срок и снимать
+# активность нечего. Тем же словом это состояние называет макет
+# (`mockups/189/notes.md`, кадр 6 — «Тариф не назначен»), поэтому второй текст
+# для того же состояния не заводится: фронтенд покажет `detail` дословно.
+TARIFF_NOT_ASSIGNED_DETAIL = "Тариф не назначен"
+
+# Ответы раздела собираются друг из друга, а не копируются: у `404` общей
+# организации, у `409` пустого слота и у `422` формата даты по одному описанию на
+# весь раздел, и правка текста не может разойтись между ручками одного объекта.
 READ_RESPONSES: dict[int | str, dict[str, object]] = {
     status.HTTP_404_NOT_FOUND: {
         "model": ErrorResponse,
@@ -88,21 +111,21 @@ READ_RESPONSES: dict[int | str, dict[str, object]] = {
     },
 }
 
-UPDATE_RESPONSES: dict[int | str, dict[str, object]] = {
-    status.HTTP_404_NOT_FOUND: {
+# Запись в подписку: обе ручки (правка срока и снятие активности) отказывают
+# одинаково, если менять нечего.
+WRITE_RESPONSES: dict[int | str, dict[str, object]] = {
+    **READ_RESPONSES,
+    status.HTTP_409_CONFLICT: {
         "model": ErrorResponse,
-        "description": ORGANIZATION_NOT_FOUND_DETAIL,
-    },
-    status.HTTP_422_UNPROCESSABLE_ENTITY: {
-        "model": ErrorResponse,
-        "description": f"{PAID_UNTIL_FORMAT_MESSAGE}, лишнее поле или тело не по схеме",
+        "description": TARIFF_NOT_ASSIGNED_DETAIL,
     },
 }
 
-DEACTIVATE_SUBSCRIPTION_RESPONSES: dict[int | str, dict[str, object]] = {
-    status.HTTP_404_NOT_FOUND: {
+UPDATE_RESPONSES: dict[int | str, dict[str, object]] = {
+    **WRITE_RESPONSES,
+    status.HTTP_422_UNPROCESSABLE_ENTITY: {
         "model": ErrorResponse,
-        "description": ORGANIZATION_NOT_FOUND_DETAIL,
+        "description": f"{PAID_UNTIL_FORMAT_MESSAGE}, лишнее поле или тело не по схеме",
     },
 }
 
@@ -112,6 +135,22 @@ DEACTIVATE_SOLUTION_RESPONSES: dict[int | str, dict[str, object]] = {
         "description": f"{ORGANIZATION_NOT_FOUND_DETAIL}; {SOLUTION_NOT_FOUND_DETAIL}",
     },
 }
+
+
+def _require_tariff_slot(db: Session, organization: Organization) -> None:
+    """Отказать `409`, если в текущем слоте нет строки тарифа.
+
+    У только что зарегистрированной организации `tariff_id IS NULL`: тариф
+    появляется оплатой счёта (`mockups/189/notes.md`, кадр 6). Срок в таком слоте
+    был бы записью, которой не видно ни в ответе (`tariff: null`), ни в клиентском
+    кабинете, — а первая же оплата его перезапишет. Поэтому правка срока и снятие
+    активности на пустом слоте не «сохраняются молча», а отказывают.
+
+    Тот же `409` получает слот, у которого строку прайса удалили
+    (`ON DELETE SET NULL`): менять срок несуществующего тарифа нечего.
+    """
+    if current_slot(db, organization).tariff is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, TARIFF_NOT_ASSIGNED_DETAIL)
 
 
 def _tariff_block(
@@ -142,9 +181,16 @@ def _state(
 ) -> OrganizationSubscriptionResponse:
     """Состояние подписки по уже прочитанной строке организации.
 
-    Читаются оба слота и все права — одним местом на все четыре ручки: ответ после
-    действия обязан быть тем же объектом, что и ответ чтения, иначе фронтенд
-    показывал бы после действия другую форму данных.
+    Читаются оба слота, предел мест и все права — одним местом на все четыре ручки:
+    ответ после действия обязан быть тем же объектом, что и ответ чтения, иначе
+    фронтенд показывал бы после действия другую форму данных.
+
+    Слоты — **запись** (`current_slot`, `next_slot`), а предел мест — **действие**
+    (`organization_subscription`): приглашения считает действующий тариф, поэтому
+    `member_limit` здесь тот же, что видит клиентский кабинет и проверка
+    приглашений, а не арифметика по записанному слоту. Своей копии этой формулы
+    нет: истёкший текущий слот и оплаченный следующий дали бы здесь устаревшее
+    число.
     """
     moment = now or datetime.now(UTC)
     current = current_slot(db, organization)
@@ -153,14 +199,9 @@ def _state(
     current_tariff = _tariff_block(current.tariff, current.ends_at, moment)
     upcoming_tariff = _tariff_block(upcoming.tariff, upcoming.ends_at, moment)
 
-    # Докупленные места не зависят от слотов: платили за них отдельно, и правка
-    # срока их не сбрасывает.
-    extra_seats = organization.extra_seats or 0
-    member_limit = (
-        current.tariff.max_members + extra_seats
-        if current.tariff is not None and current.tariff.max_members is not None
-        else None
-    )
+    # Предел мест и докупленные места — из одного правила на весь продукт
+    # (`app/subscription.py`): второй расчёт разошёлся бы с проверкой приглашений.
+    active = organization_subscription(db, organization, moment)
 
     return OrganizationSubscriptionResponse(
         tariff=current_tariff,
@@ -176,8 +217,8 @@ def _state(
             if upcoming_tariff is not None
             else None
         ),
-        extra_seats=extra_seats,
-        member_limit=member_limit,
+        extra_seats=active.extra_seats,
+        member_limit=active.member_limit,
         solutions=[
             SubscriptionRight(
                 code=right.code,
@@ -229,8 +270,13 @@ def update_subscription(
 
     Своих проверок значения здесь нет: формат даты проверяет схема, и её `422`
     с русским текстом уходит в кабинет дословно.
+
+    Слота без строки тарифа это не касается: там правка не «сохраняется молча», а
+    отказывает `409 «Тариф не назначен»` — записанный срок был бы невидим в ответе
+    и в клиентском кабинете, а первая оплата его перезаписала бы.
     """
     organization = load_organization(db, organization_id)
+    _require_tariff_slot(db, organization)
     # Валидатор схемы не пропустит `None`: пришедшая дата — всегда дата.
     set_current_end(organization, cast(date, payload.paid_until))
     db.commit()
@@ -242,7 +288,7 @@ def update_subscription(
     "/{organization_id}/subscription/deactivate",
     response_model=OrganizationSubscriptionResponse,
     summary="Снять активность тарифа организации",
-    responses=DEACTIVATE_SUBSCRIPTION_RESPONSES,
+    responses=WRITE_RESPONSES,
 )
 def deactivate_subscription(
     organization_id: int,
@@ -255,10 +301,14 @@ def deactivate_subscription(
     `{}` допустимы. Повторный вызов — тоже `200` и то же состояние «не действует»:
     клиент не должен различать «уже снят» и «снял только что».
 
+    Слот без строки тарифа — `409 «Тариф не назначен»`: снимать активность нечего,
+    и «уже не действует» не должно притворяться успешным действием.
+
     `next_*` не меняются. Если оплаченный вперёд слот есть, после снятия текущего
     действующим станет он — это правило слотов, а не побочный эффект команды.
     """
     organization = load_organization(db, organization_id)
+    _require_tariff_slot(db, organization)
     deactivate_current(organization)
     db.commit()
     db.refresh(organization)

@@ -310,6 +310,9 @@ STATE = {
     ],
 }
 PAID_UNTIL_MESSAGE = "Укажите срок действия в формате ГГГГ-ММ-ДД"
+# Текст отказа основного API на слот без тарифа (ревью №1, Б1): кабинет его не
+# объявляет, а передаёт — здесь копия нужна только для ожидания в тесте.
+TARIFF_NOT_ASSIGNED_DETAIL = "Тариф не назначен"
 DATE_ERRORS = [
     {
         "type": "value_error",
@@ -496,3 +499,27 @@ def test_subscription_empty_token_answers_503(
     assert response.status_code == 503
     assert response.json() == {"detail": OPERATOR_SERVICE_TOKEN_MISSING_DETAIL}
     assert empty_token.requests == []
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        ("patch", SUBSCRIPTION, {"paid_until": "2027-06-30"}),
+        ("post", f"{SUBSCRIPTION}/deactivate", None),
+    ],
+)
+def test_subscription_refuses_a_slot_without_a_tariff(
+    client: TestClient, main_api: MainApi, method: str, path: str, payload: dict[str, str] | None
+) -> None:
+    """`409 «Тариф не назначен»` (ревью №1, Б1) проходит насквозь, как и прочие отказы.
+
+    Кабинет его не переписывает и не превращает в успех: фронтенд показывает
+    `detail` в `role="alert"`.
+    """
+    main_api.handler = respond(TARIFF_NOT_ASSIGNED_DETAIL, 409)
+    login(client)
+
+    response = client.request(method, path, json=payload)
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": TARIFF_NOT_ASSIGNED_DETAIL}

@@ -120,6 +120,12 @@ def test_openapi_documents_the_subscription_contour(client: TestClient) -> None:
     assert reading["responses"]["404"] is not None
     assert update["responses"]["404"] is not None
     assert update["responses"]["422"] is not None
+    # Слот без тарифа: обе write-ручки объявляют `409` одним описанием — отказ
+    # приходит из основного API дословно (ревью №1, Б1 и Б3).
+    assert (
+        update["responses"]["409"]["description"] == deactivate["responses"]["409"]["description"]
+    )
+    assert "409" not in reading["responses"]
     assert deactivate["responses"]["404"] is not None
     assert deactivate_solution["responses"]["404"] is not None
 
