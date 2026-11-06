@@ -1,0 +1,146 @@
+"""Тариф и расширения организации в кабинете оператора: ответ и тело `PATCH` (#189).
+
+Контур платформенный: ручки открывает сервисный токен кабинета оператора
+(`X-Operator-Token`), а не cookie основного кабинета, поэтому и схемы отдельные —
+как у организаций (`app/schemas/platform_organization.py`).
+
+**Один объект состояния на четыре ручки.** Чтение, правка срока и оба снятия
+активности отвечают одним и тем же `OrganizationSubscriptionResponse`: после
+действия экран показывает ответ, а не перезапрашивает состояние. Иначе два
+одинаковых по смыслу объекта разошлись бы, и фронтенд собирал бы состояние из
+двух источников.
+
+**Что здесь считается, а что берётся как есть.** `paid_until` — последний
+включённый день по Москве, `days_left` — целые сутки вверх, `is_live` —
+действует ли срок, `price_label` — готовая подпись цены, `member_limit` —
+`max_members` тарифа плюс докупленные места. Все четыре правила живут в
+`app/subscription.py` и `app/pricing.py`; здесь только сборка ответа. Клиент
+ничего из `ends_at` не выводит: второй формулы срока нет ни в кабинете, ни на
+фронтенде.
+
+**Правка — только срок.** В теле один `paid_until` (`ГГГГ-ММ-ДД`), потому что
+тариф, места и права появляются оплатой счёта. Текст отказа объявлен здесь
+константой и повторяется в контракте дословно: фронтенд показывает его в
+`role="alert"`, снимая приставку `Value error, `.
+"""
+
+from datetime import date, datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Текст отказа формата даты — часть контракта: его показывает фронтенд дословно.
+PAID_UNTIL_FORMAT_MESSAGE = "Укажите срок действия в формате ГГГГ-ММ-ДД"
+
+
+class SubscriptionTariff(BaseModel):
+    """Записанный слот подписки: строка прайса и её срок.
+
+    `id`, `name`, `period` и `max_members` — из строки прайса; `price_label`
+    собирает сервер (`app.pricing.format_price`, как у витрины и прайса), поэтому
+    второй формулы цены на клиенте нет. `ends_at: null` — бессрочный тариф, и
+    тогда `paid_until` тоже `null`; `is_live` при этом `true`, пока слот не снят.
+
+    `is_live` считается по сроку, а не читается из флага: второго признака
+    «активен» в схеме нет и в этой задаче не появляется.
+    """
+
+    id: int
+    name: str
+    period: str
+    # `null` — безлимитный ярус: предел мест по подписке не создаётся.
+    max_members: int | None
+    # Готовая цена от сервера: «10 000 ₽ в год».
+    price_label: str
+    # Конец слота: `null` — бессрочно.
+    ends_at: datetime | None
+    # Последний включённый день по Москве; `null` — бессрочно.
+    paid_until: date | None
+    is_live: bool
+
+
+class NextSubscription(BaseModel):
+    """Оплаченный вперёд слот: показывается, но не правится и не снимается.
+
+    Своего `is_live` здесь нет по смыслу: слот оплачен в будущее, и вопрос «жив
+    ли» задаётся только про текущий. `ends_at` и `paid_until` повторены рядом с
+    `tariff` затем, чтобы клиенту было видно, до какого дня оплачено, не разбирая
+    вложенный объект.
+    """
+
+    tariff: SubscriptionTariff
+    ends_at: datetime | None
+    paid_until: date | None
+
+
+class SubscriptionRight(BaseModel):
+    """Право организации на решение магазина: включая истёкшие права.
+
+    `paid_until` — последний включённый день права по Москве (`null` — бессрочное
+    право), `is_live` — действует ли оно сейчас. Истёкшая строка остаётся в
+    ответе: кабинет оператора показывает, что расширение было и кончилось.
+    """
+
+    # Машинный код решения: гейт платной функции (`app.solutions.has_solution`).
+    code: str
+    name: str
+    expires_at: datetime | None
+    paid_until: date | None
+    is_live: bool
+
+
+class OrganizationSubscriptionResponse(BaseModel):
+    """Состояние подписки организации в кабинете оператора.
+
+    `tariff` — **записанный** текущий слот, без «виртуального переезда» наступившего
+    будущего периода: оператор видит то, что лежит в базе. `is_live = false` при
+    живом `next` означает «текущий срок истёк, действует оплаченный вперёд» — это
+    и есть причина показывать `next` рядом, а не вместо.
+
+    `days_left` — остаток суток до конца текущего слота (`0` у истёкшего,
+    бессрочного и отсутствующего). `extra_seats` — докупленные места сверх тарифа,
+    `member_limit` — их сумма с `max_members` (`null`, если тарифа нет или ярус
+    безлимитный). `solutions` — все права организации в порядке каталога.
+    """
+
+    tariff: SubscriptionTariff | None
+    days_left: int = Field(examples=[236])
+    next: NextSubscription | None
+    extra_seats: int = Field(examples=[3])
+    member_limit: int | None
+    solutions: list[SubscriptionRight]
+
+
+class UpdateSubscriptionRequest(BaseModel):
+    """Тело правки срока: единственное поле `paid_until` в формате `ГГГГ-ММ-ДД`.
+
+    Лишнее поле — `422` (`extra="forbid"`): контракт обещает одно поле, и молчаливое
+    «проигнорировали» скрывало бы ошибку клиента. Отсутствие поля, `null`, пустая
+    строка и мусор дают один и тот же `422` с русским текстом — за него отвечает
+    этот валидатор, а не типы pydantic (у типов текст английский).
+
+    `validate_default` включает валидатор и для умолчания: без него пропущенное
+    поле прошло бы как «не прислали» и дало стандартный английский `Field required`
+    вместо текста контракта.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    paid_until: date | None = Field(default=None, validate_default=True)
+
+    @field_validator("paid_until", mode="before")
+    @classmethod
+    def validate_paid_until(cls, value: Any) -> date:
+        """Строка `ГГГГ-ММ-ДД` — единственный принимаемый вид срока.
+
+        Принимается именно строка: `date.fromisoformat` умеет и компактную запись,
+        и недели ISO, и отказывать на них отдельным текстом было бы лишним
+        правилом. Не-строка (`null`, число) — тот же отказ: разбирать «2027» как
+        дату нельзя, а оператор вводит день.
+        """
+        if not isinstance(value, str):
+            raise ValueError(PAID_UNTIL_FORMAT_MESSAGE)
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            raise ValueError(PAID_UNTIL_FORMAT_MESSAGE) from None

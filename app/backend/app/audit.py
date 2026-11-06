@@ -239,6 +239,11 @@ ACTION_TITLES: dict[str, str] = {
     "patch_organization": "Изменить название, ИНН и реквизиты организации",
     "post_organization_invitations": "Пригласить сотрудника в организацию",
     "patch_platform_invoices": "Оплатить или отменить счёт из кабинета оператора",
+    # Тариф и расширения организации в кабинете оператора (#189): сроки, а не
+    # удаление — поэтому и названия говорят о сроке и активности.
+    "patch_platform_organizations_subscription": "Изменить срок действия тарифа организации",
+    "post_platform_organizations_subscription_deactivate": "Снять активность тарифа организации",
+    "post_platform_organizations_solutions_deactivate": "Снять активность расширения организации",
     "post_report_templates": "Сохранить структуру отчёта как шаблон",
     "delete_report_templates": "Удалить шаблон отчёта",
     "post_telegram_chat": "Привязать чат бота к кабинету по коду",

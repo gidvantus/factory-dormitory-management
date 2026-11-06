@@ -28,8 +28,9 @@
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from math import ceil
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -54,6 +55,15 @@ FUTURE_SLOT = "future"
 
 SECONDS_PER_DAY = 24 * 60 * 60
 
+# Пояс оператора: срок из кабинета задаётся днём по Москве, а не по UTC. Оператор
+# пишет «действует по 30.06.2027» и ждёт, что это будет 30 июня по Москве.
+MOSCOW = ZoneInfo("Europe/Moscow")
+
+# Последняя включённая секунда суток — с микросекундами, потому что граница
+# `ends_at` исключающая: день `D` кончается в `D 23:59:59.999999`, и ровно в этот
+# момент тариф уже не действует.
+END_OF_DAY = time(23, 59, 59, 999999)
+
 
 def as_utc(value: datetime) -> datetime:
     """SQLite отдаёт naive datetime: считаем его UTC, иначе сравнение падает."""
@@ -72,6 +82,26 @@ class Slots:
     current_ends_at: datetime | None
     next_tariff_id: int | None
     next_ends_at: datetime | None
+
+
+@dataclass(frozen=True)
+class Slot:
+    """**Записанный** слот подписки: строка прайса и срок — как они лежат в базе.
+
+    Это не то же, что `Slots`: здесь нет «виртуального переезда» наступившего
+    будущего периода. Кабинет оператора показывает запись, а не вычисление: если
+    срок текущего слота истёк, он так и виден — с `is_live = false`, — даже когда
+    уже оплачен следующий. «Что действует сейчас» по-прежнему решают
+    `organization_slots` и `organization_subscription`; для клиентского кабинета
+    не меняется ничего.
+
+    Строки тарифа может не быть: `tariff_id` объявлен `ON DELETE SET NULL` и
+    обнуляется при удалении строки прайса, поэтому `tariff` бывает `None` при
+    непустом `ends_at`. Срок при этом остаётся — он и есть запись подписки.
+    """
+
+    tariff: Tariff | None
+    ends_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -163,9 +193,94 @@ def organization_slots(organization: Organization, now: datetime | None = None) 
     )
 
 
-def _is_live(ends_at: datetime | None, moment: datetime) -> bool:
-    """Идёт ли период: без конца — да, иначе — если конец ещё не наступил."""
-    return ends_at is None or ends_at > moment
+def current_slot(db: Session, organization: Organization) -> Slot:
+    """Записанный текущий слот: `tariff_id` + `tariff_ends_at` как они есть.
+
+    Переезда «наступившего» будущего периода здесь нет намеренно: это чтение
+    записи для кабинета оператора, а не ответ «что действует сейчас». Второй
+    копии правила слотов (`organization_slots`) не заводится: срок и строку
+    прайса берём прямо из колонок.
+    """
+    return Slot(
+        tariff=_tariff(db, organization.tariff_id),
+        ends_at=_ends_at(organization.tariff_ends_at),
+    )
+
+
+def next_slot(db: Session, organization: Organization) -> Slot:
+    """Записанный оплаченный вперёд слот: `next_tariff_id` + `next_tariff_ends_at`."""
+    return Slot(
+        tariff=_tariff(db, organization.next_tariff_id),
+        ends_at=_ends_at(organization.next_tariff_ends_at),
+    )
+
+
+def is_live(ends_at: datetime | None, now: datetime | None = None) -> bool:
+    """Идёт ли период: без конца — да, иначе — если конец ещё не наступил.
+
+    Функция публичная, потому что правило одно на весь проект: её зовут и слоты
+    продления, и чтение записанного слота в кабинете оператора. Вторая копия
+    этого сравнения разошлась бы с первой на первой же правке границы.
+    """
+    moment = as_utc(now or datetime.now(UTC))
+    return ends_at is None or as_utc(ends_at) > moment
+
+
+def days_left(ends_at: datetime | None, now: datetime | None = None) -> int:
+    """Целые сутки до конца срока, округлённые вверх.
+
+    Неполный последний день считается за полный — как у пробного периода. У
+    истёкшего срока и у бессрочного — `0`: считать нечего.
+    """
+    if ends_at is None:
+        return 0
+    moment = as_utc(now or datetime.now(UTC))
+    return max(0, ceil((as_utc(ends_at) - moment).total_seconds() / SECONDS_PER_DAY))
+
+
+def paid_until(ends_at: datetime | None) -> date | None:
+    """Последний **включённый** день срока по Москве. `None` — бессрочно.
+
+    Граница `ends_at` исключающая, поэтому последний включённый день — это день
+    момента «за микросекунду до конца». Считать его в МСК, а не в UTC, важно:
+    срок записывается концом московских суток, и обратное чтение должно дать тот
+    же день, который ввёл оператор.
+    """
+    if ends_at is None:
+        return None
+    return (as_utc(ends_at) - timedelta(microseconds=1)).astimezone(MOSCOW).date()
+
+
+def set_current_end(organization: Organization, paid_until: date) -> None:
+    """Записать последний включённый день в текущий слот. Коммитит вызывающий.
+
+    В колонку ложится момент `paid_until 23:59:59.999999` по Москве, приведённый к
+    UTC: сам момент от этого не меняется, а SQLite (юнит-тесты) зону не хранит и
+    отдаёт naive значение, которое чтение считает UTC (`as_utc`). В PostgreSQL
+    `timestamptz` хранит тот же момент — поведение на обеих базах одинаковое.
+
+    `next_*` не трогаются: оператор правит ровно текущий слот. Бессрочный тариф
+    (`tariff_ends_at IS NULL`) от этого становится срочным — это и есть правка
+    срока, а не новая запись: `tariff_id` остаётся на месте.
+    """
+    organization.tariff_ends_at = datetime.combine(
+        paid_until, END_OF_DAY, tzinfo=MOSCOW
+    ).astimezone(UTC)
+
+
+def deactivate_current(organization: Organization, now: datetime | None = None) -> None:
+    """Снять активность текущего тарифа: `tariff_ends_at` = момент вызова в UTC.
+
+    Ничего не удаляется и не обнуляется: «не действует» в проекте — это срок в
+    прошлом, а не флаг (разбор #189). Отсюда и идемпотентность: повторный вызов
+    снова ставит срок в «сейчас», и ответ остаётся тем же состоянием «не
+    действует». Коммитит вызывающий.
+
+    `next_*` не трогаются: оплаченный вперёд слот остаётся как был. Если он есть,
+    после снятия текущего действующим станет он (`organization_slots`) — это
+    ожидаемое следствие правила, а не дефект.
+    """
+    organization.tariff_ends_at = as_utc(now or datetime.now(UTC))
 
 
 def free_slot(organization: Organization, now: datetime | None = None) -> str | None:
@@ -177,7 +292,7 @@ def free_slot(organization: Organization, now: datetime | None = None) -> str | 
     moment = as_utc(now or datetime.now(UTC))
     slots = organization_slots(organization, moment)
 
-    if slots.current_tariff_id is None or not _is_live(slots.current_ends_at, moment):
+    if slots.current_tariff_id is None or not is_live(slots.current_ends_at, moment):
         return CURRENT_SLOT
     # Бессрочный тариф и уже оплаченный будущий период одинаково не оставляют
     # места третьему: будущему периоду не от чего отсчитываться.
@@ -213,27 +328,27 @@ def organization_subscription(
     upcoming: Tariff | None = None
     next_starts_at: datetime | None = None
 
-    if tariff is not None and _is_live(slots.current_ends_at, moment):
+    if tariff is not None and is_live(slots.current_ends_at, moment):
         active, ends_at = tariff, slots.current_ends_at
         # Будущий период показывается только тогда, когда известен день начала.
         if next_tariff is not None and slots.current_ends_at is not None:
             upcoming, next_starts_at = next_tariff, slots.current_ends_at
-    elif next_tariff is not None and _is_live(slots.next_ends_at, moment):
+    elif next_tariff is not None and is_live(slots.next_ends_at, moment):
         # Текущего тарифа нет или его срок истёк, а будущий уже оплачен: действует
         # он, и слот продления свободен — это и есть кабинет без воркера.
         active, ends_at = next_tariff, slots.next_ends_at
 
-    days_left = 0
-    if active is not None and ends_at is not None:
-        days_left = max(0, ceil((ends_at - moment).total_seconds() / SECONDS_PER_DAY))
+    # Остаток считается одним правилом (`days_left`), а не второй его копией:
+    # кабинет оператора читает те же сутки тем же вызовом.
+    left = 0 if active is None else days_left(ends_at, moment)
 
     return SubscriptionState(
         tariff=active,
         ends_at=ends_at,
-        days_left=days_left,
+        days_left=left,
         # Предупреждение — только у периода с известным концом и только когда до
         # него осталось `EXPIRING_DAYS` суток или меньше.
-        is_expiring=active is not None and ends_at is not None and 0 < days_left <= EXPIRING_DAYS,
+        is_expiring=active is not None and ends_at is not None and 0 < left <= EXPIRING_DAYS,
         next_tariff=upcoming,
         next_starts_at=next_starts_at,
         # Докупленные места не зависят от слотов: платили за них отдельно, и
@@ -267,7 +382,7 @@ def record_payment(
     moment = as_utc(now or datetime.now(UTC))
     slots = organization_slots(organization, moment)
 
-    if slots.current_tariff_id is None or not _is_live(slots.current_ends_at, moment):
+    if slots.current_tariff_id is None or not is_live(slots.current_ends_at, moment):
         # Текущий слот свободен или истёк: новый период начинается с оплаты.
         slots = Slots(
             current_tariff_id=tariff_id,
@@ -298,3 +413,13 @@ def _tariff(db: Session, tariff_id: int | None) -> Tariff | None:
     if tariff_id is None:
         return None
     return db.get(Tariff, tariff_id)
+
+
+def _ends_at(value: datetime | None) -> datetime | None:
+    """Срок слота в UTC. `None` — бессрочно (или слота нет).
+
+    Значение из базы приводится к UTC и в ответе ручки: SQLite отдаёт naive
+    datetime, и без приведения в JSON уехала бы строка без зоны, а клиент не может
+    знать, какой пояс она означает. Момент при этом не меняется.
+    """
+    return None if value is None else as_utc(value)

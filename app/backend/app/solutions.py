@@ -21,6 +21,7 @@
 
 import calendar
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -98,6 +99,89 @@ def entitlement_expiry(period: str, granted_at: datetime) -> datetime | None:
 def _is_live(expires_at: datetime | None, moment: datetime) -> bool:
     """Действует ли право: без срока — да, иначе — если срок ещё не прошёл."""
     return expires_at is None or _as_utc(expires_at) > moment
+
+
+@dataclass(frozen=True)
+class OrganizationRight:
+    """Право организации на решение — как оно записано, вместе с `is_live`.
+
+    `is_live` здесь, а не в ручке: правило конца права одно на весь проект
+    (`_is_live`, и через него `entitlements`/`has_solution`), и вторая его копия в
+    API разошлась бы с первой на первой же правке границы.
+    """
+
+    code: str
+    name: str
+    expires_at: datetime | None
+    is_live: bool
+
+
+def organization_rights(
+    db: Session, organization_id: int, now: datetime | None = None
+) -> list[OrganizationRight]:
+    """**Все** права организации, включая истёкшие, в порядке каталога.
+
+    Истёкшие строки не отфильтрованы намеренно: кабинет оператора — единственное
+    место, где видно, что право было и кончилось. Магазин и проверки прав
+    (`entitlements`, `has_solution`) читают только действующие — у них свой
+    отбор, и он не меняется.
+
+    Порядок — `solutions.position`, затем `solutions.id`: тот же, в каком решения
+    видит покупатель.
+    """
+    moment = _as_utc(now) if now is not None else datetime.now(UTC)
+    rows = db.execute(
+        select(OrganizationSolution.expires_at, Solution.code, Solution.name)
+        .join(Solution, Solution.id == OrganizationSolution.solution_id)
+        .where(OrganizationSolution.organization_id == organization_id)
+        .order_by(Solution.position, Solution.id)
+    ).all()
+    return [
+        OrganizationRight(
+            code=code,
+            name=name,
+            expires_at=_as_utc(expires_at) if expires_at is not None else None,
+            is_live=_is_live(expires_at, moment),
+        )
+        for expires_at, code, name in rows
+    ]
+
+
+def deactivate_right(
+    db: Session, organization_id: int, code: str, now: datetime | None = None
+) -> OrganizationRight | None:
+    """Снять активность права: `expires_at` = момент вызова. Коммитит вызывающий.
+
+    Строка права не удаляется: «не действует» в проекте — это срок в прошлом, а не
+    флаг и не отсутствие записи. Истёкшее право продолжает возвращаться из
+    `organization_rights` с `is_live = false`, поэтому кабинет оператора видит, что
+    расширение было, а проверки платной функции (`has_solution`) его уже не видят.
+
+    `None` — у организации нет строки права на это `code`: ручка отвечает `404`,
+    а не молчаливым «сняли нечего».
+    """
+    moment = _as_utc(now) if now is not None else datetime.now(UTC)
+    row = db.execute(
+        select(OrganizationSolution, Solution)
+        .join(Solution, Solution.id == OrganizationSolution.solution_id)
+        .where(
+            OrganizationSolution.organization_id == organization_id,
+            Solution.code == code,
+        )
+    ).first()
+    if row is None:
+        return None
+    right, solution = row
+    right.expires_at = moment
+    db.flush()
+    return OrganizationRight(
+        code=solution.code,
+        name=solution.name,
+        expires_at=moment,
+        # Только что записанный срок равен «сейчас», а граница исключающая:
+        # право уже не действует.
+        is_live=_is_live(moment, moment),
+    )
 
 
 def entitlements(db: Session, organization_id: int) -> dict[str, datetime | None]:

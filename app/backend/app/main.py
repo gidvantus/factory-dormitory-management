@@ -42,6 +42,7 @@ from app.api import (
     platform_invoices,
     platform_organizations,
     platform_solutions,
+    platform_subscription,
     platform_tariffs,
     platform_users,
     recovery,
@@ -368,6 +369,10 @@ def create_app() -> FastAPI:
     # `X-Operator-Token` и та же зависимость на роутере. Публичный каталог
     # (`/api/solutions`) остаётся клиентским и не меняется.
     application.include_router(platform_solutions.router, prefix=API_PREFIX)
+    # Тариф и расширения организации — седьмой раздел того же контура: записанные
+    # слоты подписки, правка срока и снятие активности тарифа и права (#189). Тот
+    # же заголовок `X-Operator-Token` и та же зависимость на роутере.
+    application.include_router(platform_subscription.router, prefix=API_PREFIX)
     # Реквизиты поставщика — пятый раздел того же контура: печатные формы счёта и
     # акта берут из них блок «Поставщик» и строку про НДС. Тот же заголовок
     # `X-Operator-Token` и та же зависимость на роутере.
