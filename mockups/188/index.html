@@ -1,0 +1,2551 @@
+﻿<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Макет #188 — кабинет оператора: решения магазина</title>
+    <style>
+      /* ==========================================================================
+         Токены кабинета оператора: дословно из `operator/frontend/src/index.css`.
+         Новых цветов нет: оформление «natural neutral» уже задано продуктом.
+         ========================================================================== */
+      :root {
+        --n-beige: #e2d9ca;
+        --n-linen: #e8e1d7;
+        --n-sage: #9ca590;
+        --n-sage-dark: #8c9581;
+        --n-grey: #79726a;
+        --n-grey-deep: #3a362f;
+        --n-ink: #262420;
+
+        --n-brick: #8a4b33;
+        --n-brick-tint: #f3e6df;
+        --n-brick-line: #e2cdc1;
+
+        --color-bg-page: #f0eee8;
+        --color-bg-surface: #ffffff;
+        --color-bg-open: #faf7f0;
+        --color-border: #dedbd3;
+        --color-border-strong: #c9c4b9;
+        --color-text: var(--n-ink);
+        --color-text-body: #55534d;
+        --color-text-muted: #6d6960;
+        --color-text-placeholder: #9a958b;
+        --color-accent: var(--n-sage);
+        --color-accent-hover: var(--n-sage-dark);
+        --color-on-accent: var(--n-ink);
+        --color-focus: var(--n-sage);
+        --color-danger: var(--n-brick);
+
+        --font-display: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        --font-body: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        --text-sm: 0.9375rem;
+
+        --radius-xs: 6px;
+        --radius-sm: 10px;
+        --radius-md: 14px;
+        --control-h: 44px;
+        --control-h-sm: 36px;
+        --shadow-card: 0 1px 2px rgba(58, 54, 47, 0.04);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #e6e1d6;
+        color: var(--color-text);
+        font-family: var(--font-body);
+        font-size: 16px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: 2px;
+        border-radius: var(--radius-xs);
+      }
+
+      :where(a, button, input, textarea, select) {
+        font: inherit;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* --- Оправа галереи: не часть интерфейса продукта ---------------------- */
+
+      .gallery__head {
+        display: grid;
+        gap: 6px;
+        padding: 28px 40px 24px;
+        border-bottom: 1px solid #d5cec0;
+      }
+
+      .gallery__title {
+        margin: 0;
+        font: 600 18px/1.3 var(--font-display);
+        letter-spacing: -0.2px;
+        color: #2f2b26;
+      }
+
+      .gallery__note {
+        max-width: 84ch;
+        margin: 0;
+        color: #5f5a52;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .gallery__note code,
+      .frame__caption code {
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: #ddd6c8;
+        font-size: 12.5px;
+      }
+
+      .frame {
+        border-bottom: 1px solid #d5cec0;
+      }
+
+      .frame__caption {
+        margin: 0;
+        padding: 12px 40px;
+        background: #e9e4da;
+        color: #55504a;
+        font-size: 12.5px;
+        line-height: 1.5;
+        border-bottom: 1px solid #d9d3c6;
+      }
+
+      .frame__caption b {
+        font-weight: 600;
+        color: #3d3934;
+      }
+
+      /* --- Продукт: каркас (перенос из index.css) ---------------------------- */
+
+      .screen {
+        display: flex;
+        flex-direction: column;
+        min-height: 380px;
+        background: var(--color-bg-page);
+        color: var(--color-text);
+        font-family: var(--font-body);
+      }
+
+      .topbar {
+        display: flex;
+        flex: none;
+        align-items: stretch;
+        height: 68px;
+        padding: 0 40px;
+        border-bottom: 1px solid var(--color-border);
+        background: var(--color-bg-surface);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        width: fit-content;
+        color: var(--color-text);
+        text-decoration: none;
+      }
+
+      .brand--static {
+        align-self: center;
+      }
+
+      .brand__mark {
+        display: block;
+        width: 34px;
+        height: 34px;
+        flex: none;
+      }
+
+      .brand__name {
+        font: 600 19px/1.15 var(--font-display);
+        letter-spacing: -0.2px;
+      }
+
+      .topbar__right {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-left: auto;
+      }
+
+      .account {
+        color: var(--color-text-muted);
+        font-size: 13px;
+      }
+
+      .nav {
+        display: flex;
+        align-items: stretch;
+        gap: 2px;
+        margin-left: 32px;
+        margin-right: auto;
+        margin-bottom: -1px;
+      }
+
+      .nav__link {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 12px;
+        border-bottom: 2px solid transparent;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .nav__link:first-child {
+        padding-left: 0;
+      }
+
+      .nav__link[aria-current='page'] {
+        border-bottom-color: var(--color-accent);
+        color: var(--n-ink);
+      }
+
+      .screen__main {
+        flex: 1;
+        padding: 32px 40px 48px;
+      }
+
+      .page {
+        display: grid;
+        gap: 20px;
+        width: 100%;
+        max-width: 1120px;
+      }
+
+      .page__head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .page__title {
+        margin: 0;
+        font: 600 26px/1.25 var(--font-display);
+        letter-spacing: -0.4px;
+        color: var(--n-ink);
+      }
+
+      .page__meta {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* --- Реестр: таблица в белой поверхности с волосяными линиями ---------- */
+
+      .list {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        box-shadow: var(--shadow-card);
+        overflow: hidden;
+      }
+
+      .list__table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      .list__table th {
+        padding: 11px 20px;
+        border-bottom: 1px solid var(--color-border);
+        color: var(--color-text-muted);
+        font: 600 12.5px/1.4 var(--font-body);
+        letter-spacing: 0.01em;
+        text-align: start;
+      }
+
+      .list__table td {
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--color-border);
+        vertical-align: middle;
+        color: var(--color-text-body);
+      }
+
+      .list__table tbody tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .list__action {
+        width: 1%;
+        text-align: end;
+      }
+
+      .cell__label {
+        display: none;
+      }
+
+      .list__note {
+        margin: 0;
+        padding: 12px 14px 14px;
+        border-top: 1px solid var(--color-border);
+        background: var(--color-bg-page);
+        color: var(--color-text-muted);
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+
+      /* --- Кнопки, поля, алерты, состояния ----------------------------------- */
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: var(--control-h);
+        padding: 10px 18px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        background: none;
+        white-space: nowrap;
+        flex: none;
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 14.5px;
+        letter-spacing: 0.01em;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      .btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .btn--primary {
+        background: var(--color-accent);
+        color: var(--color-on-accent);
+      }
+
+      .btn--ghost {
+        background: transparent;
+        border-color: var(--color-border-strong);
+        color: var(--n-grey-deep);
+      }
+
+      .btn--danger {
+        border-color: var(--n-brick-line);
+        color: var(--color-danger);
+      }
+
+      .btn--compact {
+        min-height: var(--control-h-sm);
+        padding: 7px 13px;
+        border-radius: var(--radius-xs);
+        font-size: 13px;
+      }
+
+      .btn[aria-busy='true'] {
+        cursor: progress;
+      }
+
+      .btn[aria-busy='true']::after {
+        content: '';
+        width: 0.85em;
+        height: 0.85em;
+        border: 1.5px solid currentcolor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: btn-spin 700ms linear infinite;
+      }
+
+      @keyframes btn-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .alert {
+        margin: 0;
+        padding: 11px 14px;
+        border: 1px solid transparent;
+        border-radius: var(--radius-sm);
+        font-size: 13.5px;
+        font-weight: 500;
+        line-height: 1.45;
+      }
+
+      .alert--error {
+        border-color: var(--n-brick-line);
+        background: var(--n-brick-tint);
+        color: var(--color-danger);
+      }
+
+      /* Отказ загрузки — текст и «Повторить» одной строкой: кнопка рядом с
+         сообщением, поэтому прочитал и нажал, а не искал её под списком. */
+      .alert-line {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .alert-line .alert {
+        flex: 1 1 auto;
+      }
+
+      .form {
+        display: grid;
+        gap: 18px;
+      }
+
+      .field {
+        display: grid;
+        gap: 7px;
+      }
+
+      .field__label {
+        font-weight: 600;
+        font-size: 12.5px;
+        letter-spacing: 0.01em;
+        color: var(--color-text-body);
+      }
+
+      .field__input {
+        width: 100%;
+        min-height: var(--control-h);
+        padding: 11px 14px;
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius-sm);
+        background: var(--color-bg-surface);
+        color: var(--color-text);
+        font: inherit;
+        font-size: var(--text-sm);
+      }
+
+      .field__input::placeholder {
+        color: var(--color-text-placeholder);
+      }
+
+      .field__input[aria-invalid='true'] {
+        border-color: var(--color-danger);
+        background: #fdf9f7;
+      }
+
+      .field__hint {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+
+      .field__input--area {
+        min-height: calc(var(--control-h) * 1.4);
+        resize: vertical;
+      }
+
+      .select {
+        position: relative;
+        width: 100%;
+      }
+
+      .select__input {
+        appearance: none;
+        padding-right: 38px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+
+      .select__icon {
+        position: absolute;
+        top: 50%;
+        right: 13px;
+        width: 13px;
+        height: 13px;
+        transform: translateY(-50%);
+        color: var(--color-text-muted);
+        pointer-events: none;
+      }
+
+      .form__grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px 18px;
+      }
+
+      .form__actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .state {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 30px 24px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        color: var(--color-text-muted);
+        font-size: 14px;
+      }
+
+      .spinner {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        border: 1.5px solid var(--color-border-strong);
+        border-top-color: var(--n-sage);
+        border-radius: 50%;
+        animation: btn-spin 800ms linear infinite;
+      }
+
+      .empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 252px;
+        padding: 36px 24px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        text-align: center;
+      }
+
+      .empty__icon {
+        display: grid;
+        place-items: center;
+        margin-bottom: 8px;
+        color: var(--n-grey);
+      }
+
+      .empty__icon svg {
+        width: 26px;
+        height: 26px;
+        stroke-width: 1.4;
+      }
+
+      .empty h2 {
+        margin: 0;
+        font: 600 17px/1.3 var(--font-display);
+        color: var(--n-ink);
+      }
+
+      .empty p {
+        max-width: 42ch;
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      /* Состояние строки и пустое значение — словом и формой точки, не цветом. */
+      .flag {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--color-text-body);
+        font-size: 13.5px;
+        white-space: nowrap;
+      }
+
+      .flag__dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--color-accent);
+      }
+
+      .flag--off {
+        color: var(--color-text-muted);
+      }
+
+      .flag--off .flag__dot {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--color-border-strong);
+      }
+
+      .row-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      /* ==========================================================================
+         Решения (#188): каталог магазина улучшений.
+
+         Отличие от прайса тарифов — колонка «Порядок». Это не ещё одна колонка, а
+         спина списка: узкая колонка с вертикальной линией, по которой столбик
+         номеров читается как очередь витрины. Всё остальное — тише: описание, код
+         и даты правят редко, крупны только название, готовая цена и номер.
+         ========================================================================== */
+
+      .page--solutions {
+        max-width: 1360px;
+      }
+
+      .page--solutions .list__table {
+        table-layout: fixed;
+      }
+
+      .page--solutions .list__table th,
+      .page--solutions .list__table td {
+        padding: 12px 10px;
+      }
+
+      .page--solutions .list__table td {
+        font-size: 13.5px;
+      }
+
+      /* 1 Порядок · 2 Название · 3 Код · 4 Описание · 5 Цена · 6 Период ·
+         7 Состояние · 8 Создано · 9 Изменено · 10 Действия.
+         Действия — 17%: в состоянии подтверждения там живут три кнопки, а не две. */
+      .page--solutions .list__table th:nth-child(1) {
+        width: 5.8%;
+      }
+
+      .page--solutions .list__table th:nth-child(2) {
+        width: 12.2%;
+      }
+
+      .page--solutions .list__table th:nth-child(3) {
+        width: 9.2%;
+      }
+
+      .page--solutions .list__table th:nth-child(4) {
+        width: 12%;
+      }
+
+      .page--solutions .list__table th:nth-child(5) {
+        width: 9.6%;
+      }
+
+      .page--solutions .list__table th:nth-child(6) {
+        width: 8.2%;
+      }
+
+      .page--solutions .list__table th:nth-child(7) {
+        width: 9.4%;
+      }
+
+      .page--solutions .list__table th:nth-child(8) {
+        width: 7.2%;
+      }
+
+      .page--solutions .list__table th:nth-child(9) {
+        width: 7.2%;
+      }
+
+      .page--solutions .list__table th:nth-child(10) {
+        width: 19.2%;
+      }
+
+      /* Линия-спина: порядок отделён от карточки решения на всю высоту реестра. */
+      .page--solutions .list__table th:nth-child(1),
+      .page--solutions .list__table td:nth-child(1) {
+        border-right: 1px solid var(--color-border);
+      }
+
+      .page--solutions .solution__position {
+        color: var(--n-ink);
+        font-size: 15px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .page--solutions .solution__position .cell__label {
+        font-weight: 400;
+      }
+
+      .solution__name {
+        display: block;
+        color: var(--n-ink);
+        font-size: 14.5px;
+        font-weight: 600;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+      }
+
+      /* Код — гейт функции: он не правится и не создаётся, поэтому он тихий и
+         мелкий, но стоит отдельной колонкой, чтобы его не искали глазами. */
+      .solution__code {
+        color: var(--color-text-muted);
+        font-size: 11.5px;
+        line-height: 1.45;
+        letter-spacing: 0.01em;
+        overflow-wrap: anywhere;
+      }
+
+      .solution__description {
+        color: var(--color-text-body);
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      .solution__price {
+        color: var(--n-ink);
+        font-size: 14.5px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.4;
+      }
+
+      .solution__period {
+        color: var(--color-text-muted);
+        white-space: nowrap;
+      }
+
+      .solution__date {
+        color: var(--color-text-muted);
+        font-size: 11.5px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+      }
+
+      /* Снятая с продажи строка не выпадает из списка: имя и цена уходят в тёплый
+         серый, состояние читается словом «Не в каталоге» и контурной точкой. */
+      .solution--hidden .solution__name,
+      .solution--hidden .solution__price {
+        color: var(--color-text-muted);
+        font-weight: 500;
+      }
+
+      .solution--open td {
+        background: var(--color-bg-open);
+      }
+
+      .edit-row td {
+        padding: 0;
+        border-right: 0;
+        background: var(--color-bg-open);
+      }
+
+      .form--row {
+        gap: 14px;
+        padding: 18px 14px 20px;
+      }
+
+      .form--row .form__grid {
+        gap: 14px 16px;
+      }
+
+      /* Поля разложены по смыслу: слева то, что читает клиент в карточке, справа
+         свойства витрины, снизу деньги. Заполнены все три колонки, дыр нет. */
+      .field--name,
+      .field--description {
+        grid-column: span 2;
+      }
+
+      .field--amount .field__input,
+      .field--currency .field__input,
+      .field--period .field__input,
+      .field--position .field__input {
+        max-width: 240px;
+      }
+
+      .field--state .select,
+      .field--period .select {
+        max-width: 240px;
+      }
+
+      /* --- Галерея: состояния без шапки, одной полосой ----------------------- */
+
+      .states {
+        display: grid;
+        gap: 18px;
+        padding: 24px 40px 28px;
+        background: var(--color-bg-page);
+      }
+
+      .states__item {
+        display: grid;
+        gap: 8px;
+        max-width: 1360px;
+      }
+
+      .states__caption {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 12.5px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+
+      .states__caption span {
+        font-weight: 400;
+      }
+
+      .detail__box {
+        display: grid;
+        gap: 12px;
+        max-width: 640px;
+        padding: 20px 24px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-bg-surface);
+        box-shadow: var(--shadow-card);
+      }
+
+      .detail__caption {
+        margin: 0;
+        color: var(--color-text-muted);
+        font-size: 12.5px;
+        line-height: 1.5;
+      }
+
+      /* ==========================================================================
+         Средняя ширина: 761–1180. Десять колонок в 1024 не встают, а прокрутка
+         внутри реестра прячет половину строки. Поэтому в этом диапазоне уходят две
+         самые тихие колонки — «Создано» и «Изменено»: даты нужны для сверки, а не
+         для работы с каталогом. Остальные восемь встают без переполнения.
+         ========================================================================== */
+
+      @media (min-width: 761px) and (max-width: 1180px) {
+        .page--solutions .list__table th:nth-child(8),
+        .page--solutions .list__table td:nth-child(8),
+        .page--solutions .list__table th:nth-child(9),
+        .page--solutions .list__table td:nth-child(9) {
+          display: none;
+        }
+
+        .page--solutions .list__table th:nth-child(1) {
+          width: 7.5%;
+        }
+
+        .page--solutions .list__table th:nth-child(2) {
+          width: 14%;
+        }
+
+        .page--solutions .list__table th:nth-child(3) {
+          width: 11.5%;
+        }
+
+        .page--solutions .list__table th:nth-child(4) {
+          width: 14%;
+        }
+
+        .page--solutions .list__table th:nth-child(5) {
+          width: 11.5%;
+        }
+
+        .page--solutions .list__table th:nth-child(6) {
+          width: 9.5%;
+        }
+
+        .page--solutions .list__table th:nth-child(7) {
+          width: 12%;
+        }
+
+        .page--solutions .list__table th:nth-child(10) {
+          width: 20%;
+        }
+      }
+
+      @media (max-width: 1100px) {
+        .page--solutions .list__table th,
+        .page--solutions .list__table td {
+          padding: 12px 8px;
+        }
+
+        .page--solutions .list__table th {
+          font-size: 12px;
+        }
+
+        .page--solutions .list__table td {
+          font-size: 13px;
+        }
+
+        .page--solutions .solution__price {
+          white-space: normal;
+        }
+
+        /* Две кнопки в 173 px не встают в строку при обычном --compact:
+           в этом диапазоне они плотнее, как у прайса тарифов на 1024. */
+        .page--solutions .row-actions .btn--compact {
+          padding: 6px 10px;
+          font-size: 12.5px;
+        }
+
+        .page--solutions .row-actions {
+          gap: 6px;
+        }
+      }
+
+      /* ==========================================================================
+         Узкое окно: 375. Шапка в две строки, но навигация из шести разделов
+         переносится в две строки по три, а не прокручивается: прокручиваемая полоса
+         из вкладок прячет последние разделы. Таблица перестаёт быть таблицей —
+         строка становится блоком, даты возвращаются подписями.
+         ========================================================================== */
+
+      @media (max-width: 760px) {
+        .topbar {
+          height: 60px;
+          padding: 0 20px;
+        }
+
+        .brand__mark {
+          width: 30px;
+          height: 30px;
+        }
+
+        .brand__name {
+          font-size: 17px;
+        }
+
+        .topbar__right {
+          gap: 10px;
+        }
+
+        .topbar--nav {
+          flex-wrap: wrap;
+          align-items: center;
+          height: auto;
+          padding: 0;
+        }
+
+        .topbar--nav .brand {
+          height: 56px;
+          margin-left: 20px;
+        }
+
+        .topbar--nav .topbar__right {
+          height: 56px;
+          margin-left: auto;
+          padding-right: 20px;
+        }
+
+        .topbar--nav .nav {
+          order: 3;
+          flex-basis: 100%;
+          flex-wrap: wrap;
+          margin: 0;
+          padding: 0 12px;
+          border-top: 1px solid var(--color-border);
+        }
+
+        /* Шесть разделов в две строки по три. calc на базис — иначе два
+           пикселя промежутков выбивают третью вкладку на вторую строку. */
+        .topbar--nav .nav__link {
+          flex: 1 1 calc(33.333% - 4px);
+          justify-content: center;
+          height: 46px;
+          padding: 0 8px;
+        }
+
+        .topbar--nav .nav__link:first-child {
+          padding-left: 8px;
+        }
+
+        .screen__main {
+          padding: 24px 20px 32px;
+        }
+
+        .page {
+          gap: 16px;
+        }
+
+        .page__title {
+          font-size: 21px;
+        }
+
+        .page--solutions .list__table thead {
+          display: none;
+        }
+
+        .page--solutions .list__table,
+        .page--solutions .list__table tbody,
+        .page--solutions .list__table tr,
+        .page--solutions .list__table td {
+          display: block;
+        }
+
+        .page--solutions .list__table tr.solution {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 2px 10px;
+          padding: 15px 16px;
+          border-bottom: 1px solid var(--color-border);
+        }
+
+        .page--solutions .list__table tbody tr.solution:last-of-type {
+          border-bottom: 0;
+        }
+
+        .page--solutions .list__table tr.solution td {
+          padding: 0;
+          border: 0;
+        }
+
+        .page--solutions .solution__position {
+          grid-column: 1;
+          grid-row: 1;
+          font-size: 12.5px;
+          font-weight: 400;
+          color: var(--color-text-muted);
+        }
+
+        .page--solutions .solution__state-cell {
+          grid-column: 2;
+          grid-row: 1;
+          justify-self: end;
+        }
+
+        .page--solutions .solution__name-cell {
+          grid-column: 1 / -1;
+          grid-row: 2;
+          margin-top: 2px;
+        }
+
+        .page--solutions .solution__name {
+          font-size: 15px;
+        }
+
+        .page--solutions .solution__code {
+          grid-column: 1 / -1;
+          grid-row: 3;
+          margin-top: 2px;
+        }
+
+        .page--solutions .solution__description {
+          grid-column: 1 / -1;
+          grid-row: 4;
+          margin-top: 6px;
+        }
+
+        .page--solutions .solution__price {
+          grid-column: 1 / -1;
+          grid-row: 5;
+          margin-top: 6px;
+        }
+
+        .page--solutions .solution__period {
+          grid-column: 1 / -1;
+          grid-row: 6;
+          white-space: normal;
+        }
+
+        .page--solutions .solution__created-cell {
+          grid-column: 1 / -1;
+          grid-row: 7;
+          margin-top: 6px;
+        }
+
+        .page--solutions .solution__updated-cell {
+          grid-column: 1 / -1;
+          grid-row: 8;
+        }
+
+        .page--solutions .list__action {
+          grid-column: 1 / -1;
+          grid-row: 9;
+          width: auto;
+          margin-top: 10px;
+          text-align: start;
+        }
+
+        .page--solutions .row-actions {
+          justify-content: stretch;
+          gap: 8px;
+        }
+
+        .page--solutions .row-actions .btn {
+          flex: 1 1 auto;
+        }
+
+        /* Строка-блок несёт фон сама: у ячеек-блоков заливка ложится полосами
+           в промежутках сетки. */
+        .page--solutions .solution--open td {
+          background: transparent;
+        }
+
+        .page--solutions .solution--open {
+          background: var(--color-bg-open);
+        }
+
+        .page--solutions .edit-row {
+          display: block;
+          border-bottom: 1px solid var(--color-border);
+        }
+
+        .page--solutions .field__input--area {
+          min-height: 96px;
+        }
+
+        .page--solutions .edit-row td {
+          padding: 0;
+        }
+
+        .form--row {
+          padding: 16px;
+        }
+
+        .form--row .form__grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .field--name,
+        .field--description {
+          grid-column: auto;
+        }
+
+        .field--amount .field__input,
+        .field--currency .field__input,
+        .field--period .field__input,
+        .field--position .field__input,
+        .field--state .select {
+          max-width: none;
+        }
+
+        .form--row .form__actions {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .form--row .form__actions .btn {
+          width: 100%;
+        }
+
+        .list__note {
+          padding: 12px 16px 14px;
+        }
+
+        .cell__label {
+          display: inline;
+          margin-right: 5px;
+          color: var(--color-text-muted);
+          font-size: 12.5px;
+        }
+
+        .states {
+          padding: 20px 20px 24px;
+        }
+
+        .state {
+          padding: 24px 20px;
+        }
+
+        .empty {
+          padding: 28px 20px;
+        }
+      }
+
+      /* Оправа галереи на узком окне: 40 px полей съедают половину строки. */
+      @media (max-width: 760px) {
+        .gallery__head,
+        .frame__caption {
+          padding-inline: 20px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+
+        .btn[aria-busy='true']::after {
+          display: none;
+        }
+
+        .spinner {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="gallery__head">
+      <h1 class="gallery__title">Кабинет оператора: решения магазина — макет постановки #188</h1>
+      <p class="gallery__note">
+        Статичный макет, без сборки и внешних файлов. Токены, шапка, навигация, таблица, кнопки,
+        поля и блоки состояний перенесены из <code>operator/frontend/src/index.css</code> и макета
+        <code>mockups/178/</code>. Новое — колонка «Порядок» как порядок витрины, форма правки под
+        строкой, двухшаговая «Удалить» и «Опубликовать» у снятой строки, шестой раздел в навигации.
+        Данные — настоящие строки каталога из миграций <code>0035</code>, <code>0049</code> и
+        <code>0064</code>: три решения. Кадры идут по сценарию сверху вниз, ширина проверена на
+        1440, 1024 и 375.
+      </p>
+    </header>
+
+    <!-- ================================================================
+         1. Список: загружен
+         ================================================================ -->
+    <section class="frame" id="frame-1">
+      <p class="frame__caption">
+        <b>Список · загружен.</b> «Решения» — новый раздел сразу после «Тарифов». В шапке два числа:
+        всего строк и сколько из них в каталоге. Слева колонка «Порядок» с линией-спиной: это и
+        есть порядок витрины, сервер отдаёт строки по <code>position, id</code>. Колонки: порядок,
+        название, код (только показ), описание, готовая <code>price_label</code>, период,
+        состояние, создано, изменено, действия. У снятой строки нет «Удалить» — вместо неё
+        «Опубликовать».
+      </p>
+      <div class="screen">
+        <header class="topbar topbar--nav">
+          <span class="brand brand--static" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-organizations">
+              Организации
+            </a>
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-invoices">Счета</a>
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-tariffs">Тарифы</a>
+            <a
+              class="nav__link"
+              href="#frame-1"
+              aria-current="page"
+              data-testid="operator-nav-solutions"
+            >
+              Решения
+            </a>
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-users">Пользователи</a>
+            <a class="nav__link" href="#frame-1" data-testid="operator-nav-company">Реквизиты</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account" title="Логин, под которым открыт кабинет">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button" data-testid="operator-logout">
+              Выйти
+            </button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--solutions">
+            <div class="page__head">
+              <h1 class="page__title">Решения</h1>
+              <p class="page__meta" data-testid="operator-solutions-count">
+                3 решения · 3 в каталоге
+              </p>
+            </div>
+
+            <div class="list" data-testid="operator-solutions">
+              <table class="list__table">
+                <caption class="visually-hidden">
+                  Каталог решений: порядок витрины, название, код, описание, цена, период,
+                  состояние, даты создания и изменения, действия
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Порядок</th>
+                    <th scope="col">Название</th>
+                    <th scope="col">Код</th>
+                    <th scope="col">Описание</th>
+                    <th scope="col">Цена</th>
+                    <th scope="col">Период</th>
+                    <th scope="col">Состояние</th>
+                    <th scope="col">Создано</th>
+                    <th scope="col">Изменено</th>
+                    <th scope="col"><span class="visually-hidden">Действия</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="solution" data-testid="operator-solution-row">
+                    <td class="solution__position" data-testid="operator-solution-position">
+                      <span class="cell__label">Порядок:</span>1
+                    </td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name" data-testid="operator-solution-name">
+                        Уведомления в Telegram
+                      </span>
+                    </td>
+                    <td class="solution__code" data-testid="operator-solution-code">
+                      <span class="cell__label">Код:</span>telegram_<wbr />notifications
+                    </td>
+                    <td class="solution__description" data-testid="operator-solution-description">
+                      <span class="cell__label">Описание:</span>Сообщения о событиях, которые вас
+                      касаются
+                    </td>
+                    <td class="solution__price" data-testid="operator-solution-price">
+                      <span class="cell__label">Цена:</span>500 ₽ в месяц
+                    </td>
+                    <td class="solution__period" data-testid="operator-solution-period">
+                      <span class="cell__label">Период:</span>в месяц
+                    </td>
+                    <td class="solution__state-cell">
+                      <span class="flag" data-testid="operator-solution-state">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td
+                      class="solution__date solution__created-cell"
+                      data-testid="operator-solution-created"
+                    >
+                      <span class="cell__label">Создано:</span>14.02.2026
+                    </td>
+                    <td
+                      class="solution__date solution__updated-cell"
+                      data-testid="operator-solution-updated"
+                    >
+                      <span class="cell__label">Изменено:</span>02.11.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button
+                          class="btn btn--ghost btn--compact btn--danger"
+                          type="button"
+                          data-testid="operator-solution-delete"
+                        >
+                          Удалить
+                        </button>
+                        <button
+                          class="btn btn--ghost btn--compact"
+                          type="button"
+                          data-testid="operator-solution-edit"
+                        >
+                          Изменить
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr class="solution" data-testid="operator-solution-row">
+                    <td class="solution__position" data-testid="operator-solution-position">
+                      <span class="cell__label">Порядок:</span>2
+                    </td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name" data-testid="operator-solution-name">
+                        Журнал действий
+                      </span>
+                    </td>
+                    <td class="solution__code" data-testid="operator-solution-code">
+                      <span class="cell__label">Код:</span>journal
+                    </td>
+                    <td class="solution__description" data-testid="operator-solution-description">
+                      <span class="cell__label">Описание:</span>Кто, когда и что изменил в кабинете
+                    </td>
+                    <td class="solution__price" data-testid="operator-solution-price">
+                      <span class="cell__label">Цена:</span>300 ₽ в месяц
+                    </td>
+                    <td class="solution__period" data-testid="operator-solution-period">
+                      <span class="cell__label">Период:</span>в месяц
+                    </td>
+                    <td class="solution__state-cell">
+                      <span class="flag" data-testid="operator-solution-state">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td
+                      class="solution__date solution__created-cell"
+                      data-testid="operator-solution-created"
+                    >
+                      <span class="cell__label">Создано:</span>21.04.2026
+                    </td>
+                    <td
+                      class="solution__date solution__updated-cell"
+                      data-testid="operator-solution-updated"
+                    >
+                      <span class="cell__label">Изменено:</span>21.04.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button
+                          class="btn btn--ghost btn--compact btn--danger"
+                          type="button"
+                          data-testid="operator-solution-delete"
+                        >
+                          Удалить
+                        </button>
+                        <button
+                          class="btn btn--ghost btn--compact"
+                          type="button"
+                          data-testid="operator-solution-edit"
+                        >
+                          Изменить
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr class="solution" data-testid="operator-solution-row">
+                    <td class="solution__position" data-testid="operator-solution-position">
+                      <span class="cell__label">Порядок:</span>900
+                    </td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name" data-testid="operator-solution-name">
+                        Дополнительные сотрудники
+                      </span>
+                    </td>
+                    <td class="solution__code" data-testid="operator-solution-code">
+                      <span class="cell__label">Код:</span>extra_<wbr />member
+                    </td>
+                    <td class="solution__description" data-testid="operator-solution-description">
+                      <span class="cell__label">Описание:</span>Каждый дополнительный сотрудник
+                      сверх мест тарифа. Место живёт вместе с подпиской.
+                    </td>
+                    <td class="solution__price" data-testid="operator-solution-price">
+                      <span class="cell__label">Цена:</span>900 ₽ разово
+                    </td>
+                    <td class="solution__period" data-testid="operator-solution-period">
+                      <span class="cell__label">Период:</span>разово
+                    </td>
+                    <td class="solution__state-cell">
+                      <span class="flag" data-testid="operator-solution-state">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td
+                      class="solution__date solution__created-cell"
+                      data-testid="operator-solution-created"
+                    >
+                      <span class="cell__label">Создано:</span>02.11.2026
+                    </td>
+                    <td
+                      class="solution__date solution__updated-cell"
+                      data-testid="operator-solution-updated"
+                    >
+                      <span class="cell__label">Изменено:</span>02.11.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button
+                          class="btn btn--ghost btn--compact btn--danger"
+                          type="button"
+                          data-testid="operator-solution-delete"
+                        >
+                          Удалить
+                        </button>
+                        <button
+                          class="btn btn--ghost btn--compact"
+                          type="button"
+                          data-testid="operator-solution-edit"
+                        >
+                          Изменить
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p class="list__note">
+                Порядок витрины — это порядок строк: сверху вниз по значению «Порядок», при равных
+                значениях выше та строка, что создана раньше. «Удалить» снимает решение с продажи:
+                карточка уходит из магазина, и у организации с действующим правом пропадает пункт
+                меню, хотя платная функция на сервере продолжает работать.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         2. Правка под строкой
+         ================================================================ -->
+    <section class="frame" id="frame-2">
+      <p class="frame__caption">
+        <b>Правка под строкой.</b> Форма развёрнута под «Дополнительные сотрудники»: правка живёт в
+        той же таблице, модальных окон и отдельных страниц нет. Поля разложены по смыслу — слева
+        название и описание (то, что читает клиент в карточке), справа порядок и состояние (свойства
+        витрины), снизу цена, валюта и период. Порядок 900 — это последнее место в магазине:
+        значение задаёт место в списке, а не шаг перестановки.
+      </p>
+      <div class="screen">
+        <header class="topbar topbar--nav">
+          <span class="brand brand--static" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1">Счета</a>
+            <a class="nav__link" href="#frame-1">Тарифы</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Решения</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+            <a class="nav__link" href="#frame-1">Реквизиты</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--solutions">
+            <div class="page__head">
+              <h1 class="page__title">Решения</h1>
+              <p class="page__meta">3 решения · 3 в каталоге</p>
+            </div>
+
+            <div class="list">
+              <table class="list__table">
+                <caption class="visually-hidden">
+                  Каталог решений: порядок витрины, название, код, описание, цена, период,
+                  состояние, даты создания и изменения, действия
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Порядок</th>
+                    <th scope="col">Название</th>
+                    <th scope="col">Код</th>
+                    <th scope="col">Описание</th>
+                    <th scope="col">Цена</th>
+                    <th scope="col">Период</th>
+                    <th scope="col">Состояние</th>
+                    <th scope="col">Создано</th>
+                    <th scope="col">Изменено</th>
+                    <th scope="col"><span class="visually-hidden">Действия</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="solution">
+                    <td class="solution__position"><span class="cell__label">Порядок:</span>1</td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name">Уведомления в Telegram</span>
+                    </td>
+                    <td class="solution__code">
+                      <span class="cell__label">Код:</span>telegram_<wbr />notifications
+                    </td>
+                    <td class="solution__description">
+                      <span class="cell__label">Описание:</span>Сообщения о событиях, которые вас
+                      касаются
+                    </td>
+                    <td class="solution__price"><span class="cell__label">Цена:</span>500 ₽ в месяц</td>
+                    <td class="solution__period"><span class="cell__label">Период:</span>в месяц</td>
+                    <td class="solution__state-cell">
+                      <span class="flag">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td class="solution__date solution__created-cell">
+                      <span class="cell__label">Создано:</span>14.02.2026
+                    </td>
+                    <td class="solution__date solution__updated-cell">
+                      <span class="cell__label">Изменено:</span>02.11.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                          Удалить
+                        </button>
+                        <button class="btn btn--ghost btn--compact" type="button">Изменить</button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr class="solution">
+                    <td class="solution__position"><span class="cell__label">Порядок:</span>2</td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name">Журнал действий</span>
+                    </td>
+                    <td class="solution__code"><span class="cell__label">Код:</span>journal</td>
+                    <td class="solution__description">
+                      <span class="cell__label">Описание:</span>Кто, когда и что изменил в кабинете
+                    </td>
+                    <td class="solution__price"><span class="cell__label">Цена:</span>300 ₽ в месяц</td>
+                    <td class="solution__period"><span class="cell__label">Период:</span>в месяц</td>
+                    <td class="solution__state-cell">
+                      <span class="flag">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td class="solution__date solution__created-cell">
+                      <span class="cell__label">Создано:</span>21.04.2026
+                    </td>
+                    <td class="solution__date solution__updated-cell">
+                      <span class="cell__label">Изменено:</span>21.04.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                          Удалить
+                        </button>
+                        <button class="btn btn--ghost btn--compact" type="button">Изменить</button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr class="solution solution--open">
+                    <td class="solution__position"><span class="cell__label">Порядок:</span>900</td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name">Дополнительные сотрудники</span>
+                    </td>
+                    <td class="solution__code">
+                      <span class="cell__label">Код:</span>extra_<wbr />member
+                    </td>
+                    <td class="solution__description">
+                      <span class="cell__label">Описание:</span>Каждый дополнительный сотрудник
+                      сверх мест тарифа. Место живёт вместе с подпиской.
+                    </td>
+                    <td class="solution__price"><span class="cell__label">Цена:</span>900 ₽ разово</td>
+                    <td class="solution__period"><span class="cell__label">Период:</span>разово</td>
+                    <td class="solution__state-cell">
+                      <span class="flag">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td class="solution__date solution__created-cell">
+                      <span class="cell__label">Создано:</span>02.11.2026
+                    </td>
+                    <td class="solution__date solution__updated-cell">
+                      <span class="cell__label">Изменено:</span>02.11.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                          Удалить
+                        </button>
+                        <button class="btn btn--ghost btn--compact" type="button" aria-expanded="true">
+                          Изменить
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr class="edit-row">
+                    <td colspan="10">
+                      <form class="form form--row" id="solution-form-2" novalidate>
+                        <div class="form__grid">
+                          <div class="field field--name">
+                            <label class="field__label" for="solution-2-name">Название</label>
+                            <input
+                              class="field__input"
+                              id="solution-2-name"
+                              data-testid="operator-solution-name-input"
+                              type="text"
+                              maxlength="120"
+                              value="Дополнительные сотрудники"
+                            />
+                          </div>
+
+                          <div class="field field--position">
+                            <label class="field__label" for="solution-2-position">Порядок</label>
+                            <input
+                              class="field__input"
+                              id="solution-2-position"
+                              data-testid="operator-solution-position-input"
+                              type="text"
+                              inputmode="numeric"
+                              value="900"
+                            />
+                            <p class="field__hint">
+                              Меньше — выше в магазине. При равных значениях выше та строка, что
+                              создана раньше.
+                            </p>
+                          </div>
+
+                          <div class="field field--description">
+                            <label class="field__label" for="solution-2-description">Описание</label>
+                            <textarea
+                              class="field__input field__input--area"
+                              id="solution-2-description"
+                              data-testid="operator-solution-description-input"
+                              rows="2"
+                            >Каждый дополнительный сотрудник сверх мест тарифа. Место живёт вместе с подпиской.</textarea>
+                          </div>
+
+                          <div class="field field--state">
+                            <label class="field__label" for="solution-2-state">Состояние</label>
+                            <div class="select">
+                              <select class="field__input select__input" id="solution-2-state"
+                              data-testid="operator-solution-visible-input">
+                                <option selected>В каталоге</option>
+                                <option>Не в каталоге</option>
+                              </select>
+                              <svg
+                                class="select__icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="m6 9 6 6 6-6" />
+                              </svg>
+                            </div>
+                          </div>
+
+                          <div class="field field--amount">
+                            <label class="field__label" for="solution-2-amount">Цена</label>
+                            <input
+                              class="field__input"
+                              id="solution-2-amount"
+                              data-testid="operator-solution-amount-input"
+                              type="text"
+                              inputmode="decimal"
+                              value="900.00"
+                            />
+                            <p class="field__hint">Число, копейки через точку</p>
+                          </div>
+
+                          <div class="field field--currency">
+                            <label class="field__label" for="solution-2-currency">Валюта</label>
+                            <input
+                              class="field__input"
+                              id="solution-2-currency"
+                              data-testid="operator-solution-currency-input"
+                              type="text"
+                              maxlength="3"
+                              value="RUB"
+                            />
+                            <p class="field__hint">Три заглавные латинские буквы</p>
+                          </div>
+
+                          <div class="field field--period">
+                            <label class="field__label" for="solution-2-period">Период</label>
+                            <div class="select">
+                              <select class="field__input select__input" id="solution-2-period"
+                              data-testid="operator-solution-period-input">
+                                <option>в месяц</option>
+                                <option>за 3 месяца</option>
+                                <option>за 6 месяцев</option>
+                                <option>в год</option>
+                                <option selected>разово</option>
+                              </select>
+                              <svg
+                                class="select__icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="m6 9 6 6 6-6" />
+                              </svg>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="form__actions">
+                          <button class="btn btn--primary" type="submit" data-testid="operator-solution-save">Сохранить</button>
+                          <button class="btn btn--ghost" type="button" data-testid="operator-solution-cancel">Отмена</button>
+                        </div>
+                      </form>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p class="list__note">
+                Порядок витрины — это порядок строк: сверху вниз по значению «Порядок», при равных
+                значениях выше та строка, что создана раньше. «Удалить» снимает решение с продажи:
+                карточка уходит из магазина, и у организации с действующим правом пропадает пункт
+                меню, хотя платная функция на сервере продолжает работать.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         3. Порядок витрины изменён
+         ================================================================ -->
+    <section class="frame" id="frame-3">
+      <p class="frame__caption">
+        <b>Порядок витрины изменён.</b> После сохранения <code>PATCH {"position": 0}</code> строка
+        «Дополнительные сотрудники» встала первой, и в <code>/cabinet/shop</code> первая карточка —
+        она же: клиент рендерит ответ <code>GET /api/solutions</code> как пришёл, без перезапуска
+        сервисов. У строки обновилось «Изменено» — строку целиком вернул сервер вместе с
+        пересчитанным <code>price_label</code>.
+      </p>
+      <div class="screen">
+        <header class="topbar topbar--nav">
+          <span class="brand brand--static" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1">Счета</a>
+            <a class="nav__link" href="#frame-1">Тарифы</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Решения</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+            <a class="nav__link" href="#frame-1">Реквизиты</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--solutions">
+            <div class="page__head">
+              <h1 class="page__title">Решения</h1>
+              <p class="page__meta">3 решения · 3 в каталоге</p>
+            </div>
+
+            <div class="list">
+              <table class="list__table">
+                <caption class="visually-hidden">
+                  Каталог решений: порядок витрины, название, код, описание, цена, период,
+                  состояние, даты создания и изменения, действия
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Порядок</th>
+                    <th scope="col">Название</th>
+                    <th scope="col">Код</th>
+                    <th scope="col">Описание</th>
+                    <th scope="col">Цена</th>
+                    <th scope="col">Период</th>
+                    <th scope="col">Состояние</th>
+                    <th scope="col">Создано</th>
+                    <th scope="col">Изменено</th>
+                    <th scope="col"><span class="visually-hidden">Действия</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="solution">
+                    <td class="solution__position"><span class="cell__label">Порядок:</span>0</td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name">Дополнительные сотрудники</span>
+                    </td>
+                    <td class="solution__code">
+                      <span class="cell__label">Код:</span>extra_<wbr />member
+                    </td>
+                    <td class="solution__description">
+                      <span class="cell__label">Описание:</span>Каждый дополнительный сотрудник
+                      сверх мест тарифа. Место живёт вместе с подпиской.
+                    </td>
+                    <td class="solution__price"><span class="cell__label">Цена:</span>900 ₽ разово</td>
+                    <td class="solution__period"><span class="cell__label">Период:</span>разово</td>
+                    <td class="solution__state-cell">
+                      <span class="flag">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td class="solution__date solution__created-cell">
+                      <span class="cell__label">Создано:</span>02.11.2026
+                    </td>
+                    <td class="solution__date solution__updated-cell">
+                      <span class="cell__label">Изменено:</span>06.11.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                          Удалить
+                        </button>
+                        <button class="btn btn--ghost btn--compact" type="button">Изменить</button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr class="solution">
+                    <td class="solution__position"><span class="cell__label">Порядок:</span>1</td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name">Уведомления в Telegram</span>
+                    </td>
+                    <td class="solution__code">
+                      <span class="cell__label">Код:</span>telegram_<wbr />notifications
+                    </td>
+                    <td class="solution__description">
+                      <span class="cell__label">Описание:</span>Сообщения о событиях, которые вас
+                      касаются
+                    </td>
+                    <td class="solution__price"><span class="cell__label">Цена:</span>500 ₽ в месяц</td>
+                    <td class="solution__period"><span class="cell__label">Период:</span>в месяц</td>
+                    <td class="solution__state-cell">
+                      <span class="flag">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td class="solution__date solution__created-cell">
+                      <span class="cell__label">Создано:</span>14.02.2026
+                    </td>
+                    <td class="solution__date solution__updated-cell">
+                      <span class="cell__label">Изменено:</span>02.11.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                          Удалить
+                        </button>
+                        <button class="btn btn--ghost btn--compact" type="button">Изменить</button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr class="solution">
+                    <td class="solution__position"><span class="cell__label">Порядок:</span>2</td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name">Журнал действий</span>
+                    </td>
+                    <td class="solution__code"><span class="cell__label">Код:</span>journal</td>
+                    <td class="solution__description">
+                      <span class="cell__label">Описание:</span>Кто, когда и что изменил в кабинете
+                    </td>
+                    <td class="solution__price"><span class="cell__label">Цена:</span>300 ₽ в месяц</td>
+                    <td class="solution__period"><span class="cell__label">Период:</span>в месяц</td>
+                    <td class="solution__state-cell">
+                      <span class="flag">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td class="solution__date solution__created-cell">
+                      <span class="cell__label">Создано:</span>21.04.2026
+                    </td>
+                    <td class="solution__date solution__updated-cell">
+                      <span class="cell__label">Изменено:</span>21.04.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                          Удалить
+                        </button>
+                        <button class="btn btn--ghost btn--compact" type="button">Изменить</button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p class="list__note">
+                Порядок витрины — это порядок строк: сверху вниз по значению «Порядок», при равных
+                значениях выше та строка, что создана раньше. «Удалить» снимает решение с продажи:
+                карточка уходит из магазина, и у организации с действующим правом пропадает пункт
+                меню, хотя платная функция на сервере продолжает работать.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         4. Отказ сервера: 409 занятое название
+         ================================================================ -->
+    <section class="frame" id="frame-4">
+      <p class="frame__caption">
+        <b>Отказ 409.</b> Введено занятое название: текст сервера показан дословно над списком, поле
+        «Название» помечено <code>aria-invalid</code> и связано с алертом, введённое не сброшено,
+        порядок и цена остались как были. <code>422</code> выглядят так же — меняется только текст:
+        «Порядок не может быть отрицательным».
+      </p>
+      <div class="screen">
+        <header class="topbar topbar--nav">
+          <span class="brand brand--static" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1">Счета</a>
+            <a class="nav__link" href="#frame-1">Тарифы</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Решения</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+            <a class="nav__link" href="#frame-1">Реквизиты</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--solutions">
+            <div class="page__head">
+              <h1 class="page__title">Решения</h1>
+              <p class="page__meta">3 решения · 3 в каталоге</p>
+            </div>
+
+            <p
+              class="alert alert--error"
+              id="solution-error-4"
+              role="alert"
+              data-testid="operator-solution-error"
+            >
+              Решение с таким названием уже есть
+            </p>
+
+            <div class="list">
+              <table class="list__table">
+                <caption class="visually-hidden">
+                  Каталог решений: порядок витрины, название, код, описание, цена, период,
+                  состояние, даты создания и изменения, действия
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Порядок</th>
+                    <th scope="col">Название</th>
+                    <th scope="col">Код</th>
+                    <th scope="col">Описание</th>
+                    <th scope="col">Цена</th>
+                    <th scope="col">Период</th>
+                    <th scope="col">Состояние</th>
+                    <th scope="col">Создано</th>
+                    <th scope="col">Изменено</th>
+                    <th scope="col"><span class="visually-hidden">Действия</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="solution solution--open">
+                    <td class="solution__position"><span class="cell__label">Порядок:</span>0</td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name">Дополнительные сотрудники</span>
+                    </td>
+                    <td class="solution__code">
+                      <span class="cell__label">Код:</span>extra_<wbr />member
+                    </td>
+                    <td class="solution__description">
+                      <span class="cell__label">Описание:</span>Каждый дополнительный сотрудник
+                      сверх мест тарифа. Место живёт вместе с подпиской.
+                    </td>
+                    <td class="solution__price"><span class="cell__label">Цена:</span>900 ₽ разово</td>
+                    <td class="solution__period"><span class="cell__label">Период:</span>разово</td>
+                    <td class="solution__state-cell">
+                      <span class="flag">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td class="solution__date solution__created-cell">
+                      <span class="cell__label">Создано:</span>02.11.2026
+                    </td>
+                    <td class="solution__date solution__updated-cell">
+                      <span class="cell__label">Изменено:</span>06.11.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                          Удалить
+                        </button>
+                        <button class="btn btn--ghost btn--compact" type="button" aria-expanded="true">
+                          Изменить
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr class="edit-row">
+                    <td colspan="10">
+                      <form class="form form--row" id="solution-form-4" novalidate>
+                        <div class="form__grid">
+                          <div class="field field--name">
+                            <label class="field__label" for="solution-4-name">Название</label>
+                            <input
+                              class="field__input"
+                              id="solution-4-name"
+                              type="text"
+                              maxlength="120"
+                              value="Журнал действий"
+                              aria-invalid="true"
+                              aria-describedby="solution-error-4"
+                            />
+                          </div>
+
+                          <div class="field field--position">
+                            <label class="field__label" for="solution-4-position">Порядок</label>
+                            <input
+                              class="field__input"
+                              id="solution-4-position"
+                              type="text"
+                              inputmode="numeric"
+                              value="0"
+                            />
+                            <p class="field__hint">
+                              Меньше — выше в магазине. При равных значениях выше та строка, что
+                              создана раньше.
+                            </p>
+                          </div>
+
+                          <div class="field field--description">
+                            <label class="field__label" for="solution-4-description">Описание</label>
+                            <textarea
+                              class="field__input field__input--area"
+                              id="solution-4-description"
+                              rows="2"
+                            >Каждый дополнительный сотрудник сверх мест тарифа. Место живёт вместе с подпиской.</textarea>
+                          </div>
+
+                          <div class="field field--state">
+                            <label class="field__label" for="solution-4-state">Состояние</label>
+                            <div class="select">
+                              <select class="field__input select__input" id="solution-4-state">
+                                <option selected>В каталоге</option>
+                                <option>Не в каталоге</option>
+                              </select>
+                              <svg
+                                class="select__icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="m6 9 6 6 6-6" />
+                              </svg>
+                            </div>
+                          </div>
+
+                          <div class="field field--amount">
+                            <label class="field__label" for="solution-4-amount">Цена</label>
+                            <input
+                              class="field__input"
+                              id="solution-4-amount"
+                              type="text"
+                              inputmode="decimal"
+                              value="900.00"
+                            />
+                            <p class="field__hint">Число, копейки через точку</p>
+                          </div>
+
+                          <div class="field field--currency">
+                            <label class="field__label" for="solution-4-currency">Валюта</label>
+                            <input
+                              class="field__input"
+                              id="solution-4-currency"
+                              type="text"
+                              maxlength="3"
+                              value="RUB"
+                            />
+                            <p class="field__hint">Три заглавные латинские буквы</p>
+                          </div>
+
+                          <div class="field field--period">
+                            <label class="field__label" for="solution-4-period">Период</label>
+                            <div class="select">
+                              <select class="field__input select__input" id="solution-4-period">
+                                <option>в месяц</option>
+                                <option>за 3 месяца</option>
+                                <option>за 6 месяцев</option>
+                                <option>в год</option>
+                                <option selected>разово</option>
+                              </select>
+                              <svg
+                                class="select__icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="m6 9 6 6 6-6" />
+                              </svg>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="form__actions">
+                          <button class="btn btn--primary" type="submit" data-testid="operator-solution-save">Сохранить</button>
+                          <button class="btn btn--ghost" type="button" data-testid="operator-solution-cancel">Отмена</button>
+                        </div>
+                      </form>
+                    </td>
+                  </tr>
+
+                  <tr class="solution">
+                    <td class="solution__position"><span class="cell__label">Порядок:</span>1</td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name">Уведомления в Telegram</span>
+                    </td>
+                    <td class="solution__code">
+                      <span class="cell__label">Код:</span>telegram_<wbr />notifications
+                    </td>
+                    <td class="solution__description">
+                      <span class="cell__label">Описание:</span>Сообщения о событиях, которые вас
+                      касаются
+                    </td>
+                    <td class="solution__price"><span class="cell__label">Цена:</span>500 ₽ в месяц</td>
+                    <td class="solution__period"><span class="cell__label">Период:</span>в месяц</td>
+                    <td class="solution__state-cell">
+                      <span class="flag">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td class="solution__date solution__created-cell">
+                      <span class="cell__label">Создано:</span>14.02.2026
+                    </td>
+                    <td class="solution__date solution__updated-cell">
+                      <span class="cell__label">Изменено:</span>02.11.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                          Удалить
+                        </button>
+                        <button class="btn btn--ghost btn--compact" type="button">Изменить</button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p class="list__note">
+                Порядок витрины — это порядок строк: сверху вниз по значению «Порядок», при равных
+                значениях выше та строка, что создана раньше. «Удалить» снимает решение с продажи:
+                карточка уходит из магазина, и у организации с действующим правом пропадает пункт
+                меню, хотя платная функция на сервере продолжает работать.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         5. Удаление: подтверждение и снятая строка
+         ================================================================ -->
+    <section class="frame" id="frame-5">
+      <p class="frame__caption">
+        <b>Удаление: подтверждение и снятая строка.</b> «Удалить» двухшаговое: сначала пара
+        «Подтвердить» / «Не надо», <code>DELETE</code> уходит только со второго нажатия. После
+        <code>204</code> строка «Дополнительные сотрудники» осталась на месте: состояние «Не в
+        каталоге», вместо «Удалить» — «Опубликовать» (<code>PATCH {"is_visible": true}</code>), а
+        счётчик в шапке показывает «2 в каталоге».
+      </p>
+      <div class="screen">
+        <header class="topbar topbar--nav">
+          <span class="brand brand--static" aria-label="Домовой — кабинет оператора">
+            <svg class="brand__mark" viewBox="0 0 40 40" aria-hidden="true">
+              <rect width="40" height="40" rx="12" fill="#E8E1D7" />
+              <g
+                fill="none"
+                stroke="#3A362F"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 19 20 9l11 10M12.5 19v12h15V19M17 31v-6h6v6" />
+              </g>
+            </svg>
+            <span class="brand__name">Домовой</span>
+          </span>
+          <nav class="nav" aria-label="Разделы кабинета">
+            <a class="nav__link" href="#frame-1">Организации</a>
+            <a class="nav__link" href="#frame-1">Счета</a>
+            <a class="nav__link" href="#frame-1">Тарифы</a>
+            <a class="nav__link" href="#frame-1" aria-current="page">Решения</a>
+            <a class="nav__link" href="#frame-1">Пользователи</a>
+            <a class="nav__link" href="#frame-1">Реквизиты</a>
+          </nav>
+          <div class="topbar__right">
+            <span class="account">operator</span>
+            <button class="btn btn--ghost btn--compact" type="button">Выйти</button>
+          </div>
+        </header>
+
+        <main class="screen__main">
+          <div class="page page--solutions">
+            <div class="page__head">
+              <h1 class="page__title">Решения</h1>
+              <p class="page__meta">3 решения · 2 в каталоге</p>
+            </div>
+
+            <div class="list">
+              <table class="list__table">
+                <caption class="visually-hidden">
+                  Каталог решений: порядок витрины, название, код, описание, цена, период,
+                  состояние, даты создания и изменения, действия
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Порядок</th>
+                    <th scope="col">Название</th>
+                    <th scope="col">Код</th>
+                    <th scope="col">Описание</th>
+                    <th scope="col">Цена</th>
+                    <th scope="col">Период</th>
+                    <th scope="col">Состояние</th>
+                    <th scope="col">Создано</th>
+                    <th scope="col">Изменено</th>
+                    <th scope="col"><span class="visually-hidden">Действия</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr class="solution solution--hidden">
+                    <td class="solution__position"><span class="cell__label">Порядок:</span>0</td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name">Дополнительные сотрудники</span>
+                    </td>
+                    <td class="solution__code">
+                      <span class="cell__label">Код:</span>extra_<wbr />member
+                    </td>
+                    <td class="solution__description">
+                      <span class="cell__label">Описание:</span>Каждый дополнительный сотрудник
+                      сверх мест тарифа. Место живёт вместе с подпиской.
+                    </td>
+                    <td class="solution__price"><span class="cell__label">Цена:</span>900 ₽ разово</td>
+                    <td class="solution__period"><span class="cell__label">Период:</span>разово</td>
+                    <td class="solution__state-cell">
+                      <span class="flag flag--off" data-testid="operator-solution-state">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        Не в каталоге
+                      </span>
+                    </td>
+                    <td class="solution__date solution__created-cell">
+                      <span class="cell__label">Создано:</span>02.11.2026
+                    </td>
+                    <td class="solution__date solution__updated-cell">
+                      <span class="cell__label">Изменено:</span>06.11.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button
+                          class="btn btn--primary btn--compact"
+                          type="button"
+                          data-testid="operator-solution-publish"
+                        >
+                          Опубликовать
+                        </button>
+                        <button class="btn btn--ghost btn--compact" type="button">Изменить</button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr class="solution">
+                    <td class="solution__position"><span class="cell__label">Порядок:</span>1</td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name">Уведомления в Telegram</span>
+                    </td>
+                    <td class="solution__code">
+                      <span class="cell__label">Код:</span>telegram_<wbr />notifications
+                    </td>
+                    <td class="solution__description">
+                      <span class="cell__label">Описание:</span>Сообщения о событиях, которые вас
+                      касаются
+                    </td>
+                    <td class="solution__price"><span class="cell__label">Цена:</span>500 ₽ в месяц</td>
+                    <td class="solution__period"><span class="cell__label">Период:</span>в месяц</td>
+                    <td class="solution__state-cell">
+                      <span class="flag">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td class="solution__date solution__created-cell">
+                      <span class="cell__label">Создано:</span>14.02.2026
+                    </td>
+                    <td class="solution__date solution__updated-cell">
+                      <span class="cell__label">Изменено:</span>02.11.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button class="btn btn--ghost btn--compact btn--danger" type="button">
+                          Удалить
+                        </button>
+                        <button class="btn btn--ghost btn--compact" type="button">Изменить</button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr class="solution">
+                    <td class="solution__position"><span class="cell__label">Порядок:</span>2</td>
+                    <td class="solution__name-cell">
+                      <span class="solution__name">Журнал действий</span>
+                    </td>
+                    <td class="solution__code"><span class="cell__label">Код:</span>journal</td>
+                    <td class="solution__description">
+                      <span class="cell__label">Описание:</span>Кто, когда и что изменил в кабинете
+                    </td>
+                    <td class="solution__price"><span class="cell__label">Цена:</span>300 ₽ в месяц</td>
+                    <td class="solution__period"><span class="cell__label">Период:</span>в месяц</td>
+                    <td class="solution__state-cell">
+                      <span class="flag">
+                        <span class="flag__dot" aria-hidden="true"></span>
+                        В каталоге
+                      </span>
+                    </td>
+                    <td class="solution__date solution__created-cell">
+                      <span class="cell__label">Создано:</span>21.04.2026
+                    </td>
+                    <td class="solution__date solution__updated-cell">
+                      <span class="cell__label">Изменено:</span>21.04.2026
+                    </td>
+                    <td class="list__action">
+                      <div class="row-actions">
+                        <button
+                          class="btn btn--danger btn--compact"
+                          type="button"
+                          data-testid="operator-solution-delete-confirm"
+                        >
+                          Подтвердить
+                        </button>
+                        <button
+                          class="btn btn--ghost btn--compact"
+                          type="button"
+                          data-testid="operator-solution-delete-decline"
+                        >
+                          Не надо
+                        </button>
+                        <button class="btn btn--ghost btn--compact" type="button">Изменить</button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p class="list__note">
+                Порядок витрины — это порядок строк: сверху вниз по значению «Порядок», при равных
+                значениях выше та строка, что создана раньше. «Удалить» снимает решение с продажи:
+                карточка уходит из магазина, и у организации с действующим правом пропадает пункт
+                меню, хотя платная функция на сервере продолжает работать.
+              </p>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         6. Состояния реестра и формы
+         ================================================================ -->
+    <section class="frame" id="frame-6">
+      <p class="frame__caption">
+        <b>Состояния реестра и формы.</b> Четыре состояния без шапки — здесь важна только полоса
+        реестра. Счётчик в шапке страницы показывается, когда ответ пришёл; при загрузке и отказе его
+        нет.
+      </p>
+      <div class="states">
+        <div class="states__item">
+          <p class="states__caption">
+            Загрузка <span>— `role="status"`, полоса на месте реестра</span>
+          </p>
+          <div class="state" role="status" aria-live="polite" data-testid="operator-solutions-loading">
+            <span class="spinner" aria-hidden="true"></span>
+            Загружаем решения…
+          </div>
+        </div>
+
+        <div class="states__item">
+          <p class="states__caption">
+            Пусто <span>— в каталоге нет ни одной строки</span>
+          </p>
+          <div class="empty" data-testid="operator-solutions-empty">
+            <span class="empty__icon" aria-hidden="true">
+              <svg
+                width="26"
+                height="26"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M10.5 4.5H5.5a1 1 0 0 0-1 1v5l9 9 5-5z" />
+                <circle cx="8.3" cy="8.3" r="1.1" />
+              </svg>
+            </span>
+            <h2>Решений пока нет</h2>
+            <p>
+              Строки каталога приходят из миграций базы: завести решение из кабинета нельзя. Если
+              решения должны быть, проверьте, что миграции применены.
+            </p>
+          </div>
+        </div>
+
+        <div class="states__item">
+          <p class="states__caption">
+            Ошибка загрузки <span>— `detail` дословно в `role="alert"` и кнопка «Повторить»</span>
+          </p>
+          <div class="alert-line" data-testid="operator-solutions-error">
+            <p class="alert alert--error" role="alert">Основной API недоступен</p>
+            <button class="btn btn--ghost btn--compact" type="button">Повторить</button>
+          </div>
+        </div>
+
+        <div class="states__item">
+          <p class="states__caption">
+            Форма · отправка <span>— кнопка неактивна, подпись «Сохраняем…», кнопки строки заперты</span>
+          </p>
+          <div class="detail__box">
+            <div class="form__actions">
+              <button class="btn btn--primary" type="button" disabled aria-busy="true">
+                Сохраняем…
+              </button>
+              <button class="btn btn--ghost" type="button" disabled>Отмена</button>
+            </div>
+            <p class="detail__caption">
+              Отправка идёт: поля остаются заполненными и доступными для чтения, второй раз нажать
+              нельзя. Повторная команда строки ждёт ответа.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>
