@@ -17,6 +17,14 @@
 признаки «действует» считают `app/subscription.py` и `app/pricing.py` — второй
 формулы срока и цены здесь нет.
 
+**Право на расширение живёт по тарифу.** После #195 у права нет собственного
+срока: оно работает, пока у организации есть действующий тариф. Поэтому `is_live`
+права считается `app.solutions.owned_codes` — тем же правилом, что у платных
+ручек, — а `paid_until` работающего права равен последнему дню действующего
+тарифа. Записанный `expires_at` строки остаётся в ответе историей оплаченных
+сроков и на эти два поля не влияет: иначе панель показывала бы работающую услугу
+как «не действует» и не давала бы её отозвать.
+
 **Предел мест — исключение и намеренно не «по записи».** `member_limit` и
 `extra_seats` берутся из `organization_subscription`: предел приглашений в
 продукте считает **действующий** тариф, и оператор должен видеть то же число, что
@@ -210,6 +218,15 @@ def _state(
     # (`app/subscription.py`): второй расчёт разошёлся бы с проверкой приглашений.
     active = organization_subscription(db, organization, moment)
 
+    # Право на решение после #195 живёт по тарифу организации, а записанный
+    # `expires_at` строки — история оплаченных сроков. Поэтому «работает ли оно
+    # сейчас» отвечает `owned_codes` (то же правило, что у платных ручек), а «до
+    # какого дня» — конец действующего тарифа. Считать эти два поля по записанному
+    # сроку значило бы показывать работающее право как «не действует» и наоборот
+    # (требование ревью #195, пункт Б5).
+    owned = solutions.owned_codes(db, organization.id)
+    tariff_paid_until = paid_until(active.ends_at)
+
     return OrganizationSubscriptionResponse(
         tariff=current_tariff,
         # Остатка нет у слота без тарифа: показывать «сколько дней у несуществующего
@@ -230,11 +247,18 @@ def _state(
             SubscriptionRight(
                 code=right.code,
                 name=right.name,
+                # Записанный срок остаётся в ответе как история: на вопрос
+                # «работает ли право сейчас» он больше не отвечает.
                 expires_at=right.expires_at,
-                paid_until=paid_until(right.expires_at),
-                is_live=right.is_live,
+                # У работающего права последний включённый день — конец тарифа;
+                # у неработающего остаётся записанный срок, чтобы кабинет оператора
+                # не терял историю покупок.
+                paid_until=(
+                    tariff_paid_until if right.code in owned else paid_until(right.expires_at)
+                ),
+                is_live=right.code in owned,
             )
-            for right in solutions.organization_rights(db, organization.id, moment)
+            for right in solutions.organization_rights(db, organization.id)
         ],
     )
 
@@ -250,8 +274,9 @@ def read_subscription(organization_id: int, db: DbSession) -> OrganizationSubscr
 
     Читается именно запись: если срок текущего слота истёк, он так и показан
     (`is_live = false`), даже когда уже оплачен следующий. Права отдаются целиком,
-    включая истёкшие: это единственное место, где видно историю покупок.
-    Неизвестный `id` — общий `404` из `load_organization`.
+    включая истёкшие: это единственное место, где видно историю покупок, а
+    `is_live` и `paid_until` права считаются по действующему тарифу — как у
+    платных ручек. Неизвестный `id` — общий `404` из `load_organization`.
     """
     return _state(db, load_organization(db, organization_id))
 

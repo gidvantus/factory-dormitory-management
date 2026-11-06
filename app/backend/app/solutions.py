@@ -70,31 +70,22 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
-def _is_live(expires_at: datetime | None, moment: datetime) -> bool:
-    """Действует ли право: без срока — да, иначе — если срок ещё не прошёл."""
-    return expires_at is None or _as_utc(expires_at) > moment
-
-
 @dataclass(frozen=True)
 class OrganizationRight:
-    """Право организации на решение — как оно записано, вместе с `is_live`.
+    """Право организации на решение — как оно записано, без признака «действует».
 
-    `is_live` здесь, а не в ручке: правило конца записанного срока одно на весь
-    проект (`_is_live`), и вторая его копия в API разошлась бы с первой на первой
-    же правке границы. Платные ручки этим сроком больше не пользуются — право
-    живёт по тарифу (`owned_codes`), — но кабинет оператора показывает историю
-    записанных строк, и признак «право ещё действовало» нужен именно там.
+    Своего срока у права нет: «работает ли оно сейчас» отвечает `owned_codes` по
+    тарифу организации, и второй копии этого правила здесь не заводится — иначе
+    кабинет оператора показывал бы работающую услугу как «не действует» (#195,
+    ревью Б5). `expires_at` — история оплаченных сроков, и код её не читает.
     """
 
     code: str
     name: str
     expires_at: datetime | None
-    is_live: bool
 
 
-def organization_rights(
-    db: Session, organization_id: int, now: datetime | None = None
-) -> list[OrganizationRight]:
+def organization_rights(db: Session, organization_id: int) -> list[OrganizationRight]:
     """**Все** права организации, включая истёкшие, в порядке каталога.
 
     Истёкшие строки не отфильтрованы намеренно: кабинет оператора — единственное
@@ -105,7 +96,6 @@ def organization_rights(
     Порядок — `solutions.position`, затем `solutions.id`: тот же, в каком решения
     видит покупатель.
     """
-    moment = _as_utc(now) if now is not None else datetime.now(UTC)
     rows = db.execute(
         select(OrganizationSolution.expires_at, Solution.code, Solution.name)
         .join(Solution, Solution.id == OrganizationSolution.solution_id)
@@ -117,7 +107,6 @@ def organization_rights(
             code=code,
             name=name,
             expires_at=_as_utc(expires_at) if expires_at is not None else None,
-            is_live=_is_live(expires_at, moment),
         )
         for expires_at, code, name in rows
     ]
@@ -161,7 +150,6 @@ def deactivate_right(db: Session, organization_id: int, code: str) -> Organizati
         name=solution.name,
         # Строки больше нет, и записанного срока у отозванного права не остаётся.
         expires_at=None,
-        is_live=False,
     )
 
 
