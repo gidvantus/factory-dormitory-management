@@ -46,11 +46,13 @@ from app.models.organization import Organization
 from app.report_readiness import today_moscow
 from app.security import ACTIVATION_REQUIRED_DETAIL
 from app.solutions import SOLUTION_REQUIRED_DETAIL
+from app.trial import TRIAL_EXPIRED_DETAIL
 from tests.conftest import (
     JOURNAL_CODE,
     TELEGRAM_NOTIFICATIONS_CODE,
     create_user,
     give_solution,
+    give_tariff,
     login,
     organizations_for,
 )
@@ -252,34 +254,35 @@ def test_journal_openapi_documents_all_three_refusals(client: TestClient) -> Non
 def test_owner_without_the_solution_gets_the_shop_refusal(
     client: TestClient, db_session: Session
 ) -> None:
-    """Владелец без права на решение `journal`: 403, и текст дословно контрактный.
+    """Владелец с тарифом, но без права на решение `journal`: 403, текст контрактный.
 
     Экран выбирает состояние по роли и праву, но гонку («право истекло после
     загрузки каталога») закрывает именно этот ответ, поэтому `detail` сверяется
     дословно, а не по смыслу.
     """
-    owner_with_organization(client, db_session, with_journal=False)
-
-    response = journal(client)
-
-    assert response.status_code == 403
-    assert response.json()["detail"] == SOLUTION_REQUIRED_DETAIL
-
-
-def test_expired_solution_closes_the_journal(client: TestClient, db_session: Session) -> None:
-    """Просроченное право — не право: подменить часы тест не может, поэтому срок в прошлом."""
     _owner_id, organization = owner_with_organization(client, db_session, with_journal=False)
-    give_solution(
-        db_session,
-        organization,
-        code=JOURNAL_CODE,
-        expires_at=datetime.now(UTC) - timedelta(minutes=1),
-    )
+    give_tariff(db_session, organization)
 
     response = journal(client)
 
     assert response.status_code == 403
     assert response.json()["detail"] == SOLUTION_REQUIRED_DETAIL
+
+
+def test_expired_tariff_closes_the_journal(client: TestClient, db_session: Session) -> None:
+    """Кончился тариф — услуга выключилась, и отказ говорит про тариф, а не про магазин.
+
+    Право на журнал куплено и записано, но своего срока у него больше нет (#195):
+    оно действует ровно столько, сколько действует тариф организации.
+    """
+    _owner_id, organization = owner_with_organization(client, db_session, with_journal=False)
+    give_solution(db_session, organization, code=JOURNAL_CODE, with_tariff=False)
+    give_tariff(db_session, organization, ends_at=datetime.now(UTC) - timedelta(minutes=1))
+
+    response = journal(client)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == TRIAL_EXPIRED_DETAIL
 
 
 def test_owner_with_the_solution_reads_the_journal(client: TestClient, db_session: Session) -> None:

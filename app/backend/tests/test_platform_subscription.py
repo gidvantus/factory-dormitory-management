@@ -693,12 +693,22 @@ def test_rights_include_an_expired_one(
     ]
     assert rights[0]["name"] == "Уведомления в Telegram"
     assert rights[0]["paid_until"] is not None
-    assert rights[1]["expires_at"] is not None
+    # Новое право пишется без собственного срока (`app.solutions.grant`): оно
+    # действует по тарифу организации, и кабинет оператора это видит (#195).
+    assert rights[1]["expires_at"] is None
 
 
 def test_deactivate_right_writes_the_current_moment_and_keeps_the_row(
     client: TestClient, db_session: Session, operator_token: None
 ) -> None:
+    """Снятие активности пишет момент в `expires_at` и строку не удаляет.
+
+    На платную функцию этот момент больше не влияет: с #195 право живёт по тарифу
+    организации (`app.solutions.owned_codes`), а `expires_at` стал историей
+    записанных сроков — поэтому `has_solution` после снятия по-прежнему `true`,
+    пока жив тариф. Отзыв права из кабинета оператора — отдельная задача; здесь
+    проверяется ровно запись и сохранность строки.
+    """
     organization, _ = make_organization(db_session)
     solution = give_solution(db_session, organization, code=JOURNAL_CODE)
 
@@ -727,8 +737,8 @@ def test_deactivate_right_writes_the_current_moment_and_keeps_the_row(
     assert expires_at is not None, "срок права не записан: снятие активности не записало"
     stored = subscription.as_utc(expires_at)
     assert before - timedelta(seconds=2) <= stored <= after + timedelta(seconds=2)
-    # Платная функция организации права больше не видит.
-    assert solutions_module.has_solution(db_session, organization.id, solution.code) is False
+    # Записанный срок — история: право действует, пока действует тариф.
+    assert solutions_module.has_solution(db_session, organization.id, solution.code)
 
 
 def test_deactivate_right_twice_is_not_a_failure(

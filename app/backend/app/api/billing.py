@@ -89,7 +89,13 @@ from app.seats import (
     unit_amount,
 )
 from app.security import ACTIVATION_REQUIRED_DETAIL, ActiveUser
+from app.solutions import (
+    SOLUTION_ALREADY_OWNED_DETAIL,
+    SOLUTION_REQUIRE_TARIFF_DETAIL,
+    owned_codes,
+)
 from app.subscription import (
+    ONCE_PERIOD,
     TARIFF_ALREADY_BOUGHT_DETAIL,
     free_slot,
     organization_subscription,
@@ -144,7 +150,8 @@ CONFLICT_RESPONSES: dict[int | str, dict[str, Any]] = {
         "model": ErrorResponse,
         "description": (
             f"{TARIFF_ALREADY_BOUGHT_DETAIL}; {BUYER_REQUISITES_DETAIL}; "
-            f"{SEATS_REQUIRE_TARIFF_DETAIL}; {SEATS_UNLIMITED_TARIFF_DETAIL}"
+            f"{SEATS_REQUIRE_TARIFF_DETAIL}; {SEATS_UNLIMITED_TARIFF_DETAIL}; "
+            f"{SOLUTION_REQUIRE_TARIFF_DETAIL}; {SOLUTION_ALREADY_OWNED_DETAIL}"
         ),
     }
 }
@@ -255,12 +262,16 @@ def _seats_position(line: Solution, quantity: int, position: int) -> InvoiceItem
 
 
 def _solution_position(solution: Solution, position: int) -> InvoiceItem:
-    """Позиция решения магазина: количество неприменимо, цена — цена каталога."""
+    """Позиция решения магазина: количество неприменимо, цена — цена каталога.
+
+    Период снимка — `once`, а не `solutions.period`: своего срока у решения больше
+    нет, и печатная форма читает ту же строку, что каталог («500 ₽ разово»).
+    """
     return InvoiceItem(
         position=position,
         kind=SOLUTION_ITEM_KIND,
         name=solution.name,
-        period=solution.period,
+        period=ONCE_PERIOD,
         quantity=None,
         unit_amount=solution.amount,
         amount=solution.amount,
@@ -335,6 +346,14 @@ def purchase_invoice(
     Такой `solution_id` получает `404 SOLUTION_NOT_FOUND_DETAIL` — как
     несуществующее решение; места же покупаются полем `seats`.
 
+    **Решение покупается только к действующему тарифу, и только один раз.**
+    У права на решение больше нет своего срока (`app.solutions`): оно действует,
+    пока действует тариф, поэтому покупка без тарифа отвечает `409
+    SOLUTION_REQUIRE_TARIFF_DETAIL`, а повторная покупка уже подключённого —
+    `409 SOLUTION_ALREADY_OWNED_DETAIL`: второй счёт ничего бы не добавил.
+    Порядок этих двух отказов — часть контракта: при мёртвом тарифе помеха именно
+    тариф, и человеку не говорят «уже подключено» о том, что не работает.
+
     Повторное нажатие не плодит счета: живой неоплаченный счёт **за тот же набор
     предметов** возвращается как `200` с тем же телом, а новый не создаётся. Набор
     сравнивается целиком, а не по виду предмета: «тариф + 5 мест» и «тариф + 10
@@ -385,6 +404,17 @@ def purchase_invoice(
         # они покупаются полем `seats`.
         if solution.code == EXTRA_MEMBER_CODE:
             raise HTTPException(status.HTTP_404_NOT_FOUND, SOLUTION_NOT_FOUND_DETAIL)
+        # Решение продаётся только к действующему тарифу: своего срока у права
+        # больше нет, и купленное на пробном периоде решение не открыло бы
+        # ничего — человек заплатил бы впустую. Порядок отказов — часть
+        # контракта: при мёртвом тарифе помеха именно тариф, а не «уже
+        # подключено».
+        if not organization_subscription(db, organization).is_active:
+            raise HTTPException(status.HTTP_409_CONFLICT, SOLUTION_REQUIRE_TARIFF_DETAIL)
+        # Право действует весь оплаченный тариф, поэтому вторая покупка ничего не
+        # добавляла бы, а второй счёт был бы тихой двойной продажей.
+        if solution.code in owned_codes(db, organization.id):
+            raise HTTPException(status.HTTP_409_CONFLICT, SOLUTION_ALREADY_OWNED_DETAIL)
         item_kind = SOLUTION_ITEM_KIND
         positions = [_solution_position(solution, 1)]
     else:

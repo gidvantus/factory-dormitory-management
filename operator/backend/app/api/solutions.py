@@ -63,8 +63,8 @@ UPDATE_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     status.HTTP_422_UNPROCESSABLE_ENTITY: {
         "model": ErrorResponse,
-        "description": "Непустое название, цена, валюта, период, порядок или состояние вне "
-        "правил — отказ основного API",
+        "description": "Непустое название, цена, валюта, порядок или состояние вне "
+        "правил, лишнее поле в теле (в том числе `period`) — отказ основного API",
     },
 }
 

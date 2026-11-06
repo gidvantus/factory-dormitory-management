@@ -19,10 +19,16 @@
 **Тексты отказов — часть контракта.** Фронтенд кабинета показывает `detail`
 дословно, снимая приставку `Value error, ` (`operator/frontend/src/api/client.ts`),
 поэтому валидаторы здесь свои, а не типы-литералы: у `Literal` текст отказа
-английский. `period` объявлен строкой и проверяется валидатором именно поэтому.
-Цена проверяется общим `parse_amount` из `app/schemas/platform_tariff.py`:
+английский. Цена проверяется общим `parse_amount` из `app/schemas/platform_tariff.py`:
 отрицательная цена, нечисло и потолок `NUMERIC(10, 2)` описаны там одним
 экземпляром правила.
+
+**Периода оплаты в контракте нет (#195).** У решения больше нет собственного
+срока — оно действует, пока действует тариф организации (`app.solutions`), —
+поэтому `period` ушёл и из ответа, и из тела правки, а строка каталога
+нормализуется миграцией `0068_solutions_tariff_scope`. Присланный `period`
+отсекает `extra="forbid"`: это `422` со стандартным текстом `pydantic`, как у
+любого лишнего поля.
 """
 
 from datetime import datetime
@@ -32,7 +38,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.models.solution import MAX_SOLUTION_AMOUNT
-from app.models.tariff import TARIFF_PERIODS
 from app.schemas.platform_tariff import (
     AMOUNT_NOT_NUMBER_MESSAGE,
     AMOUNT_TOO_LARGE_MESSAGE,
@@ -40,7 +45,6 @@ from app.schemas.platform_tariff import (
     IS_VISIBLE_INVALID_MESSAGE,
     NAME_REQUIRED_MESSAGE,
     NAME_TOO_LONG_MESSAGE,
-    PERIOD_UNKNOWN_MESSAGE,
     parse_amount,
 )
 
@@ -88,11 +92,11 @@ class SolutionAdminResponse(BaseModel):
     # Сумма строкой: `Numeric` → `"500.00"`.
     amount: Decimal
     currency: str
-    period: str
     # Порядок витрины: меньше — выше. Ничья решается `id`.
     position: int
     is_visible: bool
-    # Готовая цена от сервера: «500 ₽ в месяц».
+    # Готовая цена от сервера: «500 ₽ разово» — период в подписи всегда `once`,
+    # потому что своего срока у решения нет.
     price_label: str
     created_at: datetime
     updated_at: datetime
@@ -101,8 +105,9 @@ class SolutionAdminResponse(BaseModel):
 class UpdateSolutionRequest(BaseModel):
     """Тело правки строки каталога: меняются только присланные поля.
 
-    Здесь ровно поля формы кабинета: название, описание, цена, валюта, период,
-    порядок и состояние. Лишнее поле — `422`, а не молчаливое «проигнорировали».
+    Здесь ровно поля формы кабинета: название, описание, цена, валюта, порядок и
+    состояние. Периода оплаты нет — у решения нет своего срока. Лишнее поле,
+    включая `period`, — `422`, а не молчаливое «проигнорировали».
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -111,8 +116,6 @@ class UpdateSolutionRequest(BaseModel):
     description: str | None = None
     amount: Decimal | None = None
     currency: str | None = None
-    # Строка, а не `Literal`: текст отказа на неизвестный период — русский.
-    period: str | None = None
     position: int | None = None
     is_visible: bool | None = None
 
@@ -169,14 +172,6 @@ class UpdateSolutionRequest(BaseModel):
         """Валюта — три заглавные латинские буквы; `null` и мусор — отказ."""
         if not isinstance(value, str) or not is_currency_code(value):
             raise ValueError(CURRENCY_INVALID_MESSAGE)
-        return value
-
-    @field_validator("period", mode="before")
-    @classmethod
-    def validate_period(cls, value: Any) -> str:
-        """Период — только из объявленного набора; `null` тоже отказ."""
-        if not isinstance(value, str) or value not in TARIFF_PERIODS:
-            raise ValueError(PERIOD_UNKNOWN_MESSAGE)
         return value
 
     @field_validator("position", mode="before")
