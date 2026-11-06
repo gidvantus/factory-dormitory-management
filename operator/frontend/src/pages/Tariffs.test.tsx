@@ -546,6 +546,36 @@ describe('раздел «Тарифы» кабинета оператора', ()
     await waitFor(() => expect(document.activeElement).toBe(edit));
   });
 
+  it('после «Не надо» фокус остаётся в строке', async () => {
+    renderTariffs([{ status: 200, body: PRICE_LIST }]);
+    const user = userEvent.setup();
+
+    await screen.findByTestId('operator-tariffs');
+    const row = rowByName('Рост');
+    await user.click(within(row).getByTestId('operator-tariff-delete'));
+    await user.click(within(row).getByTestId('operator-tariff-delete-decline'));
+
+    // «Не надо» исчезла из DOM: без возврата фокуса Tab начал бы обход сначала.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(row).getByTestId('operator-tariff-edit')),
+    );
+  });
+
+  it('после «Отмена» фокус остаётся в строке', async () => {
+    renderTariffs([{ status: 200, body: PRICE_LIST }]);
+    const user = userEvent.setup();
+
+    await screen.findByTestId('operator-tariffs');
+    const row = rowByName('Рост');
+    await user.click(within(row).getByTestId('operator-tariff-edit'));
+    await user.click(screen.getByTestId('operator-tariff-cancel'));
+
+    // Форма закрылась вместе с кнопкой «Отмена» — фокус возвращается в строку.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(row).getByTestId('operator-tariff-edit')),
+    );
+  });
+
   it('у каждого поля формы есть label', async () => {
     renderTariffs([{ status: 200, body: PRICE_LIST }]);
     const user = userEvent.setup();
