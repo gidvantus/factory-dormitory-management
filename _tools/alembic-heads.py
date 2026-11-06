@@ -18,11 +18,8 @@
     python _tools/alembic-heads.py --merge --dry-run    # показать файл, не создавая
     python _tools/alembic-heads.py <каталог>            # явный каталог alembic/versions
 
-Своих зависимостей у скрипта нет намеренно: на раннере деплоя нет ни alembic,
-ни зависимостей `app/backend`, а `alembic/env.py` тянет модели и драйвер базы.
-Поэтому файлы ревизий разбираются как текст модуля (`ast`), а не импортом:
-`alembic/versions` — не пакет, и импорт по имени разрешился бы в чужую
-библиотеку из site-packages.
+Разбор дерева общий с `_tools/new_migration.py` и живёт в `_tools/alembic_tree.py`:
+зависимостей нет, файлы ревизий читаются как текст модуля (`ast`), а не импортом.
 
 Коды возврата: 0 — одна голова (или сводящая ревизия создана, или сводить
 нечего), 1 — голов несколько и `--merge` не просили, 2 — ошибка разбора дерева
@@ -32,145 +29,20 @@
 from __future__ import annotations
 
 import argparse
-import ast
-import re
 import sys
 from pathlib import Path
 
-# Каталог ревизий рядом с этим скриптом: `_tools/` лежит в корне репозитория.
-DEFAULT_VERSIONS = Path(__file__).resolve().parents[1] / "app" / "backend" / "alembic" / "versions"
-
-# Номер ревизии — первые четыре цифры идентификатора (`0063_merge_main_heads`).
-NUMBER_PREFIX = re.compile(r"^(\d{4})_")
-
-# Слаг в имени сводящей ревизии: латиница нижнего регистра, цифры, подчёркивания.
-SLUG = re.compile(r"^[a-z][a-z0-9_]*$")
-
-# Шаблон сводящей ревизии: тем же форматом пишутся файлы руками, поэтому
-# сгенерированный файл не отличается от `0058_merge_alembic_heads` и соседей.
-MERGE_TEMPLATE = '''"""Свести головы alembic: {heads}.
-
-Ревизия создана `python _tools/alembic-heads.py --merge`: в дереве было
-{count} головы, а `alembic upgrade head` работает только с одной. Головы
-расходятся, когда develop-s и develop-m (или две ветки задач) независимо
-добавляют ревизии, а слияние не сводит их между собой.
-
-Ревизия пустая — только сводит головы, схемы и данных не касается. Допишите
-причину, если она не сводится к параллельному слиянию веток.
-"""
-
-revision = "{revision}"
-down_revision = ({parents})
-branch_labels = None
-depends_on = None
-
-
-def upgrade() -> None:
-    pass
-
-
-def downgrade() -> None:
-    pass
-'''
-
-
-def literal_revisions(node: ast.expr) -> list[str]:
-    """Достать идентификаторы ревизий из выражения `down_revision`.
-
-    Поддерживаются обе формы, встречающиеся в дереве: строка (`"0059_x"`),
-    `None` (корень) и кортеж/список родителей у сводящих ревизий
-    (`("0059_x", "0059_y")`). Имя вместо литерала означает, что разбирать
-    модуль исполнением, — это ошибка формата, о ней сообщаем явно.
-    """
-    if isinstance(node, ast.Constant) and node.value is None:
-        return []
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return [node.value]
-    if isinstance(node, (ast.Tuple, ast.List)):
-        revisions: list[str] = []
-        for element in node.elts:
-            if not (isinstance(element, ast.Constant) and isinstance(element.value, str)):
-                raise ValueError("элемент down_revision — не строковый литерал")
-            revisions.append(element.value)
-        return revisions
-    raise ValueError("down_revision — не литерал (строка, кортеж или None)")
-
-
-def read_revision_file(path: Path) -> tuple[str, list[str]] | None:
-    """Вернуть `revision` и список `down_revision` из файла ревизии.
-
-    `None` — в файле нет присваивания `revision`: это не ревизия (например,
-    вспомогательный модуль рядом), и головы он не образует.
-
-    Читаем как `utf-8-sig`: правка ревизии на Windows добавляет BOM, а `ast`
-    на нём падает с «invalid non-printable character U+FEFF».
-    """
-    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
-    revision: str | None = None
-    down_revisions: list[str] = []
-    for statement in tree.body:
-        # Обе формы присваивания встречаются в дереве: `revision = "…"` и
-        # аннотированная `revision: str = "…"` — без второй половина ревизий
-        # выпала бы из разбора и «потеряла» своих родителей.
-        if isinstance(statement, ast.AnnAssign):
-            if not isinstance(statement.target, ast.Name) or statement.value is None:
-                continue
-            name, value = statement.target.id, statement.value
-        elif isinstance(statement, ast.Assign):
-            names = [target.id for target in statement.targets if isinstance(target, ast.Name)]
-            if len(names) != 1:
-                continue
-            name, value = names[0], statement.value
-        else:
-            continue
-        if name == "revision":
-            if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
-                raise ValueError("revision — не строковый литерал")
-            revision = value.value
-        elif name == "down_revision":
-            down_revisions = literal_revisions(value)
-    if revision is None:
-        return None
-    return revision, down_revisions
-
-
-def collect(versions: Path) -> tuple[dict[str, Path], dict[str, list[str]]]:
-    """Собрать дерево: идентификатор ревизии → файл, идентификатор → родители."""
-    files: dict[str, Path] = {}
-    parents: dict[str, list[str]] = {}
-    for path in sorted(versions.glob("*.py")):
-        parsed = read_revision_file(path)
-        if parsed is None:
-            continue
-        revision, down_revisions = parsed
-        if revision in files:
-            raise ValueError(
-                f"идентификатор ревизии {revision!r} встречается дважды: "
-                f"{files[revision].name} и {path.name}"
-            )
-        files[revision] = path
-        parents[revision] = down_revisions
-    return files, parents
-
-
-def heads_of(files: dict[str, Path], parents: dict[str, list[str]]) -> list[str]:
-    """Головы — ревизии, на которые не ссылается ни один `down_revision`."""
-    referenced = {down for down_revisions in parents.values() for down in down_revisions}
-    return sorted(revision for revision in files if revision not in referenced)
-
-
-def dangling_of(files: dict[str, Path], parents: dict[str, list[str]]) -> list[str]:
-    """`down_revision`, за которыми нет ревизии: опечатка в имени родителя."""
-    referenced = {down for down_revisions in parents.values() for down in down_revisions}
-    return sorted(parent for parent in referenced if parent not in files)
-
-
-def next_revision_id(files: dict[str, Path], name: str) -> str:
-    """Следующий свободный номер ревизии плюс слаг: `0064_merge_heads`."""
-    numbers = [
-        int(match.group(1)) for revision in files if (match := NUMBER_PREFIX.match(revision))
-    ]
-    return f"{max(numbers, default=0) + 1:04d}_{name}"
+# Импорт соседнего модуля: при `python _tools/alembic-heads.py` каталог скрипта
+# уже первый в sys.path, поэтому пакет и `__init__.py` не нужны.
+from alembic_tree import (
+    DEFAULT_VERSIONS,
+    SLUG,
+    collect,
+    dangling_of,
+    heads_of,
+    render_merge,
+    write_revision,
+)
 
 
 def report_dangling(parents: dict[str, list[str]], dangling: list[str]) -> None:
@@ -268,14 +140,8 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
-    revision = next_revision_id(files, args.name)
+    revision, text = render_merge(files, heads, args.name)
     path = versions / f"{revision}.py"
-    text = MERGE_TEMPLATE.format(
-        heads=", ".join(heads),
-        count=len(heads),
-        revision=revision,
-        parents=", ".join(f'"{head}"' for head in heads),
-    )
     if path.exists():
         print(
             f"Файл {path.name} уже существует: номер {revision} занят, "
@@ -288,8 +154,13 @@ def main(argv: list[str]) -> int:
         print(text)
         return 0
 
-    path.write_text(text, encoding="utf-8")
+    try:
+        path = write_revision(versions, revision, text)
+    except OSError as error:
+        print(f"Не удалось записать {path.name}: {error}", file=sys.stderr)
+        return 2
     print(f"Создана сводящая ревизия: {path.name} (down_revision: {', '.join(heads)})")
+
     try:
         after_files, after_parents = collect(versions)
     except (OSError, SyntaxError, ValueError) as error:
