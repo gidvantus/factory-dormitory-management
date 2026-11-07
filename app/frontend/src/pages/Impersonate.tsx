@@ -18,18 +18,35 @@ const LOGIN_ERROR = 'Не удалось войти. Попробуйте ещё
  *
  * Маршрут стоит вне `RequireAuth`: до запроса посетитель анонимен, а
  * `SessionProvider` уже смонтирован выше маршрутов, поэтому `setUser` доступен
- * сразу, и его стартовый `refresh()` (он вернёт `anonymous`) страницу не ломает.
+ * сразу. Стартовый `refresh()` провайдера возвращает `anonymous`, и это
+ * страницу не ломает — но вход обязан дождаться его окончания: эффект ребёнка
+ * срабатывает раньше эффекта провайдера, и без ожидания поздний `401` от
+ * `GET /api/me` приходил бы уже после входа и перезаписывал сессию на
+ * `anonymous` — `RequireAuth` увела бы оператора на `/login`, то есть на
+ * лендинг, при живой `crm_session` и уже израсходованной ссылке.
  *
  * Отказ показывается текстом сервера дословно и ссылкой «На главную»: из этой
  * страницы некуда идти, кроме главной.
  */
 export function Impersonate(): JSX.Element {
   const { token = '' } = useParams<{ token?: string }>();
-  const { setUser } = useSession();
+  const { setUser, status } = useSession();
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  // Отметка «провайдер проверил сессию». Отдельное состояние, а не `status` в
+  // зависимостях входа: `status` меняется ещё раз после самого входа, и вход
+  // отправился бы вторым запросом — с уже израсходованным токеном.
+  const [sessionChecked, setSessionChecked] = useState(status !== 'loading');
 
   useEffect(() => {
+    if (status !== 'loading') setSessionChecked(true);
+  }, [status]);
+
+  useEffect(() => {
+    // `loading` — провайдер ещё не проверил сессию: начинать вход нельзя, иначе
+    // его ответ и стартовая проверка подпишутся за одно состояние в обратном
+    // порядке.
+    if (!sessionChecked) return;
     if (token === '') {
       setError(LOGIN_ERROR);
       return;
@@ -50,7 +67,7 @@ export function Impersonate(): JSX.Element {
     return () => {
       active = false;
     };
-  }, [token, setUser]);
+  }, [sessionChecked, token, setUser]);
 
   if (error !== '') {
     return (
