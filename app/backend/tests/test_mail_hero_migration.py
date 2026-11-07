@@ -1,10 +1,12 @@
-"""Ревизия `0064_mail_hero_house`: домик в плашке-герое писем — вложением с `cid`.
+"""Ревизия `0069_mail_hero_house`: домик в плашке-герое писем — вложением с `cid`.
 
 Проверяется то, что ломается тихо:
 
-* ревизия стоит на своде голов (`0063_merge_main_heads`), а свод — на двух прежних
-  головах: на двух головах `alembic upgrade head` падает с «Multiple head revisions»,
-  и `api` уходит в цикл перезапусков;
+* ревизия стоит на фактической голове дерева (`0068_solutions_tariff_scope`) и не
+  заводит вторую голову: на двух головах `alembic upgrade head` падает с «Multiple
+  head revisions», и `api` уходит в цикл перезапусков; номер из постановки (`0060`,
+  затем `0064`) устарел — пока задача была в работе, `develop-m` занял эти номера
+  своими ревизиями;
 * `upgrade` проставляет вёрстку с `src="cid:domovoy-house@domovoy"` ровно строкам
   `invitation` и `activation`, не создаёт отсутствующий код, не трогает
   `password_recovery` и не переписывает `subject`/plain-текст;
@@ -53,13 +55,10 @@ from tests.migration_support import (
 
 VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
 ALEMBIC_DIR = VERSIONS.parent
-MIGRATION_PATH = VERSIONS / "0064_mail_hero_house.py"
+MIGRATION_PATH = VERSIONS / "0069_mail_hero_house.py"
 PREVIOUS_PATH = VERSIONS / "0059_mail_html_bodies.py"
-MERGE_PATH = VERSIONS / "0063_merge_main_heads.py"
-REVISION = "0064_mail_hero_house"
-PARENT = "0063_merge_main_heads"
-MERGE_REVISION = "0063_merge_main_heads"
-MERGE_PARENTS = ("0060_merge_stand_heads", "0062_table_views")
+REVISION = "0069_mail_hero_house"
+PARENT = "0068_solutions_tariff_scope"
 
 INVITATION_CODE = "invitation"
 ACTIVATION_CODE = "activation"
@@ -95,13 +94,6 @@ def prepared_database(connection: Connection) -> None:
 
 def test_revision_sits_on_top_of_the_previous_head() -> None:
     assert_on_previous_head(load_migration(MIGRATION_PATH), REVISION, PARENT)
-
-
-def test_merge_revision_unites_the_two_previous_heads() -> None:
-    """Две головы `develop-m` сводятся одной пустой ревизией, иначе `upgrade head` падает."""
-    merge = load_migration(MERGE_PATH)
-    assert merge.revision == MERGE_REVISION
-    assert tuple(sorted(merge.down_revision)) == tuple(sorted(MERGE_PARENTS))
 
 
 def test_revision_tree_has_exactly_one_head() -> None:

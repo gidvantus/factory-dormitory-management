@@ -12,7 +12,7 @@
   `password_recovery`;
 * вёрстка из ревизии после подстановки значений не оставляет плейсхолдеров и
   не содержит внешних ресурсов, `<style>`, `flex`/`grid`/`absolute`; картинок в
-  ней нет вовсе (домик появился ревизией `0064_mail_hero_house`, см.
+  ней нет вовсе (домик появился ревизией `0069_mail_hero_house`, см.
   `test_mail_hero_migration.py`).
 
 `IF NOT EXISTS` у `ADD COLUMN` понимает PostgreSQL, а не SQLite, поэтому тест

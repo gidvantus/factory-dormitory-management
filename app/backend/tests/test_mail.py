@@ -80,7 +80,7 @@ HOUSE_IMAGE_PATH = Path(__file__).resolve().parents[1] / "app" / "mail_assets" /
 # Ревизия, которая проставляет вёрстку с домиком: её вёрстка — настоящая, из базы,
 # а не мини-копия выше. Письмо из неё проверяется целиком, от разметки до MIME.
 HERO_MIGRATION_PATH = (
-    Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0064_mail_hero_house.py"
+    Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0069_mail_hero_house.py"
 )
 
 
@@ -605,7 +605,7 @@ def test_letter_from_the_revision_carries_the_house_attachment(
     """Письмо из настоящей вёрстки ревизии уходит с домиком-вложением.
 
     Мини-разметка выше проверяет поведение отправки, а этот тест — тот самый вид
-    письма, что лежит в `mail_templates` после `0064_mail_hero_house`: ровно одна
+    письма, что лежит в `mail_templates` после `0069_mail_hero_house`: ровно одна
     ссылка `cid:`, ни одного внешнего `src`, вложение — файл с диска.
     """
     migration = load_migration(HERO_MIGRATION_PATH)
