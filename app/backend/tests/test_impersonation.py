@@ -36,6 +36,8 @@ from app.security import (
     IMPERSONATION_CLAIM,
     IMPERSONATION_CLAIM_VALUE,
     IMPERSONATION_LINK_INVALID_DETAIL,
+    IMPERSONATION_LINK_TYPE,
+    IMPERSONATION_TYPE_CLAIM,
     INVALID_OPERATOR_TOKEN_DETAIL,
     create_access_token,
     create_impersonation_token,
@@ -120,13 +122,20 @@ def events(db_session: Session) -> list[AuditEvent]:
 
 
 def private_token(**claims: Any) -> str:
-    """Токен, собранный вручную: тесты подменяют им claim'ы и секрет подписи."""
+    """Токен, собранный вручную: тесты подменяют им claim'ы и секрет подписи.
+
+    По умолчанию собран как настоящая ссылка — с признаком `imp` и видом
+    `impersonation_link`: иначе каждый кейс проверял бы ещё и отсутствие вида, а
+    не то, что названо в его имени. Подменить вид можно через `claims`.
+    """
     settings = get_settings()
     now = datetime.now(UTC)
     payload: dict[str, Any] = {
         "sub": "1",
         "iat": now,
         "exp": now + timedelta(seconds=60),
+        IMPERSONATION_CLAIM: IMPERSONATION_CLAIM_VALUE,
+        IMPERSONATION_TYPE_CLAIM: IMPERSONATION_LINK_TYPE,
         **claims,
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
@@ -153,13 +162,17 @@ def test_link_is_issued_for_an_active_user(
 def test_link_token_carries_the_impersonation_claim(
     client: TestClient, db_session: Session, platform: None
 ) -> None:
-    """Признак стоит в ссылке: без него вход по ссылке не отличить от обычного."""
+    """Признак стоит в ссылке: без него вход по ссылке не отличить от обычного.
+
+    Вместе с признаком ссылка несёт свой вид: по нему её и отличают от сессии.
+    """
     user = create_user(db_session)
 
     payload = decode_access_token(link_token(link(client, user.id).json()["url"]))
 
     assert payload is not None
     assert payload[IMPERSONATION_CLAIM] is IMPERSONATION_CLAIM_VALUE
+    assert payload[IMPERSONATION_TYPE_CLAIM] == IMPERSONATION_LINK_TYPE
     assert payload["sub"] == str(user.id)
     assert payload["exp"] - payload["iat"] == get_settings().impersonation_token_ttl_seconds
 
@@ -296,6 +309,28 @@ def test_ordinary_session_token_is_not_an_invitation(
     assert "set-cookie" not in response.headers
 
 
+def test_impersonated_session_token_is_not_an_invitation(
+    client: TestClient, db_session: Session, platform: None
+) -> None:
+    """Имперсонированная сессия — тоже не ссылка, хотя признак `imp` у неё есть.
+
+    Иначе cookie со сроком 7 дней продлевала бы себя входом по ней самой: «2
+    минуты» ограничивали бы вход, а не доступ, и держатель cookie выключал бы
+    себе журнал и уведомления навсегда. Ссылку как cookie предъявить по-прежнему
+    можно — это ограничение из постановки остаётся.
+    """
+    user = create_user(db_session)
+
+    response = client.post(
+        IMPERSONATE,
+        json={"token": create_access_token(str(user.id), impersonated=True)},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": IMPERSONATION_LINK_INVALID_DETAIL}
+    assert "set-cookie" not in response.headers
+
+
 @pytest.mark.parametrize(
     "token",
     [
@@ -306,21 +341,24 @@ def test_ordinary_session_token_is_not_an_invitation(
                 "sub": "1",
                 "exp": datetime.now(UTC) + timedelta(seconds=60),
                 IMPERSONATION_CLAIM: IMPERSONATION_CLAIM_VALUE,
+                IMPERSONATION_TYPE_CLAIM: IMPERSONATION_LINK_TYPE,
             },
             "another-secret-value-0123456789-abcdef",
             algorithm="HS256",
         ),
         # Тот же секрет, но признака нет или он не «истина».
-        private_token(),
         private_token(**{IMPERSONATION_CLAIM: False}),
         private_token(**{IMPERSONATION_CLAIM: "true"}),
+        # Признак есть, а вида токена нет или он чужой: это сессия, а не ссылка.
+        private_token(**{IMPERSONATION_TYPE_CLAIM: None}),
+        private_token(**{IMPERSONATION_TYPE_CLAIM: "session"}),
         # Признак есть, а субъект не число: разбирать его в id нельзя.
-        private_token(**{IMPERSONATION_CLAIM: IMPERSONATION_CLAIM_VALUE, "sub": "abc"}),
-        private_token(**{IMPERSONATION_CLAIM: IMPERSONATION_CLAIM_VALUE, "sub": None}),
+        private_token(**{"sub": "abc"}),
+        private_token(**{"sub": None}),
     ],
 )
 def test_broken_link_is_refused_with_400(client: TestClient, platform: None, token: str) -> None:
-    """Битое тело, подпись, claim и субъект — один и тот же отказ `400`."""
+    """Битое тело, подпись, claim, вид токена и субъект — всё один отказ `400`."""
     response = client.post(IMPERSONATE, json={"token": token})
 
     assert response.status_code == 400
@@ -351,15 +389,38 @@ def test_link_of_inactive_cabinet_gives_409(
 
 @pytest.mark.parametrize(
     "payload",
-    [{}, {"token": ""}, {"token": None}, {"token": "x", "extra": True}],
+    [
+        {},
+        {"token": ""},
+        {"token": None},
+        {"token": "x", "extra": True},
+        # Верхняя граница — как у ссылки активации: ручка открыта анониму, и тело
+        # произвольного размера (до 20 МБ по лимиту nginx) до разбора не доходит.
+        {"token": "x" * 513},
+    ],
 )
 def test_broken_request_body_is_422(
     client: TestClient, platform: None, payload: dict[str, Any]
 ) -> None:
-    """Токена нет, он пустой или в теле лишнее поле — это `422` схемы."""
+    """Токена нет, он пустой, длинный или в теле лишнее поле — это `422` схемы."""
     response = client.post(IMPERSONATE, json=payload)
 
     assert response.status_code == 422
+
+
+def test_broken_json_body_is_400(client: TestClient, platform: None) -> None:
+    """Неразбираемое тело — это `400` Starlette, а не отказ ссылки.
+
+    Ручка объявляет `400` и для этого случая тоже: кодовая точка та же, а текст
+    приходит от ASGI-сервера, и подменять его своим нельзя.
+    """
+    response = client.post(
+        IMPERSONATE,
+        content=b'{"token": "\xff"}',
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
 
 
 # --- Молчание журнала --------------------------------------------------------
@@ -541,3 +602,17 @@ def test_schema_documents_every_status_the_routes_return(client: TestClient) -> 
 
     impersonate_responses = schema["paths"][IMPERSONATE]["post"]["responses"]
     assert {"200", "400", "404", "409", "422"} <= set(impersonate_responses)
+
+
+def test_schema_names_both_bad_request_cases(client: TestClient) -> None:
+    """У `400` два случая: отказ ссылки и неразбираемое тело (как у `login`).
+
+    Схема — контракт с фронтом, который показывает `detail` дословно: если тело
+    не разобралось, текст придёт от Starlette, и он обязан быть объявлен.
+    """
+    description = client.get("/openapi.json").json()["paths"][IMPERSONATE]["post"]["responses"][
+        "400"
+    ]["description"]
+
+    assert IMPERSONATION_LINK_INVALID_DETAIL in description
+    assert "JSON" in description

@@ -118,10 +118,20 @@ def hash_activation_token(token: str) -> str:
 
 # Claim «сессия поддержки». Им помечены и ссылочный токен, и сессия, выпущенная
 # по ссылке: по нему журнал действий молчит, а уведомления не рассылаются.
-# Отдельного `typ`-claim нет намеренно — новый обязательный claim разлогинил бы
+# На самой сессии новых обязательных claim'ов нет намеренно — они разлогинили бы
 # всех, у кого уже есть cookie; отсутствие признака и значит «обычная сессия».
 IMPERSONATION_CLAIM = "imp"
 IMPERSONATION_CLAIM_VALUE = True
+
+# Вид ссылочного токена. Ссылка и сессия подписаны одним секретом и раньше
+# отличались только признаком `imp`, поэтому сессионный JWT (срок 7 дней) проходил
+# в `POST /api/auth/impersonate` как ссылка и продлевался этим же запросом —
+# «2 минуты» ограничивали вход, но не доступ. Теперь ссылка помечена своим видом,
+# и ручка входа требует именно его: сессия ссылкой не считается, а ссылку как
+# cookie предъявить по-прежнему можно — это ограничение из постановки остаётся.
+# Отдельного `exp`-контроля здесь нет: срок проверяет `decode_access_token`.
+IMPERSONATION_TYPE_CLAIM = "typ"
+IMPERSONATION_LINK_TYPE = "impersonation_link"
 
 # Текст отказа входа по ссылке поддержки: подпись, срок, claim и битое тело
 # токена — всё это один и тот же отказ, различать их клиенту незачем.
@@ -169,7 +179,10 @@ def create_impersonation_token(user_id: int, now: datetime | None = None) -> str
     """Выпустить ссылочный токен поддержки: `sub` — пользователь, тот же секрет.
 
     Своего секрета у ссылки нет: она подписана тем же `JWT_SECRET`, что и сессия,
-    и отличается только claim'ом `imp`. Срок — секунды, а не дни: ссылка живёт в
+    и отличается от неё двумя claim'ами — признаком `imp` и видом
+    `typ = impersonation_link`. Вид нужен, чтобы сессия не годилась в ссылку
+    (`decode_impersonation_token`), а признак — чтобы журнал и уведомления молчали
+    в сессии, выпущенной по этой ссылке. Срок — секунды, а не дни: ссылка живёт в
     адресе страницы сайта и в истории браузера. `now` принимается ради тестов
     просроченного токена — часы в них не подкручиваются.
     """
@@ -180,6 +193,7 @@ def create_impersonation_token(user_id: int, now: datetime | None = None) -> str
         "iat": moment,
         "exp": impersonation_expires_at(moment),
         IMPERSONATION_CLAIM: IMPERSONATION_CLAIM_VALUE,
+        IMPERSONATION_TYPE_CLAIM: IMPERSONATION_LINK_TYPE,
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -188,13 +202,20 @@ def decode_impersonation_token(token: str) -> int | None:
     """Разобрать ссылочный токен в идентификатор пользователя.
 
     `None` — любой отказ: битая подпись, истёкший срок, чужой или отсутствующий
-    claim, нечисловой `sub`. Ручка входа отвечает на это `400`, а не `500`:
-    токен приходит из адреса страницы, то есть от кого угодно.
+    claim, не тот вид токена, нечисловой `sub`. Ручка входа отвечает на это `400`,
+    а не `500`: токен приходит из адреса страницы, то есть от кого угодно.
+
+    Вид токена обязателен (`IMPERSONATION_TYPE_CLAIM`): сессия, выпущенная по
+    ссылке, тоже несёт `imp`, но жить как ссылка не должна — иначе её 7 дней
+    можно продлевать входом по ней самой, и «2 минуты» перестают что-либо
+    ограничивать.
     """
     payload = decode_access_token(token)
     if payload is None:
         return None
     if payload.get(IMPERSONATION_CLAIM) is not IMPERSONATION_CLAIM_VALUE:
+        return None
+    if payload.get(IMPERSONATION_TYPE_CLAIM) != IMPERSONATION_LINK_TYPE:
         return None
     subject = payload.get("sub")
     if not isinstance(subject, str) or not subject.isdigit():

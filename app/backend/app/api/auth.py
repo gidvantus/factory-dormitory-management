@@ -178,7 +178,11 @@ def logout() -> Response:
 IMPERSONATE_RESPONSES: dict[int | str, dict[str, object]] = {
     status.HTTP_400_BAD_REQUEST: {
         "model": ErrorResponse,
-        "description": IMPERSONATION_LINK_INVALID_DETAIL,
+        # Два случая у одного кода, как у `register` и `login`: текст про саму
+        # ссылку и отказ Starlette на тело, которое не разбирается как JSON.
+        "description": (
+            f"{IMPERSONATION_LINK_INVALID_DETAIL} или тело запроса не разбирается как JSON"
+        ),
     },
     status.HTTP_404_NOT_FOUND: {
         "model": ErrorResponse,
@@ -210,9 +214,10 @@ def impersonate(payload: ImpersonateRequest, response: Response, db: DbSession) 
     журнал действий молчит, а правила уведомлений не рассылают. Тело ответа — то
     же, что у `POST /api/auth/login`.
 
-    Первым разбирается токен: битая подпись, истёкший срок и чужой claim — один
-    и тот же `400`, и до базы такой запрос не доходит. Дальше отказы те же, что
-    у выдачи ссылки: пользователя нет — `404`, кабинет не активирован — `409`.
+    Первым разбирается токен: битая подпись, истёкший срок, чужой claim и не тот
+    вид токена (ссылка, а не сессия) — один и тот же `400`, и до базы такой
+    запрос не доходит. Дальше отказы те же, что у выдачи ссылки: пользователя
+    нет — `404`, кабинет не активирован — `409`.
     """
     user_id = decode_impersonation_token(payload.token)
     if user_id is None:

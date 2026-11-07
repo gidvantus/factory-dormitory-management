@@ -122,13 +122,19 @@ class ImpersonateRequest(BaseModel):
     и текст отказа не должен приходить от `pydantic`. Пустой токен отсекается
     `min_length`: это не отказ ссылки, а неполное тело.
 
+    Предел длины — тот же, что у ссылки активации
+    (`app/schemas/activation.py:ActivateRequest`): ручка открыта анониму, а
+    разбор токена идёт в `jwt.decode`, поэтому тело произвольного размера (до
+    потолка nginx в 20 МБ) занимало бы воркеры разбором. Настоящая ссылка —
+    около двухсот символов, 512 хватает с запасом.
+
     `extra="forbid"`: лишнее поле в теле — `422` со стандартным текстом
     `pydantic`, а не молча проигнорированное.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    token: str = Field(min_length=1)
+    token: str = Field(min_length=1, max_length=512)
 
 
 class UserResponse(BaseModel):
