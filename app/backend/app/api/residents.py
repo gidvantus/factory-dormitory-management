@@ -361,6 +361,10 @@ def update_resident(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Конец вахты раньше начала")
     for field, value in changes.items():
         setattr(resident, field, value)
+    if {"full_name", "phone"} & changes.keys():
+        from app.resident_identity import write_entry_identity
+
+        write_entry_identity(db, resident, set(changes))
     record_changed(db, resident, _user.id)
     db.commit()
     db.refresh(resident)

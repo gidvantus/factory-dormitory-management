@@ -1,0 +1,110 @@
+.report {
+  container-type: inline-size;
+  min-width: 0;
+  max-width: 100%;
+  padding-inline: var(--gap-12);
+}
+.scroll {
+  max-width: 100%;
+}
+.report[data-scroll='true'] .scroll {
+  overflow-x: auto;
+}
+.table {
+  table-layout: fixed;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--summary-font-size);
+  font-variant-numeric: tabular-nums;
+}
+.labelColumn {
+  width: var(--summary-label-width);
+}
+.totalColumn {
+  width: var(--summary-total-width);
+}
+.report[data-scroll='true'] .table {
+  min-width: max(
+    calc(100% + var(--summary-day-width)),
+    calc(
+      var(--summary-label-min) + var(--summary-total-min) + var(--summary-days) *
+        var(--summary-day-width)
+    )
+  );
+}
+.table :is(th, td) {
+  border-bottom: var(--summary-border-width) solid var(--color-border);
+  border-inline-end: var(--summary-border-width) solid var(--color-border);
+  padding: var(--gap-6) var(--summary-cell-padding);
+  text-align: center;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.table thead th {
+  background: var(--color-bg-alt);
+  color: var(--color-text-muted);
+}
+.table tbody th {
+  text-align: start;
+  font-weight: normal;
+  padding-inline: var(--gap-8);
+}
+.table tbody th strong {
+  display: block;
+  font-size: var(--text-xs);
+}
+.table tr[data-group-start='true'] > * {
+  border-top: var(--summary-border-width) solid var(--color-border-strong);
+}
+.total {
+  background: var(--color-bg-alt);
+  font-weight: bold;
+}
+.mobile {
+  display: none;
+}
+.mobileRow {
+  padding-block: var(--gap-12);
+  border-bottom: var(--summary-border-width) solid var(--color-border);
+}
+.mobileRow > strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--gap-4);
+  margin-block: var(--gap-8);
+}
+.days > div {
+  background: var(--color-bg-alt);
+  padding: var(--gap-4);
+  text-align: center;
+  border-radius: var(--radius-4xs);
+  overflow-wrap: anywhere;
+}
+.days dt {
+  color: var(--color-text-muted);
+  font-size: var(--summary-font-size);
+}
+.days dd {
+  margin: 0;
+  font-size: var(--text-xs);
+}
+.note {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  margin-block-start: var(--gap-8);
+}
+@container (max-width: 800px) {
+  .report[data-scroll='false']:has(.mobile) .scroll {
+    display: none;
+  }
+  .mobile {
+    display: block;
+  }
+}

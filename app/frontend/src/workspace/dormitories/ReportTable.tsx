@@ -795,20 +795,25 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                           data-testid={`report-edit-row-${row.id}`}
                         >
                           {row.name}
+                          {row.formula && (
+                            <sup
+                              className="table-rule-mark"
+                              title={row.formula}
+                              aria-label="Формула"
+                            >
+                              ƒ
+                            </sup>
+                          )}
+                          {row.link && (
+                            <sup
+                              className="table-rule-mark"
+                              title="Количество записей из другой таблицы"
+                              aria-label="Связь с таблицей"
+                            >
+                              ↗
+                            </sup>
+                          )}
                         </button>
-                        {row.formula && (
-                          <span className={styles.formulaBadge} title={row.formula}>
-                            ƒ
-                          </span>
-                        )}
-                        {row.link && (
-                          <span
-                            className={styles.formulaBadge}
-                            title="Количество записей из другой таблицы"
-                          >
-                            ↗
-                          </span>
-                        )}
                         <span className={styles.rowMove} data-table-fixed-controls>
                           <button
                             type="button"

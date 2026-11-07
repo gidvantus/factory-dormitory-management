@@ -9,6 +9,7 @@ import { IdentityDialog } from './IdentityDialog';
 import { Personnel } from '../Personnel';
 import { BlockDialog } from './Dialogs';
 import { filterPeople } from './helpers';
+import { defaultColumns } from '../../test/tableColumns';
 
 const source = (
   dorm: number,
@@ -369,6 +370,15 @@ describe('Отбор сотрудников', () => {
 
 describe('Выбор личности перед добавлением', () => {
   it('показывает совпадение и сохраняет существующую карточку только после выбора', async () => {
+    const columns = defaultColumns('residents');
+    vi.spyOn(personnelApi, 'binding').mockResolvedValue({
+      fields: Object.fromEntries(
+        columns
+          .filter((column) => column.builtin_key === 'full_name' || column.builtin_key === 'phone')
+          .map((column) => [column.builtin_key, column.id]),
+      ),
+      columns,
+    });
     const candidate = {
       id: '00000000-0000-4000-8000-000000000001',
       full_name: 'Иванов Иван',

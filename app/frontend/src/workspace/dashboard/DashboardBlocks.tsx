@@ -10,6 +10,7 @@ import type { DateRange } from './dates';
 import { formatDate } from './dates';
 import { WidgetDialog } from './WidgetDialog';
 import { WidgetChart } from './WidgetChart';
+import { SummaryReport } from './SummaryReport';
 import styles from './Dashboard.module.css';
 
 interface BuiltinCard {
@@ -165,7 +166,7 @@ export function DashboardBlocks({
           return (
             <div
               key={key}
-              className={styles.blockTile}
+              className={`${styles.blockTile} ${block?.config.display === 'summary' ? styles.summaryTile : ''}`}
               data-block-key={key}
               data-dragging={dragging === key ? 'true' : 'false'}
               onDragOver={(event) => {
@@ -259,7 +260,9 @@ export function DashboardBlocks({
                     </p>
                   ) : (
                     <>
-                      {block.config.display === 'chart' ? (
+                      {block.config.display === 'summary' ? (
+                        <SummaryReport result={result} config={block.config} />
+                      ) : block.config.display === 'chart' ? (
                         <WidgetChart result={result} range={range} name={block.config.name} />
                       ) : block.config.display === 'number' ? (
                         <p className={styles.widgetNumber}>{formatCount(result.value)}</p>

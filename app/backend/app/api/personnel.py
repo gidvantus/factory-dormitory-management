@@ -54,6 +54,12 @@ from app.personnel import (
     workspace,
 )
 from app.personnel_export import export_people
+from app.resident_identity import (
+    checked_entry_fields,
+    entry_fields,
+    save_entry_fields,
+    write_entry_identity,
+)
 from app.schemas.inflow import UpdateInflowRequest
 from app.schemas.outflow import UpdateOutflowRequest
 from app.schemas.personnel import (
@@ -71,6 +77,7 @@ from app.schemas.personnel import (
 from app.schemas.resident import UpdateResidentRequest
 from app.schemas.table_column import TableKey
 from app.table_data import (
+    column_type_change_reason,
     ensure_columns,
     get_record,
     lock_dormitory,
@@ -132,6 +139,13 @@ def create_record(
     lock_dormitory(db, payload.dormitory_id)
     require_writable_table(db, payload.dormitory_id, payload.table_key)
     columns = ensure_columns(db, payload.dormitory_id, payload.table_key)
+    entry_columns = (
+        {str(role): column for role, column in payload.entry_columns.items()}
+        if payload.entry_columns is not None
+        else None
+    )
+    if payload.table_key == "residents":
+        checked_entry_fields(db, payload.dormitory_id, payload.identity.model_dump(), entry_columns)
     identity_lock(db)
     employee = choose_identity(db, payload.identity, dormitory_scope(db, membership))
     values = dict(payload.values)
@@ -195,6 +209,8 @@ def create_record(
                 dormitory_id=payload.dormitory_id, employee_id=employee.id, custom_values=custom
             )
         )
+    if isinstance(row, Resident):
+        write_entry_identity(db, row, {"full_name", "phone"}, entry_columns)
     db.add(row)
     db.flush()
     record_changed(db, row, user.id)
@@ -505,9 +521,22 @@ def get_binding(
     )
     db.commit()
     return {
-        "fields": item.fields if item else {},
+        "fields": entry_fields(db, dormitory_id, columns)
+        if table_key == "residents"
+        else item.fields
+        if item
+        else {},
         "columns": [
-            {"id": c.id, "name": c.name, "kind": c.kind, "builtin_key": c.builtin_key}
+            {
+                "id": c.id,
+                "name": c.name,
+                "kind": c.kind,
+                "builtin_key": c.builtin_key,
+                "has_fill": bool(c.fill),
+                "can_convert_to_text": table_key == "residents"
+                and c.kind == "number"
+                and column_type_change_reason(db, c) is None,
+            }
             for c in columns
             if not c.archived and c.kind != "action"
         ],
@@ -523,6 +552,20 @@ def save_binding(
     db: DbSession,
     _dormitory: OwnDormitory,
 ) -> dict[str, bool]:
+    if table_key == "residents":
+        lock_dormitory(db, dormitory_id)
+        require_writable_table(db, dormitory_id, table_key)
+        for resident in save_entry_fields(
+            db,
+            dormitory_id,
+            {str(role): column for role, column in payload.fields.items()},
+            payload.convert_phone_to_text,
+        ):
+            record_changed(
+                db, resident, user.id, kind="source", title="Настроены столбцы формы добавления"
+            )
+        db.commit()
+        return {"ok": True}
     if not (table_key.startswith("custom_") or table_key == "archive"):
         raise HTTPException(422, "Основные таблицы уже связаны по встроенным полям")
     lock_dormitory(db, dormitory_id)

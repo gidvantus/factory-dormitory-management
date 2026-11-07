@@ -10,6 +10,8 @@ import type {
 } from '../../api/personnel';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import s from './Personnel.module.css';
+import { EntryColumnSettings } from './EntryColumnSettings';
+import type { EntryColumnState } from './EntryColumnSettings';
 
 export function IdentityDialog({
   dormitoryId,
@@ -24,6 +26,7 @@ export function IdentityDialog({
   saveRecord,
   panelClassName,
   submitLabel,
+  onEntryColumnsSaved,
 }: {
   dormitoryId: string;
   tableKey: SourceTable;
@@ -41,6 +44,7 @@ export function IdentityDialog({
   saveRecord?: (identity: IdentityChoice) => Promise<string>;
   panelClassName?: string;
   submitLabel?: string;
+  onEntryColumnsSaved?: () => void;
 }): JSX.Element {
   const omitPersonnelNumber =
     rowId === undefined && (tableKey === 'residents' || tableKey === 'inflow');
@@ -56,6 +60,20 @@ export function IdentityDialog({
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const entrySettings = rowId === undefined && tableKey === 'residents' && !saveRecord;
+  const [entryColumns, setEntryColumns] = useState<EntryColumnState>({
+    ready: false,
+    fields: {},
+    saving: false,
+    dirty: false,
+  });
+  const formBusy = busy || (entrySettings && entryColumns.saving);
+  const candidate = checked?.candidates.find((item) => item.id === selected);
+  const entryIdentity: IdentityFields = {
+    ...fields,
+    full_name: fields.full_name || candidate?.full_name || null,
+    phone: fields.phone || candidate?.phone || null,
+  };
   function changeIdentity(field: keyof IdentityFields, value: string | null): void {
     setError('');
     setChecked(null);
@@ -90,7 +108,7 @@ export function IdentityDialog({
     };
   }, [fields, attempt]);
   async function save(): Promise<void> {
-    if (!checked || busy) return;
+    if (!checked || busy || (entrySettings && !entryColumns.ready)) return;
     setBusy(true);
     setError('');
     try {
@@ -107,7 +125,15 @@ export function IdentityDialog({
           : (
               await (rowId
                 ? personnelApi.link(Number(dormitoryId), tableKey, rowId, identity)
-                : personnelApi.createRecord(Number(dormitoryId), tableKey, identity, values))
+                : entrySettings
+                  ? personnelApi.createRecord(
+                      Number(dormitoryId),
+                      tableKey,
+                      identity,
+                      values,
+                      entryColumns.fields,
+                    )
+                  : personnelApi.createRecord(Number(dormitoryId), tableKey, identity, values))
             ).employee_id;
       onSaved(employeeId);
     } catch (caught) {
@@ -122,7 +148,16 @@ export function IdentityDialog({
       title={title ?? (rowId ? 'Связать запись с сотрудником' : 'Добавить сотрудника')}
       testId="personnel-identity"
       onClose={onClose}
-      closeDisabled={busy}
+      closeDisabled={formBusy}
+      dirty={
+        entrySettings
+          ? entryColumns.dirty ||
+            !!selected ||
+            (Object.keys(fields) as (keyof IdentityFields)[]).some(
+              (role) => fields[role] !== (initial?.[role] ?? null),
+            )
+          : undefined
+      }
       panelClassName={`${s.modal} ${panelClassName ?? ''}`}
     >
       <form
@@ -137,7 +172,7 @@ export function IdentityDialog({
           сведения в других общежитиях сохранятся.
         </p>
         {renderFields ? (
-          renderFields(fields, busy, changeIdentity)
+          renderFields(fields, formBusy, changeIdentity)
         ) : (
           <div className={s.formGrid}>
             {(
@@ -152,7 +187,7 @@ export function IdentityDialog({
                 <label key={field}>
                   {label}
                   <input
-                    disabled={busy}
+                    disabled={formBusy}
                     maxLength={field === 'full_name' ? 255 : field === 'phone' ? 30 : 40}
                     value={fields[field] ?? ''}
                     onChange={(event) => changeIdentity(field, event.target.value)}
@@ -160,6 +195,16 @@ export function IdentityDialog({
                 </label>
               ))}
           </div>
+        )}
+        {entrySettings && (
+          <EntryColumnSettings
+            reloadKey={attempt}
+            dormitoryId={dormitoryId}
+            identity={entryIdentity}
+            disabled={busy}
+            onChange={setEntryColumns}
+            onSaved={onEntryColumnsSaved}
+          />
         )}
         <section className={s.softCard} aria-label="Результаты проверки">
           <h3>Возможные совпадения</h3>
@@ -172,7 +217,7 @@ export function IdentityDialog({
               <input
                 type="radio"
                 name="identity-choice"
-                disabled={busy}
+                disabled={formBusy}
                 checked={mode === 'existing' && selected === candidate.id}
                 onChange={() => {
                   setSelected(candidate.id);
@@ -212,14 +257,15 @@ export function IdentityDialog({
           </button>
         )}
         <div className={s.actions}>
-          <ModalCancelButton onClick={onClose} type="button" disabled={busy}>
+          <ModalCancelButton onClick={onClose} type="button" disabled={formBusy}>
             Отмена
           </ModalCancelButton>
           <button
             className={s.primary}
             disabled={
-              busy ||
+              formBusy ||
               !checked ||
+              (entrySettings && !entryColumns.ready) ||
               (mode === 'existing' ? !selected : !Object.values(fields).some(Boolean))
             }
           >
