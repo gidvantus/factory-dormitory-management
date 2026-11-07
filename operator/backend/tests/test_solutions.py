@@ -37,10 +37,9 @@ SOLUTION = {
     "description": "Сообщения о событиях, которые вас касаются",
     "amount": "500.00",
     "currency": "RUB",
-    "period": "month",
     "position": 1,
     "is_visible": True,
-    "price_label": "500 ₽ в месяц",
+    "price_label": "500 ₽ разово",
     "created_at": "2026-01-01T00:00:00",
     "updated_at": "2026-01-02T00:00:00",
 }
@@ -54,7 +53,7 @@ HIDDEN_SOLUTION = {
     "amount": "300.00",
     "position": 2,
     "is_visible": False,
-    "price_label": "300 ₽ в месяц",
+    "price_label": "300 ₽ разово",
 }
 
 CATALOG = [SOLUTION, HIDDEN_SOLUTION]
@@ -102,8 +101,10 @@ def test_list_keeps_hidden_rows_and_the_price_label(client: TestClient, main_api
     body = client.get(SOLUTIONS).json()
 
     assert [item["is_visible"] for item in body] == [True, False]
-    # `price_label` приходит готовым: кабинет формулу цены не повторяет.
-    assert body[0]["price_label"] == "500 ₽ в месяц"
+    # `price_label` приходит готовым: кабинет формулу цены не повторяет, а период
+    # подписи — «разово»: своего срока у решения нет (#195).
+    assert body[0]["price_label"] == "500 ₽ разово"
+    assert "period" not in body[0]
     # `code` — машинное имя решения, в кабинете только показ.
     assert body[0]["code"] == "telegram_notifications"
     assert body[1]["description"] is None
@@ -138,13 +139,16 @@ def test_patch_forwards_only_the_sent_fields(client: TestClient, main_api: MainA
 def test_patch_forwards_every_field_of_the_cabinet_form(
     client: TestClient, main_api: MainApi
 ) -> None:
-    """Семь полей формы уходят наверх целиком: кабинет их не переименовывает."""
+    """Шесть полей формы уходят наверх целиком: кабинет их не переименовывает.
+
+    Периода оплаты в форме нет (#195): у решения нет собственного срока, право
+    действует по тарифу организации.
+    """
     payload = {
         "name": "Журнал действий",
         "description": "Кто, когда и что изменил",
         "amount": "1500.00",
         "currency": "USD",
-        "period": "year",
         "position": 0,
         "is_visible": False,
     }
@@ -155,6 +159,33 @@ def test_patch_forwards_every_field_of_the_cabinet_form(
 
     assert response.status_code == 200, response.text
     assert json.loads(main_api.requests[-1].content) == payload
+
+
+def test_patch_forwards_the_period_to_be_rejected_upstairs(
+    client: TestClient, main_api: MainApi
+) -> None:
+    """Присланный `period` не отсеивается кабинетом — на него отвечает основной API.
+
+    Поле ушло из контракта (#195), и отказ приходит стандартным `422` `pydantic`
+    (`extra_forbidden`) оттуда же, откуда и остальные тексты: второй копии правил
+    в кабинете нет.
+    """
+    errors = [
+        {
+            "type": "extra_forbidden",
+            "loc": ["body", "period"],
+            "msg": "Extra inputs are not permitted",
+            "input": "year",
+        }
+    ]
+    main_api.handler = respond(errors, 422)
+    login(client)
+
+    response = client.patch(f"{SOLUTIONS}/3", json={"period": "year"})
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": errors}
+    assert json.loads(main_api.requests[-1].content) == {"period": "year"}
 
 
 def test_patch_forwards_a_foreign_field_to_be_rejected_upstairs(

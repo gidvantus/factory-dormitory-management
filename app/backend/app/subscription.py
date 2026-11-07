@@ -27,6 +27,7 @@
 отсчитываться — оба слота считаются занятыми.
 """
 
+import calendar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from math import ceil
@@ -37,7 +38,13 @@ from sqlalchemy.orm import Session
 
 from app.models.organization import Organization
 from app.models.tariff import Tariff
-from app.solutions import entitlement_expiry
+
+# Период, дающий бессрочный срок: тариф без конца и право без собственного срока.
+ONCE_PERIOD = "once"
+
+# Сколько календарных месяцев прибавляет период. `once` здесь нет: он даёт
+# бессрочный срок, а не «ноль месяцев».
+MONTHS_BY_PERIOD = {"month": 1, "quarter": 3, "half_year": 6, "year": 12}
 
 # Заголовок и текст отказа по местам: по нему фронт отличает этот 409 от прочих.
 MEMBER_LIMIT_HEADER = "X-Member-Limit"
@@ -68,6 +75,41 @@ END_OF_DAY = time(23, 59, 59, 999999)
 def as_utc(value: datetime) -> datetime:
     """SQLite отдаёт naive datetime: считаем его UTC, иначе сравнение падает."""
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def _add_months(moment: datetime, months: int) -> datetime:
+    """Прибавить календарные месяцы с усечением на конце месяца.
+
+    31 января плюс месяц — 28 или 29 февраля, а не 3 марта: срок не должен
+    удлиняться из-за того, что в месяце меньше дней. `calendar.monthrange` даёт
+    длину целевого месяца, поэтому високосный год учитывается сам.
+    """
+    total = moment.month - 1 + months
+    year = moment.year + total // 12
+    month = total % 12 + 1
+    day = min(moment.day, calendar.monthrange(year, month)[1])
+    return moment.replace(year=year, month=month, day=day)
+
+
+def entitlement_expiry(period: str, granted_at: datetime) -> datetime | None:
+    """Конец периода по его сроку: момент начала плюс период. `None` — бессрочно.
+
+    Зовут её оба срока проекта — подписка организации (`record_payment`) и право
+    на решение (`app.solutions.grant`), поэтому арифметика живёт здесь, а не в
+    модуле решений: иначе `app.solutions` пришлось бы спрашивать подписку, а
+    подписка — решения, и вышел бы цикл импортов.
+
+    Чистая функция: ни базы, ни «сейчас» внутри — момент начала передаётся явно,
+    поэтому границы месяца проверяются без подмены часов.
+    """
+    if period == ONCE_PERIOD:
+        return None
+    months = MONTHS_BY_PERIOD.get(period)
+    if months is None:
+        # Незнакомый период: набор держит `CHECK` в таблице, но ронять оплату
+        # из-за строки каталога нельзя — срок выдаётся бессрочным, как за `once`.
+        return None
+    return _add_months(as_utc(granted_at), months)
 
 
 @dataclass(frozen=True)

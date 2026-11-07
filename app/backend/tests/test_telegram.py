@@ -27,7 +27,8 @@ from app.models.activation import ActivationToken
 from app.models.telegram import TELEGRAM_TEST_KIND, NotificationDelivery, TelegramLink
 from app.models.user import User
 from app.solutions import SOLUTION_REQUIRED_DETAIL
-from tests.conftest import give_solution, organizations_for, sign_in
+from app.trial import TRIAL_EXPIRED_DETAIL
+from tests.conftest import give_solution, give_tariff, organizations_for, sign_in
 
 # Заведомо ненастоящие значения: реальные токены в тестах не нужны.
 BOT_TOKEN = "111111:unit-test-bot-token"
@@ -88,18 +89,23 @@ def cabinet_user(
     email: str = "worker@example.com",
     is_active: bool = True,
     with_solution: bool = True,
+    with_tariff: bool = True,
 ) -> User:
     """Войти пользователем кабинета: организация и (по умолчанию) право на решение.
 
     Ручки кабинета Telegram закрыты правом организации на решение
-    `telegram_notifications`, а `sign_in` организации не заводит вовсе. Поэтому
-    обычный пользователь кабинета в этих тестах получает её вместе с правом, а
-    `with_solution=False` оставляет только организацию — для проверок 403.
+    `telegram_notifications`, а право действует, пока действует тариф (#195):
+    поэтому обычный пользователь кабинета получает и право, и тариф, а
+    `with_solution=False` оставляет организацию с тарифом без права — тогда отказ
+    говорит именно про магазин. `with_tariff=False` при выключенном праве даёт
+    организацию без тарифа — для проверки отказа про тариф.
     """
     user = sign_in(client, db_session, email=email, is_active=is_active)
     organization, _ = organizations_for(db_session, user)
     if with_solution:
         give_solution(db_session, organization)
+    elif with_tariff:
+        give_tariff(db_session, organization)
     return user
 
 
@@ -510,7 +516,7 @@ CABINET_ROUTES = (
 def test_every_cabinet_route_requires_the_solution(
     client: TestClient, db_session: Session, telegram_env: None
 ) -> None:
-    """Организация без права: все четыре ручки отвечают 403 про магазин."""
+    """Организация с тарифом, но без права: все четыре ручки отвечают 403 про магазин."""
     cabinet_user(client, db_session, with_solution=False)
 
     for method, path, body in CABINET_ROUTES:
@@ -519,18 +525,24 @@ def test_every_cabinet_route_requires_the_solution(
         assert response.json()["detail"] == SOLUTION_REQUIRED_DETAIL, f"{method} {path}"
 
 
-def test_expired_right_closes_every_cabinet_route(
+def test_expired_tariff_closes_every_cabinet_route(
     client: TestClient, db_session: Session, telegram_env: None
 ) -> None:
-    """Истёкшее право закрывает ровно то же, что и отсутствующее."""
+    """Кончился тариф — закрыто всё, и отказ говорит про тариф.
+
+    Право куплено и записано, но своего срока у него больше нет (#195): оно
+    действует ровно столько, сколько тариф организации, поэтому истёкший тариф
+    закрывает ровно то же, что отсутствующее право.
+    """
     user = sign_in(client, db_session)
     organization, _ = organizations_for(db_session, user)
-    give_solution(db_session, organization, expires_at=datetime.now(UTC) - timedelta(minutes=1))
+    give_solution(db_session, organization, with_tariff=False)
+    give_tariff(db_session, organization, ends_at=datetime.now(UTC) - timedelta(minutes=1))
 
     for method, path, body in CABINET_ROUTES:
         response = client.request(method, path, json=body)
         assert response.status_code == 403, f"{method} {path}: {response.status_code}"
-        assert response.json()["detail"] == SOLUTION_REQUIRED_DETAIL, f"{method} {path}"
+        assert response.json()["detail"] == TRIAL_EXPIRED_DETAIL, f"{method} {path}"
 
 
 def test_cabinet_routes_do_nothing_without_the_solution(

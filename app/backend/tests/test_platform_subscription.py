@@ -12,9 +12,12 @@
   `max_members` плюс докупленные места;
 * `PATCH` меняет **только** `tariff_ends_at`, `POST` снятия — только срок, и ни один
   из них не трогает `next_*`;
-* снятие расширения пишет `expires_at = сейчас`, строка права остаётся в ответе с
-  `is_live = false`; неизвестный `code` — `404 «Расширение не найдено»`;
-* повторное снятие активности — `200`, а не отказ;
+* снятие расширения **удаляет** строку права (после #195 записанный срок ничего не
+  выключает): в ответе расширения нет, `has_solution` ложно при живом тарифе;
+  неизвестный `code` и повторное снятие — `404 «Расширение не найдено»`;
+* истёкшая записанная строка права остаётся в чтении как история (`expires_at`), но
+  `is_live` и `paid_until` права считаются по действующему тарифу организации:
+  правом распоряжается тариф, а не записанный срок;
 * тексты `422` приходят из валидатора схемы по-русски, лишнее поле — `422`;
 * у трёх write-действий в журнале читаемое название из `ACTION_TITLES`, а не код.
 
@@ -670,51 +673,100 @@ def test_deactivation_closes_the_client_cabinet(
 # --- Расширения -------------------------------------------------------------
 
 
-def test_rights_include_an_expired_one(
+def test_right_state_follows_the_tariff(
     client: TestClient, db_session: Session, operator_token: None
 ) -> None:
-    """Истёкшее право остаётся в ответе с `is_live = false` — это история покупок."""
+    """`is_live`/`paid_until` права считаются по тарифу, а `expires_at` — история.
+
+    Право куплено по прежним правилам, его записанный срок истёк месяц назад, а
+    тариф действует. Платная ручка отвечает `200`, значит и панель обязана
+    показывать право работающим: иначе оператор не может его отозвать (#195,
+    ревью Б5). Записанный срок остаётся в `expires_at` как история покупки.
+    """
     organization, _ = make_organization(db_session)
-    expired = give_solution(
+    tariff = add_tariff(db_session)
+    ends_at = datetime.now(UTC) + timedelta(days=60)
+    bind_slot(db_session, organization, tariff, ends_at)
+    recorded = datetime.now(UTC) - timedelta(days=30)
+    right = give_solution(
         db_session,
         organization,
         code=TELEGRAM_NOTIFICATIONS_CODE,
-        expires_at=datetime.now(UTC) - timedelta(days=5),
+        expires_at=recorded,
+        with_tariff=False,
     )
-    active = give_solution(db_session, organization, code=JOURNAL_CODE)
+    assert solutions_module.has_solution(db_session, organization.id, right.code)
 
     response = client.get(f"{PLATFORM}/{organization.id}/subscription", headers=OPERATOR_HEADERS)
 
     assert response.status_code == 200, response.text
     rights = response.json()["solutions"]
-    assert [(right["code"], right["is_live"]) for right in rights] == [
-        (expired.code, False),
-        (active.code, True),
-    ]
+    assert len(rights) == 1
+    assert rights[0]["code"] == right.code
     assert rights[0]["name"] == "Уведомления в Telegram"
-    assert rights[0]["paid_until"] is not None
-    assert rights[1]["expires_at"] is not None
+    # «Работает ли право сейчас» — по действующему тарифу, а не по записанному сроку.
+    assert rights[0]["is_live"] is True
+    # Последний включённый день работающего права — конец действующего тарифа.
+    assert rights[0]["paid_until"] == subscription.paid_until(ends_at).isoformat()
+    # Записанный срок никуда не делся: кабинет оператора хранит историю покупок.
+    assert rights[0]["expires_at"] is not None
 
 
-def test_deactivate_right_writes_the_current_moment_and_keeps_the_row(
+def test_rights_are_not_live_without_a_tariff(
     client: TestClient, db_session: Session, operator_token: None
 ) -> None:
+    """Истёк тариф — услуги выключены, и панель показывает право недействующим."""
+    organization, _ = make_organization(db_session)
+    right = give_solution(db_session, organization, code=JOURNAL_CODE, with_tariff=False)
+    tariff = add_tariff(db_session)
+    bind_slot(db_session, organization, tariff, datetime.now(UTC) - timedelta(days=1))
+
+    response = client.get(f"{PLATFORM}/{organization.id}/subscription", headers=OPERATOR_HEADERS)
+
+    assert response.status_code == 200, response.text
+    rights = response.json()["solutions"]
+    assert [(item["code"], item["is_live"]) for item in rights] == [(right.code, False)]
+
+
+def test_right_on_a_perpetual_tariff_has_no_paid_until(
+    client: TestClient, db_session: Session, operator_token: None
+) -> None:
+    """Бессрочный тариф: право живёт, но последнего включённого дня у него нет."""
+    organization, _ = make_organization(db_session)
+    right = give_solution(db_session, organization, code=JOURNAL_CODE)
+    tariff = add_tariff(db_session)
+    bind_slot(db_session, organization, tariff, None)
+
+    response = client.get(f"{PLATFORM}/{organization.id}/subscription", headers=OPERATOR_HEADERS)
+
+    assert response.status_code == 200, response.text
+    rights = response.json()["solutions"]
+    assert [(item["code"], item["is_live"], item["paid_until"]) for item in rights] == [
+        (right.code, True, None)
+    ]
+
+
+def test_deactivate_right_removes_the_solution_from_the_list(
+    client: TestClient, db_session: Session, operator_token: None
+) -> None:
+    """Отзыв расширения удаляет строку права: иначе кнопка ничего не выключала бы.
+
+    После #195 право живёт по тарифу организации, а `expires_at` строки код не
+    читает — запись «срок в прошлом» оставила бы платную функцию работающей до
+    конца оплаченного тарифа. Поэтому отзыв стирает строку: в ответе расширений
+    нет, `has_solution` ложно при живом тарифе.
+    """
     organization, _ = make_organization(db_session)
     solution = give_solution(db_session, organization, code=JOURNAL_CODE)
+    assert solutions_module.has_solution(db_session, organization.id, solution.code)
 
-    before = datetime.now(UTC)
     response = client.post(
         f"{PLATFORM}/{organization.id}/solutions/{solution.code}/deactivate",
         headers=OPERATOR_HEADERS,
     )
-    after = datetime.now(UTC)
 
     assert response.status_code == 200, response.text
-    rights = response.json()["solutions"]
-    assert len(rights) == 1
-    assert rights[0]["code"] == solution.code
-    assert rights[0]["is_live"] is False
-    # Срок в прошлом, а не удаление строки.
+    assert response.json()["solutions"] == []
     db_session.expire_all()
     row = db_session.scalar(
         select(OrganizationSolution).where(
@@ -722,18 +774,15 @@ def test_deactivate_right_writes_the_current_moment_and_keeps_the_row(
             OrganizationSolution.solution_id == solution.id,
         )
     )
-    assert row is not None
-    expires_at = row.expires_at
-    assert expires_at is not None, "срок права не записан: снятие активности не записало"
-    stored = subscription.as_utc(expires_at)
-    assert before - timedelta(seconds=2) <= stored <= after + timedelta(seconds=2)
-    # Платная функция организации права больше не видит.
+    assert row is None, "строка права осталась: отзыв ничего не выключит"
+    # Тариф организации действует — закрылось именно право, а не кабинет.
     assert solutions_module.has_solution(db_session, organization.id, solution.code) is False
 
 
-def test_deactivate_right_twice_is_not_a_failure(
+def test_repeated_deactivate_right_is_not_found(
     client: TestClient, db_session: Session, operator_token: None
 ) -> None:
+    """Повторный отзыв — `404`: строки права уже нет, снимать нечего."""
     organization, _ = make_organization(db_session)
     solution = give_solution(db_session, organization, code=JOURNAL_CODE)
     path = f"{PLATFORM}/{organization.id}/solutions/{solution.code}/deactivate"
@@ -742,8 +791,8 @@ def test_deactivate_right_twice_is_not_a_failure(
     second = client.post(path, headers=OPERATOR_HEADERS)
 
     assert first.status_code == 200, first.text
-    assert second.status_code == 200, second.text
-    assert second.json()["solutions"][0]["is_live"] is False
+    assert second.status_code == 404, second.text
+    assert second.json() == {"detail": SOLUTION_NOT_FOUND_DETAIL}
 
 
 def test_unknown_solution_code_is_not_found(

@@ -460,20 +460,16 @@ export function deleteTariff(id: number): Promise<void> {
 // клиент его не считает. `amount` — строка, чтобы копейки не терялись на округлении.
 
 /**
- * Период решения: те же пять кодов, что у тарифа (`TARIFF_PERIODS` в основном API).
- *
- * Отдельное имя, а не переиспользование `TariffPeriod`: каталог решений и прайс
- * тарифов — разные строки разных таблиц, и связь между наборами держит сервер.
- */
-export type SolutionPeriod = 'month' | 'quarter' | 'half_year' | 'year' | 'once';
-
-/**
  * Строка каталога решений в кабинете оператора.
  *
  * `code` — машинное имя решения и гейт платной функции (`app.solutions.has_solution`):
  * он показывается, но не правится и не создаётся. `position` — порядок витрины:
  * меньше — выше в магазине, при равных значениях выше строка с меньшим `id`.
  * `description` равно `null` у решения без описания.
+ *
+ * **Периода оплаты нет** (#195): у решения нет собственного срока, право
+ * действует, пока действует тариф организации, поэтому `price_label` читается как
+ * «500 ₽ разово» и второго срока у строки не спрашивают.
  */
 export interface Solution {
   id: number;
@@ -484,10 +480,9 @@ export interface Solution {
   /** Сумма строкой: `Numeric` едет по JSON как «500.00». */
   amount: string;
   currency: string;
-  period: SolutionPeriod;
   position: number;
   is_visible: boolean;
-  /** Готовая цена от сервера: «500 ₽ в месяц». Экран печатает её как есть. */
+  /** Готовая цена от сервера: «500 ₽ разово». Экран печатает её как есть. */
   price_label: string;
   /** ISO-8601 из API; показывается как дата без времени. */
   created_at: string;
@@ -499,17 +494,16 @@ export interface Solution {
  *
  * Меняются только присланные поля (правило основного API,
  * `app/backend/app/schemas/platform_solution.py`). Экран правки отправляет все
- * семь полей строки — `name`, `description`, `amount`, `currency`, `period`,
- * `position`, `is_visible`, — а «Опубликовать» только `is_visible: true`.
- * `null` в описании — «описания нет». Поля `code` в теле нет намеренно:
- * присланный `code` основной API отсекает `422`.
+ * шесть полей строки — `name`, `description`, `amount`, `currency`, `position`,
+ * `is_visible`, — а «Опубликовать» только `is_visible: true`. `null` в описании —
+ * «описания нет». Полей `code` и `period` в теле нет намеренно: присланные
+ * основной API отсекает `422` (у решения нет своего срока).
  */
 export interface SolutionPatch {
   name?: string;
   description?: string | null;
   amount?: string;
   currency?: string;
-  period?: SolutionPeriod;
   position?: number;
   is_visible?: boolean;
 }
@@ -560,6 +554,8 @@ export function invoiceFileUrl(id: number, kind: 'invoice' | 'act'): string {
 // (`operator/backend/app/schemas.py`): экран её не переписывает. `paid_until`,
 // `days_left` и `is_live` считает сервер — второй формулы срока на клиенте нет,
 // а «бессрочно» (`ends_at: null`) и «истёк» выводятся из `is_live`, а не из даты.
+// У права `is_live` отвечает «работает ли оно сейчас по тарифу», а `expires_at`
+// остался записанной историей срока и на экран не выводится.
 
 /**
  * Записанный слот подписки: строка прайса и её срок.
@@ -595,9 +591,16 @@ export interface SubscriptionRight {
   /** Машинный код решения и гейт платной функции; уходит в путь снятия. */
   code: string;
   name: string;
+  /** Записанный срок права — история оплаченных сроков, на экран не выводится. */
   expires_at: string | null;
-  /** Последний включённый день в МСК; `null` — бессрочно. */
+  /**
+   * Последний включённый день **права сейчас** в МСК; `null` — тариф бессрочный.
+   *
+   * У неработающего права здесь записанный срок из истории, поэтому подпись
+   * строится по `is_live`, а не по этой дате.
+   */
   paid_until: string | null;
+  /** Работает ли право **сейчас**: куплено и у организации действующий тариф. */
   is_live: boolean;
 }
 

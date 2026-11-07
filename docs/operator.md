@@ -90,8 +90,8 @@ docker compose up -d --build
 | `GET` | `/api/tariffs` | `200 [{"id", "name", "description", "amount", "currency", "period", "unit_label", "position", "is_visible", "max_members", "tooltip", "group_code", "price_label"}]` — **все** строки прайса, включая `is_visible = false`, порядок `position, id`; пагинации нет |
 | `PATCH` | `/api/tariffs/{id}` | `200` — та же строка целиком, с пересчитанным `price_label`. Тело: только присланные поля из `name`, `description`, `amount` (строка `"4900.00"`), `period`, `max_members` (`null` — без ограничения), `is_visible` |
 | `DELETE` | `/api/tariffs/{id}` | `204` без тела: `is_visible = false`, строка **не удаляется**; повторный вызов — тоже `204` |
-| `GET` | `/api/solutions` | `200 [{"id", "code", "name", "description", "amount", "currency", "period", "position", "is_visible", "price_label", "created_at", "updated_at"}]` — **все** строки каталога решений, включая `is_visible = false`, порядок `position, id`; пагинации нет |
-| `PATCH` | `/api/solutions/{id}` | `200` — та же строка целиком, с пересчитанным `price_label`. Тело: только присланные поля из `name`, `description` (`null` — описания нет), `amount` (строка `"500.00"`), `currency` (три заглавные латинские буквы), `period`, `position` (целое ≥ 0), `is_visible`. Поля `code` в теле нет: присланный отсекает `422` |
+| `GET` | `/api/solutions` | `200 [{"id", "code", "name", "description", "amount", "currency", "position", "is_visible", "price_label", "created_at", "updated_at"}]` — **все** строки каталога решений, включая `is_visible = false`, порядок `position, id`; пагинации нет. Периода оплаты в ответе нет: у решения нет своего срока, право действует по тарифу организации (#195), а `price_label` читается «500 ₽ разово» |
+| `PATCH` | `/api/solutions/{id}` | `200` — та же строка целиком, с пересчитанным `price_label`. Тело: только присланные поля из `name`, `description` (`null` — описания нет), `amount` (строка `"500.00"`), `currency` (три заглавные латинские буквы), `position` (целое ≥ 0), `is_visible`. Поля `code` в теле нет, и `period` тоже нет: присланное отсекает `422` |
 | `DELETE` | `/api/solutions/{id}` | `204` без тела: `is_visible = false`, строка **не удаляется** (на неё ссылаются `invoices.solution_id` и `organization_solutions`); повторный вызов — тоже `204` |
 
 Сессия — httpOnly cookie `operator_session`, в JS токена нет.
@@ -134,8 +134,8 @@ docker compose up -d --build
 | --- | --- | --- |
 | `404` | `Решение не найдено` | неизвестный `id` |
 | `409` | `Решение с таким названием уже есть` | название занято другой строкой, в том числе в другом регистре |
-| `422` | `Название не может быть пустым`, `Название длиннее 120 символов`, `Описание должно быть строкой`, `Цена не может быть отрицательной`, `Слишком большая цена`, `Цена должна быть числом`, `Валюта должна состоять из 3 заглавных латинских букв`, `Неизвестный период оплаты`, `Порядок должен быть целым числом`, `Порядок не может быть отрицательным`, `Слишком большой порядок`, `Состояние должно быть true или false` | правка вне правил основного API; фронт снимает приставку `Value error, ` |
-| `422` | стандартный текст `pydantic` про лишнее поле | в теле `PATCH` пришёл `code` — он не правится |
+| `422` | `Название не может быть пустым`, `Название длиннее 120 символов`, `Описание должно быть строкой`, `Цена не может быть отрицательной`, `Слишком большая цена`, `Цена должна быть числом`, `Валюта должна состоять из 3 заглавных латинских букв`, `Порядок должен быть целым числом`, `Порядок не может быть отрицательным`, `Слишком большой порядок`, `Состояние должно быть true или false` | правка вне правил основного API; фронт снимает приставку `Value error, ` |
+| `422` | стандартный текст `pydantic` про лишнее поле | в теле `PATCH` пришёл `code` — он не правится — или `period`: периода оплаты у решения больше нет (#195) |
 | `502` | `Основной API не принял сервисный токен` | основной API ответил `401` |
 | `502` | `Основной API недоступен` | сеть, таймаут или `5xx` основного API |
 | `503` | `Кабинет не настроен: не задан OPERATOR_SERVICE_TOKEN` | пустой секрет; в сеть запрос не уходит |
@@ -252,15 +252,19 @@ docker compose up -d --build
   настроен: не задан OPERATOR_SERVICE_TOKEN»);
 - пусто — «Решений пока нет»: строки каталога приходят из миграций базы, завести
   решение из кабинета нельзя;
-- список: «Порядок», «Название», «Код», «Описание», «Цена», «Период»,
+- список: «Порядок», «Название», «Код», «Описание», «Цена»,
   «Состояние», «Создано», «Изменено», действия. Порядок строк — порядок ответа
   сервера (`position, id`): экран его не пересортировывает, потому что это и есть
   порядок карточек в магазине клиента. Цену печатает готовый `price_label`
   ответа — формулу цены экран не повторяет. Код показан целиком и не правится:
-  это гейт платной функции. Счётчик в заголовке: «3 решения · 2 в каталоге»;
+  это гейт платной функции. Колонки «Период» нет: у решения нет собственного
+  срока, право действует, пока действует тариф организации (#195), а цена потому
+  и читается «500 ₽ разово». Счётчик в заголовке: «3 решения · 2 в каталоге»;
 - правка — форма разворачивается под строкой: название, описание, порядок,
-  состояние, цена, валюта, период из пяти значений. «Сохранить» отправляет все
-  семь редактируемых полей, пустое описание уходит как `null`. После успешного
+  состояние, цена, валюта. Поля «Период» нет, и в теле `PATCH` его тоже нет;
+  присланный `period` основной API отвергает `422` как лишнее поле, но с формы
+  он и не уходит. «Сохранить» отправляет все
+  шесть редактируемых полей, пустое описание уходит как `null`. После успешного
   `PATCH` экран перечитывает каталог (`GET /api/solutions`), поэтому правка
   «Порядка» сразу переносит строку на её новое место — место задаёт сервер, а не
   клиент. На отправке кнопка неактивна («Сохраняем…»), кнопки строки заперты;
@@ -302,7 +306,7 @@ docker compose up -d --build
 | список | `operator-organizations`, `operator-organizations-empty`, `operator-organizations-error`, `operator-organizations-more`, `operator-organization-row` (на каждой строке), `operator-organization-open` |
 | карточка | `operator-organization-card`, `operator-organization-name`, `operator-organization-inn`, `operator-organization-kpp`, `operator-organization-ogrn`, `operator-organization-address`, `operator-organization-edit`, `operator-organization-save`, `operator-organization-cancel`, `operator-organization-error`, `operator-organization-back` (ссылка «К списку») |
 | тарифы | `operator-nav-tariffs` (пункт навигации), `operator-tariffs` (таблица), `operator-tariffs-count` (счётчик в заголовке), `operator-tariffs-loading`, `operator-tariffs-empty`, `operator-tariffs-error`, `operator-tariff-row` (на каждой строке), `operator-tariff-name`, `operator-tariff-description`, `operator-tariff-price`, `operator-tariff-period`, `operator-tariff-members`, `operator-tariff-state`, `operator-tariff-edit`, `operator-tariff-name-input`, `operator-tariff-description-input`, `operator-tariff-amount-input`, `operator-tariff-period-input`, `operator-tariff-members-input`, `operator-tariff-save`, `operator-tariff-cancel`, `operator-tariff-delete`, `operator-tariff-delete-confirm`, `operator-tariff-delete-decline`, `operator-tariff-publish`, `operator-tariff-error` |
-| решения | `operator-nav-solutions` (пункт навигации), `operator-solutions` (таблица), `operator-solutions-count` (счётчик в заголовке), `operator-solutions-loading`, `operator-solutions-empty`, `operator-solutions-error` (отказ загрузки, рядом `operator-solutions-retry`), `operator-solution-row` (на каждой строке), `operator-solution-position`, `operator-solution-name`, `operator-solution-code`, `operator-solution-description`, `operator-solution-price`, `operator-solution-period`, `operator-solution-state`, `operator-solution-created`, `operator-solution-updated`, `operator-solution-edit`, `operator-solution-delete`, `operator-solution-delete-confirm`, `operator-solution-delete-decline`, `operator-solution-publish`, `operator-solution-name-input`, `operator-solution-description-input`, `operator-solution-amount-input`, `operator-solution-currency-input`, `operator-solution-period-input`, `operator-solution-position-input`, `operator-solution-visible-input`, `operator-solution-save`, `operator-solution-cancel`, `operator-solution-error` (отказ правки, удаления и публикации) |
+| решения | `operator-nav-solutions` (пункт навигации), `operator-solutions` (таблица), `operator-solutions-count` (счётчик в заголовке), `operator-solutions-loading`, `operator-solutions-empty`, `operator-solutions-error` (отказ загрузки, рядом `operator-solutions-retry`), `operator-solution-row` (на каждой строке), `operator-solution-position`, `operator-solution-name`, `operator-solution-code`, `operator-solution-description`, `operator-solution-price`, `operator-solution-state`, `operator-solution-created`, `operator-solution-updated`, `operator-solution-edit`, `operator-solution-delete`, `operator-solution-delete-confirm`, `operator-solution-delete-decline`, `operator-solution-publish`, `operator-solution-name-input`, `operator-solution-description-input`, `operator-solution-amount-input`, `operator-solution-currency-input`, `operator-solution-position-input`, `operator-solution-visible-input`, `operator-solution-save`, `operator-solution-cancel`, `operator-solution-error` (отказ правки, удаления и публикации) |
 | реквизиты поставщика | `operator-nav-company` (пункт навигации), `operator-company` (форма), `operator-company-name`, `operator-company-inn`, `operator-company-kpp`, `operator-company-ogrn`, `operator-company-address`, `operator-company-bank-name`, `operator-company-bank-bic`, `operator-company-account`, `operator-company-corr-account`, `operator-company-signatory`, `operator-company-vat-note`, `operator-company-save`, `operator-company-saved`, `operator-company-error`, `operator-company-retry` |
 
 В режиме правки те же `operator-organization-name/-inn/-kpp/-ogrn/-address`
@@ -396,9 +400,16 @@ npm run test       # vitest run
   период, лимит мест не меняется.
 - Создания решения магазина и физического удаления строки каталога: за новой
   строкой в коде нет платной функции, а `code` — гейт права и `UNIQUE` в таблице,
-  поэтому он только показывается и не правится. Прав организации
-  (`organization_solutions`: выдача, отзыв, продление) в кабинете тоже нет.
-  «Удаление» решения — снятие с продажи, как у тарифа.
+  поэтому он только показывается и не правится. Период оплаты решения не правится
+  тоже: у решения нет собственного срока, право действует, пока действует тариф
+  организации (#195), и присланный `period` отвергается `422`. Выдачи и продления
+  прав организации (`organization_solutions`) в кабинете нет; снятие активности
+  расширения есть и **удаляет строку права** — после #195 запись «срок в прошлом»
+  ничего не выключает, а платная функция живёт по тарифу. Состояние расширения в
+  панели считается тем же правилом: `is_live` — «работает ли право сейчас по
+  тарифу», `paid_until` работающего права — последний день действующего тарифа, а
+  `expires_at` строки остаётся записанной историей срока. «Удаление» решения —
+  снятие с продажи, как у тарифа.
 - CORS и обмена с фронтендом основного кабинета (`app/frontend`): браузер
   кабинета ходит только в свой `operator-api` через nginx того же origin.
 - Своей базы, alembic и миграций.

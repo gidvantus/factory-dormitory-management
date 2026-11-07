@@ -16,6 +16,7 @@
 через сеть.
 """
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -30,7 +31,7 @@ from app.models.telegram import NOTIFICATION_RULE_KIND, NotificationDelivery
 from app.models.user import User
 from app.solutions import SOLUTION_REQUIRED_DETAIL, TELEGRAM_NOTIFICATIONS
 from app.telegram import render_message
-from tests.conftest import add_colleague, give_solution, login, sign_in
+from tests.conftest import add_colleague, give_solution, give_tariff, login, sign_in
 from tests.test_custom_tabs import create_table, tab
 from tests.test_personnel import create as personnel_create
 from tests.test_reports import create_dormitory
@@ -57,13 +58,17 @@ def cabinet_user(
     """Войти пользователем кабинета: организация и (по умолчанию) право на решение.
 
     `sign_in` заводит организацию, но не выдаёт право; `with_solution=False`
-    оставляет пользователя без него — для проверки 403 с текстом магазина.
+    оставляет организацию с действующим тарифом без него — для проверки 403 с
+    текстом магазина. Без тарифа отказал бы другой текст (#195), поэтому тариф
+    ставится в обеих ветках.
     """
     user = sign_in(client, db_session, email=email)
     organization = db_session.get(Organization, user.active_organization_id)
     assert organization is not None
     if with_solution:
         give_solution(db_session, organization)
+    else:
+        give_tariff(db_session, organization)
     return user
 
 
@@ -779,7 +784,9 @@ def test_rule_of_another_person_and_another_dormitory_is_404(
     outsider = sign_in(client, db_session, email="outsider@example.com")
     outsider_org = db_session.get(Organization, outsider.active_organization_id)
     assert outsider_org is not None
-    # Право чужой организации на ту же строку каталога: без него ответ был бы 403.
+    # Право чужой организации на ту же строку каталога и её тариф: без них ответ
+    # был бы 403 — либо про тариф, либо про магазин.
+    give_tariff(db_session, outsider_org)
     grant_telegram_solution(db_session, outsider_org.id)
     foreign = client.get(rules_url(dorm))
     assert foreign.status_code == 404
@@ -806,6 +813,27 @@ def test_delivery_is_not_created_without_a_connected_chat(
     assert create_rule(client, dorm, name="Некуда", table_key=table_key).status_code == 201
 
     client.post(base + "/rows")
+
+    assert deliveries(db_session) == []
+
+
+def test_delivery_is_not_created_when_the_tariff_is_gone(
+    client: TestClient, db_session: Session
+) -> None:
+    """Право действует по тарифу: кончился тариф — получателей у правила нет.
+
+    Правило, чат и строка права никуда не деваются: доставка просто молчит до
+    следующей оплаты тарифа, и повторной покупки решения не нужно.
+    """
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    assert create_rule(client, dorm, name="Без тарифа", table_key="residents").status_code == 201
+    organization = db_session.get(Organization, user.active_organization_id)
+    assert organization is not None
+    give_tariff(db_session, organization, ends_at=datetime.now(UTC) - timedelta(minutes=1))
+
+    assert client.post(f"/api/dormitories/{dorm}/residents").status_code == 201
 
     assert deliveries(db_session) == []
 

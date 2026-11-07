@@ -8,7 +8,8 @@
 * `GET` отдаёт **все** строки каталога, включая скрытые, в порядке `position`, `id`;
 * `PATCH` меняет только присланные поля, проверяет занятость названия без учёта
   регистра (`casefold()` в Python), ловит гонку на уникальном индексе, а
-  `price_label` пересчитывает под новую цену, валюту и период;
+  `price_label` пересчитывает под новую цену и валюту, а период подписи всегда
+  «разово»: своего срока у решения нет (#195);
 * `code` в теле нет: это гейт платной функции и `UNIQUE` в таблице, поэтому
   присланное поле отсекает `extra="forbid"` стандартным текстом `pydantic`;
 * `DELETE` ставит `is_visible = false` и строку не удаляет: решение пропадает из
@@ -48,7 +49,6 @@ from app.schemas.platform_tariff import (
     IS_VISIBLE_INVALID_MESSAGE,
     NAME_REQUIRED_MESSAGE,
     NAME_TOO_LONG_MESSAGE,
-    PERIOD_UNKNOWN_MESSAGE,
 )
 from app.security import INVALID_OPERATOR_TOKEN_DETAIL
 from tests.conftest import JOURNAL_CODE, add_solution, organizations_for, sign_in
@@ -60,8 +60,9 @@ WRONG_HEADERS = {"X-Operator-Token": "not-the-token"}
 PLATFORM = "/api/platform/solutions"
 CATALOG_URL = "/api/solutions"
 
-# Подпись цены собирает сервер (`app.pricing.format_price`).
-PRICE_LABEL = "500 ₽ в месяц"
+# Подпись цены собирает сервер (`app.pricing.format_price`). Период подписи —
+# «разово»: своего срока у решения нет (#195).
+PRICE_LABEL = "500 ₽ разово"
 
 
 @pytest.fixture
@@ -148,7 +149,6 @@ def test_list_has_the_full_response_shape(
         "description",
         "amount",
         "currency",
-        "period",
         "position",
         "is_visible",
         "price_label",
@@ -159,7 +159,8 @@ def test_list_has_the_full_response_shape(
     assert body["code"] == "telegram_notifications"
     assert body["amount"] == "1250.50"
     assert body["position"] == 7
-    assert body["price_label"] == "1\u00a0250,50 ₽ в месяц"
+    # Период подписи — всегда «разово»: своего срока у решения нет (#195).
+    assert body["price_label"] == "1\u00a0250,50 ₽ разово"
     assert body["created_at"] is not None
     assert body["updated_at"] is not None
 
@@ -177,7 +178,7 @@ def test_empty_catalog_is_an_empty_array(client: TestClient, operator_token: Non
 def test_patch_changes_only_the_fields_it_was_given(
     client: TestClient, db_session: Session, operator_token: None
 ) -> None:
-    """`PATCH` описания не обнуляет название, цену, валюту, период и порядок."""
+    """`PATCH` описания не обнуляет название, цену, валюту и порядок."""
     solution = add_solution(db_session, position=3)
 
     response = client.patch(
@@ -192,7 +193,6 @@ def test_patch_changes_only_the_fields_it_was_given(
     assert body["name"] == "Уведомления в Telegram"
     assert body["amount"] == "500.00"
     assert body["currency"] == "RUB"
-    assert body["period"] == "month"
     assert body["position"] == 3
     assert body["is_visible"] is True
 
@@ -206,7 +206,7 @@ def test_patch_changes_only_the_fields_it_was_given(
 def test_patch_edits_every_field_of_the_cabinet_form(
     client: TestClient, db_session: Session, operator_token: None
 ) -> None:
-    """Семь полей формы кабинета: название, описание, цена, валюта, период, порядок, состояние."""
+    """Шесть полей формы кабинета: название, описание, цена, валюта, порядок, состояние."""
     solution = add_solution(db_session)
 
     response = client.patch(
@@ -217,7 +217,6 @@ def test_patch_edits_every_field_of_the_cabinet_form(
             "description": "Кто, когда и что изменил",
             "amount": "1500.00",
             "currency": "USD",
-            "period": "year",
             "position": 0,
             "is_visible": False,
         },
@@ -229,11 +228,11 @@ def test_patch_edits_every_field_of_the_cabinet_form(
     assert body["description"] == "Кто, когда и что изменил"
     assert body["amount"] == "1500.00"
     assert body["currency"] == "USD"
-    assert body["period"] == "year"
     assert body["position"] == 0
     assert body["is_visible"] is False
-    # `price_label` пересчитан сервером под новую цену, валюту и период.
-    assert body["price_label"] == "1\u00a0500 $ в год"
+    # `price_label` пересчитан сервером под новую цену и валюту; период подписи
+    # всегда «разово».
+    assert body["price_label"] == "1\u00a0500 $ разово"
     # `code` правкой не меняется: это гейт платной функции.
     assert body["code"] == "telegram_notifications"
 
@@ -395,8 +394,6 @@ def test_patch_rolls_back_when_the_name_is_rejected_by_the_database(
         ({"currency": "RU"}, CURRENCY_INVALID_MESSAGE),
         ({"currency": "R1B"}, CURRENCY_INVALID_MESSAGE),
         ({"currency": None}, CURRENCY_INVALID_MESSAGE),
-        ({"period": "week"}, PERIOD_UNKNOWN_MESSAGE),
-        ({"period": None}, PERIOD_UNKNOWN_MESSAGE),
         ({"position": "3"}, POSITION_NOT_INTEGER_MESSAGE),
         ({"position": None}, POSITION_NOT_INTEGER_MESSAGE),
         ({"position": 1.5}, POSITION_NOT_INTEGER_MESSAGE),
@@ -447,6 +444,33 @@ def test_patch_rejects_code_with_the_standard_message(
     db_session.expire_all()
     refreshed = db_session.get(Solution, solution.id)
     assert refreshed is not None and refreshed.code == "telegram_notifications"
+
+
+def test_patch_rejects_the_period_with_the_standard_message(
+    client: TestClient, db_session: Session, operator_token: None
+) -> None:
+    """`period` ушёл из контракта: присланное поле отсекает `extra="forbid"` (#195).
+
+    Своего русского текста у этого отказа больше нет — его нечего объяснять:
+    периода оплаты у решения не существует, право действует по тарифу. Ответ —
+    стандартный `422` `pydantic`, как у любого лишнего поля.
+    """
+    solution = add_solution(db_session)
+
+    response = client.patch(
+        f"{PLATFORM}/{solution.id}", headers=OPERATOR_HEADERS, json={"period": "year"}
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail[0]["type"] == "extra_forbidden"
+    assert detail[0]["loc"] == ["body", "period"]
+
+    db_session.expire_all()
+    refreshed = db_session.get(Solution, solution.id)
+    assert refreshed is not None
+    # Строка не изменилась: отказ пришёл до записи.
+    assert refreshed.period == "month"
 
 
 def test_amount_ceiling_is_the_same_for_solutions_and_tariffs() -> None:
