@@ -43,6 +43,9 @@ def test_openapi_documents_the_contract(client: TestClient) -> None:
         # Пользователи платформы: тот же контур, второй раздел кабинета.
         "/api/users",
         "/api/users/{user_id}",
+        # Вход под пользователем (#201) — одна ручка-прокси: ссылку собирает
+        # основной API, сессию по ней ставит сайт, а не кабинет.
+        "/api/users/{user_id}/impersonate",
         # Счета платформы: третий раздел — реестр всех организаций, оплата,
         # отмена и печатные формы.
         "/api/invoices",
@@ -136,17 +139,25 @@ def test_openapi_documents_the_users_contour(client: TestClient) -> None:
     listing = schema["paths"]["/api/users"]["get"]
     details = schema["paths"]["/api/users/{user_id}"]["get"]
     update = schema["paths"]["/api/users/{user_id}"]["patch"]
+    # Вход под пользователем (#201): тела нет, `422` у ручки поэтому нет вовсе,
+    # а `409` («Кабинет не активирован») приходит из основного API дословно.
+    impersonate = schema["paths"]["/api/users/{user_id}/impersonate"]["post"]
 
     assert listing["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "PlatformUserPage"
     )
-    for operation in (listing, details, update):
+    for operation in (listing, details, update, impersonate):
         assert operation["responses"]["401"]["description"] == UNAUTHORIZED_DETAIL
         assert operation["responses"]["502"] is not None
         assert operation["responses"]["503"] is not None
     assert details["responses"]["404"] is not None
     assert update["responses"]["404"] is not None
     assert update["responses"]["422"] is not None
+    assert impersonate["responses"]["200"]["content"]["application/json"]["schema"][
+        "$ref"
+    ].endswith("ImpersonationLink")
+    assert impersonate["responses"]["404"] is not None
+    assert impersonate["responses"]["409"] is not None
 
 
 def test_openapi_documents_the_invoices_contour(client: TestClient) -> None:

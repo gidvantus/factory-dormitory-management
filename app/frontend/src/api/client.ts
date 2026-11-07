@@ -1478,6 +1478,22 @@ export const api = {
     });
   },
 
+  /**
+   * Вход по ссылке кабинета оператора.
+   *
+   * Cookie сессии ставит только этот API и только на своём origin — сама
+   * страница `/su/:token` её не сочиняет. Тело ответа то же, что у входа
+   * (`UserResponse`) и роли в нём нет, поэтому `SessionProvider` дочитает
+   * профиль из `/api/me`. Отказы — `400` (подпись, срок, вид токена),
+   * `404` и `409`; их `detail` показывается дословно.
+   */
+  impersonate(token: string): Promise<UserProfile> {
+    return request<UserProfile>('/auth/impersonate', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  },
+
   logout(): Promise<void> {
     return request<void>('/auth/logout', { method: 'POST' });
   },

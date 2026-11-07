@@ -24,11 +24,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import notification_rules, notifications, solutions
+from app import audit, notification_rules, notifications, solutions
 from app.models.organization import Organization
 from app.models.solution import Solution
 from app.models.telegram import NOTIFICATION_RULE_KIND, NotificationDelivery
 from app.models.user import User
+from app.security import create_impersonation_token
 from app.solutions import SOLUTION_REQUIRED_DETAIL, TELEGRAM_NOTIFICATIONS
 from app.telegram import render_message
 from tests.conftest import add_colleague, give_solution, give_tariff, login, sign_in
@@ -836,6 +837,82 @@ def test_delivery_is_not_created_when_the_tariff_is_gone(
     assert client.post(f"/api/dormitories/{dorm}/residents").status_code == 201
 
     assert deliveries(db_session) == []
+
+
+# --- Сессия поддержки (#201) -------------------------------------------------
+#
+# Вход под пользователем из кабинета оператора молчит: правила уведомлений в
+# такой сессии не создают доставок. Молчание обязано быть узким — обычная сессия
+# работает как раньше, и оба направления проверяются здесь же.
+
+
+def test_impersonated_session_does_not_queue_deliveries(
+    client: TestClient, db_session: Session
+) -> None:
+    """Та же запись строки в сессии поддержки не создаёт доставки.
+
+    Признак живёт на всю сессию, а не на один запрос: строка записывается тем же
+    браузером, в котором открыта ссылка. Обратная сторона проверяется здесь же:
+    после обычного входа правило снова срабатывает — иначе тихая поломка погасила
+    бы уведомления всем.
+    """
+    user = cabinet_user(client, db_session)
+    connect(db_session, user)
+    dorm = create_dormitory(client)
+    assert create_rule(client, dorm, name="Добавление", table_key="residents").status_code == 201
+
+    # Обычная сессия: правило срабатывает.
+    assert client.post(f"/api/dormitories/{dorm}/residents").status_code == 201
+    assert [row.title for row in deliveries(db_session)] == ["Добавление"]
+
+    # Сессия поддержки: та же запись — ни одной новой доставки.
+    response = client.post(
+        "/api/auth/impersonate", json={"token": create_impersonation_token(user.id)}
+    )
+    assert response.status_code == 200, response.text
+    assert client.post(f"/api/dormitories/{dorm}/residents").status_code == 201
+    assert [row.title for row in deliveries(db_session)] == ["Добавление"]
+
+    # Признак не залипает: обычный вход снова рассылает.
+    assert login(client, user.email).status_code == 200
+    assert client.post(f"/api/dormitories/{dorm}/residents").status_code == 201
+    assert [row.title for row in deliveries(db_session)] == ["Добавление", "Добавление"]
+
+
+def test_hook_returns_zero_in_an_impersonated_context(db_session: Session) -> None:
+    """Хук выходит до любой работы и отдаёт `0` — столько доставок создано.
+
+    Проверка идёт напрямую, а не через ручку: так видно, что признак читается
+    из контекста запроса, и ни один путь записи не может его «забыть передать».
+    """
+    context = audit.AuditContext(
+        request_id="unit-test",
+        method="POST",
+        scope={},
+        ip=None,
+        user_agent=None,
+        request_body=None,
+        started=0.0,
+    )
+    token = audit.start_context(context)
+    try:
+        audit.record_actor(
+            actor_id=7,
+            organization_id=3,
+            actor_name="Иванов Иван",
+            impersonated=True,
+        )
+        created = notification_rules.notify_row_written(
+            db_session,
+            dormitory_id=1,
+            table_key="residents",
+            row_id=1,
+            actor_id=7,
+        )
+    finally:
+        audit.finish_context(token)
+
+    assert created == 0
 
 
 # --- Проводка хуков по точкам записи -----------------------------------------

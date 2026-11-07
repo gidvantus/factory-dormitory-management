@@ -7,6 +7,7 @@ import { Activate } from './pages/Activate';
 import { Cabinet } from './pages/Cabinet';
 import { Document } from './pages/Document';
 import { ForgotPassword } from './pages/ForgotPassword';
+import { Impersonate } from './pages/Impersonate';
 import { Landing } from './pages/Landing';
 import { NotFound } from './pages/NotFound';
 import { Pricing } from './pages/Pricing';
@@ -330,6 +331,9 @@ export function App(): JSX.Element {
         <Route path="/documents/:code" element={<Document />} />
         <Route path="/activate" element={<Activate />} />
         <Route path="/activate/:token" element={<Activate />} />
+        {/* Ссылка входа под пользователем (`/su/:token`) — тоже вне `RequireAuth`:
+            сессию ставит сама страница, а до её ответа посетитель анонимен. */}
+        <Route path="/su/:token" element={<Impersonate />} />
         <Route
           path="/cabinet"
           element={

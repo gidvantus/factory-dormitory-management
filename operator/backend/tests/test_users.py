@@ -121,6 +121,96 @@ def test_patch_forwards_only_the_full_name(client: TestClient, main_api: MainApi
     assert request.headers[OPERATOR_TOKEN_HEADER] == SERVICE_TOKEN
 
 
+# --- Вход под пользователем ---------------------------------------------------
+# Кабинет только выдаёт ссылку: адрес сайта знает основной API, а кабинет отдаёт
+# его браузеру как есть и своих адресов не строит.
+
+IMPERSONATION_LINK = {"url": "http://stands.example.com/su/eyJhbGciOiJIUzI1NiJ9.eyJ"}
+
+
+def test_impersonation_link_is_proxied(client: TestClient, main_api: MainApi) -> None:
+    """`POST /api/users/{id}/impersonate` уходит наверх без тела и возвращается как есть."""
+    main_api.handler = lambda request: httpx.Response(200, json=IMPERSONATION_LINK)
+    login(client)
+
+    response = client.post(f"{USERS}/142/impersonate")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == IMPERSONATION_LINK
+    request = main_api.requests[-1]
+    assert request.method == "POST"
+    assert request.url.path == "/api/platform/users/142/impersonation-link"
+    assert request.content in (b"", b"null")
+    assert request.headers[OPERATOR_TOKEN_HEADER] == SERVICE_TOKEN
+
+
+def test_impersonation_link_requires_the_cabinet_session(client: TestClient) -> None:
+    """Сервисный токен сессию оператора не заменяет."""
+    response = client.post(f"{USERS}/142/impersonate")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": UNAUTHORIZED_DETAIL}
+
+
+@pytest.mark.parametrize(
+    ("status", "detail"),
+    [(404, "Пользователь не найден"), (409, "Кабинет не активирован")],
+)
+def test_impersonation_refusals_are_passed_through(
+    client: TestClient, main_api: MainApi, status: int, detail: str
+) -> None:
+    """Данные отказа приходят из основного API: тот же код и тот же текст."""
+    main_api.handler = respond(detail, status)
+    login(client)
+
+    response = client.post(f"{USERS}/142/impersonate")
+
+    assert response.status_code == status
+    assert response.json() == {"detail": detail}
+
+
+def test_impersonation_rejected_token_is_a_bad_gateway(
+    client: TestClient, main_api: MainApi
+) -> None:
+    """401 основного API — 502, и оператора из кабинета не выкидывает."""
+    main_api.handler = respond("Неверный сервисный токен", 401)
+    login(client)
+
+    response = client.post(f"{USERS}/142/impersonate")
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": MAIN_API_REJECTED_TOKEN_DETAIL}
+    assert client.get(f"{API}/auth/me").status_code == 200
+
+
+def test_impersonation_network_failure_is_a_bad_gateway(
+    client: TestClient, main_api: MainApi
+) -> None:
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("нет сети", request=request)
+
+    main_api.handler = boom
+    login(client)
+
+    response = client.post(f"{USERS}/142/impersonate")
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": MAIN_API_UNAVAILABLE_DETAIL}
+
+
+def test_impersonation_with_empty_token_answers_503(
+    client: TestClient, empty_token: MainApi
+) -> None:
+    """Пустой секрет — настройка кабинета: 503 и ни одного запроса наверх."""
+    login(client)
+
+    response = client.post(f"{USERS}/142/impersonate")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": OPERATOR_SERVICE_TOKEN_MISSING_DETAIL}
+    assert empty_token.requests == []
+
+
 # --- Перевод отказов основного API ------------------------------------------
 
 
