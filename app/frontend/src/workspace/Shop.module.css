@@ -260,6 +260,75 @@
   height: var(--gap-18);
 }
 
+/* Счётчик мест: количество и итог стоят в полосе покупки рядом с кнопкой. */
+.quantityRow {
+  display: grid;
+  justify-items: end;
+  gap: var(--gap-6);
+  min-width: 0;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+}
+
+.stepper button {
+  display: grid;
+  place-items: center;
+  width: calc(var(--gap-20) * 2);
+  height: calc(var(--gap-20) * 2);
+  padding: 0;
+  color: var(--color-text);
+  font-size: var(--text-h3);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.stepper input {
+  width: calc(var(--gap-20) * 3);
+  height: calc(var(--gap-20) * 2);
+  padding: 0 var(--gap-4);
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-weight: 700;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.stepper input::-webkit-inner-spin-button,
+.stepper input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.stepper input[aria-invalid='true'] {
+  color: var(--color-danger);
+}
+
+.seatsTotal {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.quantityError {
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+}
+
+/* Полоса покупки карточки мест: счётчик и итог прижимаются к краю, как кнопка. */
+.purchaseBar .quantityRow,
+.purchaseBar .seatsTotal {
+  justify-self: end;
+}
+
 .error {
   display: grid;
   justify-items: start;

@@ -20,10 +20,23 @@ name: Обновить локальный стенд
 
 on:
   # Мерж PR в develop-m — это push в неё. Ручной запуск нужен для первого
-  # прогона и для повторной попытки после сбоя.
+  # прогона, для повторной попытки после сбоя и для сборки стенда из ветки,
+  # которой в develop-m ещё нет (input `branch`).
   push:
     branches: [develop-m]
   workflow_dispatch:
+    inputs:
+      # Пусто — стенд собирается из develop-m, ровно как при push. Имя ветки —
+      # стенд собирается из той ветки, что уже открыта в клоне владельца: клон
+      # не переключается, ничего не мержится, в дело идёт то, что владелец
+      # видит в рабочей копии. Нужно, чтобы проверить ветку на стенде до
+      # мержа — например когда ветка сводит две головы alembic, и собирать
+      # develop-m в этом состоянии нельзя (`alembic upgrade head` падает).
+      branch:
+        description: 'Ветка, из которой собрать стенд (пусто = develop-m)'
+        required: false
+        default: ''
+        type: string
 
 # Блока pull_request здесь нет и быть не должно: self-hosted раннер исполняет
 # код из репозитория на машине владельца, а PR может прийти из форка.
@@ -44,6 +57,10 @@ jobs:
     env:
       LOCAL_CLONE: 'D:\Development\VideCoding\CRMDormitory'
       LOCAL_BRANCH: develop-m
+      # Из input `branch` (он есть только у ручного запуска); пусто — значит
+      # цель сборки это LOCAL_BRANCH. Пустое значение здесь — норма, поэтому
+      # подстановку «пусто -> develop-m» делают сами шаги, а не выражение.
+      STAND_BRANCH: ${{ inputs.branch }}
       STAND_PROJECT: crm-dormitory
       STAND_BACKUP_DIR: 'D:\stand-backups\CRMDormitory'
     steps:
@@ -53,6 +70,8 @@ jobs:
         run: |
           $clone = $env:LOCAL_CLONE
           $branch = $env:LOCAL_BRANCH
+          $target = "$env:STAND_BRANCH".Trim()
+          if (-not $target) { $target = $branch }
           if (-not (Test-Path (Join-Path $clone '.git'))) {
             Write-Host "::error::No git repository at $clone (check LOCAL_CLONE in stand.yml)"
             exit 1
@@ -63,13 +82,25 @@ jobs:
             exit 1
           }
           $current = "$current".Trim()
-          if ($current -ne $branch) {
-            Write-Host "::error::Clone is on branch '$current', expected '$branch'. Stand left untouched: switch the clone to $branch and re-run the job."
+          if ($current -ne $target) {
+            if ($target -ne $branch) {
+              Write-Host "::error::Manual stand build asked for branch '$target' but the clone is on '$current'. Stand left untouched: switch the clone to $target and re-run the job, or clear the 'branch' input to update the stand from $branch."
+            }
+            else {
+              Write-Host "::error::Clone is on branch '$current', expected '$branch'. Stand left untouched: switch the clone to $branch and re-run the job. To put the branch that is already checked out on the stand, run this workflow manually and fill its 'branch' input with that branch name."
+            }
             exit 1
           }
+          # Another branch is allowed only for a manual run: the input exists
+          # only on workflow_dispatch, a push must always build the base branch.
+          if ($target -ne $branch -and $env:GITHUB_EVENT_NAME -ne 'workflow_dispatch') {
+            Write-Host "::error::Refusing to build the stand from '$target': only a manual run may build a branch other than $branch."
+            exit 1
+          }
+          Write-Host "stand branch: $target"
           git -C $clone log -1 --oneline
 
-      - name: 'Клон: fast-forward до origin/develop-m'
+      - name: 'Клон: fast-forward до origin/develop-m либо сборка открытой ветки'
         # Токен живёт только внутри этого шага: в `env:` шага, не в URL клона,
         # не в `url.insteadOf` и не в конфиге git. На машине раннера нет
         # SSH-идентичности, поэтому клон своего remote (git@github.com:...) не
@@ -80,6 +111,25 @@ jobs:
         run: |
           $clone = $env:LOCAL_CLONE
           $branch = $env:LOCAL_BRANCH
+          $target = "$env:STAND_BRANCH".Trim()
+          if (-not $target) { $target = $branch }
+
+          # Ручная сборка другой ветки: fetch и merge не нужны, в дело идёт
+          # ровно то дерево, что открыто в клоне. Неотслеживаемые файлы при
+          # этом не мешают (.artifacts и прочий мусор), а вот правки в
+          # отслеживаемых файлах означают полусохранённое дерево — их не берём.
+          if ($target -ne $branch) {
+            $dirty = "$(git -C $clone status --porcelain -uno)".Trim()
+            if ($dirty) {
+              Write-Host "::error::Clone has uncommitted changes in tracked files, so the stand would be built from a half-saved tree. Stand left untouched: commit or stash them and re-run the job."
+              exit 1
+            }
+            $head = "$(git -C $clone rev-parse --short HEAD)".Trim()
+            Write-Host "manual stand build: $target at $head (the clone stays on $target)"
+            [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "updated=true`n")
+            exit 0
+          }
+
           if (-not $env:GH_TOKEN -or -not $env:GITHUB_REPOSITORY) {
             Write-Host "::error::HTTPS fetch failed: token or repo URL is wrong (GH_TOKEN or GITHUB_REPOSITORY is empty)"
             exit 1
@@ -156,6 +206,29 @@ jobs:
           [IO.File]::AppendAllText($env:GITHUB_ENV, "STAND_API_PORT=$apiPort`n")
           [IO.File]::AppendAllText($env:GITHUB_ENV, "STAND_WEB_PORT=$webPort`n")
 
+      - name: 'Стенд: одна голова миграций alembic'
+        # api на двух головах уходит в цикл перезапуска на `alembic upgrade
+        # head` (app/backend/entrypoint.sh), и «успешное» обновление стенда
+        # отдаёт 502 на /api/. Проверка стоит ДО бэкапа и пересборки: отказ
+        # дешевле разобранного стека, а починка — одна команда, её печатает
+        # сам скрипт. Тот же скрипт работает в деплое и в проверках PR.
+        if: steps.clone.outputs.updated == 'true'
+        run: |
+          $dir = $env:LOCAL_CLONE
+          $script = Join-Path $dir '_tools\alembic-heads.py'
+          if (-not (Test-Path $script)) {
+            # Клон обновляется fast-forward до develop-m, файл появится в нём
+            # после слияния инструмента. До этого проверять нечего.
+            Write-Host "::warning::No _tools\alembic-heads.py in ${dir}: alembic head check skipped."
+            exit 0
+          }
+          python $script
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Two alembic heads in ${dir}: api would restart-loop on 'alembic upgrade head' and the stand would answer 502. Fix: python _tools/alembic-heads.py --merge, then commit the new revision to develop-m. The stand is left as is."
+            exit 1
+          }
+          Write-Host "alembic: single head"
+
       - name: 'Стенд: бэкап БД перед обновлением'
         # Миграции стенда накатывает сам api при старте (app/backend/entrypoint.sh:
         # alembic upgrade head), отката миграций нет. Дамп снимается ДО
@@ -205,7 +278,7 @@ jobs:
       - name: 'Стенд: пересборка и перезапуск'
         # -p не передаётся: имя проекта берётся из .env клона (его сверяет шаг
         # выше), поэтому контейнеры пересоздаются, а не плодится второй стек.
-        # --wait ждёт healthcheck'и db, operator-api и operator-web; у api, web
+        # --wait ждёт healthcheck'и db, api, operator-api и operator-web; у web
         # и bot healthcheck'ов нет, поэтому их живость доказывает следующий шаг.
         if: steps.clone.outputs.updated == 'true'
         run: |
@@ -259,6 +332,14 @@ jobs:
         if: always()
         run: |
           $dir = $env:LOCAL_CLONE
+          $branch = $env:LOCAL_BRANCH
+          $target = "$env:STAND_BRANCH".Trim()
+          if (-not $target) { $target = $branch }
+          $current = "$(git -C $dir rev-parse --abbrev-ref HEAD)".Trim()
+          Write-Host "stand branch: $target, clone branch: $current"
+          if ($target -ne $branch) {
+            Write-Host "::warning::Stand was built from '$target', not from $branch. It stays that way until the next run that builds $branch, and migrations of '$target' are already applied to the stand database."
+          }
           git -C $dir log -1 --oneline
           docker compose -f "$dir\docker-compose.yml" --project-directory $dir ps
           docker compose -f "$dir\docker-compose.yml" --project-directory $dir images

@@ -32,6 +32,15 @@
 организации: одна строка прайса на слот, `NULL` — слот ещё не оплачен. Внешний
 ключ с `ON DELETE SET NULL`: удаление тарифа из прайса не должно ломать
 организацию, она просто остаётся без тарифа в этом слоте, как и до выбора.
+
+**`extra_seats` — докупленные места сверх тарифа.** Предел приглашений считается
+как `tariffs.max_members` действующего тарифа плюс это число
+(`app/subscription.py`), а растёт оно только оплатой счёта за места
+(`app/invoice_status.py::add_seats`), не покупкой и не выставлением счёта. Место
+живёт вместе с подпиской: отдельного срока у него нет, при продлении тарифа
+докупать заново не нужно, и к ярусу место не привязано — перейдя на другой тариф,
+организация сохраняет докупленное. Уменьшения и возврата мест нет: `CHECK` не
+запрещает отрицательное значение, но код его не пишет.
 """
 
 from datetime import datetime
@@ -85,6 +94,9 @@ class Organization(Base):
     next_tariff_ends_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Докупленные места сверх тарифа (см. абзац в docstring модуля). `NOT NULL
+    # DEFAULT 0`: у организации без покупок мест ноль, а не «неизвестно».
+    extra_seats: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -4,8 +4,11 @@
  * Ручки ровно те, что отдаёт `operator-api`: вход, «кто вошёл», выход
  * (`operator/backend/app/api/auth.py`), организации платформы
  * (`operator/backend/app/api/organizations.py`), пользователи
- * (`operator/backend/app/api/users.py`) и счета
- * (`operator/backend/app/api/invoices.py`). Токен не хранится в JS: сессия
+ * (`operator/backend/app/api/users.py`), счета
+ * (`operator/backend/app/api/invoices.py`), тарифы
+ * (`operator/backend/app/api/tariffs.py`), решения магазина
+ * (`operator/backend/app/api/solutions.py`) и реквизиты поставщика
+ * (`operator/backend/app/api/company.py`). Токен не хранится в JS: сессия
  * живёт в httpOnly cookie `operator_session`, поэтому каждый запрос идёт с
  * `credentials: 'include'`.
  *
@@ -266,6 +269,29 @@ export function updateUser(id: number, payload: PlatformUserUpdate): Promise<Pla
   });
 }
 
+/**
+ * Ссылка входа под пользователем (`operator/backend/app/schemas.py`).
+ *
+ * `url` абсолютный и приходит готовым: адрес сайта знает только основной API
+ * (его `frontend_base_url`), а кабинет своей копии адреса не хранит и не
+ * собирает. Поэтому браузеру она отдаётся как есть — переходом, не `fetch`.
+ */
+export interface ImpersonationLink {
+  url: string;
+}
+
+/**
+ * Получить ссылку входа под пользователем.
+ *
+ * Тела у запроса нет: получатель ссылки — `id` из пути. Отказы основного API
+ * (`404 «Пользователь не найден»`, `409 «Кабинет не активирован»`) кабинет
+ * отдаёт теми же кодами и текстами, шлюзовые `502`/`503` — своими, поэтому
+ * текст `detail` показывается на экране дословно.
+ */
+export function impersonateUser(id: number): Promise<ImpersonationLink> {
+  return request<ImpersonationLink>(`/users/${id}/impersonate`, { method: 'POST' });
+}
+
 // --- Счета платформы --------------------------------------------------------
 // Форма ответа — та же, что у основного API (`app/backend/app/schemas/invoice.py`):
 // кабинет её не переписывает (`operator/backend/app/schemas.py`). `status_label`
@@ -366,6 +392,175 @@ export function updateInvoiceStatus(id: number, status: InvoiceStatus): Promise<
   });
 }
 
+// --- Тарифы платформы -------------------------------------------------------
+// Форма ответа — та же, что у основного API (`app/backend/app/schemas/tariff.py`)
+// и у кабинета (`operator/backend/app/schemas.py`): экран её не переписывает.
+// `price_label` собирает сервер, клиент его не считает: формула цены одна на
+// весь API (`app/backend/app/pricing.py`). `amount` — строка, чтобы копейки не
+// терялись на округлении.
+
+/** Период списания: коды, объявленные `TariffPeriod` в схеме основного API. */
+export type TariffPeriod = 'month' | 'quarter' | 'half_year' | 'year' | 'once';
+
+/**
+ * Строка прайса.
+ *
+ * `description` и `max_members` равны `null` у тарифа без описания и без
+ * ограничения мест. `position` — порядок прайса, `group_code` — код яруса:
+ * строки одного яруса делят описание и предел мест.
+ */
+export interface Tariff {
+  id: number;
+  name: string;
+  description: string | null;
+  /** Сумма строкой: `Numeric` едет по JSON как «13200.00». */
+  amount: string;
+  currency: string;
+  period: TariffPeriod;
+  unit_label: string | null;
+  position: number;
+  is_visible: boolean;
+  /** `null` — без ограничения мест, а не «ноль пользователей». */
+  max_members: number | null;
+  tooltip: string | null;
+  group_code: string | null;
+  /** Готовая цена от сервера: «13 200 ₽ за 3 месяца». Экран печатает её как есть. */
+  price_label: string;
+}
+
+/**
+ * Тело правки `PATCH /api/tariffs/{id}`.
+ *
+ * Меняются только присланные поля (правило основного API,
+ * `app/backend/app/schemas/platform_tariff.py`). Экран правки отправляет все
+ * пять полей строки — `name`, `description`, `amount`, `period`, `max_members`,
+ * — а «Опубликовать» только `is_visible: true`. `null` в описании — «описания
+ * нет», `null` в количестве пользователей — «без ограничения».
+ */
+export interface TariffPatch {
+  name?: string;
+  description?: string | null;
+  amount?: string;
+  period?: TariffPeriod;
+  /** `null` — без ограничения; пустое поле формы уходит именно так. */
+  max_members?: number | null;
+  is_visible?: boolean;
+}
+
+/**
+ * Весь прайс: включая снятые с продажи строки, порядок `position, id`.
+ *
+ * Пагинации нет намеренно: строк в прайсе около пятнадцати, и основной API
+ * отдаёт такой же плоский список.
+ */
+export function listTariffs(): Promise<Tariff[]> {
+  return request<Tariff[]>('/tariffs');
+}
+
+/** Правка тарифа: ответ — то, что сохранил основной API (`price_label` уже пересчитан). */
+export function updateTariff(id: number, payload: TariffPatch): Promise<Tariff> {
+  return request<Tariff>(`/tariffs/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Снять тариф с продажи: `204` без тела.
+ *
+ * Строка не удаляется — основной API ставит `is_visible = false`, и экран
+ * помечает строку сам: тела с новым состоянием в ответе нет. Повторный вызов
+ * идемпотентен.
+ */
+export function deleteTariff(id: number): Promise<void> {
+  return request<void>(`/tariffs/${id}`, { method: 'DELETE' });
+}
+
+// --- Решения магазина -------------------------------------------------------
+// Форма ответа — та же, что у основного API (`app/backend/app/schemas/platform_solution.py`)
+// и у кабинета (`operator/backend/app/schemas.py`): экран её не переписывает.
+// `price_label` собирает сервер общей формулой цены (`app/backend/app/pricing.py`),
+// клиент его не считает. `amount` — строка, чтобы копейки не терялись на округлении.
+
+/**
+ * Строка каталога решений в кабинете оператора.
+ *
+ * `code` — машинное имя решения и гейт платной функции (`app.solutions.has_solution`):
+ * он показывается, но не правится и не создаётся. `position` — порядок витрины:
+ * меньше — выше в магазине, при равных значениях выше строка с меньшим `id`.
+ * `description` равно `null` у решения без описания.
+ *
+ * **Периода оплаты нет** (#195): у решения нет собственного срока, право
+ * действует, пока действует тариф организации, поэтому `price_label` читается как
+ * «500 ₽ разово» и второго срока у строки не спрашивают.
+ */
+export interface Solution {
+  id: number;
+  /** Гейт функции и `UNIQUE` в таблице: только чтение. */
+  code: string;
+  name: string;
+  description: string | null;
+  /** Сумма строкой: `Numeric` едет по JSON как «500.00». */
+  amount: string;
+  currency: string;
+  position: number;
+  is_visible: boolean;
+  /** Готовая цена от сервера: «500 ₽ разово». Экран печатает её как есть. */
+  price_label: string;
+  /** ISO-8601 из API; показывается как дата без времени. */
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Тело правки `PATCH /api/solutions/{id}`.
+ *
+ * Меняются только присланные поля (правило основного API,
+ * `app/backend/app/schemas/platform_solution.py`). Экран правки отправляет все
+ * шесть полей строки — `name`, `description`, `amount`, `currency`, `position`,
+ * `is_visible`, — а «Опубликовать» только `is_visible: true`. `null` в описании —
+ * «описания нет». Полей `code` и `period` в теле нет намеренно: присланные
+ * основной API отсекает `422` (у решения нет своего срока).
+ */
+export interface SolutionPatch {
+  name?: string;
+  description?: string | null;
+  amount?: string;
+  currency?: string;
+  position?: number;
+  is_visible?: boolean;
+}
+
+/**
+ * Весь каталог решений: включая снятые с продажи строки, порядок `position, id`.
+ *
+ * Пагинации нет намеренно: строк каталога единицы, и основной API отдаёт такой
+ * же плоский список. Порядок массива — это порядок витрины клиента: экран его не
+ * пересортировывает.
+ */
+export function listSolutions(): Promise<Solution[]> {
+  return request<Solution[]>('/solutions');
+}
+
+/** Правка решения: ответ — то, что сохранил основной API (`price_label` уже пересчитан). */
+export function updateSolution(id: number, payload: SolutionPatch): Promise<Solution> {
+  return request<Solution>(`/solutions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Снять решение с продажи: `204` без тела.
+ *
+ * Строка не удаляется — основной API ставит `is_visible = false`, и экран
+ * помечает строку сам: тела с новым состоянием в ответе нет. Повторный вызов
+ * идемпотентен.
+ */
+export function deleteSolution(id: number): Promise<void> {
+  return request<void>(`/solutions/${id}`, { method: 'DELETE' });
+}
+
 /**
  * Адрес PDF счёта или акта для обычной ссылки `href`.
  *
@@ -374,4 +569,208 @@ export function updateInvoiceStatus(id: number, status: InvoiceStatus): Promise<
  */
 export function invoiceFileUrl(id: number, kind: 'invoice' | 'act'): string {
   return kind === 'act' ? `/api/invoices/${id}/act-file` : `/api/invoices/${id}/file`;
+}
+
+// --- Тариф и расширения организации -----------------------------------------
+// Форма ответа — та же, что у основного API
+// (`app/backend/app/schemas/platform_subscription.py`) и у кабинета
+// (`operator/backend/app/schemas.py`): экран её не переписывает. `paid_until`,
+// `days_left` и `is_live` считает сервер — второй формулы срока на клиенте нет,
+// а «бессрочно» (`ends_at: null`) и «истёк» выводятся из `is_live`, а не из даты.
+// У права `is_live` отвечает «работает ли оно сейчас по тарифу», а `expires_at`
+// остался записанной историей срока и на экран не выводится.
+
+/**
+ * Записанный слот подписки: строка прайса и её срок.
+ *
+ * Данные — ровно то, что лежит в базе, без «виртуального переезда» наступившего
+ * будущего слота: оператор видит запись. `ends_at: null` — бессрочный тариф,
+ * тогда и `paid_until: null`. `price_label` собирает сервер.
+ */
+export interface SubscriptionTariff {
+  id: number;
+  name: string;
+  period: TariffPeriod;
+  /** `null` — без ограничения мест, а не «ноль пользователей». */
+  max_members: number | null;
+  /** Готовая подпись цены от сервера — экран печатает её как есть. */
+  price_label: string;
+  /** ISO-8601 из API; `null` — бессрочно. */
+  ends_at: string | null;
+  /** Последний включённый день в МСК (`YYYY-MM-DD`); `null` — бессрочно. */
+  paid_until: string | null;
+  is_live: boolean;
+}
+
+/** Оплаченный вперёд слот: показывается, но не правится и не снимается. */
+export interface NextSubscription {
+  tariff: SubscriptionTariff;
+  ends_at: string | null;
+  paid_until: string | null;
+}
+
+/** Право организации на расширение — включая истёкшие (`is_live: false`). */
+export interface SubscriptionRight {
+  /** Машинный код решения и гейт платной функции; уходит в путь снятия. */
+  code: string;
+  name: string;
+  /** Записанный срок права — история оплаченных сроков, на экран не выводится. */
+  expires_at: string | null;
+  /**
+   * Последний включённый день **права сейчас** в МСК; `null` — тариф бессрочный.
+   *
+   * У неработающего права здесь записанный срок из истории, поэтому подпись
+   * строится по `is_live`, а не по этой дате.
+   */
+  paid_until: string | null;
+  /** Работает ли право **сейчас**: куплено и у организации действующий тариф. */
+  is_live: boolean;
+}
+
+/** Состояние подписки: один и тот же объект у всех четырёх ручек. */
+export interface SubscriptionState {
+  /** Записанный текущий слот; `null` — «Тариф не назначен». */
+  tariff: SubscriptionTariff | null;
+  /** Остаток дней у действующего слота; у истёкшего — `0`. */
+  days_left: number;
+  next: NextSubscription | null;
+  /** Докупленные места сверх тарифа. */
+  extra_seats: number;
+  /** Действующий предел мест: `max_members` плюс докупленные; `null` — без предела. */
+  member_limit: number | null;
+  /** Все права организации в порядке витрины, включая истёкшие. */
+  solutions: SubscriptionRight[];
+}
+
+/**
+ * Тело правки срока: единственное поле — последний включённый день.
+ *
+ * Формат `YYYY-MM-DD` проверяет основной API, и его `422` с русским текстом
+ * показывается дословно: собственной проверки даты на клиенте нет.
+ */
+export interface SubscriptionUpdate {
+  paid_until: string;
+}
+
+/**
+ * Тариф и расширения организации.
+ *
+ * Неизвестный `id` — `ApiError` со статусом 404 с текстом основного API.
+ */
+export function getSubscription(organizationId: number): Promise<SubscriptionState> {
+  return request<SubscriptionState>(`/organizations/${organizationId}/subscription`);
+}
+
+/**
+ * Новый срок тарифа: ответ — новое состояние целиком.
+ *
+ * Экран показывает дату из ответа, а не из поля ввода: расхождение здесь —
+ * дефект, а не повод перезапросить состояние.
+ */
+export function updateSubscription(
+  organizationId: number,
+  paidUntil: string,
+): Promise<SubscriptionState> {
+  const payload: SubscriptionUpdate = { paid_until: paidUntil };
+  return request<SubscriptionState>(`/organizations/${organizationId}/subscription`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Снять активность текущего тарифа: без тела, ответ — новое состояние.
+ *
+ * `204` в контуре не появляется, поэтому экран не перезапрашивает чтение.
+ * Повторное снятие — тоже `200`, а слот без тарифа — `409 «Тариф не назначен»`
+ * дословно. Оплаченный вперёд слот не меняется.
+ */
+export function deactivateSubscription(organizationId: number): Promise<SubscriptionState> {
+  return request<SubscriptionState>(`/organizations/${organizationId}/subscription/deactivate`, {
+    method: 'POST',
+  });
+}
+
+/**
+ * Снять активность права на решение: без тела, ответ — новое состояние.
+ *
+ * `code` — машинный код из ответа чтения. Неизвестный код — `404 «Расширение не
+ * найдено»` дословно; повторное снятие — `200`.
+ */
+export function deactivateOrganizationSolution(
+  organizationId: number,
+  code: string,
+): Promise<SubscriptionState> {
+  return request<SubscriptionState>(
+    `/organizations/${organizationId}/solutions/${encodeURIComponent(code)}/deactivate`,
+    { method: 'POST' },
+  );
+}
+
+// --- Реквизиты поставщика ---------------------------------------------------
+// Форма ответа — та же, что у основного API (`app/backend/app/schemas/company_details.py`)
+// и у кабинета (`operator/backend/app/schemas.py`): экран её не переписывает.
+// Все поля присутствуют всегда, пустое значение приходит как `null` и означает
+// «поле не заполнено» — `null` и пустая строка для реквизитов одно и то же.
+// Строка одна (`id: 1`): поставщик в проекте один, и заводить её из кабинета
+// нельзя — она засеяна миграцией основного API.
+
+/** Реквизиты поставщика: одиннадцать правимых полей плюс `id` и `updated_at`. */
+export interface CompanyDetails {
+  id: number;
+  name: string | null;
+  inn: string | null;
+  kpp: string | null;
+  ogrn: string | null;
+  address: string | null;
+  bank_name: string | null;
+  bank_bic: string | null;
+  bank_account: string | null;
+  corr_account: string | null;
+  signatory: string | null;
+  /** Строка про НДС в печатных формах: пусто — строки в документе нет. */
+  vat_note: string | null;
+  /** ISO-8601 из API; `null`, пока строку не засеяли. */
+  updated_at: string | null;
+}
+
+/**
+ * Тело правки `PATCH /api/company-details`.
+ *
+ * Экран отправляет все одиннадцать полей, как требует контракт: пустое поле
+ * уходит как `null`, и это и есть очистка. Формат ИНН, КПП, ОГРН, БИК и счетов,
+ * длины колонок — правило основного API, поэтому проверок здесь нет: его `422`
+ * показывается дословно.
+ */
+export interface CompanyDetailsUpdate {
+  name: string | null;
+  inn: string | null;
+  kpp: string | null;
+  ogrn: string | null;
+  address: string | null;
+  bank_name: string | null;
+  bank_bic: string | null;
+  bank_account: string | null;
+  corr_account: string | null;
+  signatory: string | null;
+  vat_note: string | null;
+}
+
+/**
+ * Реквизиты поставщика.
+ *
+ * Пустая база — тоже успех: основной API отвечает `200` со всеми `null`, и
+ * экран показывает пустую форму. `404 «Реквизиты поставщика не заведены»` —
+ * не засеянная строка, а не потерянный ресурс.
+ */
+export function getCompanyDetails(): Promise<CompanyDetails> {
+  return request<CompanyDetails>('/company-details');
+}
+
+/** Правка реквизитов: ответ — то, что сохранил основной API. */
+export function updateCompanyDetails(payload: CompanyDetailsUpdate): Promise<CompanyDetails> {
+  return request<CompanyDetails>('/company-details', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
 }

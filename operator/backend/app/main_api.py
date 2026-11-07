@@ -13,6 +13,8 @@
 экземпляр в кабинете тоже разошёлся бы с оригиналом. Поэтому:
 
 * `404`, `409`, `422` — тот же код и тот же `detail`, что у основного API;
+* успехом считаются `200` и `204`: `204` — ответ команды без тела (снятие
+  тарифа с продажи), и без него `DELETE` превращался бы в `502`;
 * `401` от основного API — это `502`: кабинет не принял токен, и браузер не
   должен из-за этого разлогиниваться;
 * сеть, таймаут и `5xx` — `502 «Основной API недоступен»`;
@@ -37,6 +39,13 @@ OPERATOR_TOKEN_HEADER = "X-Operator-Token"
 OPERATOR_SERVICE_TOKEN_MISSING_DETAIL = "Кабинет не настроен: не задан OPERATOR_SERVICE_TOKEN"
 MAIN_API_REJECTED_TOKEN_DETAIL = "Основной API не принял сервисный токен"
 MAIN_API_UNAVAILABLE_DETAIL = "Основной API недоступен"
+
+# Коды, которые считаются успехом. `204` нужен командам без тела: снятие тарифа
+# с продажи (`DELETE /api/platform/tariffs/{id}`, #178). Остальные двухсотые
+# (`201`, `202`, …) успехом не считаются намеренно: ручки, которые их обещают,
+# в контуре не появлялись, а «успех — это что угодно из 2xx» скрывало бы
+# расхождение контракта. `200`-ручки принимаются как раньше.
+SUCCESS_STATUSES = frozenset({status.HTTP_200_OK, status.HTTP_204_NO_CONTENT})
 
 # Коды, которые передаются клиенту как есть, вместе с `detail`.
 PASS_THROUGH_STATUSES = frozenset(
@@ -154,6 +163,6 @@ def call(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=MAIN_API_UNAVAILABLE_DETAIL,
         ) from None
-    if response.status_code != status.HTTP_200_OK:
+    if response.status_code not in SUCCESS_STATUSES:
         forward_error(response)
     return response

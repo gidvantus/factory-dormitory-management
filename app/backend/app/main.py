@@ -38,8 +38,12 @@ from app.api import (
     payments,
     personnel,
     personnel_builder,
+    platform_company,
     platform_invoices,
     platform_organizations,
+    platform_solutions,
+    platform_subscription,
+    platform_tariffs,
     platform_users,
     recovery,
     report_readiness,
@@ -51,8 +55,8 @@ from app.api import (
     statistics_reports,
     tab_catalog,
     table_columns,
-    table_views,
     table_exchange,
+    table_views,
     tariffs,
     telegram,
     trial,
@@ -356,6 +360,23 @@ def create_app() -> FastAPI:
     # `X-Operator-Token` и та же зависимость на роутере. Именно здесь оператор
     # вносит оплату: в кабинете клиента кнопки «Оплатить» нет намеренно (#120).
     application.include_router(platform_invoices.router, prefix=API_PREFIX)
+    # Тарифы платформы — четвёртый раздел того же контура: весь прайс, правка
+    # полей и снятие с продажи. Тот же заголовок `X-Operator-Token` и та же
+    # зависимость на роутере.
+    application.include_router(platform_tariffs.router, prefix=API_PREFIX)
+    # Каталог решений — шестой раздел того же контура: все строки магазина
+    # улучшений, правка полей и снятие с продажи (#188). Тот же заголовок
+    # `X-Operator-Token` и та же зависимость на роутере. Публичный каталог
+    # (`/api/solutions`) остаётся клиентским и не меняется.
+    application.include_router(platform_solutions.router, prefix=API_PREFIX)
+    # Тариф и расширения организации — седьмой раздел того же контура: записанные
+    # слоты подписки, правка срока и снятие активности тарифа и права (#189). Тот
+    # же заголовок `X-Operator-Token` и та же зависимость на роутере.
+    application.include_router(platform_subscription.router, prefix=API_PREFIX)
+    # Реквизиты поставщика — пятый раздел того же контура: печатные формы счёта и
+    # акта берут из них блок «Поставщик» и строку про НДС. Тот же заголовок
+    # `X-Operator-Token` и та же зависимость на роутере.
+    application.include_router(platform_company.router, prefix=API_PREFIX)
     application.include_router(journal_router, prefix=API_PREFIX)
     application.include_router(dashboard.router, prefix=API_PREFIX)
     application.include_router(dashboard_blocks.router, prefix=API_PREFIX)

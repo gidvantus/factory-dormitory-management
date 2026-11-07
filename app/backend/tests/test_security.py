@@ -12,11 +12,17 @@ from starlette.requests import Request
 from app.config import get_settings
 from app.security import (
     BOT_TOKEN_HEADER,
+    IMPERSONATION_CLAIM,
+    IMPERSONATION_CLAIM_VALUE,
+    IMPERSONATION_LINK_TYPE,
+    IMPERSONATION_TYPE_CLAIM,
     INVALID_BOT_TOKEN_DETAIL,
     INVALID_OPERATOR_TOKEN_DETAIL,
     OPERATOR_TOKEN_HEADER,
     create_access_token,
+    create_impersonation_token,
     decode_access_token,
+    decode_impersonation_token,
     hash_password,
     require_operator_service,
     require_service_bot,
@@ -72,6 +78,87 @@ def test_expired_token_is_rejected() -> None:
 
 def test_garbage_token_is_rejected() -> None:
     assert decode_access_token("не.токен") is None
+
+
+def test_impersonation_token_roundtrip() -> None:
+    """Ссылка поддержки несёт id пользователя и живёт секундами, а не днями."""
+    token = create_impersonation_token(42)
+    payload = decode_access_token(token)
+
+    assert decode_impersonation_token(token) == 42
+    assert payload is not None
+    assert payload[IMPERSONATION_CLAIM] is IMPERSONATION_CLAIM_VALUE
+    assert payload[IMPERSONATION_TYPE_CLAIM] == IMPERSONATION_LINK_TYPE
+    assert payload["exp"] - payload["iat"] == get_settings().impersonation_token_ttl_seconds
+
+
+def test_expired_impersonation_token_is_rejected() -> None:
+    """Просроченная ссылка — `None`, а не исключение: решение принимает ручка."""
+    expired_after = get_settings().impersonation_token_ttl_seconds + 1
+    token = create_impersonation_token(42, now=datetime.now(UTC) - timedelta(seconds=expired_after))
+
+    assert decode_impersonation_token(token) is None
+
+
+def test_impersonation_token_with_a_foreign_claim_is_rejected() -> None:
+    """Признак обязан быть ровно `true`: `"true"` и `false` — это не ссылка."""
+    settings = get_settings()
+    now = datetime.now(UTC)
+    for claim_value in (False, "true", 1, None):
+        payload = {
+            "sub": "42",
+            "iat": now,
+            "exp": now + timedelta(seconds=60),
+            IMPERSONATION_CLAIM: claim_value,
+            IMPERSONATION_TYPE_CLAIM: IMPERSONATION_LINK_TYPE,
+        }
+        token = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+        assert decode_impersonation_token(token) is None
+
+
+def test_impersonation_token_with_a_foreign_type_is_rejected() -> None:
+    """Ссылкой считается только токен своего вида: сессия с `imp` — не ссылка.
+
+    Без этой проверки сессионный JWT (7 дней) проходил бы в `POST
+    /api/auth/impersonate` как ссылка и продлевался бы входом по самому себе.
+    """
+    settings = get_settings()
+    now = datetime.now(UTC)
+    for type_value in (None, "session", "impersonation", ""):
+        payload = {
+            "sub": "42",
+            "iat": now,
+            "exp": now + timedelta(seconds=60),
+            IMPERSONATION_CLAIM: IMPERSONATION_CLAIM_VALUE,
+            IMPERSONATION_TYPE_CLAIM: type_value,
+        }
+        token = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+        assert decode_impersonation_token(token) is None
+
+    # Токен без claim'а вида вовсе — тоже не ссылка.
+    bare = jwt.encode(
+        {
+            "sub": "42",
+            "iat": now,
+            "exp": now + timedelta(seconds=60),
+            IMPERSONATION_CLAIM: IMPERSONATION_CLAIM_VALUE,
+        },
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+    assert decode_impersonation_token(bare) is None
+
+
+def test_ordinary_session_token_is_not_an_impersonation_token() -> None:
+    """Обычный вход признака не несёт, поэтому ссылкой не считается."""
+    assert decode_impersonation_token(create_access_token("42")) is None
+
+
+def test_impersonated_session_token_is_not_an_impersonation_token() -> None:
+    """Имперсонированная сессия несёт `imp`, но вида ссылки у неё нет."""
+    assert decode_impersonation_token(create_access_token("42", impersonated=True)) is None
 
 
 def test_me_with_broken_cookie_is_unauthorized(client: TestClient) -> None:

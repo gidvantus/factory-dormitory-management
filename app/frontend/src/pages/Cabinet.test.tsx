@@ -185,8 +185,8 @@ describe('пункт меню «Уведомления»', () => {
       description: 'Сообщения о событиях, которые вас касаются',
       amount: '500.00',
       currency: 'RUB',
-      period: 'month',
-      price_label: '500 ₽ в месяц',
+      period: 'once',
+      price_label: '500 ₽ разово',
       is_owned: isOwned,
       expires_at: isOwned ? '2026-11-14T10:00:00Z' : null,
     };
@@ -299,8 +299,8 @@ describe('пункт меню «Журнал»', () => {
       description: 'Кто, когда и что изменил в кабинете',
       amount: '300.00',
       currency: 'RUB',
-      period: 'month',
-      price_label: '300 ₽ в месяц',
+      period: 'once',
+      price_label: '300 ₽ разово',
       is_owned: isOwned,
       expires_at: isOwned ? '2026-11-14T10:00:00Z' : null,
     };
@@ -310,6 +310,7 @@ describe('пункт меню «Журнал»', () => {
     owned: boolean;
     locked?: boolean;
     profile?: typeof ACTIVE_OWNER;
+    route?: string;
   }): ReturnType<typeof render> {
     mockFetch((url) => {
       if (url.endsWith('/api/me')) return { status: 200, body: options.profile ?? ACTIVE_OWNER };
@@ -334,7 +335,7 @@ describe('пункт меню «Журнал»', () => {
       return { status: 404, body: { detail: 'Не найдено' } };
     });
     return render(
-      <MemoryRouter initialEntries={['/cabinet']}>
+      <MemoryRouter initialEntries={[options.route ?? '/cabinet']}>
         <SessionProvider>
           <Routes>
             <Route path="/cabinet" element={<Cabinet />}>
@@ -394,18 +395,24 @@ describe('пункт меню «Журнал»', () => {
     expect(screen.queryByTestId('workspace-nav-journal')).not.toBeInTheDocument();
   });
 
-  it('на закрытом пробном кабинете при праве пункт кликабелен и открывает раздел', async () => {
+  it('на закрытом кабинете уводит на обзор: без тарифа раздел не работает', async () => {
     const user = userEvent.setup();
     renderNav({ owned: true, locked: true });
 
     const journal = await screen.findByTestId('workspace-nav-journal');
-    // Журнал ушёл из `CLOSED_SECTIONS`: право сильнее пробного периода.
-    expect(journal).not.toHaveAttribute('aria-disabled');
-    expect(journal).not.toHaveAttribute('tabindex');
-
     await user.click(journal);
-    expect(await screen.findByText('Страница журнала')).toBeInTheDocument();
-    expect(screen.queryByText('Обзор кабинета')).not.toBeInTheDocument();
+
+    // С #195 право живёт по тарифу, поэтому журнал снова в `CLOSED_SECTIONS`:
+    // клик по пункту возвращает на обзор, как у остальных рабочих разделов.
+    expect(await screen.findByText('Обзор кабинета')).toBeInTheDocument();
+    expect(screen.queryByText('Страница журнала')).not.toBeInTheDocument();
+  });
+
+  it('на закрытом кабинете уводит на обзор и с прямого адреса журнала', async () => {
+    renderNav({ owned: true, locked: true, route: '/cabinet/journal' });
+
+    expect(await screen.findByText('Обзор кабинета')).toBeInTheDocument();
+    expect(screen.queryByText('Страница журнала')).not.toBeInTheDocument();
   });
 });
 
@@ -435,6 +442,8 @@ describe('закрытый кабинет и пробный период', () =>
             <Route path="/cabinet" element={<Cabinet />}>
               <Route index element={<p>Обзор кабинета</p>} />
               <Route path="dormitories" element={<p>Страница общежитий</p>} />
+              <Route path="journal" element={<p>Страница журнала</p>} />
+              <Route path="notifications" element={<p>Страница уведомлений</p>} />
               <Route path="organization" element={<p>Страница организации</p>} />
               <Route path="organization/members" element={<p>Страница сотрудников</p>} />
             </Route>
@@ -495,6 +504,16 @@ describe('закрытый кабинет и пробный период', () =>
 
     expect(await screen.findByText('Обзор кабинета')).toBeInTheDocument();
     expect(screen.queryByText('Страница сотрудников')).not.toBeInTheDocument();
+  });
+
+  it('возвращает на обзор с платных разделов: без тарифа они не работают', async () => {
+    // С #195 у решений нет своего срока: право действует по тарифу, поэтому
+    // прямой заход в «Журнал» и «Уведомления» закрыт вместе с рабочими разделами.
+    for (const route of ['/cabinet/journal', '/cabinet/notifications']) {
+      const view = renderLocked(route);
+      expect(await screen.findByText('Обзор кабинета')).toBeInTheDocument();
+      view.unmount();
+    }
   });
 
   it('оставляет открытой организацию на закрытом пробном периоде', async () => {

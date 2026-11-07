@@ -7,6 +7,10 @@ import type { MockHandler, MockResponse } from '../test/mockFetch';
 import { Notifications } from './Notifications';
 import { SolutionsProvider } from './SolutionsProvider';
 
+/**
+ * Строка каталога: с #195 период в ответе всегда `once`, а `expires_at` — конец
+ * действующего тарифа организации, не срок права.
+ */
 const SOLUTION = {
   id: 7,
   code: 'telegram_notifications',
@@ -14,8 +18,8 @@ const SOLUTION = {
   description: 'Сообщения о событиях, которые вас касаются',
   amount: '500.00',
   currency: 'RUB',
-  period: 'month',
-  price_label: '500 ₽ в месяц',
+  period: 'once',
+  price_label: '500 ₽ разово',
   is_owned: true,
   expires_at: '2026-11-14T10:00:00Z',
 };

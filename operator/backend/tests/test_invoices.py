@@ -36,6 +36,8 @@ INVOICE = {
     "status": "new",
     "status_label": "Новый",
     "item_kind": "tariff",
+    # У тарифа и решения количество неприменимо — `null`, а не «один» (#168).
+    "quantity": None,
     "amount": "10000.00",
     "currency": "RUB",
     "amount_label": "10 000,00 ₽ в месяц",
@@ -131,6 +133,37 @@ def test_list_page_size_and_search_bounds_are_validated(
     assert client.get(INVOICES, params={"limit": 101}).status_code == 422
     assert client.get(INVOICES, params={"offset": -1}).status_code == 422
     assert client.get(INVOICES, params={"search": "я" * 101}).status_code == 422
+
+
+def test_seats_invoice_keeps_its_kind_and_quantity(client: TestClient, main_api: MainApi) -> None:
+    """Счёт за места (#168): вид `seats` и количество доезжают до реестра оператора.
+
+    `PlatformInvoice` кабинета — ручная копия модели основного API, а pydantic
+    лишние для модели поля молча отбрасывает: без `quantity` в модели один
+    докупленный сотрудник и сто выглядели бы в реестре одинаково.
+    """
+    seats_invoice = {
+        **INVOICE,
+        "item_kind": "seats",
+        "quantity": 3,
+        "amount": "2700.00",
+        "tariff_name": "Дополнительные сотрудники",
+        "tariff_period": "once",
+    }
+    main_api.handler = lambda request: httpx.Response(
+        200, json={"items": [seats_invoice], "total": 1}
+    )
+    login(client)
+
+    response = client.get(INVOICES)
+
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["item_kind"] == "seats"
+    assert item["quantity"] == 3
+    assert item["amount"] == "2700.00"
+    assert item["tariff_name"] == "Дополнительные сотрудники"
+    assert item["tariff_period"] == "once"
 
 
 # --- Оплата и отмена --------------------------------------------------------

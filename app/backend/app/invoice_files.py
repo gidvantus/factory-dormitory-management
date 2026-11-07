@@ -41,13 +41,20 @@ fpdf2 пишет в метаданные `/CreationDate`, поэтому «од�
 Ленивая материализация — решение задачи: событие (выставление счёта, оплата)
 файл не создаёт, его фиксирует первое скачивание. Бэкфилла миграцией нет, у
 исторических счетов `invoice_file_key` остаётся `NULL` до первого скачивания.
+
+**Реквизиты поставщика читаются при сборке (#179).** `_build` берёт строку
+`company_details` через `app/company_details.py` и передаёт её генератору, поэтому
+документ показывает реквизиты и строку про НДС на момент сборки. Тот же кеш
+означает, что правка реквизитов действует только на документы без готового
+файла: у уже выданных PDF шапка не перерисовывается — это следствие кеша, а не
+дефект.
 """
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import billing_forms
+from app import billing_forms, company_details
 from app.file_access import register_upload
 from app.invoice_status import ACT_KIND
 from app.models.invoice import Invoice, InvoiceDocument
@@ -118,15 +125,20 @@ def _object_name(invoice: Invoice, kind: str) -> str:
     return f"invoices/{kind}-{invoice.id}.pdf"
 
 
-def _build(invoice: Invoice, kind: str) -> bytes:
+def _build(db: Session, invoice: Invoice, kind: str) -> bytes:
     """Собрать печатную форму. Генератор остаётся чистым и про хранилище не знает.
 
     Вид документа проверяет `read_or_store`: сюда приходят только два значения,
     и повторять проверку незачем.
+
+    Реквизиты поставщика читаются здесь, а не в самом генераторе: генератор не
+    знает ни базы, ни сессии (`app/billing_forms.py`), а `db` у вызывающего кода
+    уже есть — поэтому сигнатура `read_or_store` не меняется.
     """
+    company = company_details.load(db)
     if kind == ACT_PURPOSE:
-        return billing_forms.act_pdf(invoice)
-    return billing_forms.invoice_pdf(invoice)
+        return billing_forms.act_pdf(invoice, company)
+    return billing_forms.invoice_pdf(invoice, company)
 
 
 def read_or_store(db: Session, invoice: Invoice, kind: str) -> bytes:
@@ -161,7 +173,7 @@ def read_or_store(db: Session, invoice: Invoice, kind: str) -> bytes:
         raise ValueError(f"Неизвестный вид документа: {kind!r}")
     key = _current_key(db, invoice, kind)
     if key is None:
-        pdf = _build(invoice, kind)
+        pdf = _build(db, invoice, kind)
         key = storage.save_bytes(pdf, _object_name(invoice, kind), content_type=PDF_MEDIA_TYPE)
         _remember_key(db, invoice, kind, key)
         try:
@@ -178,5 +190,5 @@ def read_or_store(db: Session, invoice: Invoice, kind: str) -> bytes:
     except StorageNotFoundError:
         # Ключ есть, объекта нет: пересобираем и перезаписываем по тому же
         # ключу. Ключ в базе не меняется — меняется только содержимое объекта.
-        storage.put_raw(_build(invoice, kind), key, content_type=PDF_MEDIA_TYPE)
+        storage.put_raw(_build(db, invoice, kind), key, content_type=PDF_MEDIA_TYPE)
         return storage.read_bytes(key)

@@ -21,6 +21,11 @@
   пишет в строку счёта момент, код `offer`, редакцию `documents.updated_at` и
   автора акцепта; повторный клик записанный акцепт не перезаписывает, но
   дозаписывает пустой; решения по-прежнему покупаются без отметки;
+* **места (#168):** отдельный предмет счёта `seats` — сумма считается сервером
+  как цена места × количество, строкой каталога `extra_member`; покупаются только
+  сверх живого небезлимитного тарифа, отказы дословны, дедупликация идёт по
+  количеству, а оплата растит `organizations.extra_seats`, не трогая подписку —
+  после неё приглашение сверх прежнего предела проходит;
 * оба файла — PDF, отдаются вложением и содержат название, ИНН и сумму; акт до
   оплаты — `404`.
 
@@ -31,27 +36,45 @@
 import io
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
+from fpdf import FPDF
 from httpx import Response
 from pypdf import PdfReader
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import billing_forms, solutions
-from app.billing_forms import EMPTY_VALUE
+from app.amount_words import amount_in_words
+from app.api.billing import SOLUTION_NOT_FOUND_DETAIL
 from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
+from app.models.company_details import SINGLE_ROW_ID, CompanyDetails
 from app.models.document import Document
-from app.models.invoice import Invoice, InvoiceDocument
+from app.models.invoice import Invoice, InvoiceDocument, subject_items
 from app.models.organization import Organization
-from app.models.solution import OrganizationSolution
+from app.models.solution import OrganizationSolution, Solution
 from app.models.tariff import Tariff
 from app.offer import OFFER_ACCEPTANCE_REQUIRED_DETAIL, OFFER_DOCUMENT_CODE
-from app.pricing import format_invoice_amount
-from app.subscription import TARIFF_ALREADY_BOUGHT_DETAIL
-from tests.conftest import add_solution, organizations_for, sign_in
+from app.pricing import format_amount
+from app.schemas.invoice import SOLUTION_ALONE_MESSAGE
+from app.seats import (
+    EXTRA_MEMBER_CODE,
+    MAX_SEATS_PER_PURCHASE,
+    SEATS_NOT_FOR_SALE_DETAIL,
+    SEATS_REQUIRE_TARIFF_DETAIL,
+    SEATS_UNLIMITED_TARIFF_DETAIL,
+)
+from app.subscription import (
+    MEMBER_LIMIT_HEADER,
+    MEMBER_LIMIT_HEADER_VALUE,
+    ONCE_PERIOD,
+    TARIFF_ALREADY_BOUGHT_DETAIL,
+)
+from tests.conftest import add_solution, give_solution, give_tariff, organizations_for, sign_in
 
 # Неразрывный пробел — разделитель разрядов в подписи суммы.
 NBSP = "\u00a0"
@@ -143,6 +166,11 @@ def purchase_solution(client: TestClient, solution_id: int) -> Response:
     return client.post(INVOICE_URL, json={"solution_id": solution_id})
 
 
+def purchase_seats(client: TestClient, seats: int) -> Response:
+    """POST покупки мест: третье поле предмета — количество, без суммы и оферты."""
+    return client.post(INVOICE_URL, json={"seats": seats})
+
+
 def purchase_id(client: TestClient, tariff_id: int) -> int:
     """Идентификатор успешно выставленного счёта: покупка обязана пройти."""
     response = purchase(client, tariff_id)
@@ -152,6 +180,18 @@ def purchase_id(client: TestClient, tariff_id: int) -> int:
 
 def set_status(client: TestClient, invoice_id: int, value: str) -> Response:
     return client.patch(f"{INVOICE_URL}/{invoice_id}", json={"status": value})
+
+
+def bind_tariff(
+    db_session: Session, organization: Organization, tariff: Tariff | None = None
+) -> Tariff:
+    """Записать организации действующий тариф: решения продаются только к нему.
+
+    Своего срока у права на решение больше нет (`app.solutions`): покупка без
+    действующего тарифа отвечает `409`, поэтому тест, которому нужно купить
+    решение, сначала заводит тариф — как это сделала бы его оплата.
+    """
+    return give_tariff(db_session, organization, tariff=tariff)
 
 
 def pay_tariff(client: TestClient, tariff_id: int) -> int:
@@ -522,6 +562,7 @@ def test_repeat_purchase_fills_an_empty_acceptance(client: TestClient, db_sessio
 def test_solution_purchase_needs_no_offer_mark(client: TestClient, db_session: Session) -> None:
     """Магазин улучшений не изменился: решения покупаются без отметки."""
     organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     solution = add_solution(db_session)
 
     response = purchase_solution(client, solution.id)
@@ -783,10 +824,36 @@ def pdf_text(body: bytes) -> str:
     return "\n".join(pdf_pages(body)).replace(NBSP, " ")
 
 
+def pdf_text_starts(body: bytes) -> list[tuple[str, float]]:
+    """Начала текстовых строк файла и их `x` в пунктах: по ним мерится геометрия.
+
+    Кириллица читается через ToUnicode-CMap, а `tm[4]` из матрицы текста — это
+    горизонталь, с которой строка начинается в готовом файле. Так проверяется
+    раскладка (центровка заголовка), а не только наличие подстроки.
+    """
+    spans: list[tuple[str, float]] = []
+
+    def visitor(text: str, cm: Any, tm: Any, font: Any, size: Any) -> None:
+        if text.strip():
+            spans.append((text.strip(), float(tm[4])))
+
+    for page in PdfReader(io.BytesIO(body)).pages:
+        page.extract_text(visitor_text=visitor)
+    return spans
+
+
 def amount_text(invoice: Invoice) -> str:
-    """Сумма счёта такой, какой она должна быть в файле: без неразрывного пробела."""
-    label = format_invoice_amount(invoice.amount, invoice.currency, invoice.tariff_period)
-    return label.replace(NBSP, " ")
+    """Сумма счёта такой, какой она должна быть в итоговой строке файла.
+
+    Итог печатается голой суммой без окончания по периоду: период стоит в
+    наименовании позиции, а итог отвечает на вопрос «сколько платить».
+    """
+    return money(invoice.amount)
+
+
+def money(amount: Decimal) -> str:
+    """Сумма: «2 700 ₽», уже без неразрывного пробела."""
+    return f"{format_amount(amount)} ₽".replace(NBSP, " ")
 
 
 def ascii_filename(disposition: str) -> str:
@@ -818,11 +885,11 @@ def test_invoice_file_is_downloaded_as_a_pdf(client: TestClient, db_session: Ses
     pages = pdf_pages(response.content)
     assert len(pages) == 1
     text = pdf_text(response.content)
-    assert f"Счёт № {invoice.number}" in text
-    assert f"Дата: {invoice.created_at:%d.%m.%Y}" in text
-    assert "Поставщик" in text
-    assert "Покупатель" in text
-    assert "Предмет" in text
+    assert f"Счёт на оплату № {invoice.number} от {invoice.created_at:%d.%m.%Y}" in text
+    assert "ИСПОЛНИТЕЛЬ" in text
+    assert "ЗАКАЗЧИК" in text
+    assert "Наименование" in text
+    assert "Всего к оплате:" in text
     assert BUYER_NAME in text
     assert BUYER_INN in text
     assert BUYER_KPP in text
@@ -831,7 +898,7 @@ def test_invoice_file_is_downloaded_as_a_pdf(client: TestClient, db_session: Ses
     assert invoice.tariff_name is not None
     assert invoice.tariff_name in text
     assert amount_text(invoice) in text
-    # Поставщика в проекте нет: блок подписан заглушкой, а не выдуманными данными.
+    # Поставщика в проекте нет: блок исполнителя подписан заглушкой, а не выдуманными данными.
     assert "данные поставщика будут заполнены позже" in text
 
 
@@ -851,10 +918,60 @@ def test_invoice_file_keeps_the_buyer_name_as_is(client: TestClient, db_session:
     assert "&amp;" not in text
 
 
-def test_invoice_file_draws_a_dash_for_an_empty_requisite(
+def test_seats_invoice_file_shows_the_quantity(client: TestClient, db_session: Session) -> None:
+    """Печатная форма счёта за места: количество, цена места и множитель (#177).
+
+    Без цены места и множителя первичный документ показывал бы только
+    «Дополнительные сотрудники» и «2 700 ₽ разово» — сверить платёж с числом
+    мест и увидеть скидку ступени бухгалтерия клиента не смогла бы.
+    """
+    owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 3).json()["id"])
+    invoice = db_session.get(Invoice, invoice_id)
+    assert invoice is not None
+    assert invoice.quantity == 3
+
+    text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
+
+    assert "Дополнительные места · 3 (900 ₽ × 3)" in text
+    # 2 700 ₽ — сумма позиции; цена места и множитель стоят в наименовании.
+    assert money(Decimal("2700.00")) in text
+    assert "Всего к оплате:" in text
+    assert amount_text(invoice) in text
+    # Сумма прописью — требование образца первичного документа: проверяется в
+    # готовом файле, а не только в `amount_in_words`.
+    assert amount_in_words(invoice.amount, invoice.currency) in text
+
+
+def test_tariff_invoice_file_has_no_quantity_row(client: TestClient, db_session: Session) -> None:
+    """У тарифа количество неприменимо: в позиции его нет, а итог прежний."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    invoice = db_session.get(Invoice, invoice_id)
+    assert invoice is not None
+    assert invoice.quantity is None
+
+    text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
+
+    assert "Количество" not in text
+    assert "Тариф «Старт» в месяц" in text
+    assert amount_text(invoice) in text
+    # Сумма прописью — требование образца первичного документа: проверяется в
+    # готовом файле, а не только в `amount_in_words`.
+    assert amount_in_words(invoice.amount, invoice.currency) in text
+
+
+def test_invoice_file_omits_an_empty_buyer_requisite(
     client: TestClient, db_session: Session
 ) -> None:
-    """У индивидуального предпринимателя нет КПП: пустая ячейка — прочерк."""
+    """У индивидуального предпринимателя нет КПП: реквизит выпадает целиком.
+
+    Прочерк в строке «ИНН … · КПП —» выглядел бы как реквизит, которого на самом
+    деле нет: формат образца печатает только заполненные части, поэтому «КПП»
+    из документа выпадает вместе с подписью, а не заменяется прочерком.
+    """
     organization = owner(client, db_session)
     organization.kpp = None
     db_session.commit()
@@ -863,8 +980,8 @@ def test_invoice_file_draws_a_dash_for_an_empty_requisite(
 
     text = pdf_text(client.get(f"{INVOICE_URL}/{invoice_id}/file").content)
 
-    assert "КПП" in text
-    assert EMPTY_VALUE in text
+    assert "ИНН" in text
+    assert "КПП" not in text
 
 
 def test_missing_font_fails_with_a_clear_message(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -877,7 +994,312 @@ def test_missing_font_fails_with_a_clear_message(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(billing_forms, "FONT_REGULAR", "/nowhere/DejaVuSans.ttf")
 
     with pytest.raises(RuntimeError, match="fonts-dejavu-core"):
-        billing_forms.invoice_pdf(invoice)
+        billing_forms.invoice_pdf(invoice, None)
+
+
+# --- 5a. Реквизиты поставщика и строка про НДС (#179) --------------------------
+#
+# Блок «Поставщик» и строка про НДС приходят из таблицы `company_details`
+# (`app/company_details.py`), которую правят в кабинете оператора. Схема
+# юнит-тестов собирается из моделей, без миграций, поэтому засева в ней нет:
+# `None` — это и есть «реквизитов пока нет», а печать в этом случае показывает
+# заглушку. Тесты с заполненными реквизитами вставляют строку сами.
+
+
+def add_company(db_session: Session, **fields: object) -> CompanyDetails:
+    """Единственная строка реквизитов прямо в базе: засев миграции не выполняется."""
+    row = CompanyDetails(id=SINGLE_ROW_ID, **fields)
+    db_session.add(row)
+    db_session.commit()
+    db_session.refresh(row)
+    return row
+
+
+def supplier_text(client: TestClient, invoice_id: int) -> str:
+    """Текст свежего счёта: файла ещё нет, форма собирается первым скачиванием."""
+    response = client.get(f"{INVOICE_URL}/{invoice_id}/file")
+    assert response.status_code == 200, response.text
+    return pdf_text(response.content)
+
+
+def test_invoice_prints_the_filled_supplier_details(
+    client: TestClient, db_session: Session
+) -> None:
+    """Заполненные реквизиты печатаются строками вместо заглушки."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(
+        db_session,
+        name="ООО «Поставщик»",
+        inn="7701111111",
+        kpp="770101001",
+        ogrn="1027700132195",
+        address="г. Москва, ул. Поставщиков, д. 2",
+        bank_name="ПАО «Банк поставщика»",
+        bank_bic="044525225",
+        bank_account="40702810100000000001",
+        corr_account="30101810400000000225",
+        signatory="Директор Петров П. П.",
+        vat_note="НДС не облагается",
+    )
+
+    text = supplier_text(client, invoice_id)
+
+    assert "ООО «Поставщик»" in text
+    assert "7701111111" in text
+    assert "770101001" in text
+    assert "1027700132195" in text
+    assert "г. Москва, ул. Поставщиков, д. 2" in text
+    assert "ПАО «Банк поставщика»" in text
+    assert "044525225" in text
+    assert "40702810100000000001" in text
+    assert "30101810400000000225" in text
+    assert "Директор Петров П. П." in text
+    # Заглушка не нужна: реквизиты есть.
+    assert "данные поставщика будут заполнены позже" not in text
+
+
+def test_invoice_prints_only_the_filled_supplier_fields(
+    client: TestClient, db_session: Session
+) -> None:
+    """Пустые поля не печатаются и не добиваются прочерками.
+
+    Прочерк вместо банка выглядел бы как реквизит, которого нет: в блоке
+    поставщика `_value` не применяется, поэтому строк «Банк —», «БИК —» в
+    документе не бывает.
+    """
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(db_session, name="ООО «Поставщик»", inn="7701111111")
+
+    text = supplier_text(client, invoice_id)
+
+    assert "ООО «Поставщик»" in text
+    assert "7701111111" in text
+    assert "Банк" not in text
+    assert "БИК" not in text
+    assert "Расчётный счёт" not in text
+    assert "Подписант" not in text
+    assert "данные поставщика будут заполнены позже" not in text
+
+
+def test_invoice_prints_the_placeholder_when_no_field_is_filled(
+    client: TestClient, db_session: Session
+) -> None:
+    """Строка есть, но пустая: печатается та же заглушка, что и без строки."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(db_session)
+
+    text = supplier_text(client, invoice_id)
+
+    assert "данные поставщика будут заполнены позже" in text
+    assert "Банк" not in text
+
+
+def test_invoice_prints_the_vat_line_after_the_subject(
+    client: TestClient, db_session: Session
+) -> None:
+    """Строка про НДС стоит сразу после итога и суммы прописью, а не в шапке."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(db_session, vat_note="НДС не облагается")
+
+    text = supplier_text(client, invoice_id)
+
+    assert "НДС не облагается" in text
+    assert text.index("Всего к оплате:") < text.index("НДС не облагается")
+
+
+def test_invoice_has_no_vat_line_when_the_note_is_empty(
+    client: TestClient, db_session: Session
+) -> None:
+    """Пустой `vat_note` — строки нет вовсе: слова «НДС» в документе не остаётся."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(db_session, name="ООО «Поставщик»", vat_note=None)
+
+    text = supplier_text(client, invoice_id)
+
+    assert "НДС" not in text
+    # Реквизиты при этом печатаются: пустая строка про НДС не гасит блок.
+    assert "ООО «Поставщик»" in text
+
+
+def test_act_prints_the_same_supplier_block_and_vat_line(
+    client: TestClient, db_session: Session
+) -> None:
+    """Акт берёт те же реквизиты и ту же строку про НДС, что и счёт."""
+    owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice_id = purchase_id(client, tariff.id)
+    add_company(
+        db_session,
+        name="ООО «Поставщик»",
+        bank_name="ПАО «Банк поставщика»",
+        bank_bic="044525225",
+        vat_note="НДС не облагается",
+    )
+    set_status(client, invoice_id, PAID)
+
+    response = client.get(f"{INVOICE_URL}/{invoice_id}/act-file")
+
+    assert response.status_code == 200, response.text
+    text = pdf_text(response.content)
+    assert "ПАО «Банк поставщика»" in text
+    assert "044525225" in text
+    assert "НДС не облагается" in text
+    assert text.index("Всего к оплате:") < text.index("НДС не облагается")
+
+
+def test_table_columns_fill_the_page_width(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Таблица позиций рисуется ровно теми колонками, что заполняют полосу набора.
+
+    Дефект Б1 прошлой приёмки был про геометрию: подпись рисовалась поверх
+    значения. У таблицы та же ловушка — сумма колонок, подобранная на глаз,
+    выводит правую границу за поле или оставляет пустую полосу справа. Поэтому
+    проверяются не константы модуля, а ширины, с которыми `_subject_table`
+    действительно зовёт `_table_row`: правка ширин в самой таблице тест ломает.
+    """
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+    )
+    invoice = Invoice(number="СЧ-2026-1", amount=Decimal("10000.00"), currency="RUB")
+    drawn: list[tuple[float, ...]] = []
+    original = billing_forms._table_row
+
+    def spy(
+        pdf_: FPDF,
+        widths: tuple[float, float, float],
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        drawn.append(widths)
+        original(pdf_, widths, *args, **kwargs)
+
+    monkeypatch.setattr(billing_forms, "_table_row", spy)
+    billing_forms._register_fonts(pdf)
+    pdf.add_page()
+
+    billing_forms._subject_table(pdf, invoice)
+
+    assert drawn, "таблица позиций не нарисовала ни одной строки"
+    for widths in drawn:
+        assert widths == billing_forms._column_widths(pdf)
+        assert sum(widths) == pytest.approx(pdf.epw)
+        # Наименование — самая широкая колонка: сумма 40 мм и номер 15 мм.
+        assert widths[1] > billing_forms.AMOUNT_WIDTH
+
+
+def test_the_logo_takes_its_own_line_above_the_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Заголовок начинается ниже знака, а не рядом с ним.
+
+    Замечание человека к первой версии формы: «Счёт …» шёл рядом со знаком, и
+    знак читался как его часть. Проверяются вертикали самих строк: где нарисован
+    знак и где напечатана первая строка заголовка. Курсор после шапки для этого
+    не годится — он уходит ниже и у формы, где знак поделил строку с заголовком.
+    """
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+        billing_forms.PAGE_MARGIN,
+    )
+    billing_forms._register_fonts(pdf)
+    pdf.add_page()
+    top = pdf.get_y()
+
+    marks: dict[str, float] = {}
+    draw_logo = billing_forms._draw_logo
+    text = billing_forms._text
+
+    def spy_logo(pdf_: FPDF) -> None:
+        marks.setdefault("logo", pdf_.get_y())
+        draw_logo(pdf_)
+
+    def spy_text(pdf_: FPDF, value: str, **kwargs: Any) -> None:
+        marks.setdefault("title", pdf_.get_y())
+        text(pdf_, value, **kwargs)
+
+    monkeypatch.setattr(billing_forms, "_draw_logo", spy_logo)
+    monkeypatch.setattr(billing_forms, "_text", spy_text)
+
+    billing_forms._header(pdf, "Счёт на оплату № ИВ-2026-1 от 06.11.2026")
+
+    assert marks["logo"] == pytest.approx(top)
+    assert marks["title"] >= marks["logo"] + billing_forms.LOGO_HEIGHT
+
+
+def test_the_logo_asset_is_present_and_sized() -> None:
+    """Ассет знака лежит рядом с модулем и объявляет размер: без него PDF не собрать.
+
+    `width` и `height` в корне SVG обязательны: `fpdf2` берёт из них размер при
+    вставке. Что знак действительно нарисован, а не пропущен молча, проверяет
+    `test_the_logo_is_drawn_as_shapes_in_the_header`.
+    """
+    source = billing_forms.LOGO_PATH.read_text(encoding="utf-8")
+
+    assert billing_forms.LOGO_PATH.is_file()
+    assert 'viewBox="0 0 40 40"' in source
+    assert 'width="40"' in source
+    assert 'height="40"' in source
+
+
+def test_the_logo_is_drawn_as_shapes_in_the_header() -> None:
+    """Знак действительно нарисован: 11 мм на левом верхнем поле.
+
+    «Файл ассета на месте» ничего не доказывает: `fpdf2` рисует SVG сам, но
+    неподдерживаемые элементы пропускает молча, и PDF вышел бы без знака при
+    зелёном тесте. Проверяется поток страницы — знак вставлен отдельным
+    масштабом 0.275 (11 мм при viewBox 40) от левого верхнего поля, плашка
+    залита #DCEEE4, а дом нарисован тремя штрихами #27313D, как в `SiteHeader`.
+    """
+    invoice = Invoice(number="СЧ-2026-1", amount=Decimal("10000.00"), currency="RUB")
+    page = PdfReader(io.BytesIO(billing_forms.invoice_pdf(invoice, None))).pages[0]
+    contents = page.get_contents()
+    assert contents is not None
+    content = contents.get_data().decode("latin-1")
+
+    assert "q 0.275 0 0 0.275 15 15 cm" in content
+    assert "0.8627 0.9333 0.8941 rg" in content
+    assert content.count("0.1529 0.1922 0.2392 RG") == 3
+
+
+def test_the_title_is_centered_on_the_type_area() -> None:
+    """Заголовок стоит по центру страницы, а не съезжает вправо от знака.
+
+    Ревьюер сомневался, возвращает ли `pdf.image()` курсор на левое поле: если
+    бы курсор остался правее знака, заголовок центрировался бы не по странице.
+    Проверяется готовый файл: середина строки заголовка совпадает с серединой
+    страницы, а середина считается из начала строки и ширины её текста.
+    """
+    invoice = Invoice(number="СЧ-2026-5", amount=Decimal("10000.00"), currency="RUB")
+    title, start = pdf_text_starts(billing_forms.invoice_pdf(invoice, None))[0]
+    assert title.startswith("Счёт на оплату № СЧ-2026-5")
+
+    measure = FPDF(orientation="P", unit="mm", format="A4")
+    billing_forms._register_fonts(measure)
+    measure.set_font(billing_forms.FONT_FAMILY, "B", billing_forms.TITLE_SIZE)
+    center = start * 25.4 / 72 + measure.get_string_width(title) / 2
+
+    assert center == pytest.approx(measure.w / 2, abs=0.5)
+
+
+def test_missing_logo_fails_with_a_clear_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Без знака форма не собирается: молчаливый PDF без логотипа недопустим."""
+    invoice = Invoice(number="СЧ-2026-1", amount=Decimal("10000.00"), currency="RUB")
+    monkeypatch.setattr(billing_forms, "LOGO_PATH", Path("/nowhere/logo.svg"))
+
+    with pytest.raises(RuntimeError, match=r"logo\.svg"):
+        billing_forms.invoice_pdf(invoice, None)
 
 
 def test_act_file_is_not_found_before_payment(client: TestClient, db_session: Session) -> None:
@@ -912,8 +1334,7 @@ def test_act_file_is_downloaded_after_payment(client: TestClient, db_session: Se
 
     assert len(pdf_pages(response.content)) == 1
     text = pdf_text(response.content)
-    assert f"Акт № {invoice.number}" in text
-    assert f"Дата: {invoice.paid_at:%d.%m.%Y}" in text
+    assert f"Акт № {invoice.number} от {invoice.paid_at:%d.%m.%Y}" in text
     assert BUYER_NAME in text
     assert BUYER_INN in text
     assert amount_text(invoice) in text
@@ -964,6 +1385,7 @@ def test_purchase_of_a_solution_creates_an_invoice_with_the_snapshot(
 ) -> None:
     """Счёт за решение: предмет-решение в снимке, тариф организации не тронут."""
     organization = owner(client, db_session)
+    tariff = bind_tariff(db_session, organization)
     solution = add_solution(db_session, amount="500.00", period="month")
 
     response = purchase_solution(client, solution.id)
@@ -975,10 +1397,11 @@ def test_purchase_of_a_solution_creates_an_invoice_with_the_snapshot(
     assert body["status"] == "new"
     assert body["amount"] == "500.00"
     assert body["currency"] == "RUB"
-    assert body["amount_label"] == "500 ₽ в месяц"
+    # Период снимка — `once`, поэтому подпись читается «разово».
+    assert body["amount_label"] == "500 ₽ разово"
     # Снимок предмета лежит в колонках тарифа: печатные формы их и читают.
     assert body["tariff_name"] == "Уведомления в Telegram"
-    assert body["tariff_period"] == "month"
+    assert body["tariff_period"] == "once"
     assert body["buyer_name"] == BUYER_NAME
     assert body["has_act"] is False
 
@@ -987,15 +1410,22 @@ def test_purchase_of_a_solution_creates_an_invoice_with_the_snapshot(
     assert stored[0].item_kind == "solution"
     assert stored[0].solution_id == solution.id
     assert stored[0].tariff_id is None
-    # Покупка решения не выбирает организации тариф: кабинет она не открывает.
+    # Покупка решения не меняет тариф организации: кабинет она не открывает и не
+    # продлевает, а только добавляет право внутри уже оплаченного тарифа.
     db_session.refresh(organization)
-    assert organization.tariff_id is None
+    assert organization.tariff_id == tariff.id
 
 
 def test_second_purchase_of_a_solution_returns_the_live_invoice(
     client: TestClient, db_session: Session
 ) -> None:
+    """Неоплаченный счёт за то же решение не дублируется: второй клик — тот же счёт.
+
+    Право появляется только оплатой счёта (`app/invoice_status.py`), поэтому до
+    неё повторная покупка — это та же сделка, а не «уже подключено».
+    """
     organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     solution = add_solution(db_session)
     first = purchase_solution(client, solution.id)
     assert first.status_code == 201, first.text
@@ -1012,6 +1442,7 @@ def test_invoices_for_a_tariff_and_a_solution_do_not_block_each_other(
 ) -> None:
     """Дедупликация сужена до того же предмета, а не «любого живого счёта»."""
     organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     tariff = add_tariff(db_session)
     solution = add_solution(db_session)
     tariff_invoice = purchase(client, tariff.id)
@@ -1024,6 +1455,7 @@ def test_invoices_for_a_tariff_and_a_solution_do_not_block_each_other(
 
     # И обратный порядок: живой счёт за решение не мешает счёту за тариф.
     other = owner(client, db_session, email="second@example.com", inn="7701234568")
+    bind_tariff(db_session, other)
     tariff_again = add_tariff(db_session, name="Годовой", period="year")
     assert purchase_solution(client, solution.id).status_code == 201
     assert purchase(client, tariff_again.id).status_code == 201
@@ -1045,8 +1477,7 @@ def test_chosen_tariff_does_not_block_a_solution(client: TestClient, db_session:
     """Тариф организации уже выбран — решение всё равно покупается."""
     organization = owner(client, db_session)
     tariff = add_tariff(db_session)
-    organization.tariff_id = tariff.id
-    db_session.commit()
+    bind_tariff(db_session, organization, tariff)
     solution = add_solution(db_session)
 
     response = purchase_solution(client, solution.id)
@@ -1056,16 +1487,67 @@ def test_chosen_tariff_does_not_block_a_solution(client: TestClient, db_session:
 
 def test_hidden_solution_is_still_buyable_by_id(client: TestClient, db_session: Session) -> None:
     """Скрытая строка каталога списком не продаётся, но по `id` покупается."""
-    owner(client, db_session)
+    organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     solution = add_solution(db_session, is_visible=False)
 
     assert purchase_solution(client, solution.id).status_code == 201
+
+
+def test_purchase_of_a_solution_without_a_tariff_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Пробный период не даёт услуг: покупать решение можно только к тарифу."""
+    organization = owner(client, db_session)
+    solution = add_solution(db_session)
+
+    response = purchase_solution(client, solution.id)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Купить решение можно после оплаты тарифа"
+    assert invoices_of(db_session, organization.id) == []
+
+
+def test_repeated_purchase_of_an_owned_solution_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Повторная покупка подключённого решения отклоняется, а не продлевает право."""
+    organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
+    solution = add_solution(db_session)
+    invoice_id = int(purchase_solution(client, solution.id).json()["id"])
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    response = purchase_solution(client, solution.id)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Решение уже подключено"
+    assert len(invoices_of(db_session, organization.id)) == 1
+
+
+def test_tariff_refusal_comes_before_the_owned_refusal(
+    client: TestClient, db_session: Session
+) -> None:
+    """При мёртвом тарифе сообщение называет тариф, а не «уже подключено».
+
+    Порядок отказов — часть контракта: право у организации есть, но без тарифа
+    оно не работает, и совет «купите тариф» — единственный полезный.
+    """
+    organization = owner(client, db_session)
+    solution = give_solution(db_session, organization, with_tariff=False)
+    give_tariff(db_session, organization, ends_at=datetime.now(UTC) - timedelta(days=1))
+
+    response = purchase_solution(client, solution.id)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Купить решение можно после оплаты тарифа"
 
 
 def test_payment_of_a_solution_invoice_grants_the_right_and_creates_the_act(
     client: TestClient, db_session: Session
 ) -> None:
     organization = owner(client, db_session)
+    tariff = bind_tariff(db_session, organization)
     solution = add_solution(db_session)
     invoice_id = int(purchase_solution(client, solution.id).json()["id"])
 
@@ -1080,10 +1562,11 @@ def test_payment_of_a_solution_invoice_grants_the_right_and_creates_the_act(
     assert len(rights) == 1
     assert rights[0].solution_id == solution.id
     assert rights[0].invoice_id == invoice_id
-    assert rights[0].expires_at is not None
+    # Собственного срока у права нет: оно действует, пока действует тариф.
+    assert rights[0].expires_at is None
     # Оплата счёта за решение не привязывает организации тариф.
     db_session.refresh(organization)
-    assert organization.tariff_id is None
+    assert organization.tariff_id == tariff.id
     assert solutions.has_solution(db_session, organization.id, solution.code)
 
 
@@ -1093,8 +1576,7 @@ def test_payment_of_a_solution_invoice_keeps_a_chosen_tariff(
     """У организации другой тариф — оплата решения его не меняет и не отказывает."""
     organization = owner(client, db_session)
     tariff = add_tariff(db_session)
-    organization.tariff_id = tariff.id
-    db_session.commit()
+    bind_tariff(db_session, organization, tariff)
     solution = add_solution(db_session)
     invoice_id = int(purchase_solution(client, solution.id).json()["id"])
 
@@ -1105,44 +1587,50 @@ def test_payment_of_a_solution_invoice_keeps_a_chosen_tariff(
     assert organization.tariff_id == tariff.id
 
 
-def test_second_paid_solution_invoice_renews_the_single_right(
+def test_paid_solution_right_survives_a_new_tariff_payment(
     client: TestClient, db_session: Session
 ) -> None:
-    """Вторая покупка того же решения продлевает право, а не заводит второе."""
+    """Право не получает собственного срока, поэтому живёт по новому тарифу.
+
+    Сначала решение куплено и оплачено при живом тарифе, затем тариф кончился —
+    право перестало действовать, — и после оплаты нового тарифа оно вернулось без
+    повторной покупки решения.
+    """
     organization = owner(client, db_session)
+    bind_tariff(db_session, organization, add_tariff(db_session))
     solution = add_solution(db_session)
-    first_id = int(purchase_solution(client, solution.id).json()["id"])
-    assert set_status(client, first_id, PAID).status_code == 200
-    db_session.expire_all()
-    first_expiry = rights_of(db_session, organization.id)[0].expires_at
-    assert first_expiry is not None
+    invoice_id = int(purchase_solution(client, solution.id).json()["id"])
+    assert set_status(client, invoice_id, PAID).status_code == 200
+    assert solutions.has_solution(db_session, organization.id, solution.code)
 
-    second_id = int(purchase_solution(client, solution.id).json()["id"])
-    assert second_id != first_id
-    assert set_status(client, second_id, PAID).status_code == 200
+    give_tariff(db_session, organization, ends_at=datetime.now(UTC) - timedelta(days=1))
+    assert not solutions.has_solution(db_session, organization.id, solution.code)
 
-    rights = rights_of(db_session, organization.id)
-    assert len(rights) == 1
-    assert rights[0].expires_at is not None
-    # Отсчёт от прежнего конца: месяц добавился к остатку, а не заменил его.
-    assert rights[0].expires_at > first_expiry + timedelta(days=27)
-    assert rights[0].invoice_id == second_id
+    bind_tariff(db_session, organization, add_tariff(db_session, name="Новый"))
+
+    assert solutions.has_solution(db_session, organization.id, solution.code)
+    assert len(rights_of(db_session, organization.id)) == 1
 
 
-def test_solution_expiry_counts_from_the_payment_moment(
+def test_solution_invoice_snapshot_has_the_once_period(
     client: TestClient, db_session: Session
 ) -> None:
+    """Снимок счёта за решение — разовый: печатная форма печатает «500 ₽ разово».
+
+    Своего срока у права нет, поэтому и в документе не может стоять «в месяц»:
+    период снимка — `once`, даже если в строке каталога лежит старое значение.
+    """
     organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     solution = add_solution(db_session, period="month")
     invoice_id = int(purchase_solution(client, solution.id).json()["id"])
 
     assert set_status(client, invoice_id, PAID).status_code == 200
 
-    expires_at = rights_of(db_session, organization.id)[0].expires_at
-    assert expires_at is not None
-    # Один календарный месяц от оплаты: границы проверяются с запасом в сутки.
-    assert datetime.now(UTC) + timedelta(days=27) < as_utc(expires_at)
-    assert as_utc(expires_at) < datetime.now(UTC) + timedelta(days=32)
+    invoice = invoices_of(db_session, organization.id)[0]
+    assert invoice.tariff_period == ONCE_PERIOD
+    assert [item.period for item in subject_items(invoice)] == [ONCE_PERIOD]
+    assert rights_of(db_session, organization.id)[0].expires_at is None
 
 
 def test_purchase_with_both_items_is_rejected(client: TestClient, db_session: Session) -> None:
@@ -1177,7 +1665,8 @@ def test_solution_invoice_shows_the_item_in_the_documents_list(
     client: TestClient, db_session: Session
 ) -> None:
     """Раздел «Документы» показывает название решения в столбце предмета."""
-    owner(client, db_session)
+    organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     solution = add_solution(db_session)
     invoice_id = int(purchase_solution(client, solution.id).json()["id"])
 
@@ -1186,3 +1675,611 @@ def test_solution_invoice_shows_the_item_in_the_documents_list(
     assert listed["id"] == invoice_id
     assert listed["item_kind"] == "solution"
     assert listed["tariff_name"] == "Уведомления в Telegram"
+
+
+# --- 8. Места сверх тарифа (#168) ---------------------------------------------
+
+EXTRA_MEMBER_NAME = "Дополнительные сотрудники"
+SEATS_PRICE = "900.00"
+
+
+def add_seats_catalog(
+    db_session: Session, *, amount: str = SEATS_PRICE, is_visible: bool = True
+) -> Solution:
+    """Строка каталога, по которой продаются места: тот же seed, что `0064_extra_seats`.
+
+    Юнит-тесты собирают схему из моделей, seed каталога живёт в миграции, поэтому
+    строку заводит тест — как `add_solution` у решений.
+    """
+    return add_solution(
+        db_session,
+        code=EXTRA_MEMBER_CODE,
+        name=EXTRA_MEMBER_NAME,
+        description=(
+            "Каждый дополнительный сотрудник сверх мест тарифа. Место живёт вместе с подпиской."
+        ),
+        amount=amount,
+        period="once",
+        position=900,
+        is_visible=is_visible,
+    )
+
+
+def owner_with_tariff(
+    client: TestClient,
+    db_session: Session,
+    max_members: int | None = 15,
+    name: str = "Рост",
+) -> tuple[Organization, Tariff]:
+    """Владелец с оплаченным тарифом: места покупаются только поверх живого тарифа."""
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session, name=name, max_members=max_members)
+    pay_tariff(client, tariff.id)
+    db_session.refresh(organization)
+    return organization, tariff
+
+
+def invite(client: TestClient, email: str) -> Response:
+    """Приглашение сотрудника: единственный путь, который упирается в предел мест."""
+    return client.post(
+        "/api/organization/invitations",
+        json={"email": email, "full_name": "Петров Пётр", "role": "manager"},
+    )
+
+
+def test_seats_catalog_row_is_not_sellable_as_a_solution(
+    client: TestClient, db_session: Session
+) -> None:
+    """Строку мест нельзя купить полем `solution_id`: это платёж без товара.
+
+    Строка видима (`is_visible = true`) — по ней магазин рисует карточку, — и
+    путь покупки решения по `id` для неё открыт. Оплата такого счёта завела бы
+    право на код `extra_member`, которого не читает ни одна ручка, а `extra_seats`
+    не вырос бы: клиент заплатил 900 ₽ и не получил ничего. Ответ — как у
+    несуществующего решения: подтверждать существование непродаваемой строки
+    незачем, и это не мешает покупать места полем `seats`.
+    """
+    organization, _ = owner_with_tariff(client, db_session)
+    seats_row = add_seats_catalog(db_session)
+    assert seats_row.is_visible is True
+
+    response = purchase_solution(client, seats_row.id)
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == SOLUTION_NOT_FOUND_DETAIL
+    assert not [i for i in invoices_of(db_session, organization.id) if i.item_kind == "seats"]
+    assert solutions.owned_codes(db_session, organization.id) == set()
+
+
+def test_seats_purchase_bills_the_price_times_the_quantity(
+    client: TestClient, db_session: Session
+) -> None:
+    """Сумму считает сервер: `900 ₽ × 3 = 2 700 ₽`, клиент присылает только количество."""
+    owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+
+    response = purchase_seats(client, 3)
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["item_kind"] == "seats"
+    assert body["quantity"] == 3
+    assert body["amount"] == "2700.00"
+    assert body["currency"] == "RUB"
+    assert body["amount_label"] == f"2{NBSP}700 ₽ разово"
+    assert body["tariff_name"] == EXTRA_MEMBER_NAME
+    assert body["tariff_period"] == "once"
+    assert body["status"] == "new"
+
+
+def test_seats_purchase_of_a_single_seat_costs_one_price(
+    client: TestClient, db_session: Session
+) -> None:
+    """Границы: одно место — полная цена, сто мест — со скидкой 50 % (#177).
+
+    Скидка ступенчатая и действует на весь набор: со ста мест цена места
+    упирается в половину, поэтому 900 ₽ превращаются в 450 ₽ каждое.
+    """
+    owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+
+    single = purchase_seats(client, 1)
+    assert single.status_code == 201, single.text
+    assert single.json()["amount"] == "900.00"
+
+    hundred = purchase_seats(client, MAX_SEATS_PER_PURCHASE)
+    assert hundred.status_code == 201, hundred.text
+    assert hundred.json()["amount"] == "45000.00"
+
+
+def test_seats_quantity_outside_the_allowed_range_is_rejected(
+    client: TestClient, db_session: Session
+) -> None:
+    """`0` и `101` — `422`: схема не пускает количество вне 1…100."""
+    owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+
+    assert purchase_seats(client, 0).status_code == 422
+    assert purchase_seats(client, MAX_SEATS_PER_PURCHASE + 1).status_code == 422
+
+
+def test_seats_purchase_without_a_live_tariff_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Без оплаченного тарифа докупать не к чему: отказ дословный."""
+    owner(client, db_session)
+    add_seats_catalog(db_session)
+
+    response = purchase_seats(client, 3)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == SEATS_REQUIRE_TARIFF_DETAIL
+
+
+def test_seats_purchase_on_an_unlimited_tariff_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Безлимитный ярус: предела нет, место ничего не добавляет — `409`."""
+    owner_with_tariff(client, db_session, max_members=None, name="Безлимит")
+    add_seats_catalog(db_session)
+
+    response = purchase_seats(client, 3)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == SEATS_UNLIMITED_TARIFF_DETAIL
+
+
+def test_seats_purchase_without_a_catalog_row_is_not_found(
+    client: TestClient, db_session: Session
+) -> None:
+    """Строки каталога нет или она скрыта — продавать нечего: `404` дословно."""
+    owner_with_tariff(client, db_session)
+
+    missing = purchase_seats(client, 3)
+    assert missing.status_code == 404, missing.text
+    assert missing.json()["detail"] == SEATS_NOT_FOR_SALE_DETAIL
+
+    add_seats_catalog(db_session, is_visible=False)
+    hidden = purchase_seats(client, 3)
+    assert hidden.status_code == 404, hidden.text
+    assert hidden.json()["detail"] == SEATS_NOT_FOR_SALE_DETAIL
+
+
+def test_seats_purchase_without_buyer_requisites_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Счёт выставляется только организации с названием и ИНН — как у тарифа."""
+    organization, _ = owner_with_tariff(client, db_session)
+    organization.name = None
+    db_session.commit()
+    add_seats_catalog(db_session)
+
+    response = purchase_seats(client, 3)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == (
+        "Заполните название и ИНН организации на странице «Организация»"
+    )
+
+
+def test_seats_purchase_with_a_second_item_is_rejected(
+    client: TestClient, db_session: Session
+) -> None:
+    """Решение вместе с местами — `422`: решение покупается отдельным счётом."""
+    owner_with_tariff(client, db_session)
+    solution = add_solution(db_session)
+
+    response = client.post(
+        INVOICE_URL, json={"seats": 3, "solution_id": solution.id, "offer_accepted": False}
+    )
+
+    assert response.status_code == 422, response.text
+    assert SOLUTION_ALONE_MESSAGE in response.text
+
+
+def test_repeat_seats_purchase_deduplicates_by_the_quantity(
+    client: TestClient, db_session: Session
+) -> None:
+    """Повторный клик на то же количество — `200` с тем же счётом, на другое — новый."""
+    organization = owner_with_tariff(client, db_session)[0]
+    add_seats_catalog(db_session)
+    first = purchase_seats(client, 3)
+    assert first.status_code == 201, first.text
+
+    repeated = purchase_seats(client, 3)
+
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["id"] == first.json()["id"]
+    assert len(invoices_of(db_session, organization.id)) == 2  # тариф и одни места
+
+    other = purchase_seats(client, 5)
+
+    assert other.status_code == 201, other.text
+    assert other.json()["id"] != first.json()["id"]
+    assert other.json()["amount"] == "4500.00"
+
+
+def test_paid_seats_grow_the_counter_and_keep_the_subscription(
+    client: TestClient, db_session: Session
+) -> None:
+    """Оплата прибавляет места к `extra_seats` и подписку не трогает."""
+    organization, tariff = owner_with_tariff(client, db_session)
+    ends_at = as_utc(organization.tariff_ends_at) if organization.tariff_ends_at else None
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 3).json()["id"])
+
+    response = set_status(client, invoice_id, PAID)
+
+    assert response.status_code == 200, response.text
+    db_session.refresh(organization)
+    assert organization.extra_seats == 3
+    # Подписка та же: место — доплата к тарифу, а не второй период.
+    assert organization.tariff_id == tariff.id
+    assert organization.tariff_ends_at is not None
+    assert as_utc(organization.tariff_ends_at) == ends_at
+    assert organization.next_tariff_id is None
+
+
+def test_paid_seats_invoice_cannot_be_paid_twice(client: TestClient, db_session: Session) -> None:
+    """Правила переходов не тронуты: второй `paid` — `409`, счётчик не удваивается."""
+    organization, _ = owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 2).json()["id"])
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    second = set_status(client, invoice_id, PAID)
+
+    assert second.status_code == 409
+    assert second.json()["detail"] == INVALID_STATUS_DETAIL
+    db_session.refresh(organization)
+    assert organization.extra_seats == 2
+
+
+def test_paid_seats_invoice_has_no_offer_acceptance(
+    client: TestClient, db_session: Session
+) -> None:
+    """За места оферта не требуется — отметки в счёте нет, как у решения."""
+    owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 3).json()["id"])
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    invoice = db_session.get(Invoice, invoice_id)
+
+    assert invoice is not None
+    assert invoice.offer_accepted_at is None
+    assert invoice.offer_accepted_by is None
+
+
+def test_bought_seats_raise_the_invitation_limit(client: TestClient, db_session: Session) -> None:
+    """Сквозной шов: покупка → оплата → приглашение сверх прежнего предела.
+
+    Тариф с двумя местами, докуплено три — предел становится 5: пять приглашений
+    проходят, шестое получает `409` с дословным текстом и заголовком
+    `X-Member-Limit`. Счётчик растёт оплатой, а не выставлением счёта: до оплаты
+    тот же предел остаётся прежним.
+    """
+    owner_with_tariff(client, db_session, max_members=2, name="Старт")
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 3).json()["id"])
+
+    # Счёт выставлен, но не оплачен: предел ещё 2, третье приглашение упирается.
+    assert invite(client, "before0@example.com").status_code == 201
+    assert invite(client, "before1@example.com").status_code == 201
+    assert invite(client, "before2@example.com").status_code == 409
+
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    assert invite(client, "after0@example.com").status_code == 201
+    assert invite(client, "after1@example.com").status_code == 201
+    assert invite(client, "after2@example.com").status_code == 201
+
+    refused = invite(client, "after3@example.com")
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"] == "Достигнут предел мест (5)"
+    assert refused.headers[MEMBER_LIMIT_HEADER] == MEMBER_LIMIT_HEADER_VALUE
+
+
+def test_current_tariff_shows_the_limit_with_the_bought_seats(
+    client: TestClient, db_session: Session
+) -> None:
+    """`GET /api/tariffs/current` отдаёт предел готовым числом и разбивку рядом."""
+    owner_with_tariff(client, db_session, max_members=15, name="Рост")
+    add_seats_catalog(db_session)
+    invoice_id = int(purchase_seats(client, 3).json()["id"])
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    body = client.get("/api/tariffs/current").json()
+
+    assert body["tariff"]["max_members"] == 15
+    assert body["extra_seats"] == 3
+    assert body["member_limit"] == 18
+
+
+# --- 9. Счёт за «тариф + места» (#177) ----------------------------------------
+
+HALF_YEAR_NAME = "Домовой · 6 месяцев"
+HALF_YEAR_PRICE = "60000.00"
+# Цена места после `0065_license_prices`: база ступеней в этом блоке.
+SEAT_PRICE = "1500.00"
+
+
+def add_half_year_license(db_session: Session, max_members: int | None = 5) -> Tariff:
+    """Лицензия на 6 месяцев из нового прайса: 60 000 ₽ и пять сотрудников."""
+    return add_tariff(
+        db_session,
+        name=HALF_YEAR_NAME,
+        amount=HALF_YEAR_PRICE,
+        period="half_year",
+        max_members=max_members,
+    )
+
+
+def purchase_with_seats(
+    client: TestClient, tariff_id: int, seats: int, offer_accepted: bool = True
+) -> Response:
+    """POST покупки «тариф + места» — одна сделка, две позиции."""
+    return client.post(
+        INVOICE_URL,
+        json={"tariff_id": tariff_id, "seats": seats, "offer_accepted": offer_accepted},
+    )
+
+
+def test_tariff_with_seats_is_one_invoice_with_two_positions(
+    client: TestClient, db_session: Session
+) -> None:
+    """«Тариф + 5 мест» — один счёт на 67 500 ₽ с двумя позициями, а не два счёта.
+
+    Это главный критерий задачи: у покупки один документ и один платёж, а из
+    чего он сложился — видно по позициям.
+    """
+    organization = owner(client, db_session)
+    tariff = add_half_year_license(db_session)
+    add_seats_catalog(db_session, amount=SEAT_PRICE)
+
+    response = purchase_with_seats(client, tariff.id, 5)
+
+    assert response.status_code == 201, response.text
+    assert len(invoices_of(db_session, organization.id)) == 1
+    body = response.json()
+    assert body["amount"] == "67500.00"
+    # Вид предмета — вид первой позиции: снимок счёта остаётся тарифным.
+    assert body["item_kind"] == "tariff"
+    assert body["tariff_name"] == HALF_YEAR_NAME
+    assert body["tariff_period"] == "half_year"
+    assert body["quantity"] is None
+
+    items = body["items"]
+    assert len(items) == 2
+    tariff_item, seats_item = items
+    assert tariff_item == {
+        "kind": "tariff",
+        "name": HALF_YEAR_NAME,
+        "period": "half_year",
+        "quantity": None,
+        "unit_amount": HALF_YEAR_PRICE,
+        "amount": "60000.00",
+    }
+    assert seats_item == {
+        "kind": "seats",
+        "name": EXTRA_MEMBER_NAME,
+        "period": "once",
+        "quantity": 5,
+        "unit_amount": SEAT_PRICE,
+        "amount": "7500.00",
+    }
+
+    stored = db_session.get(Invoice, int(body["id"]))
+    assert stored is not None
+    assert len(stored.items) == 2
+    assert sum(item.amount for item in stored.items) == stored.amount
+
+
+def test_ten_seats_are_discounted_for_the_whole_set(
+    client: TestClient, db_session: Session
+) -> None:
+    """Десять мест — 1 350 ₽ каждое, то есть 13 500 ₽, а не 15 000 ₽."""
+    owner(client, db_session)
+    tariff = add_half_year_license(db_session)
+    add_seats_catalog(db_session, amount=SEAT_PRICE)
+
+    response = purchase_with_seats(client, tariff.id, 10)
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["amount"] == "73500.00"
+    seats_item = body["items"][1]
+    assert seats_item["unit_amount"] == "1350.00"
+    assert seats_item["amount"] == "13500.00"
+
+
+def test_tariff_with_seats_requires_the_offer_mark(client: TestClient, db_session: Session) -> None:
+    """Отметка оферты нужна всей сделке: тариф в ней есть — `422`."""
+    owner(client, db_session)
+    tariff = add_half_year_license(db_session)
+    add_seats_catalog(db_session, amount=SEAT_PRICE)
+
+    response = purchase_with_seats(client, tariff.id, 5, offer_accepted=False)
+
+    assert response.status_code == 422, response.text
+    assert OFFER_ACCEPTANCE_REQUIRED_DETAIL in response.text
+
+
+def test_repeat_purchase_of_the_same_set_returns_the_same_invoice(
+    client: TestClient, db_session: Session
+) -> None:
+    """Повторный клик с тем же набором — `200` с тем же счётом, с другим — новый."""
+    organization = owner(client, db_session)
+    tariff = add_half_year_license(db_session)
+    add_seats_catalog(db_session, amount=SEAT_PRICE)
+    first = purchase_with_seats(client, tariff.id, 5)
+    assert first.status_code == 201, first.text
+
+    repeated = purchase_with_seats(client, tariff.id, 5)
+
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["id"] == first.json()["id"]
+
+    other = purchase_with_seats(client, tariff.id, 6)
+
+    assert other.status_code == 201, other.text
+    assert other.json()["id"] != first.json()["id"]
+    assert len(invoices_of(db_session, organization.id)) == 2
+
+
+def test_tariff_with_seats_on_taken_slots_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Оба слота подписки заняты — тариф не продаётся, и места вместе с ним."""
+    organization = owner(client, db_session)
+    monthly = add_tariff(db_session, name="Старт", amount="4900.00")
+    quarter = add_tariff(db_session, name="Квартал", amount="13200.00", period="quarter")
+    year = add_half_year_license(db_session)
+    add_seats_catalog(db_session, amount=SEAT_PRICE)
+    pay_tariff(client, monthly.id)
+    pay_tariff(client, quarter.id)
+
+    response = purchase_with_seats(client, year.id, 5)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == TARIFF_ALREADY_BOUGHT_DETAIL
+    assert not [
+        invoice for invoice in invoices_of(db_session, organization.id) if invoice.items[1:]
+    ]
+
+
+def test_tariff_with_seats_on_an_unlimited_tariff_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """У безлимитного тарифа предела нет: места ничего не добавляют — `409`."""
+    owner(client, db_session)
+    tariff = add_half_year_license(db_session, max_members=None)
+    add_seats_catalog(db_session, amount=SEAT_PRICE)
+
+    response = purchase_with_seats(client, tariff.id, 5)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == SEATS_UNLIMITED_TARIFF_DETAIL
+
+
+def test_tariff_with_seats_without_a_catalog_row_is_not_found(
+    client: TestClient, db_session: Session
+) -> None:
+    """Строки каталога мест нет — продавать нечего, даже вместе с тарифом."""
+    owner(client, db_session)
+    tariff = add_half_year_license(db_session)
+
+    response = purchase_with_seats(client, tariff.id, 5)
+
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == SEATS_NOT_FOR_SALE_DETAIL
+
+
+def test_paying_a_tariff_with_seats_applies_both_positions(
+    client: TestClient, db_session: Session
+) -> None:
+    """Одна оплата записывает подписку и растит счётчик мест, затем предел — 10.
+
+    Сквозной шов задачи: после оплаты `member_limit` = 5 (тариф) + 5 (места), и
+    это число отдаёт сервер, а не складывает экран.
+    """
+    organization = owner(client, db_session)
+    tariff = add_half_year_license(db_session, max_members=5)
+    add_seats_catalog(db_session, amount=SEAT_PRICE)
+    invoice_id = int(purchase_with_seats(client, tariff.id, 5).json()["id"])
+
+    paid = set_status(client, invoice_id, PAID)
+
+    assert paid.status_code == 200, paid.text
+    db_session.refresh(organization)
+    assert organization.tariff_id == tariff.id
+    assert organization.tariff_ends_at is not None
+    assert organization.extra_seats == 5
+    # Акт по-прежнему один на счёт, а не на позицию.
+    assert len(acts_of(db_session, invoice_id)) == 1
+
+    body = client.get("/api/tariffs/current").json()
+
+    assert body["tariff"]["id"] == tariff.id
+    assert body["extra_seats"] == 5
+    assert body["member_limit"] == 10
+
+
+def test_every_invoice_amount_is_the_sum_of_its_positions(
+    client: TestClient, db_session: Session
+) -> None:
+    """`invoices.amount` — каноническая сумма: расхождение с позициями — дефект."""
+    organization = owner(client, db_session)
+    tariff = add_half_year_license(db_session)
+    add_seats_catalog(db_session, amount=SEAT_PRICE)
+    solution = add_solution(db_session)
+    purchase_with_seats(client, tariff.id, 5)
+    purchase_seats(client, 12)
+    purchase_solution(client, solution.id)
+
+    for invoice in invoices_of(db_session, organization.id):
+        assert invoice.items, invoice.id
+        assert sum((item.amount for item in invoice.items), Decimal("0.00")) == invoice.amount
+
+
+def test_a_seats_only_purchase_keeps_its_single_position(
+    client: TestClient, db_session: Session
+) -> None:
+    """Докупка мест без тарифа — прежнее поведение: один счёт с одной позицией."""
+    owner_with_tariff(client, db_session)
+    add_seats_catalog(db_session, amount=SEAT_PRICE)
+
+    body = purchase_seats(client, 3).json()
+
+    assert body["item_kind"] == "seats"
+    assert body["quantity"] == 3
+    assert body["amount"] == "4500.00"
+    assert len(body["items"]) == 1
+    assert body["items"][0]["kind"] == "seats"
+    assert body["items"][0]["unit_amount"] == "1500.00"
+
+
+def test_a_solution_invoice_has_one_solution_position(
+    client: TestClient, db_session: Session
+) -> None:
+    """Счёт за решение по-прежнему покупается и отдаёт одну позицию `solution`."""
+    organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
+    solution = add_solution(db_session)
+
+    body = purchase_solution(client, solution.id).json()
+
+    assert body["item_kind"] == "solution"
+    assert [item["kind"] for item in body["items"]] == ["solution"]
+    assert body["items"][0]["name"] == solution.name
+    assert body["items"][0]["amount"] == str(solution.amount)
+
+
+def test_a_historical_invoice_without_positions_keeps_its_subject(
+    client: TestClient, db_session: Session
+) -> None:
+    """Счёт без строк `invoice_items` читается одной позицией из своего снимка.
+
+    Так выглядит счёт, до которого бэкфилл `0066_invoice_items` не дошёл или
+    который завели мимо ручки покупки: список позиций не должен оказаться пустым.
+    """
+    organization = owner(client, db_session)
+    tariff = add_tariff(db_session)
+    invoice = add_invoice(db_session, organization, tariff)
+    # Снимок предмета есть, а позиций нет: так выглядит счёт, заведённый мимо
+    # ручки покупки или до бэкфилла `0066_invoice_items`.
+    invoice.tariff_name = tariff.name
+    invoice.tariff_period = tariff.period
+    db_session.commit()
+
+    listed = client.get(f"{INVOICE_URL}/{invoice.id}")
+
+    assert listed.status_code == 200, listed.text
+    items = listed.json()["items"]
+    assert len(items) == 1
+    assert items[0]["kind"] == "tariff"
+    assert items[0]["name"] == tariff.name
+    assert items[0]["period"] == tariff.period
+    assert items[0]["quantity"] is None
+    assert items[0]["amount"] == str(invoice.amount)

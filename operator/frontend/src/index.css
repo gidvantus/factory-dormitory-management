@@ -26,6 +26,9 @@
   /* --- Семантика --- */
   --color-bg-page: #f0eee8;
   --color-bg-surface: #ffffff;
+  /* Фон раскрытой строки реестра: им же наливается форма под строкой, чтобы
+     строка и правка читались одним блоком (макет `mockups/178/`). */
+  --color-bg-open: #faf7f0;
   --color-border: #dedbd3;
   --color-border-strong: #c9c4b9;
   --color-text: var(--n-ink);
@@ -1533,5 +1536,1038 @@ body {
 
   .spinner {
     display: none;
+  }
+}
+
+/* ============================================================================
+   Тарифы (#178): прейскурант на семь колонок, правка строкой-формой под
+   строкой, двухшаговое «Удалить» и «Опубликовать» у снятой строки.
+
+   Ширины колонок заданы только под `.page--tariffs`: общие правила сломали бы
+   реестры организаций, счетов и пользователей. Прайс шире остальных реестров —
+   колонок семь, и в каждой есть содержимое.
+   ========================================================================== */
+
+.page--tariffs {
+  max-width: 1360px;
+}
+
+/* Ширины из макета постановки: название и описание — самые длинные, период и
+   состояние — самые короткие, действия — сколько занимают две кнопки. */
+.page--tariffs .list__table th:nth-child(1) {
+  width: 17%;
+}
+
+.page--tariffs .list__table th:nth-child(2) {
+  width: 22%;
+}
+
+.page--tariffs .list__table th:nth-child(3) {
+  width: 15%;
+}
+
+.page--tariffs .list__table th:nth-child(4) {
+  width: 10%;
+}
+
+.page--tariffs .list__table th:nth-child(5) {
+  width: 11%;
+}
+
+.page--tariffs .list__table th:nth-child(6) {
+  width: 10%;
+}
+
+.page--tariffs .list__table th,
+.page--tariffs .list__table td {
+  padding: 14px 14px;
+}
+
+.page--tariffs .list__table td {
+  font-size: 13.5px;
+}
+
+/* Название держит идентичность строки, цена — единственное громкое число. */
+.tariff__name {
+  display: block;
+  color: var(--n-ink);
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.tariff__description {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tariff__price {
+  color: var(--n-ink);
+  font-size: 14.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tariff__period {
+  color: var(--color-text-muted);
+}
+
+.tariff__members {
+  font-variant-numeric: tabular-nums;
+}
+
+.tariff__members--none {
+  color: var(--color-text-muted);
+}
+
+/* Снятая с продажи строка не выпадает из списка: имя и цена уходят в тёплый
+   серый, состояние читается словом «Не в прайсе» и контурной точкой. */
+.tariff--hidden .tariff__name,
+.tariff--hidden .tariff__price {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+/* Раскрытая строка и её форма — один блок: общий фон вместо рамки и отступа. */
+.tariff--open td {
+  background: var(--color-bg-open);
+}
+
+.edit-row td {
+  padding: 0;
+  background: var(--color-bg-open);
+}
+
+.edit-row .form--row {
+  gap: 14px;
+  padding: 18px 14px 20px;
+}
+
+/* Название, цена и период — в строку, описание шире прочих полей: оно длинное. */
+.form--row .form__grid {
+  gap: 14px 16px;
+}
+
+.form--row .field--description {
+  grid-column: 1 / span 2;
+}
+
+/* Пояснение под прайсом: «Удалить» не удаляет — сказано до нажатия. */
+.list__note {
+  margin: 0;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-page);
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* ============================================================================
+   Тарифы в узком окне: 1024 — таблица остаётся таблицей, но отступы и шрифт
+   меньше, а «Изменить» может уйти на вторую строку внутри ячейки.
+   ========================================================================== */
+
+@media (max-width: 1100px) {
+  .page--tariffs .list__table th,
+  .page--tariffs .list__table td {
+    padding: 12px 10px;
+  }
+
+  .page--tariffs .list__table td {
+    font-size: 13px;
+  }
+
+  .page--tariffs .list__table th {
+    font-size: 12px;
+  }
+
+  .page--tariffs .tariff__price {
+    white-space: normal;
+  }
+
+  .page--tariffs .row-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+}
+
+/* ============================================================================
+   Тарифы на 375: шапка таблицы скрыта (общее правило выше), строка реестра —
+   блок: название и состояние сверху, дальше подписи `cell__label`, кнопки на
+   всю ширину; форма встаёт в столбик под строкой.
+   ========================================================================== */
+
+@media (max-width: 760px) {
+  .page--tariffs .list__table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 10px;
+    padding: 15px 16px;
+  }
+
+  .page--tariffs .tariff__name-cell {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .page--tariffs .tariff__state {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .page--tariffs .tariff__description {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-top: 4px;
+  }
+
+  .page--tariffs .tariff__price {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin-top: 5px;
+    font-size: 14.5px;
+  }
+
+  .page--tariffs .tariff__period {
+    grid-column: 1 / -1;
+    grid-row: 4;
+  }
+
+  .page--tariffs .tariff__members {
+    grid-column: 1 / -1;
+    grid-row: 5;
+  }
+
+  .page--tariffs .list__action {
+    grid-column: 1 / -1;
+    grid-row: 6;
+    width: auto;
+    margin-top: 10px;
+    text-align: start;
+  }
+
+  .page--tariffs .row-actions {
+    justify-content: stretch;
+    gap: 8px;
+  }
+
+  .page--tariffs .row-actions .btn {
+    flex: 1 1 auto;
+  }
+
+  .page--tariffs .edit-row td {
+    grid-column: 1 / -1;
+    padding: 0;
+  }
+
+  .page--tariffs .edit-row .form--row {
+    padding: 16px;
+  }
+
+  .page--tariffs .form--row .form__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .page--tariffs .form--row .field--description {
+    grid-column: auto;
+  }
+
+  .page--tariffs .form--row .form__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page--tariffs .form--row .form__actions .btn {
+    width: 100%;
+  }
+
+  .page--tariffs .list__note {
+    padding: 12px 16px 14px;
+  }
+}
+
+/* ============================================================================
+   Реквизиты поставщика (#179): одиннадцать полей в панели, как в карточке
+   организации, но строк больше — сетка на три колонки, длинные значения во всю
+   ширину. Токены те же, продуктовые стили `app/frontend` не переиспользуются.
+   ========================================================================== */
+
+.page--company {
+  max-width: 960px;
+}
+
+/* Подсказка под полем уже отодвинута `gap`, дополнительный отступ не нужен —
+   только чуть плотнее к самому полю, чтобы читалась как его часть. */
+.form__grid--company .field__hint {
+  margin-top: -2px;
+}
+
+/* «Сохранено» стоит рядом с кнопкой: это ответ на нажатие, а не сообщение
+   страницы, и лишней строки над формой оно не занимает. */
+.form__saved {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: 13.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Отказ сохранения — в панели до формы: «над формой» из постановки. Боковые
+   отступы повторяют поля формы, чтобы алерт стоял в одной сетке с ними. */
+.panel__alert {
+  margin: 18px 24px 0;
+}
+
+/* ============================================================================
+   Реквизиты в узком окне: 1024 — две колонки вместо трёх, длинные поля
+   по-прежнему во всю ширину.
+   ========================================================================== */
+
+@media (max-width: 1100px) {
+  .form__grid--company {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 375: поля встают в столбик; `.field--wide` внутри такой сетки занимает ту же
+   единственную колонку, отдельного правила ему не нужно. */
+@media (max-width: 760px) {
+  .form__grid--company {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .page--company .panel__note {
+    padding: 12px 16px 14px;
+  }
+
+  .page--company .panel__alert {
+    margin: 16px 16px 0;
+  }
+}
+
+/* ============================================================================
+   Решения магазина (#188): каталог улучшений на десять колонок, правка
+   строкой-формой под строкой, двухшаговое «Удалить» и «Опубликовать» у снятой
+   строки.
+
+   Отличие от прайса тарифов — колонка «Порядок». Это не ещё одна колонка, а
+   спина списка: узкая колонка с вертикальной линией, по которой столбик номеров
+   читается как очередь витрины. Всё остальное — тише: описание, код и даты
+   правят редко, крупны только название, готовая цена и номер.
+
+   Ширины колонок заданы только под `.page--solutions`: общие правила сломали бы
+   реестры организаций, счетов, тарифов и пользователей.
+   ========================================================================== */
+
+.page--solutions {
+  max-width: 1360px;
+}
+
+.page--solutions .list__table {
+  table-layout: fixed;
+}
+
+.page--solutions .list__table th,
+.page--solutions .list__table td {
+  padding: 12px 10px;
+}
+
+.page--solutions .list__table td {
+  font-size: 13.5px;
+}
+
+/* 1 Порядок · 2 Название · 3 Код · 4 Описание · 5 Цена ·
+   6 Состояние · 7 Создано · 8 Изменено · 9 Действия.
+   Действия — 19.2%: в состоянии подтверждения там три кнопки, а не две.
+   Периода в таблице нет (#195): у решения нет своего срока, его место отдано
+   описанию, состоянию и действиям. */
+.page--solutions .list__table th:nth-child(1) {
+  width: 5.8%;
+}
+
+.page--solutions .list__table th:nth-child(2) {
+  width: 13.2%;
+}
+
+.page--solutions .list__table th:nth-child(3) {
+  width: 9.2%;
+}
+
+.page--solutions .list__table th:nth-child(4) {
+  width: 14%;
+}
+
+.page--solutions .list__table th:nth-child(5) {
+  width: 10.6%;
+}
+
+.page--solutions .list__table th:nth-child(6) {
+  width: 12.2%;
+}
+
+.page--solutions .list__table th:nth-child(7) {
+  width: 7.9%;
+}
+
+.page--solutions .list__table th:nth-child(8) {
+  width: 7.9%;
+}
+
+.page--solutions .list__table th:nth-child(9) {
+  width: 19.2%;
+}
+
+/* Линия-спина: порядок отделён от карточки решения на всю высоту реестра. */
+.page--solutions .list__table th:nth-child(1),
+.page--solutions .list__table td:nth-child(1) {
+  border-right: 1px solid var(--color-border);
+}
+
+.page--solutions .solution__position {
+  color: var(--n-ink);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.page--solutions .solution__position .cell__label {
+  font-weight: 400;
+}
+
+.solution__name {
+  display: block;
+  color: var(--n-ink);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* Код — гейт функции: он не правится и не создаётся, поэтому он тихий и мелкий,
+   но стоит отдельной колонкой, чтобы его не искали глазами. */
+.solution__code {
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
+}
+
+.solution__description {
+  color: var(--color-text-body);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.solution__price {
+  color: var(--n-ink);
+  font-size: 14.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.solution__date {
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Снятая с продажи строка не выпадает из списка: имя и цена уходят в тёплый
+   серый, состояние читается словом «Не в каталоге» и контурной точкой. */
+.solution--hidden .solution__name,
+.solution--hidden .solution__price {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.solution--open td {
+  background: var(--color-bg-open);
+}
+
+/* В строке-форме спины нет: она относится ко всей карточке, а не к колонке. */
+.page--solutions .edit-row td {
+  border-right: 0;
+}
+
+/* Поля разложены по смыслу: слева то, что читает клиент в карточке, справа
+   свойства витрины, снизу деньги. Название и описание шире прочих, последняя
+   строка — цена и валюта. */
+.page--solutions .form--row .field--name {
+  grid-column: 1 / span 2;
+}
+
+.page--solutions .field--amount .field__input,
+.page--solutions .field--currency .field__input,
+.page--solutions .field--position .field__input {
+  max-width: 240px;
+}
+
+.page--solutions .field--state .select {
+  max-width: 240px;
+}
+
+/* Отказ загрузки — текст и «Повторить» одной строкой: кнопка рядом с сообщением,
+   поэтому прочитал и нажал, а не искал её под списком. */
+.alert-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.alert-line .alert {
+  flex: 1 1 auto;
+}
+
+/* ============================================================================
+   Решения на средней ширине: 761–1180. Девять колонок в 1024 не встают, а
+   прокрутка внутри реестра прячет половину строки, поэтому уходят две самые
+   тихие колонки — «Создано» и «Изменено»: даты нужны для сверки, а не для
+   работы с каталогом. Остальные семь встают без переполнения.
+   ========================================================================== */
+
+@media (min-width: 761px) and (max-width: 1180px) {
+  .page--solutions .list__table th:nth-child(7),
+  .page--solutions .list__table td:nth-child(7),
+  .page--solutions .list__table th:nth-child(8),
+  .page--solutions .list__table td:nth-child(8) {
+    display: none;
+  }
+
+  .page--solutions .list__table th:nth-child(1) {
+    width: 8%;
+  }
+
+  .page--solutions .list__table th:nth-child(2) {
+    width: 15%;
+  }
+
+  .page--solutions .list__table th:nth-child(3) {
+    width: 12%;
+  }
+
+  .page--solutions .list__table th:nth-child(4) {
+    width: 15%;
+  }
+
+  .page--solutions .list__table th:nth-child(5) {
+    width: 12%;
+  }
+
+  .page--solutions .list__table th:nth-child(6) {
+    width: 13%;
+  }
+
+  .page--solutions .list__table th:nth-child(9) {
+    width: 25%;
+  }
+}
+
+@media (max-width: 1180px) {
+  .page--solutions .list__table th,
+  .page--solutions .list__table td {
+    padding: 12px 8px;
+  }
+
+  .page--solutions .list__table th {
+    font-size: 12px;
+  }
+
+  .page--solutions .list__table td {
+    font-size: 13px;
+  }
+
+  .page--solutions .solution__price {
+    white-space: normal;
+  }
+
+  /* Две кнопки в узкой ячейке не встают в строку при обычном --compact:
+     в этом диапазоне они плотнее, как у прайса тарифов на 1024. */
+  .page--solutions .row-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .page--solutions .row-actions .btn--compact {
+    padding: 6px 10px;
+    font-size: 12.5px;
+  }
+}
+
+/* ============================================================================
+   Решения на 375: шапка таблицы скрыта общим правилом, строка реестра — блок:
+   сверху номер порядка и состояние, ниже название, код, описание, цена,
+   даты, кнопки на всю ширину; форма встаёт в столбик под строкой.
+   ========================================================================== */
+
+@media (max-width: 760px) {
+  .page--solutions .list__table tr.solution {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 10px;
+    padding: 15px 16px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .page--solutions .list__table tbody tr.solution:last-of-type {
+    border-bottom: 0;
+  }
+
+  .page--solutions .list__table tr.solution td {
+    padding: 0;
+    border: 0;
+  }
+
+  .page--solutions .solution__position {
+    grid-column: 1;
+    grid-row: 1;
+    color: var(--color-text-muted);
+    font-size: 12.5px;
+    font-weight: 400;
+  }
+
+  .page--solutions .solution__state-cell {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .page--solutions .solution__name-cell {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-top: 2px;
+  }
+
+  .page--solutions .solution__name {
+    font-size: 15px;
+  }
+
+  .page--solutions .solution__code {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin-top: 2px;
+  }
+
+  .page--solutions .solution__description {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    margin-top: 6px;
+  }
+
+  .page--solutions .solution__price {
+    grid-column: 1 / -1;
+    grid-row: 5;
+    margin-top: 6px;
+    font-size: 14.5px;
+  }
+
+  .page--solutions .solution__created-cell {
+    grid-column: 1 / -1;
+    grid-row: 6;
+    margin-top: 6px;
+  }
+
+  .page--solutions .solution__updated-cell {
+    grid-column: 1 / -1;
+    grid-row: 7;
+  }
+
+  .page--solutions .list__action {
+    grid-column: 1 / -1;
+    grid-row: 8;
+    width: auto;
+    margin-top: 10px;
+    text-align: start;
+  }
+
+  .page--solutions .row-actions {
+    justify-content: stretch;
+    gap: 8px;
+  }
+
+  .page--solutions .row-actions .btn {
+    flex: 1 1 auto;
+  }
+
+  /* Строка-блок несёт фон сама: у ячеек-блоков заливка ложится полосами
+     в промежутках сетки. */
+  .page--solutions .solution--open td {
+    background: transparent;
+  }
+
+  .page--solutions .solution--open {
+    background: var(--color-bg-open);
+  }
+
+  .page--solutions .edit-row {
+    display: block;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .page--solutions .edit-row td {
+    padding: 0;
+  }
+
+  .page--solutions .edit-row .form--row {
+    padding: 16px;
+  }
+
+  .page--solutions .form--row .form__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .page--solutions .form--row .field--name,
+  .page--solutions .form--row .field--description {
+    grid-column: auto;
+  }
+
+  .page--solutions .form--row .field__input--area {
+    min-height: 96px;
+  }
+
+  .page--solutions .form--row .form__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page--solutions .form--row .form__actions .btn {
+    width: 100%;
+  }
+
+  .page--solutions .list__note {
+    padding: 12px 16px 14px;
+  }
+}
+
+/* ============================================================================
+   Панель «Тариф и расширения» карточки организации (#189).
+
+   Внутри панели нет ни одной новой краски: она собрана из тех же
+   поверхностей, линий 1px, малых радиусов и счётчиков `.counts`, что уже есть
+   в карточке организации. Новые классы — только раскладка.
+   ========================================================================== */
+
+.sub {
+  padding: 0;
+}
+
+.sub__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 24px 0;
+}
+
+.sub__main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sub__name {
+  margin: 0;
+  font: 600 19px/1.3 var(--font-display);
+  letter-spacing: -0.2px;
+  color: var(--n-ink);
+  overflow-wrap: anywhere;
+}
+
+.sub__name--none {
+  color: var(--color-text-body);
+}
+
+.sub__state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+}
+
+.sub__state-text {
+  font-variant-numeric: tabular-nums;
+}
+
+.sub__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sub__hint {
+  max-width: 62ch;
+  margin: 0;
+  padding: 10px 24px 20px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* Счётчики повторяют подвал «Реквизитов»: фон страницы, линия сверху.
+   Здесь они отвечают на вопрос «сколько ещё», а не «сколько всего». */
+.sub__counts {
+  margin: 18px 0 0;
+}
+
+.sub__counts .counts__label {
+  max-width: 34ch;
+}
+
+.sub__next {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 13px 24px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.sub__next-value {
+  color: var(--color-text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.sub__solutions {
+  border-top: 1px solid var(--color-border);
+}
+
+.sub__section {
+  margin: 0;
+  padding: 16px 24px 2px;
+  color: var(--color-text-body);
+  font: 600 12.5px/1.4 var(--font-body);
+  letter-spacing: 0.01em;
+}
+
+.sub__list {
+  margin: 0;
+  padding: 0 24px 6px;
+  list-style: none;
+}
+
+.sub__solution {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sub__solution:last-child {
+  border-bottom: 0;
+}
+
+.sub__solution-name {
+  color: var(--n-ink);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.sub__solution-state {
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Пара «Подтвердить» / «Не надо» — один блок в третьей колонке строки: иначе
+   вторая кнопка уезжает на новую строку и тянется на всю ширину. */
+.sub__solution-actions {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+}
+
+/* Недействующее право остаётся в списке: срок в прошлом — это запись, а не
+   удаление. Гаснет название, срок и так тихий. */
+.sub__solution--off .sub__solution-name {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.sub__empty {
+  margin: 0;
+  padding: 4px 24px 20px;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+}
+
+/* Правка срока — форма внутри панели, как правка строки в прайсе: тот же тёплый
+   фон, что у раскрытой строки. */
+.form--sub {
+  gap: 0;
+  padding: 0;
+  background: var(--color-bg-open);
+  border-top: 1px solid var(--color-border);
+}
+
+.form--sub .field {
+  gap: 6px;
+  padding: 18px 24px 0;
+  max-width: 272px;
+}
+
+.form--sub .field__hint {
+  margin: 8px 24px 0;
+}
+
+.form--sub .alert {
+  margin: 14px 24px 0;
+}
+
+.form--sub .form__actions {
+  padding: 16px 24px 20px;
+}
+
+.sub__error {
+  margin: 14px 24px 20px;
+}
+
+/* Отказ загрузки панели: текст `detail` и «Повторить» одной строкой. */
+.sub__alert-line {
+  padding: 16px 24px 20px;
+}
+
+@media (max-width: 760px) {
+  /* Пять разделов в 375 в одну строку не встают: без переноса навигация тянет
+     шапку шире экрана. Правило выше задаёт высоту 46px — здесь она свободная. */
+  .topbar--nav .nav {
+    flex-wrap: wrap;
+    height: auto;
+  }
+
+  .topbar--nav .nav__link {
+    flex: 1 1 auto;
+    height: 44px;
+    justify-content: center;
+    padding: 0 10px;
+  }
+
+  /* Панель в столбик: название и срок сверху, действия на всю ширину,
+     счётчики друг под другом, строка расширения — название со сроком и кнопка
+     под ними. Горизонтального переполнения нет. */
+  .sub__head {
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px 20px 0;
+  }
+
+  .sub__name {
+    font-size: 17px;
+  }
+
+  .sub__actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .sub__actions .btn {
+    flex: 1 1 auto;
+  }
+
+  .sub__hint {
+    padding: 10px 20px 18px;
+  }
+
+  .sub__counts {
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 16px;
+  }
+
+  .sub__next {
+    padding: 12px 20px;
+  }
+
+  .sub__section {
+    padding: 14px 20px 2px;
+  }
+
+  .sub__list {
+    padding: 0 20px 4px;
+  }
+
+  .sub__solution {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+    padding: 13px 0;
+  }
+
+  .sub__solution-state {
+    text-align: start;
+  }
+
+  .sub__solution .btn {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .sub__solution-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .sub__solution-actions .btn {
+    flex: 1 1 50%;
+    margin-top: 0;
+  }
+
+  .sub__empty {
+    padding: 4px 20px 18px;
+  }
+
+  .form--sub .field {
+    max-width: none;
+    padding: 16px 20px 0;
+  }
+
+  .form--sub .field__hint {
+    margin: 8px 20px 0;
+  }
+
+  .form--sub .alert {
+    margin: 14px 20px 0;
+  }
+
+  .form--sub .form__actions {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 14px 20px 18px;
+  }
+
+  .sub__error {
+    padding: 0 20px 18px;
+  }
+
+  /* Отказ загрузки панели: текст и «Повторить» в столбик. Общий `.alert-line`
+     не трогаем — он же стоит в каталоге решений, у него свои отступы. */
+  .sub__alert-line {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px 20px 18px;
   }
 }

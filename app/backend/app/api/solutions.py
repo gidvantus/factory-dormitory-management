@@ -4,6 +4,12 @@
 (`POST /api/billing/invoices` с `solution_id`), отдельной ручки покупки здесь нет
 намеренно — она дублировала бы проверки и снимок предмета.
 
+**Срок права — срок тарифа.** У решений нет собственного срока: карточка
+показывает `period = "once"` и цену «…разово», а `expires_at` у купленного решения
+— это конец действующего тарифа организации (`app.subscription.subscription_state`),
+чтобы витрина могла сказать «действует, пока действует тариф, до такого-то дня».
+Истёк тариф — `is_owned = false` и `expires_at = null`, хотя строка права остаётся.
+
 Коды отказа — как у `GET /api/tariffs/current`: 401 без сессии, 403 без
 активированного кабинета, 404 без организации у пользователя. Скрытые строки
 каталога (`is_visible = false`) в список не попадают ни при каких параметрах
@@ -11,7 +17,7 @@
 """
 
 from datetime import datetime
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
@@ -22,9 +28,9 @@ from app.db import get_db
 from app.models.solution import Solution
 from app.pricing import format_price
 from app.schemas.solution import SolutionResponse, SolutionsResponse
-from app.schemas.tariff import TariffPeriod
 from app.schemas.user import ErrorResponse
-from app.solutions import entitlements
+from app.solutions import owned_codes
+from app.subscription import ONCE_PERIOD, subscription_state
 
 router = APIRouter(prefix="/solutions", tags=["solutions"])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -49,7 +55,13 @@ CATALOG_RESPONSES: dict[int | str, dict[str, Any]] = {
 def _response(
     solution: Solution, *, is_owned: bool, expires_at: datetime | None
 ) -> SolutionResponse:
-    """Ответ по строке каталога: `price_label` считает сервер, клиент его не собирает."""
+    """Ответ по строке каталога: `price_label` считает сервер, клиент его не собирает.
+
+    Период в ответе — всегда `once`, а не значение из строки каталога: своего срока
+    у решения больше нет (`app.solutions`), и цена поэтому читается как «500 ₽
+    разово». Колонка `solutions.period` остаётся в схеме и нормализуется миграцией
+    `0068_solutions_tariff_scope`, но ответ на неё не смотрит.
+    """
     return SolutionResponse(
         id=solution.id,
         code=solution.code,
@@ -57,11 +69,8 @@ def _response(
         description=solution.description,
         amount=solution.amount,
         currency=solution.currency,
-        # В колонке `VARCHAR(10)` набор значений держит `CHECK` по тем же
-        # периодам, что перечисляет `TariffPeriod`; приведение говорит об этом
-        # типизатору, а не ослабляет проверку.
-        period=cast(TariffPeriod, solution.period),
-        price_label=format_price(solution.amount, solution.currency, solution.period),
+        period=ONCE_PERIOD,
+        price_label=format_price(solution.amount, solution.currency, ONCE_PERIOD),
         is_owned=is_owned,
         expires_at=expires_at,
     )
@@ -78,19 +87,26 @@ def list_solutions(membership: Membership, db: DbSession) -> SolutionsResponse:
 
     Читает любой участник, роль не важна: это витрина, а не правка. Порядок —
     `position`, затем `id`: он задан данными, а не алфавитом названий.
+
+    `expires_at` — конец **действующего тарифа** организации, и только у купленного
+    решения: у некупленного срока права нет вовсе, а у бессрочного тарифа конца нет
+    и поле остаётся `null`.
     """
     visible = db.scalars(
         select(Solution)
         .where(Solution.is_visible.is_(True))
         .order_by(Solution.position, Solution.id)
     )
-    owned = entitlements(db, membership.organization_id)
+    owned = owned_codes(db, membership.organization_id)
+    # Действующий тариф спрашивается один раз на весь каталог: `subscription_state`
+    # читает организацию и строки прайса, а не по разу на карточку.
+    tariff_ends_at = subscription_state(db, membership.organization_id).ends_at
     return SolutionsResponse(
         items=[
             _response(
                 solution,
                 is_owned=solution.code in owned,
-                expires_at=owned.get(solution.code),
+                expires_at=tariff_ends_at if solution.code in owned else None,
             )
             for solution in visible
         ]

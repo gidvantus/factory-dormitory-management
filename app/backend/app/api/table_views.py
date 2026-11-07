@@ -7,14 +7,16 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import OwnDormitory, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.api.organization import Membership
 from app.db import get_db
 from app.models.organization import Organization
 from app.models.table_view import TableView
 from app.table_data import DEFAULT_COLUMNS, lock_dormitory, require_writable_table
 
-router = APIRouter(tags=["table-views"])
+# Роутер закрыт `SubscribedUser`, поэтому 403 объявляется один раз здесь, а не
+# в каждой ручке: `/openapi.json` обязан показывать его у всех четырёх.
+router = APIRouter(tags=["table-views"], responses={**SUBSCRIBED_USER_RESPONSES})
 DbSession = Annotated[Session, Depends(get_db)]
 ViewKey = Annotated[str, Path(min_length=1, max_length=120, pattern=r"^[\w.-]+$")]
 Color = Literal[

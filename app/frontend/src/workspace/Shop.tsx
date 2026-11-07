@@ -20,15 +20,17 @@ function purchaseErrorMessage(error: unknown): string {
 }
 
 /**
- * Раздел «Магазин улучшений»: список решений и покупка решения на период.
+ * Раздел «Магазин улучшений»: список решений и покупка решения.
  *
  * Раздел открыт всегда — как «Тариф» и «Документы», — и в `CLOSED_SECTIONS` не
- * входит: покупка нужна именно на закрытом пробном кабинете, когда кабинет и
- * открывается оплатой.
+ * входит: витрина объясняет, что даёт тариф, и ведёт к его оплате. Сама покупка
+ * с #195 требует действующего тарифа, и отказ (`409` «Купить решение можно после
+ * оплаты тарифа») приходит текстом сервера — экран его не переписывает.
  *
  * Оформление «01 Витрина»: описание и пример решения над строкой покупки.
  * Цена приходит строкой с сервера (`price_label`), клиент её не считает.
- * Кнопка покупки у уже подключённого решения доступна для продления.
+ * У подключённого решения кнопки покупки нет: своего срока у права больше нет,
+ * оно действует, пока действует тариф.
  */
 export function Shop(): JSX.Element {
   const { status, items, reload } = useSolutions();
@@ -37,19 +39,25 @@ export function Shop(): JSX.Element {
   const navigate = useNavigate();
 
   /**
-   * «Купить» заводит организации счёт за выбранное решение и уводит в
-   * «Документы»: именно там виден выставленный счёт и кнопка оплаты.
+   * «Купить» заводит организации счёт за выбранное решение или за докупленные
+   * места и уводит в «Документы»: именно там виден выставленный счёт и кнопка
+   * оплаты.
+   *
+   * Для мест передаётся только количество: сумму `цена места × N` считает
+   * сервер, и клиент её в теле не отправляет. Отказы (`409` про оплату тарифа,
+   * безлимит или реквизиты, `404` про каталог) показываются текстом сервера как
+   * есть — своих формулировок экран не придумывает.
    *
    * Каталог перечитывается после покупки: право появляется только оплатой, но
    * счёт мог быть уже оплачен на другом устройстве, и признак владения не
    * должен остаться прошлым.
    */
-  async function buySolution(solutionId: number): Promise<void> {
+  async function buySolution(solutionId: number, seats?: number): Promise<void> {
     if (buying !== null) return;
     setBuying(solutionId);
     setBuyError('');
     try {
-      await api.purchaseInvoice({ solution_id: solutionId });
+      await api.purchaseInvoice(seats === undefined ? { solution_id: solutionId } : { seats });
       reload();
       navigate('/cabinet/documents', { state: { purchased: true } });
     } catch (caught: unknown) {
@@ -66,7 +74,7 @@ export function Shop(): JSX.Element {
           <h1 id="shop-title" tabIndex={-1}>
             Магазин улучшений
           </h1>
-          <p className={styles.subtitle}>Дополнительные решения — отдельно от тарифа</p>
+          <p className={styles.subtitle}>Дополнительные решения — в рамках действующего тарифа</p>
         </div>
       </div>
 
@@ -103,7 +111,7 @@ export function Shop(): JSX.Element {
               <ShopSolutionCard
                 solution={solution}
                 buying={buying}
-                onBuy={(id) => void buySolution(id)}
+                onBuy={(id, seats) => void buySolution(id, seats)}
               />
             </li>
           ))}
