@@ -1,12 +1,20 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UserCard } from './UserCard';
 import { OperatorContext } from '../auth/operatorContext';
+import { openLink } from '../lib/navigate';
 import { mockFetch } from '../test/mockFetch';
-import type { MockStep } from '../test/mockFetch';
+import type { MockResponse, MockStep } from '../test/mockFetch';
+
+// Переход на сайт проверяется подменой, а не переходом: `window.location` в
+// jsdom неизменяем, а экран обязан проверяться тестом.
+vi.mock('../lib/navigate', () => ({ openLink: vi.fn() }));
+
+/** Ссылка, которую в жизни собирает основной API из своего `frontend_base_url`. */
+const LINK = 'https://crm.example.com/su/raw-impersonation-token';
 
 const USER = {
   id: 142,
@@ -192,5 +200,103 @@ describe('карточка пользователя кабинета опера�
 
     release({ status: 200, body: USER });
     expect(await screen.findByTestId('operator-user-edit')).toBeInTheDocument();
+  });
+});
+
+describe('вход под пользователем из карточки', () => {
+  beforeEach(() => {
+    vi.mocked(openLink).mockClear();
+  });
+
+  it('у активированного пользователя действие есть и открывает ссылку из ответа', async () => {
+    const network = await renderLoaded([
+      { status: 200, body: USER },
+      { status: 200, body: { url: LINK } },
+    ]);
+    const user = userEvent.setup();
+
+    const button = screen.getByTestId('operator-user-impersonate');
+    expect(button).toHaveTextContent('Войти под пользователем');
+    expect(button).toHaveClass('btn', 'btn--ghost');
+    expect(button).toBeEnabled();
+
+    await user.click(button);
+
+    await waitFor(() => expect(openLink).toHaveBeenCalledWith(LINK));
+    const [, request] = network.calls;
+    expect(request.url).toBe('/api/users/142/impersonate');
+    expect(request.init.method).toBe('POST');
+    expect(request.init.credentials).toBe('include');
+    // Тела у запроса нет: получатель ссылки — номер в пути.
+    expect(request.init.body).toBeUndefined();
+    // Своего адреса кабинет не строит — переходит ровно по строке из ответа.
+    expect(vi.mocked(openLink).mock.calls[0]).toEqual([LINK]);
+  });
+
+  it('у неактивированной учётной записи кнопка неактивна и объясняет почему', async () => {
+    const network = await renderLoaded([{ status: 200, body: { ...USER, is_active: false } }]);
+    const user = userEvent.setup();
+
+    const button = screen.getByTestId('operator-user-impersonate');
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', 'Кабинет не активирован');
+
+    await user.click(button);
+    // Неактивная кнопка не ходит в сеть даже под кликом.
+    expect(network.calls).toHaveLength(1);
+    expect(openLink).not.toHaveBeenCalled();
+  });
+
+  it('в режиме правки действия нет', async () => {
+    await renderLoaded([{ status: 200, body: USER }]);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId('operator-user-edit'));
+    expect(screen.queryByTestId('operator-user-impersonate')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('operator-user-cancel'));
+    expect(screen.getByTestId('operator-user-impersonate')).toBeInTheDocument();
+  });
+
+  it('на время запроса кнопка неактивна и говорит «Открываем…»', async () => {
+    let release: (response: MockResponse) => void = () => undefined;
+    const pending = new Promise<MockResponse>((resolve) => {
+      release = resolve;
+    });
+    await renderLoaded([{ status: 200, body: USER }, () => pending]);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId('operator-user-impersonate'));
+
+    const button = screen.getByTestId('operator-user-impersonate');
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent('Открываем…');
+    expect(button).toHaveAttribute('aria-busy', 'true');
+    expect(openLink).not.toHaveBeenCalled();
+
+    release({ status: 200, body: { url: LINK } });
+    await waitFor(() => expect(openLink).toHaveBeenCalledWith(LINK));
+    // После ответа кнопка снова доступна: оператор может повторить действие.
+    expect(screen.getByTestId('operator-user-impersonate')).toBeEnabled();
+  });
+
+  it('отказ показывает detail дословно, фокус на нём, карточка остаётся в просмотре', async () => {
+    await renderLoaded([
+      { status: 200, body: USER },
+      { status: 502, body: { detail: 'Основной API недоступен' } },
+    ]);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId('operator-user-impersonate'));
+
+    const error = await screen.findByTestId('operator-user-impersonate-error');
+    expect(error).toHaveTextContent(/^Основной API недоступен$/);
+    expect(error).toHaveAttribute('role', 'alert');
+    expect(error).toHaveFocus();
+    // Форма правки не открывается, карточка не пропадает, повтор доступен.
+    expect(screen.getByTestId('operator-user-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('operator-user-save')).not.toBeInTheDocument();
+    expect(screen.getByTestId('operator-user-impersonate')).toBeEnabled();
+    expect(openLink).not.toHaveBeenCalled();
   });
 });

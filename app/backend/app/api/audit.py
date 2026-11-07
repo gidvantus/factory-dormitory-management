@@ -9,15 +9,16 @@
 Права: `JournalAccess` — владелец организации **с действующим правом** на решение
 `journal` магазина улучшений. Сначала `OwnerMembership`, то есть только
 `OWNER_ROLE`: `admin` правит организацию (`EDIT_ROLES`), но журнал — раздел уровня
-владельца, там видно, кто что делал. Затем право: журнал продаётся отдельным
-решением каталога (`app.solutions.JOURNAL`, seed `0049_solution_journal`), и без
-права ручка отвечает 403 про магазин. Порядок жёсткий — активация → роль → право,
-иначе сотрудник без права увидел бы предложение купить то, чего ему всё равно не
-откроют. Коды отказа поэтому различимы:
+владельца, там видно, кто что делал. Затем тариф и право: журнал продаётся
+отдельным решением каталога (`app.solutions.JOURNAL`, seed
+`0049_solution_journal`), а само право действует только при действующем тарифе
+организации (`app.solutions.require_solution_access`). Порядок жёсткий —
+активация → роль → тариф → право, иначе сотрудник без права увидел бы предложение
+купить то, чего ему всё равно не откроют. Коды отказа поэтому различимы:
 
 * **401** — нет сессии;
-* **403** — кабинет не активирован, роль не `owner` или у организации нет права на
-  решение `journal`;
+* **403** — кабинет не активирован, роль не `owner`, у организации нет
+  действующего тарифа или нет права на решение `journal`;
 * **404** — пользователь не привязан к организации;
 * **422** — период длиннее `MAX_RANGE_DAYS`, начало позже конца, период целиком
   в будущем, дата вне календаря, неразборчивый курсор или `limit` вне 1..200.
@@ -71,7 +72,8 @@ from app.report_readiness import today_moscow
 from app.schemas.audit import JournalEntry, JournalKind, JournalPage
 from app.schemas.user import ErrorResponse
 from app.security import ACTIVATION_REQUIRED_DETAIL
-from app.solutions import JOURNAL, SOLUTION_REQUIRED_DETAIL, has_solution
+from app.solutions import JOURNAL, SOLUTION_REQUIRED_DETAIL, require_solution_access
+from app.trial import TRIAL_EXPIRED_DETAIL
 
 router = APIRouter(tags=["journal"])
 DbSession = Annotated[Session, Depends(get_db)]
@@ -116,6 +118,7 @@ JOURNAL_RESPONSES: dict[int | str, dict[str, Any]] = {
         "model": ErrorResponse,
         "description": f"{ACTIVATION_REQUIRED_DETAIL} — кабинет не активирован; "
         f"{ORGANIZATION_EDIT_FORBIDDEN_DETAIL} — роль не владелец; "
+        f"{TRIAL_EXPIRED_DETAIL} — нет действующего тарифа; "
         f"{SOLUTION_REQUIRED_DETAIL} — нет права на решение «Журнал действий»",
     },
     status.HTTP_404_NOT_FOUND: {
@@ -133,17 +136,20 @@ JOURNAL_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 def require_journal_access(membership: OwnerMembership, db: DbSession) -> OrganizationMember:
-    """Владелец организации с действующим правом на решение «Журнал действий».
+    """Владелец организации с действующим тарифом и правом на решение «Журнал действий».
 
     Право берётся из того же механизма, что у «Уведомлений» (`app.solutions`), и
     проверяется **после** `OwnerMembership`: порядок отказов контрактный —
-    активация (403), роль (403 «Недостаточно прав»), право (403 про магазин).
+    активация (403), роль (403 «Недостаточно прав»), тариф (403 закрытого
+    кабинета), право (403 про магазин). Выбор текста живёт в одном месте
+    (`solutions.require_solution_access`), а не второй копией здесь.
+
     Сотрудник без права не должен видеть предложение купить то, что ему не
     откроют, а неактивированный кабинет — предложение что-то купить вместо ссылки
-    на письмо.
+    на письмо. Без действующего тарифа журнал не работает вовсе: услуга живёт
+    ровно столько, сколько тариф.
     """
-    if not has_solution(db, membership.organization_id, JOURNAL):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, SOLUTION_REQUIRED_DETAIL)
+    require_solution_access(db, membership.organization_id, JOURNAL)
     return membership
 
 

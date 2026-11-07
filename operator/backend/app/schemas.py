@@ -6,7 +6,7 @@ OpenAPI (`/openapi.json` и `/docs`) собирается из них, а не �
 рядом.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -154,6 +154,18 @@ class UpdatePlatformUserRequest(ForwardedBody):
     """
 
     full_name: str | None = None
+
+
+class ImpersonationLink(BaseModel):
+    """Ссылка входа под пользователем — форма ответа основного API, один в один.
+
+    `url` абсолютный и приходит готовым: адрес сайта знает только основной API
+    (`frontend_base_url`), а кабинет — нет, и своей копии адреса у него быть не
+    должно. Фронтенд кабинета переходит по этой строке целиком
+    (`window.location.assign`), а не собирает адрес сам.
+    """
+
+    url: str = Field(examples=["http://localhost:8080/su/eyJhbGciOiJIUzI1NiJ9.eyJ"])
 
 
 # --- Счета платформы ---------------------------------------------------------
@@ -376,7 +388,6 @@ class Solution(BaseModel):
     description: str | None
     amount: str
     currency: str
-    period: str
     position: int
     is_visible: bool
     price_label: str
@@ -390,6 +401,10 @@ class UpdateSolutionRequest(ForwardedBody):
     Поля необязательны, и уходят только присланные: `PATCH` одного описания не
     обнуляет цену.
 
+    **Периода оплаты нет** (#195): у решения нет собственного срока, право
+    действует, пока действует тариф организации. Присланный `period` основной API
+    отсекает как лишнее поле (`422`), и второй копии этого правила здесь нет.
+
     **Типы полей здесь `Any`, а не `str`/`int`/`bool`, намеренно** (доработка по
     ревью №1, #188). С `int | None` в `position` и `bool | None` в `is_visible`
     `pydantic` приводил присланное до отправки: `"3"` и `true` становились числом
@@ -401,15 +416,97 @@ class UpdateSolutionRequest(ForwardedBody):
 
     Проверять и приводить значения — работа основного API: пустое название,
     отрицательную или слишком большую цену, валюту не из трёх заглавных букв,
-    неизвестный период, нецелый порядок и состояние не `true`/`false` отсекает он,
-    и его `422` уходит клиенту дословно. Вторая копия правил и текстов разошлась
-    бы с оригиналом на первой же правке.
+    нецелый порядок и состояние не `true`/`false` отсекает он, и его `422` уходит
+    клиенту дословно. Вторая копия правил и текстов разошлась бы с оригиналом на
+    первой же правке.
     """
 
     name: Any = None
     description: Any = None
     amount: Any = None
     currency: Any = None
-    period: Any = None
     position: Any = None
     is_visible: Any = None
+
+
+# --- Тариф и расширения организации ------------------------------------------
+# Девятый раздел кабинета (#189). Те же правила, что у остальных платформенных
+# разделов: модели повторяют форму ответа основного API
+# (`app/backend/app/schemas/platform_subscription.py`) один в один, а тела правки
+# проверяются там же, наверху. Кабинет ничего не добавляет и ничего не считает:
+# `paid_until`, `days_left` и `is_live` приходят готовыми, из основного API.
+
+
+class SubscriptionTariff(BaseModel):
+    """Записанный слот подписки: строка прайса и её срок.
+
+    `ends_at: null` — бессрочный тариф (тогда и `paid_until: null`), `is_live`
+    считает сервер по сроку. `price_label` — готовая подпись цены, её тоже
+    собирает сервер: второй формулы цены на клиенте нет.
+    """
+
+    id: int
+    name: str
+    period: str
+    max_members: int | None
+    price_label: str
+    ends_at: datetime | None
+    paid_until: date | None
+    is_live: bool
+
+
+class NextSubscription(BaseModel):
+    """Оплаченный вперёд слот: показывается, но не правится и не снимается."""
+
+    tariff: SubscriptionTariff
+    ends_at: datetime | None
+    paid_until: date | None
+
+
+class SubscriptionRight(BaseModel):
+    """Право организации на расширение — включая истёкшие.
+
+    `code` — машинный код решения, гейт платной функции. `is_live` — работает ли
+    право **сейчас**: после #195 оно живёт по тарифу, поэтому `true` только у
+    купленного права при действующем тарифе. `paid_until` — последний включённый
+    день права по Москве (`null` — тариф бессрочный); `expires_at` — записанный
+    срок как история, код его не читает.
+    """
+
+    code: str
+    name: str
+    expires_at: datetime | None
+    paid_until: date | None
+    is_live: bool
+
+
+class SubscriptionState(BaseModel):
+    """Состояние подписки организации — один и тот же объект у всех четырёх ручек.
+
+    `tariff` — записанный текущий слот, без «виртуального переезда» наступившего
+    будущего периода: оператор видит то, что лежит в базе. `member_limit` —
+    **действующий** предел мест: `max_members` действующего тарифа плюс
+    `extra_seats` (`null` — без ограничения). Считает его основной API тем же
+    правилом, что проверка приглашений и клиентский кабинет, поэтому у истёкшего
+    слота с оплаченным следующим кабинет покажет предел будущего тарифа.
+    """
+
+    tariff: SubscriptionTariff | None
+    days_left: int
+    next: NextSubscription | None
+    extra_seats: int
+    member_limit: int | None
+    solutions: list[SubscriptionRight]
+
+
+class UpdateSubscriptionRequest(ForwardedBody):
+    """Тело правки срока — то, что кабинет передаёт основному API.
+
+    Поле объявлено `Any`, а не `str`, намеренно — по той же причине, что у
+    `UpdateSolutionRequest`: с `str` `pydantic` отклонил бы присланное число или
+    `null` своим английским текстом, а контракт обещает, что отказ приходит из
+    основного API по-русски («Укажите срок действия в формате ГГГГ-ММ-ДД»).
+    Кабинет значения не проверяет: он их только передаёт.
+    """
+
+    paid_until: Any = None

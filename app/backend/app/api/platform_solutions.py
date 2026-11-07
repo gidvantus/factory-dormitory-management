@@ -42,6 +42,7 @@ from app.pricing import format_price
 from app.schemas.platform_solution import SolutionAdminResponse, UpdateSolutionRequest
 from app.schemas.user import ErrorResponse
 from app.security import INVALID_OPERATOR_TOKEN_DETAIL, require_operator_service
+from app.subscription import ONCE_PERIOD
 
 # Зависимость на роутере целиком: ни одна ручка платформенного контура не
 # открывается без сервисного токена.
@@ -77,7 +78,8 @@ UPDATE_RESPONSES: dict[int | str, dict[str, object]] = {
         "model": ErrorResponse,
         "description": "Пустое или длинное название, описание не строкой, отрицательная "
         "или слишком большая цена, валюта не из трёх заглавных латинских букв, "
-        "неизвестный период, нецелый или отрицательный порядок, состояние не true/false",
+        "нецелый или отрицательный порядок, состояние не true/false, лишнее поле "
+        "в теле — в том числе `period`",
     },
 }
 
@@ -114,7 +116,9 @@ def solution_response(solution: Solution) -> SolutionAdminResponse:
     """Ответ по строке каталога: `price_label` считает сервер, клиент его не собирает.
 
     Подпись цены собирает `app.pricing.format_price` — та же функция, что у
-    витрины магазина: второй формулы цены нет.
+    витрины магазина: второй формулы цены нет. Период подписи — `once`, период
+    строки каталога не читается: своего срока у решения нет (#195), и оператор
+    этот период больше не правит.
     """
     return SolutionAdminResponse(
         id=solution.id,
@@ -123,10 +127,9 @@ def solution_response(solution: Solution) -> SolutionAdminResponse:
         description=solution.description,
         amount=solution.amount,
         currency=solution.currency,
-        period=solution.period,
         position=solution.position,
         is_visible=solution.is_visible,
-        price_label=format_price(solution.amount, solution.currency, solution.period),
+        price_label=format_price(solution.amount, solution.currency, ONCE_PERIOD),
         created_at=solution.created_at,
         updated_at=solution.updated_at,
     )

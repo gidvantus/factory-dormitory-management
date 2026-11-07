@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 
 import { ApiError, deleteSolution, listSolutions, updateSolution } from '../api/client';
-import type { Solution, SolutionPatch, SolutionPeriod } from '../api/client';
+import type { Solution, SolutionPatch } from '../api/client';
 import { OperatorNav } from '../components/OperatorNav';
 import { OperatorTopBar } from '../components/OperatorTopBar';
 import { Screen } from '../components/Screen';
@@ -17,22 +17,8 @@ const PUBLISH_ERROR = 'Не удалось вернуть решение в ка
 const POSITION_ERROR = 'Порядок — целое число';
 
 /**
- * Подписи периодов: словарь экрана, коды — из ответа API.
- *
- * Пять значений и их тексты задаёт контракт постановки (`TARIFF_PERIODS` в
- * основном API): фронт владеет подписями и порядком `select`, а значения
- * (`period`) приходят из API. Цену экран не собирает — печатает готовый
- * `price_label`, чтобы формула цены осталась одна на весь API.
+ * Два состояния строки: `is_visible` в форме — это `select` из двух значений.
  */
-const PERIODS: ReadonlyArray<{ value: SolutionPeriod; label: string }> = [
-  { value: 'month', label: 'в месяц' },
-  { value: 'quarter', label: 'за 3 месяца' },
-  { value: 'half_year', label: 'за 6 месяцев' },
-  { value: 'year', label: 'в год' },
-  { value: 'once', label: 'разово' },
-];
-
-/** Два состояния строки: `is_visible` в форме — это `select` из двух значений. */
 const STATES: ReadonlyArray<{ value: 'true' | 'false'; label: string }> = [
   { value: 'true', label: 'В каталоге' },
   { value: 'false', label: 'Не в каталоге' },
@@ -47,16 +33,19 @@ const STATES: ReadonlyArray<{ value: 'true' | 'false'; label: string }> = [
  * склеивает через `; ` — виноватым считается первое. `409` — это всегда занятое
  * название. Незнакомый отказ поля не помечает: выдумывать связь нельзя, а текст
  * ошибки всё равно показан дословно.
+ *
+ * Поля `period` здесь нет (#195): периода оплаты в контракте больше нет, у
+ * решения нет своего срока, и присланный `period` — лишнее поле со стандартным
+ * `422` `pydantic` («Extra inputs are not permitted»), к которому форма отношения
+ * не имеет.
  */
-type FieldName =
-  'name' | 'description' | 'amount' | 'currency' | 'period' | 'position' | 'is_visible';
+type FieldName = 'name' | 'description' | 'amount' | 'currency' | 'position' | 'is_visible';
 
 const FIELD_MESSAGES: Readonly<Record<FieldName, readonly string[]>> = {
   name: ['Название не может быть пустым', 'Название длиннее 120 символов'],
   description: ['Описание должно быть строкой'],
   amount: ['Цена не может быть отрицательной', 'Слишком большая цена', 'Цена должна быть числом'],
   currency: ['Валюта должна состоять из 3 заглавных латинских букв'],
-  period: ['Неизвестный период оплаты'],
   position: [
     'Порядок должен быть целым числом',
     'Порядок не может быть отрицательным',
@@ -72,11 +61,6 @@ function invalidField(status: number, text: string): FieldName | null {
     if (messages.includes(first)) return field as FieldName;
   }
   return null;
-}
-
-/** Период словами. Неизвестный код печатается как пришёл — выдумывать нечего. */
-function periodLabel(period: SolutionPeriod): string {
-  return PERIODS.find((option) => option.value === period)?.label ?? period;
 }
 
 /** Заголовок со счётчиком: `3 решения · 2 в каталоге`. */
@@ -128,7 +112,6 @@ interface EditForm {
   description: string;
   amount: string;
   currency: string;
-  period: SolutionPeriod;
   position: string;
   visible: 'true' | 'false';
 }
@@ -140,7 +123,6 @@ function formFrom(item: Solution): EditForm {
     description: item.description ?? '',
     amount: item.amount,
     currency: item.currency,
-    period: item.period,
     position: String(item.position),
     visible: item.is_visible ? 'true' : 'false',
   };
@@ -280,17 +262,12 @@ export function Solutions(): JSX.Element {
     setForm(null);
   }
 
-  /** Правка текстового поля формы: у `period` и состояния свои обработчики. */
+  /** Правка текстового поля формы: у состояния свой обработчик. */
   function handleChange(
     field: 'name' | 'description' | 'amount' | 'currency' | 'position',
     value: string,
   ): void {
     setForm((current) => (current === null ? current : { ...current, [field]: value }));
-  }
-
-  /** Период выбирается из пяти значений контракта, а не набирается руками. */
-  function handlePeriod(value: SolutionPeriod): void {
-    setForm((current) => (current === null ? current : { ...current, period: value }));
   }
 
   /** Состояние — два значения контракта: `true` в каталоге, `false` снято. */
@@ -313,8 +290,9 @@ export function Solutions(): JSX.Element {
   /**
    * Сохранение правки: единственное место, откуда уходит `PATCH` формы.
    *
-   * Отправляются все семь полей — так требует контракт: пустое описание уходит
-   * как `null`. После успеха каталог перечитывается: правка «Порядка» меняет
+   * Отправляются все шесть полей формы — так требует контракт: пустое описание
+   * уходит как `null`. Периода в теле нет: у решения нет своего срока (#195).
+   * После успеха каталог перечитывается: правка «Порядка» меняет
    * место строки в реестре, и показать его может только сервер (порядок
    * `position, id`). Экран при этом ничего не сортирует — он печатает ответ
    * `GET` как пришло, иначе админка и витрина разошлись бы в последовательности.
@@ -338,7 +316,6 @@ export function Solutions(): JSX.Element {
       description: form.description.trim() === '' ? null : form.description,
       amount: form.amount,
       currency: form.currency,
-      period: form.period,
       position: position.value,
       is_visible: form.visible === 'true',
     };
@@ -525,8 +502,8 @@ export function Solutions(): JSX.Element {
             <div className="list" data-testid="operator-solutions">
               <table className="list__table">
                 <caption className="visually-hidden">
-                  Каталог решений: порядок витрины, название, код, описание, цена, период,
-                  состояние, даты создания и изменения, действия
+                  Каталог решений: порядок витрины, название, код, описание, цена, состояние, даты
+                  создания и изменения, действия
                 </caption>
                 <thead>
                   <tr>
@@ -535,7 +512,6 @@ export function Solutions(): JSX.Element {
                     <th scope="col">Код</th>
                     <th scope="col">Описание</th>
                     <th scope="col">Цена</th>
-                    <th scope="col">Период</th>
                     <th scope="col">Состояние</th>
                     <th scope="col">Создано</th>
                     <th scope="col">Изменено</th>
@@ -589,10 +565,6 @@ export function Solutions(): JSX.Element {
                           <td className="solution__price" data-testid="operator-solution-price">
                             <span className="cell__label">Цена:</span>
                             {item.price_label}
-                          </td>
-                          <td className="solution__period" data-testid="operator-solution-period">
-                            <span className="cell__label">Период:</span>
-                            {periodLabel(item.period)}
                           </td>
                           <td className="solution__state-cell">
                             <span
@@ -688,7 +660,7 @@ export function Solutions(): JSX.Element {
 
                         {editing && form !== null && (
                           <tr className="edit-row">
-                            <td colSpan={10}>
+                            <td colSpan={9}>
                               <form
                                 className="form form--row"
                                 id={`solution-form-${item.id}`}
@@ -872,47 +844,6 @@ export function Solutions(): JSX.Element {
                                       data-testid="operator-solution-currency-input"
                                     />
                                     <p className="field__hint">Три заглавные латинские буквы</p>
-                                  </div>
-                                  <div className="field field--period">
-                                    <label
-                                      className="field__label"
-                                      htmlFor={`solution-${item.id}-period`}
-                                    >
-                                      Период
-                                    </label>
-                                    <div className="select">
-                                      <select
-                                        className="field__input select__input"
-                                        id={`solution-${item.id}-period`}
-                                        value={form.period}
-                                        onChange={(event: ChangeEvent<HTMLSelectElement>) =>
-                                          handlePeriod(event.target.value as SolutionPeriod)
-                                        }
-                                        aria-invalid={errorField === 'period' ? true : undefined}
-                                        aria-describedby={
-                                          errorField === 'period' ? 'solution-error' : undefined
-                                        }
-                                        data-testid="operator-solution-period-input"
-                                      >
-                                        {PERIODS.map((option) => (
-                                          <option key={option.value} value={option.value}>
-                                            {option.label}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <svg
-                                        className="select__icon"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        aria-hidden="true"
-                                      >
-                                        <path d="m6 9 6 6 6-6" />
-                                      </svg>
-                                    </div>
                                   </div>
                                 </div>
                                 <div className="form__actions">

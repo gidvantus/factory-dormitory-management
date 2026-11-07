@@ -54,7 +54,7 @@ from app.api.billing import SOLUTION_NOT_FOUND_DETAIL
 from app.invoice_status import INVOICE_STATUS_LABELS, is_allowed, status_label
 from app.models.company_details import SINGLE_ROW_ID, CompanyDetails
 from app.models.document import Document
-from app.models.invoice import Invoice, InvoiceDocument
+from app.models.invoice import Invoice, InvoiceDocument, subject_items
 from app.models.organization import Organization
 from app.models.solution import OrganizationSolution, Solution
 from app.models.tariff import Tariff
@@ -71,9 +71,10 @@ from app.seats import (
 from app.subscription import (
     MEMBER_LIMIT_HEADER,
     MEMBER_LIMIT_HEADER_VALUE,
+    ONCE_PERIOD,
     TARIFF_ALREADY_BOUGHT_DETAIL,
 )
-from tests.conftest import add_solution, organizations_for, sign_in
+from tests.conftest import add_solution, give_solution, give_tariff, organizations_for, sign_in
 
 # Неразрывный пробел — разделитель разрядов в подписи суммы.
 NBSP = "\u00a0"
@@ -179,6 +180,18 @@ def purchase_id(client: TestClient, tariff_id: int) -> int:
 
 def set_status(client: TestClient, invoice_id: int, value: str) -> Response:
     return client.patch(f"{INVOICE_URL}/{invoice_id}", json={"status": value})
+
+
+def bind_tariff(
+    db_session: Session, organization: Organization, tariff: Tariff | None = None
+) -> Tariff:
+    """Записать организации действующий тариф: решения продаются только к нему.
+
+    Своего срока у права на решение больше нет (`app.solutions`): покупка без
+    действующего тарифа отвечает `409`, поэтому тест, которому нужно купить
+    решение, сначала заводит тариф — как это сделала бы его оплата.
+    """
+    return give_tariff(db_session, organization, tariff=tariff)
 
 
 def pay_tariff(client: TestClient, tariff_id: int) -> int:
@@ -549,6 +562,7 @@ def test_repeat_purchase_fills_an_empty_acceptance(client: TestClient, db_sessio
 def test_solution_purchase_needs_no_offer_mark(client: TestClient, db_session: Session) -> None:
     """Магазин улучшений не изменился: решения покупаются без отметки."""
     organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     solution = add_solution(db_session)
 
     response = purchase_solution(client, solution.id)
@@ -1371,6 +1385,7 @@ def test_purchase_of_a_solution_creates_an_invoice_with_the_snapshot(
 ) -> None:
     """Счёт за решение: предмет-решение в снимке, тариф организации не тронут."""
     organization = owner(client, db_session)
+    tariff = bind_tariff(db_session, organization)
     solution = add_solution(db_session, amount="500.00", period="month")
 
     response = purchase_solution(client, solution.id)
@@ -1382,10 +1397,11 @@ def test_purchase_of_a_solution_creates_an_invoice_with_the_snapshot(
     assert body["status"] == "new"
     assert body["amount"] == "500.00"
     assert body["currency"] == "RUB"
-    assert body["amount_label"] == "500 ₽ в месяц"
+    # Период снимка — `once`, поэтому подпись читается «разово».
+    assert body["amount_label"] == "500 ₽ разово"
     # Снимок предмета лежит в колонках тарифа: печатные формы их и читают.
     assert body["tariff_name"] == "Уведомления в Telegram"
-    assert body["tariff_period"] == "month"
+    assert body["tariff_period"] == "once"
     assert body["buyer_name"] == BUYER_NAME
     assert body["has_act"] is False
 
@@ -1394,15 +1410,22 @@ def test_purchase_of_a_solution_creates_an_invoice_with_the_snapshot(
     assert stored[0].item_kind == "solution"
     assert stored[0].solution_id == solution.id
     assert stored[0].tariff_id is None
-    # Покупка решения не выбирает организации тариф: кабинет она не открывает.
+    # Покупка решения не меняет тариф организации: кабинет она не открывает и не
+    # продлевает, а только добавляет право внутри уже оплаченного тарифа.
     db_session.refresh(organization)
-    assert organization.tariff_id is None
+    assert organization.tariff_id == tariff.id
 
 
 def test_second_purchase_of_a_solution_returns_the_live_invoice(
     client: TestClient, db_session: Session
 ) -> None:
+    """Неоплаченный счёт за то же решение не дублируется: второй клик — тот же счёт.
+
+    Право появляется только оплатой счёта (`app/invoice_status.py`), поэтому до
+    неё повторная покупка — это та же сделка, а не «уже подключено».
+    """
     organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     solution = add_solution(db_session)
     first = purchase_solution(client, solution.id)
     assert first.status_code == 201, first.text
@@ -1419,6 +1442,7 @@ def test_invoices_for_a_tariff_and_a_solution_do_not_block_each_other(
 ) -> None:
     """Дедупликация сужена до того же предмета, а не «любого живого счёта»."""
     organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     tariff = add_tariff(db_session)
     solution = add_solution(db_session)
     tariff_invoice = purchase(client, tariff.id)
@@ -1431,6 +1455,7 @@ def test_invoices_for_a_tariff_and_a_solution_do_not_block_each_other(
 
     # И обратный порядок: живой счёт за решение не мешает счёту за тариф.
     other = owner(client, db_session, email="second@example.com", inn="7701234568")
+    bind_tariff(db_session, other)
     tariff_again = add_tariff(db_session, name="Годовой", period="year")
     assert purchase_solution(client, solution.id).status_code == 201
     assert purchase(client, tariff_again.id).status_code == 201
@@ -1452,8 +1477,7 @@ def test_chosen_tariff_does_not_block_a_solution(client: TestClient, db_session:
     """Тариф организации уже выбран — решение всё равно покупается."""
     organization = owner(client, db_session)
     tariff = add_tariff(db_session)
-    organization.tariff_id = tariff.id
-    db_session.commit()
+    bind_tariff(db_session, organization, tariff)
     solution = add_solution(db_session)
 
     response = purchase_solution(client, solution.id)
@@ -1463,16 +1487,67 @@ def test_chosen_tariff_does_not_block_a_solution(client: TestClient, db_session:
 
 def test_hidden_solution_is_still_buyable_by_id(client: TestClient, db_session: Session) -> None:
     """Скрытая строка каталога списком не продаётся, но по `id` покупается."""
-    owner(client, db_session)
+    organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     solution = add_solution(db_session, is_visible=False)
 
     assert purchase_solution(client, solution.id).status_code == 201
+
+
+def test_purchase_of_a_solution_without_a_tariff_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Пробный период не даёт услуг: покупать решение можно только к тарифу."""
+    organization = owner(client, db_session)
+    solution = add_solution(db_session)
+
+    response = purchase_solution(client, solution.id)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Купить решение можно после оплаты тарифа"
+    assert invoices_of(db_session, organization.id) == []
+
+
+def test_repeated_purchase_of_an_owned_solution_is_a_conflict(
+    client: TestClient, db_session: Session
+) -> None:
+    """Повторная покупка подключённого решения отклоняется, а не продлевает право."""
+    organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
+    solution = add_solution(db_session)
+    invoice_id = int(purchase_solution(client, solution.id).json()["id"])
+    assert set_status(client, invoice_id, PAID).status_code == 200
+
+    response = purchase_solution(client, solution.id)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Решение уже подключено"
+    assert len(invoices_of(db_session, organization.id)) == 1
+
+
+def test_tariff_refusal_comes_before_the_owned_refusal(
+    client: TestClient, db_session: Session
+) -> None:
+    """При мёртвом тарифе сообщение называет тариф, а не «уже подключено».
+
+    Порядок отказов — часть контракта: право у организации есть, но без тарифа
+    оно не работает, и совет «купите тариф» — единственный полезный.
+    """
+    organization = owner(client, db_session)
+    solution = give_solution(db_session, organization, with_tariff=False)
+    give_tariff(db_session, organization, ends_at=datetime.now(UTC) - timedelta(days=1))
+
+    response = purchase_solution(client, solution.id)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Купить решение можно после оплаты тарифа"
 
 
 def test_payment_of_a_solution_invoice_grants_the_right_and_creates_the_act(
     client: TestClient, db_session: Session
 ) -> None:
     organization = owner(client, db_session)
+    tariff = bind_tariff(db_session, organization)
     solution = add_solution(db_session)
     invoice_id = int(purchase_solution(client, solution.id).json()["id"])
 
@@ -1487,10 +1562,11 @@ def test_payment_of_a_solution_invoice_grants_the_right_and_creates_the_act(
     assert len(rights) == 1
     assert rights[0].solution_id == solution.id
     assert rights[0].invoice_id == invoice_id
-    assert rights[0].expires_at is not None
+    # Собственного срока у права нет: оно действует, пока действует тариф.
+    assert rights[0].expires_at is None
     # Оплата счёта за решение не привязывает организации тариф.
     db_session.refresh(organization)
-    assert organization.tariff_id is None
+    assert organization.tariff_id == tariff.id
     assert solutions.has_solution(db_session, organization.id, solution.code)
 
 
@@ -1500,8 +1576,7 @@ def test_payment_of_a_solution_invoice_keeps_a_chosen_tariff(
     """У организации другой тариф — оплата решения его не меняет и не отказывает."""
     organization = owner(client, db_session)
     tariff = add_tariff(db_session)
-    organization.tariff_id = tariff.id
-    db_session.commit()
+    bind_tariff(db_session, organization, tariff)
     solution = add_solution(db_session)
     invoice_id = int(purchase_solution(client, solution.id).json()["id"])
 
@@ -1512,44 +1587,50 @@ def test_payment_of_a_solution_invoice_keeps_a_chosen_tariff(
     assert organization.tariff_id == tariff.id
 
 
-def test_second_paid_solution_invoice_renews_the_single_right(
+def test_paid_solution_right_survives_a_new_tariff_payment(
     client: TestClient, db_session: Session
 ) -> None:
-    """Вторая покупка того же решения продлевает право, а не заводит второе."""
+    """Право не получает собственного срока, поэтому живёт по новому тарифу.
+
+    Сначала решение куплено и оплачено при живом тарифе, затем тариф кончился —
+    право перестало действовать, — и после оплаты нового тарифа оно вернулось без
+    повторной покупки решения.
+    """
     organization = owner(client, db_session)
+    bind_tariff(db_session, organization, add_tariff(db_session))
     solution = add_solution(db_session)
-    first_id = int(purchase_solution(client, solution.id).json()["id"])
-    assert set_status(client, first_id, PAID).status_code == 200
-    db_session.expire_all()
-    first_expiry = rights_of(db_session, organization.id)[0].expires_at
-    assert first_expiry is not None
+    invoice_id = int(purchase_solution(client, solution.id).json()["id"])
+    assert set_status(client, invoice_id, PAID).status_code == 200
+    assert solutions.has_solution(db_session, organization.id, solution.code)
 
-    second_id = int(purchase_solution(client, solution.id).json()["id"])
-    assert second_id != first_id
-    assert set_status(client, second_id, PAID).status_code == 200
+    give_tariff(db_session, organization, ends_at=datetime.now(UTC) - timedelta(days=1))
+    assert not solutions.has_solution(db_session, organization.id, solution.code)
 
-    rights = rights_of(db_session, organization.id)
-    assert len(rights) == 1
-    assert rights[0].expires_at is not None
-    # Отсчёт от прежнего конца: месяц добавился к остатку, а не заменил его.
-    assert rights[0].expires_at > first_expiry + timedelta(days=27)
-    assert rights[0].invoice_id == second_id
+    bind_tariff(db_session, organization, add_tariff(db_session, name="Новый"))
+
+    assert solutions.has_solution(db_session, organization.id, solution.code)
+    assert len(rights_of(db_session, organization.id)) == 1
 
 
-def test_solution_expiry_counts_from_the_payment_moment(
+def test_solution_invoice_snapshot_has_the_once_period(
     client: TestClient, db_session: Session
 ) -> None:
+    """Снимок счёта за решение — разовый: печатная форма печатает «500 ₽ разово».
+
+    Своего срока у права нет, поэтому и в документе не может стоять «в месяц»:
+    период снимка — `once`, даже если в строке каталога лежит старое значение.
+    """
     organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     solution = add_solution(db_session, period="month")
     invoice_id = int(purchase_solution(client, solution.id).json()["id"])
 
     assert set_status(client, invoice_id, PAID).status_code == 200
 
-    expires_at = rights_of(db_session, organization.id)[0].expires_at
-    assert expires_at is not None
-    # Один календарный месяц от оплаты: границы проверяются с запасом в сутки.
-    assert datetime.now(UTC) + timedelta(days=27) < as_utc(expires_at)
-    assert as_utc(expires_at) < datetime.now(UTC) + timedelta(days=32)
+    invoice = invoices_of(db_session, organization.id)[0]
+    assert invoice.tariff_period == ONCE_PERIOD
+    assert [item.period for item in subject_items(invoice)] == [ONCE_PERIOD]
+    assert rights_of(db_session, organization.id)[0].expires_at is None
 
 
 def test_purchase_with_both_items_is_rejected(client: TestClient, db_session: Session) -> None:
@@ -1584,7 +1665,8 @@ def test_solution_invoice_shows_the_item_in_the_documents_list(
     client: TestClient, db_session: Session
 ) -> None:
     """Раздел «Документы» показывает название решения в столбце предмета."""
-    owner(client, db_session)
+    organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     solution = add_solution(db_session)
     invoice_id = int(purchase_solution(client, solution.id).json()["id"])
 
@@ -2162,7 +2244,8 @@ def test_a_solution_invoice_has_one_solution_position(
     client: TestClient, db_session: Session
 ) -> None:
     """Счёт за решение по-прежнему покупается и отдаёт одну позицию `solution`."""
-    owner(client, db_session)
+    organization = owner(client, db_session)
+    bind_tariff(db_session, organization)
     solution = add_solution(db_session)
 
     body = purchase_solution(client, solution.id).json()

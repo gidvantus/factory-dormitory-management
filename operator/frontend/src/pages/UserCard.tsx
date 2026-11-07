@@ -2,17 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { ChangeEvent, FormEvent } from 'react';
 
-import { ApiError, getUser, updateUser } from '../api/client';
+import { ApiError, getUser, impersonateUser, updateUser } from '../api/client';
 import type { PlatformUser } from '../api/client';
 import { ActivationFlag } from '../components/ActivationFlag';
 import { OperatorNav } from '../components/OperatorNav';
 import { OperatorTopBar } from '../components/OperatorTopBar';
 import { Screen } from '../components/Screen';
 import { NONE, formatDayLong, roleLabel } from '../lib/format';
+import { openLink } from '../lib/navigate';
 
 /** Текст для сети и неожиданного отказа: `detail` сервера важнее общего текста. */
 const LOAD_ERROR = 'Не удалось загрузить пользователя';
 const SAVE_ERROR = 'Не удалось сохранить изменения';
+const IMPERSONATE_ERROR = 'Не удалось получить ссылку входа';
 
 /** `id` поля ФИО и текста отказа: связка `label`/`htmlFor` и `aria-describedby`. */
 const FULL_NAME_ID = 'user-full-name';
@@ -92,6 +94,12 @@ function DetailsList({
  * ФИО) показывается дословно, введённое значение остаётся в поле, фокус — на
  * тексте отказа внутри формы. «Отмена» возвращает значение последнего ответа
  * сервера — черновик никуда не сохраняется.
+ *
+ * В шапке карточки есть второе действие — «Войти под пользователем». Кабинет
+ * только просит ссылку у основного API и переходит по готовому `url` из ответа:
+ * адреса сайта он не знает, cookie сайта ставит сам сайт. Отказ приходит тем же
+ * `detail`, что и у остальных экранов, и показывается над панелью; в режиме
+ * правки действия нет — там карточка про ФИО.
  */
 export function UserCard(): JSX.Element {
   const params = useParams();
@@ -101,7 +109,10 @@ export function UserCard(): JSX.Element {
   const [fullName, setFullName] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [impersonateError, setImpersonateError] = useState<string | null>(null);
   const errorRef = useRef<HTMLParagraphElement | null>(null);
+  const impersonateErrorRef = useRef<HTMLParagraphElement | null>(null);
 
   useEffect(() => {
     if (Number.isNaN(id)) {
@@ -134,6 +145,13 @@ export function UserCard(): JSX.Element {
     if (saveError !== null) errorRef.current?.focus();
   }, [saveError]);
 
+  // У отказа «Войти под пользователем» своё место — над панелью, и фокус
+  // переходит на него: кнопка на время запроса неактивна, а просить повторить
+  // вслепую нельзя — оператор должен прочитать `detail` основного API.
+  useEffect(() => {
+    if (impersonateError !== null) impersonateErrorRef.current?.focus();
+  }, [impersonateError]);
+
   function handleEdit(): void {
     if (state.status !== 'ready') return;
     setFullName(state.data.full_name);
@@ -162,6 +180,22 @@ export function UserCard(): JSX.Element {
       setSaveError(errorMessage(error, SAVE_ERROR));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleImpersonate(): Promise<void> {
+    if (state.status !== 'ready' || opening) return;
+    setOpening(true);
+    setImpersonateError(null);
+    try {
+      const link = await impersonateUser(state.data.id);
+      // Переход на другой origin, а не `fetch`: cookie `crm_session` ставит сам
+      // сайт, и ставит её только обычный переход по адресу из ответа.
+      openLink(link.url);
+    } catch (error: unknown) {
+      setImpersonateError(errorMessage(error, IMPERSONATE_ERROR));
+    } finally {
+      setOpening(false);
     }
   }
 
@@ -272,16 +306,41 @@ export function UserCard(): JSX.Element {
               </p>
             </div>
             {!editing && (
-              <button
-                className="btn btn--ghost"
-                type="button"
-                onClick={handleEdit}
-                data-testid="operator-user-edit"
-              >
-                Редактировать
-              </button>
+              <div className="form__actions">
+                <button
+                  className="btn btn--ghost"
+                  type="button"
+                  onClick={() => void handleImpersonate()}
+                  disabled={opening || !data.is_active}
+                  aria-busy={opening ? true : undefined}
+                  title={data.is_active ? undefined : 'Кабинет не активирован'}
+                  data-testid="operator-user-impersonate"
+                >
+                  {opening ? 'Открываем…' : 'Войти под пользователем'}
+                </button>
+                <button
+                  className="btn btn--ghost"
+                  type="button"
+                  onClick={handleEdit}
+                  data-testid="operator-user-edit"
+                >
+                  Редактировать
+                </button>
+              </div>
             )}
           </div>
+
+          {impersonateError !== null && (
+            <p
+              className="alert alert--error"
+              role="alert"
+              tabIndex={-1}
+              ref={impersonateErrorRef}
+              data-testid="operator-user-impersonate-error"
+            >
+              {impersonateError}
+            </p>
+          )}
 
           <div className="panel">
             <div className="panel__head">

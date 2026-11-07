@@ -1,9 +1,15 @@
-"""Пользователи платформы: список, карточка и правка ФИО для кабинета оператора.
+"""Пользователи платформы: список, карточка, правка ФИО и ссылка входа под пользователем.
 
 Контур отдельный, тот же, что у организаций (`app/api/platform_organizations.py`):
 ручки открывает сервисный токен кабинета оператора (`X-Operator-Token`), а не
 cookie основного кабинета. Своего хранилища у кабинета нет: читает и правит он
 здесь, а источник правды, правила и журнал остаются в основном приложении.
+
+Ссылка входа (`POST /{user_id}/impersonation-link`) — только выдача: адрес
+собирается из `frontend_base_url` здесь, потому что его знает лишь основной API.
+Сессию по этому токену ставит уже `app/api/auth.py` на своём origin, а сам токен
+нигде не хранится: он живёт `impersonation_token_ttl_seconds` и только в адресе
+страницы.
 
 Что здесь осознанно **не** так, как в кабинете клиента:
 
@@ -22,12 +28,23 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import get_db
 from app.models.organization import Organization, OrganizationMember
 from app.models.user import User
-from app.schemas.platform_user import PlatformUser, PlatformUserPage, PlatformUserUpdate
+from app.schemas.platform_user import (
+    ImpersonationLink,
+    PlatformUser,
+    PlatformUserPage,
+    PlatformUserUpdate,
+)
 from app.schemas.user import ErrorResponse
-from app.security import INVALID_OPERATOR_TOKEN_DETAIL, require_operator_service
+from app.security import (
+    CABINET_NOT_ACTIVATED_DETAIL,
+    INVALID_OPERATOR_TOKEN_DETAIL,
+    create_impersonation_token,
+    require_operator_service,
+)
 from app.sql_like import ESCAPE_CHARACTER, like_pattern
 
 # Текст отказа — часть контракта: кабинет передаёт его дословно, а тестировщик
@@ -84,6 +101,17 @@ UPDATE_RESPONSES: dict[int | str, dict[str, object]] = {
     status.HTTP_422_UNPROCESSABLE_ENTITY: {
         "model": ErrorResponse,
         "description": "ФИО не может быть пустым или в теле есть лишнее поле",
+    },
+}
+
+IMPERSONATION_LINK_RESPONSES: dict[int | str, dict[str, object]] = {
+    status.HTTP_404_NOT_FOUND: {
+        "model": ErrorResponse,
+        "description": USER_NOT_FOUND_DETAIL,
+    },
+    status.HTTP_409_CONFLICT: {
+        "model": ErrorResponse,
+        "description": CABINET_NOT_ACTIVATED_DETAIL,
     },
 }
 
@@ -208,3 +236,36 @@ def update_user(user_id: int, payload: PlatformUserUpdate, db: DbSession) -> Pla
     db.refresh(user)
     row = db.execute(_user_query().where(User.id == user_id)).one()
     return _to_platform_user(row)
+
+
+@router.post(
+    "/{user_id}/impersonation-link",
+    response_model=ImpersonationLink,
+    summary="Выдать ссылку входа под пользователем",
+    responses=IMPERSONATION_LINK_RESPONSES,
+)
+def create_impersonation_link(user_id: int, db: DbSession) -> ImpersonationLink:
+    """Ссылка входа под пользователем для кабинета оператора.
+
+    Тела у запроса нет: получатель ссылки — `user_id` из пути. Ответ — готовый
+    абсолютный адрес страницы сайта: `frontend_base_url` без хвостового слэша
+    плюс `/su/` и токен. Адрес собирает основной API, потому что только он знает
+    настройку; кабинет просто открывает присланное.
+
+    Неактивному кабинету ссылка не выдаётся: входить в неактивированный кабинет
+    некуда, и это `409`. Неизвестный `id` — `404` тем же текстом, что у карточки.
+
+    Токен не пишется ни в базу, ни в журнал: он живёт две минуты в адресе
+    страницы, а собственного хранилища у ссылки нет. Строка журнала за сам
+    выпуск появляется без отдельного кода — как `post_auth_login`: коммита в
+    ручке нет, поэтому её пишет best-effort путь middleware, с пустыми актором и
+    организацией.
+    """
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, USER_NOT_FOUND_DETAIL)
+    if not user.is_active:
+        raise HTTPException(status.HTTP_409_CONFLICT, CABINET_NOT_ACTIVATED_DETAIL)
+    token = create_impersonation_token(user.id)
+    base_url = get_settings().frontend_base_url.rstrip("/")
+    return ImpersonationLink(url=f"{base_url}/su/{token}")

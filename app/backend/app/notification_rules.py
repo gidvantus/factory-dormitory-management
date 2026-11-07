@@ -35,6 +35,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.payment import PaymentEntry
@@ -706,7 +707,15 @@ def notify_row_written(
     превращать 200 в 500. Поэтому исключение гасится здесь одним местом, а не
     девятью копиями `try/except` в ручках; в лог идёт только ключ таблицы и тип
     ошибки — ни названия правила, ни значений столбцов, ни `chat_id`.
+
+    В сессии поддержки хука нет вовсе: она молчит, как и журнал. Признак читается
+    из контекста запроса (`app.audit`), а не приходит аргументом: это единственная
+    точка, через которую идут все правила уведомлений, и проверка здесь закрывает
+    их разом — включая те, что появятся позже. Возвращается `0`, а не `None`:
+    столько доставок создано.
     """
+    if audit.is_impersonated():
+        return 0
     try:
         return queue_rule_events(
             db, dormitory_id=dormitory_id, table_key=table_key, row_id=row_id, actor_id=actor_id

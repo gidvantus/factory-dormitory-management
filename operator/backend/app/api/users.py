@@ -1,12 +1,14 @@
 """Пользователи платформы: кабинет — тонкий прокси к основному API.
 
-Данных кабинет не хранит: список, карточка и правка ФИО идут в основной API по
-внутренней сети с сервисным токеном в заголовке `X-Operator-Token`. Здесь только
-HTTP: сессия кабинета, запрос наверх и перевод отказов.
+Данных кабинет не хранит: список, карточка, правка ФИО и ссылка входа под
+пользователем идут в основной API по внутренней сети с сервисным токеном в
+заголовке `X-Operator-Token`. Здесь только HTTP: сессия кабинета, запрос наверх и
+перевод отказов.
 
 Клиент, секрет контура и правила перевода отказов — общие с разделом
 организаций (`app/main_api.py`). Тексты отказов основного API проходят насквозь:
-«Пользователь не найден» и «ФИО не может быть пустым» клиент получает дословно.
+«Пользователь не найден», «Кабинет не активирован» и «ФИО не может быть пустым»
+клиент получает дословно.
 """
 
 from typing import Annotated, Any
@@ -21,6 +23,7 @@ from app.main_api import (
 )
 from app.schemas import (
     ErrorResponse,
+    ImpersonationLink,
     PlatformUser,
     PlatformUserPage,
     UpdatePlatformUserRequest,
@@ -69,6 +72,19 @@ UPDATE_RESPONSES: dict[int | str, dict[str, object]] = {
     status.HTTP_422_UNPROCESSABLE_ENTITY: {
         "model": ErrorResponse,
         "description": "ФИО не может быть пустым или в теле есть лишнее поле",
+    },
+}
+
+IMPERSONATION_RESPONSES: dict[int | str, dict[str, object]] = {
+    **UNAUTHORIZED_RESPONSES,
+    **GATEWAY_RESPONSES,
+    status.HTTP_404_NOT_FOUND: {
+        "model": ErrorResponse,
+        "description": "Пользователь не найден",
+    },
+    status.HTTP_409_CONFLICT: {
+        "model": ErrorResponse,
+        "description": "Кабинет не активирован",
     },
 }
 
@@ -139,3 +155,31 @@ def update_user(
         json=payload.forwarded(),
     )
     return PlatformUser.model_validate(response.json())
+
+
+@router.post(
+    "/{user_id}/impersonate",
+    response_model=ImpersonationLink,
+    summary="Войти под пользователем: получить ссылку входа",
+    responses=IMPERSONATION_RESPONSES,
+)
+def impersonate_user(
+    user_id: int,
+    _operator: CurrentOperator,
+    client: MainApiClient,
+) -> ImpersonationLink:
+    """Передать основному API запрос ссылки и вернуть её дословно.
+
+    Своего адреса у кабинета нет: ссылку собирает основной API из своей настройки
+    `frontend_base_url`, а кабинет отдаёт её браузеру как есть. Отказы данных
+    (`404`, `409`) приходят из основного API тем же кодом и тем же текстом,
+    поэтому копий текстов здесь нет — `docs/operator.md` это запрещает.
+
+    Тела у запроса нет: получатель ссылки — `user_id` из пути.
+    """
+    response = call(
+        client,
+        "POST",
+        f"{MAIN_API_USERS_PATH}/{user_id}/impersonation-link",
+    )
+    return ImpersonationLink.model_validate(response.json())

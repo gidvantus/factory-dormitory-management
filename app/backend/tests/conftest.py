@@ -32,7 +32,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
-from sqlalchemy import Engine, create_engine, event, select
+from sqlalchemy import Engine, create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -48,6 +48,7 @@ from app.models import Base
 from app.models.dormitory import Dormitory
 from app.models.organization import Organization, OrganizationMember
 from app.models.solution import OrganizationSolution, Solution
+from app.models.tariff import Tariff
 from app.models.user import User
 from app.security import hash_password
 from app.storage import LocalStorage
@@ -314,6 +315,10 @@ def add_colleague(
 # Код решения «уведомления в Telegram»: он же стоит в seed-строке каталога.
 TELEGRAM_NOTIFICATIONS_CODE = "telegram_notifications"
 
+# Срок «живого» тарифа для `give_tariff`: считается один раз при импорте тестов и
+# заведомо лежит в будущем в пределах прогона.
+LIVE_TARIFF_ENDS_AT = datetime.now(UTC) + timedelta(days=30)
+
 # Код решения «журнал действий»: он же стоит в seed-строке каталога (`0049`).
 JOURNAL_CODE = "journal"
 
@@ -359,6 +364,61 @@ def add_solution(
     return solution
 
 
+def add_tariff(
+    db_session: Session,
+    *,
+    name: str | None = None,
+    period: str = "month",
+    max_members: int | None = None,
+) -> Tariff:
+    """Строка прайса прямо в базе: подписке организации нужна только она.
+
+    Имя по умолчанию нумеруется по числу заведённых строк: на `tariffs.name` стоит
+    `UNIQUE`, а тест, которому нужны два тарифа (истёкший и новый), иначе падал бы
+    на вставке. Число мест по умолчанию безлимитное (`max_members = None`):
+    тестам, которым нужен предел мест, они передают его явно, а остальным чужое
+    ограничение помешало бы приглашать сотрудников.
+    """
+    existing = db_session.scalar(select(func.count()).select_from(Tariff)) or 0
+    tariff = Tariff(
+        name=name if name is not None else f"Домовой · месяц {existing + 1}",
+        description=None,
+        amount=Decimal("10000.00"),
+        currency="RUB",
+        period=period,
+        max_members=max_members,
+        position=1,
+        is_visible=True,
+    )
+    db_session.add(tariff)
+    db_session.commit()
+    db_session.refresh(tariff)
+    return tariff
+
+
+def give_tariff(
+    db_session: Session,
+    organization: Organization,
+    *,
+    tariff: Tariff | None = None,
+    ends_at: datetime | None = LIVE_TARIFF_ENDS_AT,
+) -> Tariff:
+    """Записать организации действующий тариф так, как это сделала бы оплата.
+
+    Срок по умолчанию — `LIVE_TARIFF_ENDS_AT` (месяц вперёд от импорта тестов):
+    право на решение действует, пока действует тариф (`app.solutions`), поэтому
+    «рабочий кабинет с услугами» собирается двумя вызовами — `give_tariff` и
+    `give_solution`. Явный `ends_at=None` — бессрочный тариф администратора,
+    дата в прошлом — истёкший.
+    """
+    row = tariff if tariff is not None else add_tariff(db_session)
+    organization.tariff_id = row.id
+    organization.tariff_ends_at = ends_at
+    db_session.commit()
+    db_session.refresh(organization)
+    return row
+
+
 def give_solution(
     db_session: Session,
     organization: Organization,
@@ -368,14 +428,20 @@ def give_solution(
     expires_at: datetime | None = None,
     invoice_id: int | None = None,
     name: str | None = None,
+    with_tariff: bool = True,
 ) -> Solution:
     """Выдать организации право на решение — как это делает оплата счёта.
 
-    Обычный путь — `solutions.grant`: срок считается от момента выдачи. Явный
-    `expires_at` нужен там, где проверяется просроченное право: подменить часы
-    тест не может.
+    Обычный путь — `solutions.grant`: своего срока у права больше нет, оно
+    действует по тарифу организации, поэтому `with_tariff=True` (по умолчанию)
+    заодно записывает действующий тариф. Без него право было бы невидимым для
+    платных ручек, и старый смысл помощника — «у организации есть рабочее право» —
+    потерялся бы. Явный `expires_at` нужен там, где проверяется записанная история
+    срока права: строку тогда тест заводит сам.
     """
     solution = add_solution(db_session, code=code, name=name, period=period)
+    if with_tariff:
+        give_tariff(db_session, organization)
 
     if expires_at is None:
         solutions.grant(db_session, organization.id, solution, invoice_id=invoice_id)

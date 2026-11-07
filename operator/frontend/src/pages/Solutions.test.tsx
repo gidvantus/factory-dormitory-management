@@ -17,10 +17,9 @@ function solution(overrides: Record<string, unknown>): Record<string, unknown> {
     description: 'Сообщения о событиях, которые вас касаются',
     amount: '500.00',
     currency: 'RUB',
-    period: 'month',
     position: 10,
     is_visible: true,
-    price_label: '500 ₽ в месяц',
+    price_label: '500 ₽ разово',
     created_at: '2026-02-14T10:00:00',
     updated_at: '2026-11-02T10:00:00',
     ...overrides,
@@ -36,7 +35,7 @@ const HIDDEN = solution({
   amount: '300.00',
   position: 20,
   is_visible: false,
-  price_label: '300 ₽ в месяц',
+  price_label: '300 ₽ разово',
   created_at: '2026-04-21T10:00:00',
   updated_at: '2026-04-21T10:00:00',
 });
@@ -47,7 +46,6 @@ const EXTRA_MEMBER = solution({
   name: 'Дополнительные сотрудники',
   description: 'Каждый дополнительный сотрудник сверх мест тарифа.',
   amount: '900.00',
-  period: 'once',
   position: 900,
   price_label: '900 ₽ разово',
   created_at: '2026-11-02T10:00:00',
@@ -114,6 +112,9 @@ describe('раздел «Решения» кабинета оператора', 
     expect(screen.getByTestId('operator-solutions-count')).toHaveTextContent(
       '3 решения · 2 в каталоге',
     );
+    // Колонки «Период» больше нет (#195): у решения нет собственного срока.
+    expect(screen.queryByTestId('operator-solution-period')).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Период' })).not.toBeInTheDocument();
 
     const telegram = rowByName('Уведомления в Telegram');
     expect(within(telegram).getByTestId('operator-solution-position')).toHaveTextContent('10');
@@ -124,9 +125,8 @@ describe('раздел «Решения» кабинета оператора', 
     expect(within(telegram).getByTestId('operator-solution-state')).toHaveTextContent('В каталоге');
     // Цену печатает сервер готовым `price_label`: экран её не собирает.
     expect(within(telegram).getByTestId('operator-solution-price')).toHaveTextContent(
-      '500 ₽ в месяц',
+      '500 ₽ разово',
     );
-    expect(within(telegram).getByTestId('operator-solution-period')).toHaveTextContent('в месяц');
     expect(within(telegram).getByTestId('operator-solution-created')).toHaveTextContent(
       '14.02.2026',
     );
@@ -141,7 +141,7 @@ describe('раздел «Решения» кабинета оператора', 
 
     const extra = rowByName('Дополнительные сотрудники');
     expect(within(extra).getByTestId('operator-solution-code')).toHaveTextContent('extra_member');
-    expect(within(extra).getByTestId('operator-solution-period')).toHaveTextContent('разово');
+    expect(within(extra).getByTestId('operator-solution-price')).toHaveTextContent('900 ₽ разово');
 
     const [call] = network.calls;
     expect(call.url).toBe('/api/solutions');
@@ -233,7 +233,9 @@ describe('раздел «Решения» кабинета оператора', 
     );
     expect(screen.getByTestId('operator-solution-amount-input')).toHaveValue('900.00');
     expect(screen.getByTestId('operator-solution-currency-input')).toHaveValue('RUB');
-    expect(screen.getByTestId('operator-solution-period-input')).toHaveValue('once');
+    // Поля «Период» в форме нет (#195): у решения нет собственного срока.
+    expect(screen.queryByTestId('operator-solution-period-input')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Период')).not.toBeInTheDocument();
     expect(screen.getByTestId('operator-solution-position-input')).toHaveValue('900');
     expect(screen.getByTestId('operator-solution-visible-input')).toHaveValue('true');
     // Открытая форма помечена на самой кнопке: скринридер читает состояние.
@@ -260,11 +262,10 @@ describe('раздел «Решения» кабинета оператора', 
   it('«Сохранить» отправляет все редактируемые поля и обновляет строку', async () => {
     const updated = solution({
       id: 1,
-      name: 'Уведомления в Telegram · год',
+      name: 'Уведомления в Telegram · новая цена',
       amount: '5000.00',
-      period: 'year',
       position: 0,
-      price_label: '5 000 ₽ в год',
+      price_label: '5 000 ₽ разово',
       updated_at: '2026-11-06T12:00:00',
     });
     const network = renderSolutions([
@@ -282,36 +283,34 @@ describe('раздел «Решения» кабинета оператора', 
 
     const name = screen.getByTestId('operator-solution-name-input');
     await user.clear(name);
-    await user.type(name, 'Уведомления в Telegram · год');
+    await user.type(name, 'Уведомления в Telegram · новая цена');
     const position = screen.getByTestId('operator-solution-position-input');
     await user.clear(position);
     await user.type(position, '0');
     const amount = screen.getByTestId('operator-solution-amount-input');
     await user.clear(amount);
     await user.type(amount, '5000.00');
-    await user.selectOptions(screen.getByTestId('operator-solution-period-input'), 'year');
 
     await user.click(screen.getByTestId('operator-solution-save'));
 
-    expect(await screen.findByText('Уведомления в Telegram · год')).toBeInTheDocument();
+    expect(await screen.findByText('Уведомления в Telegram · новая цена')).toBeInTheDocument();
     expect(screen.queryByTestId('operator-solution-name-input')).not.toBeInTheDocument();
 
-    const row = rowByName('Уведомления в Telegram · год');
+    const row = rowByName('Уведомления в Telegram · новая цена');
     // Цену после правки приносит ответ сервера, а не пересчёт на клиенте.
-    expect(within(row).getByTestId('operator-solution-price')).toHaveTextContent('5 000 ₽ в год');
-    expect(within(row).getByTestId('operator-solution-period')).toHaveTextContent('в год');
+    expect(within(row).getByTestId('operator-solution-price')).toHaveTextContent('5 000 ₽ разово');
     expect(within(row).getByTestId('operator-solution-position')).toHaveTextContent('0');
     expect(within(row).getByTestId('operator-solution-updated')).toHaveTextContent('06.11.2026');
 
     const patches = bodies(network, 'PATCH');
     expect(patches).toHaveLength(1);
     expect(network.calls[1].url).toBe('/api/solutions/1');
+    // Периода в теле нет: контракт правки его не принимает (#195).
     expect(JSON.parse(patches[0])).toEqual({
-      name: 'Уведомления в Telegram · год',
+      name: 'Уведомления в Telegram · новая цена',
       description: 'Сообщения о событиях, которые вас касаются',
       amount: '5000.00',
       currency: 'RUB',
-      period: 'year',
       position: 0,
       is_visible: true,
     });
@@ -381,7 +380,6 @@ describe('раздел «Решения» кабинета оператора', 
       description: null,
       amount: '500.00',
       currency: 'RUB',
-      period: 'month',
       position: 10,
       is_visible: true,
     });
@@ -736,6 +734,42 @@ describe('раздел «Решения» кабинета оператора', 
     );
   });
 
+  it('422 на лишнее поле: текст сервера дословно, ни одно поле не помечено', async () => {
+    // Контракт правки периода не принимает (#195): присланный `period` основной
+    // API отсекает стандартным текстом `pydantic`, и поле формы тут ни при чём —
+    // помечать нечего, поэтому `aria-invalid` не ставится ни одному полю.
+    renderSolutions([
+      { status: 200, body: CATALOG },
+      {
+        status: 422,
+        body: {
+          detail: [
+            {
+              type: 'extra_forbidden',
+              loc: ['body', 'period'],
+              msg: 'Extra inputs are not permitted',
+            },
+          ],
+        },
+      },
+    ]);
+    const user = userEvent.setup();
+
+    await screen.findByTestId('operator-solutions');
+    await user.click(
+      within(rowByName('Уведомления в Telegram')).getByTestId('operator-solution-edit'),
+    );
+    await user.click(screen.getByTestId('operator-solution-save'));
+
+    expect(await screen.findByTestId('operator-solution-error')).toHaveTextContent(
+      'Extra inputs are not permitted',
+    );
+    expect(screen.getByTestId('operator-solution-name-input')).not.toHaveAttribute('aria-invalid');
+    expect(screen.getByTestId('operator-solution-amount-input')).not.toHaveAttribute(
+      'aria-invalid',
+    );
+  });
+
   it('у каждого поля формы есть label', async () => {
     renderSolutions([{ status: 200, body: CATALOG }]);
     const user = userEvent.setup();
@@ -750,7 +784,6 @@ describe('раздел «Решения» кабинета оператора', 
       'operator-solution-description-input',
       'operator-solution-amount-input',
       'operator-solution-currency-input',
-      'operator-solution-period-input',
       'operator-solution-position-input',
       'operator-solution-visible-input',
     ]) {

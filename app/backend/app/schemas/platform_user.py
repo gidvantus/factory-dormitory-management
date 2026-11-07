@@ -73,3 +73,15 @@ class PlatformUserUpdate(BaseModel):
     @classmethod
     def validate_full_name(cls, value: str) -> str:
         return normalize_full_name(value)
+
+
+class ImpersonationLink(BaseModel):
+    """Ссылка входа под пользователем — то, что кабинет открывает в браузере.
+
+    `url` абсолютный и собирается здесь, а не в кабинете: адрес сайта знает
+    только основной API (`frontend_base_url`), и второй его экземпляр в кабинете
+    разошёлся бы с оригиналом на первой же правке. Клиент переходит по ссылке
+    целиком и своих адресов не строит.
+    """
+
+    url: str = Field(examples=["http://localhost:8080/su/eyJhbGciOiJIUzI1NiJ9.eyJ"])
