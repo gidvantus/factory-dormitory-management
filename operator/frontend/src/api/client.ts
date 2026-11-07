@@ -269,6 +269,29 @@ export function updateUser(id: number, payload: PlatformUserUpdate): Promise<Pla
   });
 }
 
+/**
+ * Ссылка входа под пользователем (`operator/backend/app/schemas.py`).
+ *
+ * `url` абсолютный и приходит готовым: адрес сайта знает только основной API
+ * (его `frontend_base_url`), а кабинет своей копии адреса не хранит и не
+ * собирает. Поэтому браузеру она отдаётся как есть — переходом, не `fetch`.
+ */
+export interface ImpersonationLink {
+  url: string;
+}
+
+/**
+ * Получить ссылку входа под пользователем.
+ *
+ * Тела у запроса нет: получатель ссылки — `id` из пути. Отказы основного API
+ * (`404 «Пользователь не найден»`, `409 «Кабинет не активирован»`) кабинет
+ * отдаёт теми же кодами и текстами, шлюзовые `502`/`503` — своими, поэтому
+ * текст `detail` показывается на экране дословно.
+ */
+export function impersonateUser(id: number): Promise<ImpersonationLink> {
+  return request<ImpersonationLink>(`/users/${id}/impersonate`, { method: 'POST' });
+}
+
 // --- Счета платформы --------------------------------------------------------
 // Форма ответа — та же, что у основного API (`app/backend/app/schemas/invoice.py`):
 // кабинет её не переписывает (`operator/backend/app/schemas.py`). `status_label`
