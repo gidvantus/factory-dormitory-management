@@ -4,6 +4,10 @@
 покидает его: ни в ответе, ни в логах, ни в письме. Пользователь попадает в
 кабинет только по ссылке активации (`app/api/activation.py`), где сам задаёт
 новый пароль.
+
+Вход по ссылке поддержки (`POST /auth/impersonate`) живёт здесь же: сессию
+ставит только этот API и только на своём origin, а кабинет оператора лишь
+выдаёт ссылку на него (`app/api/platform_users.py`).
 """
 
 import secrets
@@ -14,12 +18,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.platform_users import USER_NOT_FOUND_DETAIL
 from app.consent import record_consent, record_terms_acceptance
 from app.db import get_db
 from app.mail import activation_email_ready, send_activation_email_task
 from app.models.user import User
 from app.schemas.user import (
     ErrorResponse,
+    ImpersonateRequest,
     LoginRequest,
     RegisterRequest,
     RegisterResponse,
@@ -27,7 +33,10 @@ from app.schemas.user import (
     normalize_email,
 )
 from app.security import (
+    CABINET_NOT_ACTIVATED_DETAIL,
+    IMPERSONATION_LINK_INVALID_DETAIL,
     create_access_token,
+    decode_impersonation_token,
     expired_session_cookie,
     hash_password,
     issue_activation_token,
@@ -164,3 +173,64 @@ def logout() -> Response:
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(**expired_session_cookie())
     return response
+
+
+IMPERSONATE_RESPONSES: dict[int | str, dict[str, object]] = {
+    status.HTTP_400_BAD_REQUEST: {
+        "model": ErrorResponse,
+        "description": IMPERSONATION_LINK_INVALID_DETAIL,
+    },
+    status.HTTP_404_NOT_FOUND: {
+        "model": ErrorResponse,
+        "description": USER_NOT_FOUND_DETAIL,
+    },
+    status.HTTP_409_CONFLICT: {
+        "model": ErrorResponse,
+        "description": CABINET_NOT_ACTIVATED_DETAIL,
+    },
+    status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        "model": ErrorResponse,
+        "description": "Токена нет, он пустой или в теле есть лишнее поле",
+    },
+}
+
+
+@router.post(
+    "/impersonate",
+    response_model=UserResponse,
+    summary="Войти под пользователем по ссылке поддержки",
+    responses=IMPERSONATE_RESPONSES,
+)
+def impersonate(payload: ImpersonateRequest, response: Response, db: DbSession) -> UserResponse:
+    """Вход по одноразовой ссылке кабинета оператора.
+
+    Cookie сессии ставит только этот API и только на своём origin: у кабинета
+    оператора своя cookie (`operator_session`), и браузер оператора приходит сюда
+    по адресу сайта. Сессия выпускается обычная, но с признаком `imp`: по нему
+    журнал действий молчит, а правила уведомлений не рассылают. Тело ответа — то
+    же, что у `POST /api/auth/login`.
+
+    Первым разбирается токен: битая подпись, истёкший срок и чужой claim — один
+    и тот же `400`, и до базы такой запрос не доходит. Дальше отказы те же, что
+    у выдачи ссылки: пользователя нет — `404`, кабинет не активирован — `409`.
+    """
+    user_id = decode_impersonation_token(payload.token)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=IMPERSONATION_LINK_INVALID_DETAIL,
+        )
+
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=USER_NOT_FOUND_DETAIL)
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=CABINET_NOT_ACTIVATED_DETAIL,
+        )
+
+    response.set_cookie(
+        value=create_access_token(str(user.id), impersonated=True), **session_cookie()
+    )
+    return UserResponse.model_validate(user)

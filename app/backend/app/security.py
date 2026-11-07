@@ -49,8 +49,13 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def create_access_token(subject: str) -> str:
-    """JWT с идентификатором пользователя в `sub`."""
+def create_access_token(subject: str, *, impersonated: bool = False) -> str:
+    """JWT с идентификатором пользователя в `sub`.
+
+    `impersonated` дописывает claim `imp`: так подписан и ссылочный токен
+    поддержки, и сессия, выпущенная по ссылке. Обычные сессии (вход, активация,
+    восстановление) признака не несут — иначе журнал молчал бы у всех.
+    """
     settings = get_settings()
     now = datetime.now(UTC)
     payload: dict[str, Any] = {
@@ -58,6 +63,8 @@ def create_access_token(subject: str) -> str:
         "iat": now,
         "exp": now + timedelta(days=settings.jwt_expire_days),
     }
+    if impersonated:
+        payload[IMPERSONATION_CLAIM] = IMPERSONATION_CLAIM_VALUE
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
@@ -109,6 +116,22 @@ def hash_activation_token(token: str) -> str:
     return sha256(token.encode("utf-8")).hexdigest()
 
 
+# Claim «сессия поддержки». Им помечены и ссылочный токен, и сессия, выпущенная
+# по ссылке: по нему журнал действий молчит, а уведомления не рассылаются.
+# Отдельного `typ`-claim нет намеренно — новый обязательный claim разлогинил бы
+# всех, у кого уже есть cookie; отсутствие признака и значит «обычная сессия».
+IMPERSONATION_CLAIM = "imp"
+IMPERSONATION_CLAIM_VALUE = True
+
+# Текст отказа входа по ссылке поддержки: подпись, срок, claim и битое тело
+# токена — всё это один и тот же отказ, различать их клиенту незачем.
+IMPERSONATION_LINK_INVALID_DETAIL = "Ссылка входа недействительна"
+
+# Тот же текст, что у отказов кабинета: кабинет не активирован — входить некуда.
+# Экраны показывают `detail` дословно, поэтому текст один на весь проект.
+CABINET_NOT_ACTIVATED_DETAIL = "Кабинет не активирован"
+
+
 def activation_expires_at(now: datetime | None = None) -> datetime:
     """Момент, до которого ссылка активации живёт."""
     return (now or datetime.now(UTC)) + timedelta(hours=get_settings().activation_token_ttl_hours)
@@ -135,16 +158,65 @@ def issue_activation_token(db: Session, user_id: int, *, kind: str = "activation
     return token
 
 
-def session_user(request: Request, db: Session) -> User | None:
-    """Пользователь из cookie сессии или `None`. Единственное чтение сессии.
+def impersonation_expires_at(now: datetime | None = None) -> datetime:
+    """Момент, до которого живёт ссылка входа под пользователем."""
+    return (now or datetime.now(UTC)) + timedelta(
+        seconds=get_settings().impersonation_token_ttl_seconds
+    )
 
-    Здесь живёт вся политика аутентификации: откуда берётся токен, как он
-    разбирается, какой claim считается субъектом и что значит «пользователя
-    нет». И `get_current_user`, и `get_optional_user` вызывают этот помощник —
+
+def create_impersonation_token(user_id: int, now: datetime | None = None) -> str:
+    """Выпустить ссылочный токен поддержки: `sub` — пользователь, тот же секрет.
+
+    Своего секрета у ссылки нет: она подписана тем же `JWT_SECRET`, что и сессия,
+    и отличается только claim'ом `imp`. Срок — секунды, а не дни: ссылка живёт в
+    адресе страницы сайта и в истории браузера. `now` принимается ради тестов
+    просроченного токена — часы в них не подкручиваются.
+    """
+    settings = get_settings()
+    moment = now or datetime.now(UTC)
+    payload: dict[str, Any] = {
+        "sub": str(user_id),
+        "iat": moment,
+        "exp": impersonation_expires_at(moment),
+        IMPERSONATION_CLAIM: IMPERSONATION_CLAIM_VALUE,
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def decode_impersonation_token(token: str) -> int | None:
+    """Разобрать ссылочный токен в идентификатор пользователя.
+
+    `None` — любой отказ: битая подпись, истёкший срок, чужой или отсутствующий
+    claim, нечисловой `sub`. Ручка входа отвечает на это `400`, а не `500`:
+    токен приходит из адреса страницы, то есть от кого угодно.
+    """
+    payload = decode_access_token(token)
+    if payload is None:
+        return None
+    if payload.get(IMPERSONATION_CLAIM) is not IMPERSONATION_CLAIM_VALUE:
+        return None
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject.isdigit():
+        return None
+    return int(subject)
+
+
+def session_user(request: Request, db: Session) -> tuple[User, bool] | None:
+    """Пользователь из cookie сессии и признак сессии поддержки, или `None`.
+
+    Единственное чтение сессии. Здесь живёт вся политика аутентификации: откуда
+    берётся токен, как он разбирается, какой claim считается субъектом, что
+    значит «пользователя нет» и была ли сессия выпущена по ссылке поддержки.
+    И `get_current_user`, и `get_optional_user` вызывают этот помощник —
     поэтому новая проверка (отзыв токена, версия, дополнительный claim)
     появляется в одном месте и действует сразу и на кабинет, и на раздачу
     файлов. Двух копий этой политики быть не должно: раздача файлов — маршрут,
     который отдаёт файлы, и отставшее правило пускало бы по старому.
+
+    Признак возвращается наружу вместе с пользователем, а не живёт в `User`:
+    это свойство сессии, а не учётной записи. По нему журнал действий молчит, а
+    правила уведомлений не создают доставок.
     """
     settings = get_settings()
     token = request.cookies.get(settings.session_cookie_name)
@@ -159,7 +231,11 @@ def session_user(request: Request, db: Session) -> User | None:
     if not isinstance(subject, str) or not subject.isdigit():
         return None
 
-    return db.get(User, int(subject))
+    user = db.get(User, int(subject))
+    if user is None:
+        return None
+    impersonated = payload.get(IMPERSONATION_CLAIM) is IMPERSONATION_CLAIM_VALUE
+    return user, impersonated
 
 
 def get_current_user(
@@ -172,9 +248,10 @@ def get_current_user(
     активации, а не получить 401 «нет сессии». Рабочие ручки закрывает
     `require_active_user`.
     """
-    user = session_user(request, db)
-    if user is None:
+    found = session_user(request, db)
+    if found is None:
         raise unauthorized()
+    user, impersonated = found
 
     # Аутентификация — единственное место, где пользователь становится известен,
     # поэтому актор для журнала действий дописывается здесь. Запись идёт в общий
@@ -182,7 +259,14 @@ def get_current_user(
     # в threadpool, где доступна мутация объекта, но не установка `ContextVar`.
     # ФИО передаётся снимком: строка журнала сохраняет копию на момент действия,
     # а не ссылку на `users`, которая дала бы текущее имя при чтении.
-    audit.record_actor(user.id, user.active_organization_id, user.full_name)
+    # Признак сессии поддержки едет туда же: в такой сессии журнал пишется без
+    # организации, а уведомления молчат (`app.audit`, `app.notification_rules`).
+    audit.record_actor(
+        user.id,
+        user.active_organization_id,
+        user.full_name,
+        impersonated=impersonated,
+    )
 
     return user
 
@@ -220,8 +304,12 @@ def get_optional_user(
     Актором журнала действий пользователь здесь **не становится**: скачивание
     файла — чтение, а не действие кабинета, и записывать его в журнал от имени
     пользователя незачем (иначе каждая ссылка из письма была бы строкой журнала).
+
+    Признак сессии поддержки здесь не нужен и наружу не отдаётся: у анонима, как
+    и у скачивания файла, актора журнала нет вовсе.
     """
-    return session_user(request, db)
+    found = session_user(request, db)
+    return None if found is None else found[0]
 
 
 # Тот же пользователь, но «может быть анонимом»: значение `None` — нормальный

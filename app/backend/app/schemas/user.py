@@ -114,6 +114,23 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=1024)
 
 
+class ImpersonateRequest(BaseModel):
+    """Вход по ссылке поддержки: единственное поле — токен из адреса страницы.
+
+    Токен разбирается в обработчике, а не схемой: битая подпись, истёкший срок и
+    чужой claim — это один и тот же отказ `400 «Ссылка входа недействительна»`,
+    и текст отказа не должен приходить от `pydantic`. Пустой токен отсекается
+    `min_length`: это не отказ ссылки, а неполное тело.
+
+    `extra="forbid"`: лишнее поле в теле — `422` со стандартным текстом
+    `pydantic`, а не молча проигнорированное.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1)
+
+
 class UserResponse(BaseModel):
     """То, что пользователь вводил сам, плюс признак активации кабинета."""
 

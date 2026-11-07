@@ -216,6 +216,7 @@ class PendingChanges:
 ACTION_TITLES: dict[str, str] = {
     "post_auth_activate": "Задать пароль по ссылке и открыть кабинет",
     "post_auth_activate_resend": "Отправить письмо активации ещё раз",
+    "post_auth_impersonate": "Войти под пользователем по ссылке поддержки",
     "post_auth_login": "Войти по email и паролю",
     "post_auth_logout": "Выйти и погасить cookie сессии",
     "post_auth_password_recovery": "Отправить письмо для восстановления пароля",
@@ -239,6 +240,7 @@ ACTION_TITLES: dict[str, str] = {
     "patch_organization": "Изменить название, ИНН и реквизиты организации",
     "post_organization_invitations": "Пригласить сотрудника в организацию",
     "patch_platform_invoices": "Оплатить или отменить счёт из кабинета оператора",
+    "post_platform_users_impersonation_link": "Выдать ссылку входа под пользователем",
     # Тариф и расширения организации в кабинете оператора (#189): сроки, а не
     # удаление — поэтому и названия говорят о сроке и активности.
     "patch_platform_organizations_subscription": "Изменить срок действия тарифа организации",
@@ -350,6 +352,12 @@ class AuditContext:
     # ссылку на `users`: смена фамилии не должна переписывать уже собранный
     # журнал, а удаление пользователя — уносить строки за ним.
     actor_name: str | None = None
+    # Сессия выпущена по ссылке поддержки. В ней журнал пишется с пустой
+    # организацией: строки действий поддержки владельцу организации не
+    # показываются, но след в `audit_events` остаётся — `organization_id IS NULL`
+    # и `actor_id` пользователя. По тому же признаку молчат правила уведомлений
+    # (`app.notification_rules`).
+    impersonated: bool = False
     # Сколько строк уже ушло атомарным путём, в коммитах этого запроса.
     atomic_rows: int = 0
     # Снимок «было → стало» последнего коммита. Живёт на контексте, а не только
@@ -441,7 +449,13 @@ def finish_context(token: Token[AuditContext | None]) -> None:
     audit_context.reset(token)
 
 
-def record_actor(actor_id: int | None, organization_id: int | None, actor_name: str | None) -> None:
+def record_actor(
+    actor_id: int | None,
+    organization_id: int | None,
+    actor_name: str | None,
+    *,
+    impersonated: bool = False,
+) -> None:
     """Дописать актора в контекст запроса.
 
     Вызывается из `get_current_user`: аутентификация — единственное место, где
@@ -456,6 +470,14 @@ def record_actor(actor_id: int | None, organization_id: int | None, actor_name: 
     Имя объявлено обязательным, хотя `None` допустим: у запроса без сессии автора
     нет вовсе, а забытый аргумент у нового вызова оставил бы журнал без имени
     молча. Передавать его должен каждый, кто вообще сообщает актора.
+
+    `impersonated` — сессия выпущена по ссылке поддержки. Тогда в контекст
+    журнала уходит `organization_id = None`: строки действий поддержки владельцу
+    организации не показываются (`GET /api/journal` фильтрует по организации), а
+    сам след в `audit_events` остаётся — с актором-пользователем и пустой
+    организацией. История общежития (`dormitory_history`) получает настоящие
+    организацию и ФИО: это её собственный журнал, и там автор правки —
+    пользователь, а не подменённое лицо.
     """
     from app.dormitory_history import record_actor as record_history_actor
 
@@ -464,8 +486,20 @@ def record_actor(actor_id: int | None, organization_id: int | None, actor_name: 
     if context is None:
         return
     context.actor_id = actor_id
-    context.organization_id = organization_id
+    context.organization_id = None if impersonated else organization_id
     context.actor_name = actor_name
+    context.impersonated = impersonated
+
+
+def is_impersonated() -> bool:
+    """Идёт ли текущий запрос в сессии поддержки.
+
+    Вне запроса и в обычной сессии — `False`. Читают этот признак правила
+    уведомлений: в сессии поддержки доставки не создаются вовсе
+    (`app.notification_rules.notify_row_written`).
+    """
+    context = audit_context.get()
+    return bool(context is not None and context.impersonated)
 
 
 # --- Правила вида и кода действия -------------------------------------------
