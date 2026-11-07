@@ -79,11 +79,19 @@ function TelegramExample(): JSX.Element {
   );
 }
 
+/**
+ * Подпись срока подключённого решения.
+ *
+ * Своего срока у решения больше нет (#195): право действует, пока действует тариф
+ * организации, а `expires_at` — конец этого тарифа (`null` у бессрочного). Дату
+ * форматирует клиент: сервер отдаёт момент, а не готовую строку.
+ */
 function expiryLabel(solution: Solution): string {
-  if (!solution.expires_at) return 'Действует бессрочно';
+  const live = 'Действует, пока действует тариф';
+  if (!solution.expires_at) return live;
   const date = new Date(solution.expires_at);
-  if (Number.isNaN(date.getTime())) return `Действует до ${solution.expires_at}`;
-  return `Действует до ${date.toLocaleDateString('ru-RU')}`;
+  if (Number.isNaN(date.getTime())) return `${live} · до ${solution.expires_at}`;
+  return `${live} · до ${date.toLocaleDateString('ru-RU')}`;
 }
 
 /**
@@ -126,7 +134,6 @@ export function ShopSolutionCard({
   const telegram = solution.code === TELEGRAM_NOTIFICATIONS_CODE;
   const extraSeats = solution.code === EXTRA_MEMBER_CODE;
   const pending = buying === solution.id;
-  const action = solution.is_owned && solution.period !== 'once' ? 'Продлить' : 'Купить';
   // Счётчик количества живёт в карточке: мест покупают одно решение, и второй
   // карточке это число не принадлежит. Строкой, а не числом, — чтобы поле можно
   // было очистить и ввести число заново, не теряя курсор.
@@ -211,7 +218,7 @@ export function ShopSolutionCard({
       <div className={styles.purchaseBar}>
         <div>
           <span className={styles.caption}>
-            {extraSeats ? 'Цена за одно место' : 'Дополнительно к вашему тарифу'}
+            {extraSeats ? 'Цена за одно место' : 'В рамках действующего тарифа'}
           </span>
           <TariffPrice
             label={solution.price_label}
@@ -296,23 +303,27 @@ export function ShopSolutionCard({
             </>
           ) : (
             <>
-              {solution.is_owned && (
+              {/* Купленное решение не продаётся второй раз: доплата за него —
+                  тихая двойная продажа, и сервер отвечает на неё `409`. Вместо
+                  кнопки карточка объясняет, сколько право ещё действует. */}
+              {solution.is_owned ? (
                 <span className={styles.caption} data-testid="solution-expiry">
                   {expiryLabel(solution)}
                 </span>
+              ) : (
+                <button
+                  className={`btn btn--primary btn--compact ${styles.action}`}
+                  type="button"
+                  data-testid="solution-buy"
+                  aria-label={`${pending ? 'Выставляем счёт' : 'Купить'}: ${solution.name}`}
+                  aria-busy={pending || undefined}
+                  disabled={buying !== null}
+                  onClick={() => onBuy(solution.id)}
+                >
+                  {pending ? 'Выставляем счёт…' : 'Купить'}
+                  <ArrowRightIcon />
+                </button>
               )}
-              <button
-                className={`btn btn--primary btn--compact ${styles.action}`}
-                type="button"
-                data-testid="solution-buy"
-                aria-label={`${pending ? 'Выставляем счёт' : action}: ${solution.name}`}
-                aria-busy={pending || undefined}
-                disabled={buying !== null}
-                onClick={() => onBuy(solution.id)}
-              >
-                {pending ? 'Выставляем счёт…' : action}
-                <ArrowRightIcon />
-              </button>
             </>
           )}
         </div>

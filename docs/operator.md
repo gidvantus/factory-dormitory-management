@@ -252,15 +252,19 @@ docker compose up -d --build
   настроен: не задан OPERATOR_SERVICE_TOKEN»);
 - пусто — «Решений пока нет»: строки каталога приходят из миграций базы, завести
   решение из кабинета нельзя;
-- список: «Порядок», «Название», «Код», «Описание», «Цена», «Период»,
+- список: «Порядок», «Название», «Код», «Описание», «Цена»,
   «Состояние», «Создано», «Изменено», действия. Порядок строк — порядок ответа
   сервера (`position, id`): экран его не пересортировывает, потому что это и есть
   порядок карточек в магазине клиента. Цену печатает готовый `price_label`
   ответа — формулу цены экран не повторяет. Код показан целиком и не правится:
-  это гейт платной функции. Счётчик в заголовке: «3 решения · 2 в каталоге»;
+  это гейт платной функции. Колонки «Период» нет: у решения нет собственного
+  срока, право действует, пока действует тариф организации (#195), а цена потому
+  и читается «500 ₽ разово». Счётчик в заголовке: «3 решения · 2 в каталоге»;
 - правка — форма разворачивается под строкой: название, описание, порядок,
-  состояние, цена, валюта, период из пяти значений. «Сохранить» отправляет все
-  семь редактируемых полей, пустое описание уходит как `null`. После успешного
+  состояние, цена, валюта. Поля «Период» нет, и в теле `PATCH` его тоже нет;
+  присланный `period` основной API отвергает `422` как лишнее поле, но с формы
+  он и не уходит. «Сохранить» отправляет все
+  шесть редактируемых полей, пустое описание уходит как `null`. После успешного
   `PATCH` экран перечитывает каталог (`GET /api/solutions`), поэтому правка
   «Порядка» сразу переносит строку на её новое место — место задаёт сервер, а не
   клиент. На отправке кнопка неактивна («Сохраняем…»), кнопки строки заперты;
@@ -302,7 +306,7 @@ docker compose up -d --build
 | список | `operator-organizations`, `operator-organizations-empty`, `operator-organizations-error`, `operator-organizations-more`, `operator-organization-row` (на каждой строке), `operator-organization-open` |
 | карточка | `operator-organization-card`, `operator-organization-name`, `operator-organization-inn`, `operator-organization-kpp`, `operator-organization-ogrn`, `operator-organization-address`, `operator-organization-edit`, `operator-organization-save`, `operator-organization-cancel`, `operator-organization-error`, `operator-organization-back` (ссылка «К списку») |
 | тарифы | `operator-nav-tariffs` (пункт навигации), `operator-tariffs` (таблица), `operator-tariffs-count` (счётчик в заголовке), `operator-tariffs-loading`, `operator-tariffs-empty`, `operator-tariffs-error`, `operator-tariff-row` (на каждой строке), `operator-tariff-name`, `operator-tariff-description`, `operator-tariff-price`, `operator-tariff-period`, `operator-tariff-members`, `operator-tariff-state`, `operator-tariff-edit`, `operator-tariff-name-input`, `operator-tariff-description-input`, `operator-tariff-amount-input`, `operator-tariff-period-input`, `operator-tariff-members-input`, `operator-tariff-save`, `operator-tariff-cancel`, `operator-tariff-delete`, `operator-tariff-delete-confirm`, `operator-tariff-delete-decline`, `operator-tariff-publish`, `operator-tariff-error` |
-| решения | `operator-nav-solutions` (пункт навигации), `operator-solutions` (таблица), `operator-solutions-count` (счётчик в заголовке), `operator-solutions-loading`, `operator-solutions-empty`, `operator-solutions-error` (отказ загрузки, рядом `operator-solutions-retry`), `operator-solution-row` (на каждой строке), `operator-solution-position`, `operator-solution-name`, `operator-solution-code`, `operator-solution-description`, `operator-solution-price`, `operator-solution-period`, `operator-solution-state`, `operator-solution-created`, `operator-solution-updated`, `operator-solution-edit`, `operator-solution-delete`, `operator-solution-delete-confirm`, `operator-solution-delete-decline`, `operator-solution-publish`, `operator-solution-name-input`, `operator-solution-description-input`, `operator-solution-amount-input`, `operator-solution-currency-input`, `operator-solution-period-input`, `operator-solution-position-input`, `operator-solution-visible-input`, `operator-solution-save`, `operator-solution-cancel`, `operator-solution-error` (отказ правки, удаления и публикации) |
+| решения | `operator-nav-solutions` (пункт навигации), `operator-solutions` (таблица), `operator-solutions-count` (счётчик в заголовке), `operator-solutions-loading`, `operator-solutions-empty`, `operator-solutions-error` (отказ загрузки, рядом `operator-solutions-retry`), `operator-solution-row` (на каждой строке), `operator-solution-position`, `operator-solution-name`, `operator-solution-code`, `operator-solution-description`, `operator-solution-price`, `operator-solution-state`, `operator-solution-created`, `operator-solution-updated`, `operator-solution-edit`, `operator-solution-delete`, `operator-solution-delete-confirm`, `operator-solution-delete-decline`, `operator-solution-publish`, `operator-solution-name-input`, `operator-solution-description-input`, `operator-solution-amount-input`, `operator-solution-currency-input`, `operator-solution-position-input`, `operator-solution-visible-input`, `operator-solution-save`, `operator-solution-cancel`, `operator-solution-error` (отказ правки, удаления и публикации) |
 | реквизиты поставщика | `operator-nav-company` (пункт навигации), `operator-company` (форма), `operator-company-name`, `operator-company-inn`, `operator-company-kpp`, `operator-company-ogrn`, `operator-company-address`, `operator-company-bank-name`, `operator-company-bank-bic`, `operator-company-account`, `operator-company-corr-account`, `operator-company-signatory`, `operator-company-vat-note`, `operator-company-save`, `operator-company-saved`, `operator-company-error`, `operator-company-retry` |
 
 В режиме правки те же `operator-organization-name/-inn/-kpp/-ogrn/-address`

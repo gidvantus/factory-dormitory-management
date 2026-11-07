@@ -31,7 +31,8 @@ const NOT_FOUND: MockResponse = { status: 404, body: { detail: 'Не найде�
 
 /**
  * Строка каталога «Журнал действий» (#95): право на неё и открывает раздел.
- * Цена и период — данные каталога, а не текст экрана, поэтому здесь они как в seed.
+ * Цена и период — данные каталога, а не текст экрана: с #195 период в ответе
+ * всегда `once`, а `expires_at` — конец действующего тарифа организации.
  */
 function journalSolution(isOwned: boolean): Record<string, unknown> {
   return {
@@ -41,8 +42,8 @@ function journalSolution(isOwned: boolean): Record<string, unknown> {
     description: 'Кто, когда и что изменил в кабинете',
     amount: '300.00',
     currency: 'RUB',
-    period: 'month',
-    price_label: '300 ₽ в месяц',
+    period: 'once',
+    price_label: '300 ₽ разово',
     is_owned: isOwned,
     expires_at: isOwned ? '2026-11-14T10:00:00Z' : null,
   };
