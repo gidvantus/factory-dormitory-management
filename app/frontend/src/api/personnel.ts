@@ -182,8 +182,16 @@ export type EmployeeDetail = {
 };
 export type Binding = {
   fields: Record<string, number>;
-  columns: { id: number; name: string; kind: string; builtin_key: string | null }[];
+  columns: {
+    id: number;
+    name: string;
+    kind: string;
+    builtin_key: string | null;
+    has_fill?: boolean;
+    can_convert_to_text?: boolean;
+  }[];
 };
+export type EntryColumns = Partial<Record<'full_name' | 'phone', number>>;
 
 const send = <T = { ok: boolean }>(path: string, method: string, body?: unknown): Promise<T> =>
   request<T>(`/personnel${path}`, {
@@ -215,8 +223,15 @@ export const personnelApi = {
     table_key: SourceTable,
     identity: IdentityChoice,
     values: Record<string, unknown> = {},
+    entry_columns?: EntryColumns,
   ): Promise<{ row_id: number; employee_id: string }> =>
-    send('/records', 'POST', { dormitory_id, table_key, identity, values }),
+    send('/records', 'POST', {
+      dormitory_id,
+      table_key,
+      identity,
+      values,
+      ...(entry_columns === undefined ? {} : { entry_columns }),
+    }),
   link: (
     dormitory_id: number,
     table_key: SourceTable,
@@ -259,6 +274,14 @@ export const personnelApi = {
   preferences: (values: Preferences): Promise<Preferences> => send('/preferences', 'PUT', values),
   binding: (id: string, table: SourceTable, signal?: AbortSignal): Promise<Binding> =>
     request(`/personnel/bindings/${id}/${table}`, { signal }),
-  saveBinding: (id: string, table: SourceTable, fields: Record<string, number>) =>
-    send(`/bindings/${id}/${table}`, 'PUT', { fields }),
+  saveBinding: (
+    id: string,
+    table: SourceTable,
+    fields: Record<string, number>,
+    convertPhoneToText = false,
+  ) =>
+    send(`/bindings/${id}/${table}`, 'PUT', {
+      fields,
+      ...(convertPhoneToText ? { convert_phone_to_text: true } : {}),
+    }),
 };

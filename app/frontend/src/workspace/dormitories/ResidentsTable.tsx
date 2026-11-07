@@ -13,7 +13,7 @@ import {
   ConfiguredTable,
   TableColumnsProvider,
 } from './ConfigurableColumns';
-import { useTableSaves } from './tableColumnsContext';
+import { useColumns, useTableSaves } from './tableColumnsContext';
 import { TransferResidentDialog } from './TransferResidentDialog';
 import { OutflowResidentDialog } from './OutflowResidentDialog';
 import { IdentityDialog } from '../personnel/IdentityDialog';
@@ -421,6 +421,7 @@ function ResidentRow({
 }
 
 function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element {
+  const { reload: reloadColumns, columns, personnelFields, values } = useColumns();
   const month = currentMonth().from.slice(0, 7);
   const [data, setData] = useState<ResidentsResponse>({ residents: [], hostels: [] });
   const [query, setQuery] = useState('');
@@ -490,7 +491,18 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
     }
   }
 
-  const visible = data.residents.filter((resident) => matchesResident(resident, query));
+  const visible = data.residents.filter((resident) => {
+    const current = { ...resident };
+    for (const role of ['full_name', 'phone'] as const) {
+      const columnId = personnelFields?.[role];
+      if (columnId === undefined || columns.find((column) => column.id === columnId)?.builtin_key)
+        continue;
+      const key = `${resident.id}:${columnId}`;
+      const value = key in values ? values[key] : resident.custom_values?.[columnId];
+      if (value !== undefined) current[role] = value === null ? null : String(value);
+    }
+    return matchesResident(current, query);
+  });
   const visibleIds = new Set(visible.map((resident) => resident.id));
   return (
     <DormitoryTableFrame
@@ -569,6 +581,10 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
         <IdentityDialog
           dormitoryId={dormitoryId}
           tableKey="residents"
+          onEntryColumnsSaved={() => {
+            reloadColumns();
+            setAttempt((value) => value + 1);
+          }}
           onClose={() => setAdding(false)}
           onSaved={() => {
             setAdding(false);

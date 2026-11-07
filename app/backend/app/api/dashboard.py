@@ -143,7 +143,9 @@ def read_dashboard(
                 block,
                 dormitories,
                 from_date,
-                to_date if block.config.source_kind == "arrival_plan" else snapshot_date,
+                to_date
+                if block.config.source_kind == "arrival_plan" or block.config.display == "summary"
+                else snapshot_date,
                 reports,
             )
             for block in layout.blocks

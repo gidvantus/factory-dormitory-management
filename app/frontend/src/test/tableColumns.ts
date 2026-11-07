@@ -111,6 +111,22 @@ export function mockTableFetch(handler: MockHandler): ReturnType<typeof mockFetc
       };
     if (/\/personnel\/bindings\/\d+\/(archive|custom_\d+)$/.test(url) && !init?.method)
       return { status: 200, body: { fields: {}, columns: [] } };
+    if (/\/personnel\/bindings\/\d+\/residents$/.test(url) && !init?.method) {
+      const columns = defaultColumns('residents');
+      return {
+        status: 200,
+        body: {
+          fields: Object.fromEntries(
+            columns
+              .filter(
+                (column) => column.builtin_key === 'full_name' || column.builtin_key === 'phone',
+              )
+              .map((column) => [column.builtin_key, column.id]),
+          ),
+          columns,
+        },
+      };
+    }
     if (/\/dormitories\/\d+\/report-readiness$/.test(url) && !init?.method)
       return {
         status: 200,

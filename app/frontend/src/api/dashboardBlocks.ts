@@ -18,9 +18,21 @@ export type WidgetSource =
       group_column_id: number | null;
       filter: WidgetFilter | null;
     };
+export interface SummaryMetric {
+  name: string;
+  aggregate: 'sum' | 'average' | 'last';
+  sources: Extract<WidgetSource, { kind: 'report' }>[];
+}
+export interface SummaryConfig {
+  view: 'totals' | 'daily';
+  label: 'dormitory' | 'client';
+  dormitory_ids: number[];
+  metrics: SummaryMetric[];
+}
 export interface WidgetConfig {
   name: string;
-  display: 'number' | 'list' | 'chart';
+  display: 'number' | 'list' | 'chart' | 'summary';
+  summary?: SummaryConfig | null;
   chart_mode?: 'total' | 'dormitories';
   source_kind: WidgetSource['kind'];
   operation: 'count' | 'sum';
@@ -45,6 +57,17 @@ export interface WidgetResult {
   value: number | null;
   items: { label: string; value: number | null; is_archived: boolean }[];
   errors: string[];
+  summary?: {
+    dates: string[];
+    rows: {
+      dormitory_id: number;
+      label: string;
+      metric: string;
+      aggregate: SummaryMetric['aggregate'];
+      value: number | null;
+      daily: { date: string; value: number | null }[];
+    }[];
+  } | null;
   daily?: { date: string; value: number | null }[];
   series?: {
     dormitory_id: number;
@@ -64,6 +87,7 @@ export interface CatalogSource {
 export interface CatalogDormitory {
   id: number;
   name: string;
+  client_name?: string | null;
   is_archived: boolean;
   sources: CatalogSource[];
 }

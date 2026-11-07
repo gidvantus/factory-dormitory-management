@@ -34,6 +34,7 @@ from app.outflow_fields import sync_outflow_cell
 from app.personnel import record_changed
 from app.place_values import active_in_month, place_day_values
 from app.places_import import FIELD_LABELS
+from app.resident_identity import ENTRY_ROLES, compatible, entry_fields
 from app.schemas.inflow import UpdateInflowRequest
 from app.schemas.outflow import UpdateOutflowRequest
 from app.schemas.payment import UpdatePaymentRequest
@@ -81,6 +82,7 @@ class ExchangeTable:
     # У календарных отчётов строки и подписи фиксированы, меняются только пустые ячейки.
     grid: list[tuple[Any, list[Any]]] | None = None
     resolver: FillResolver | None = None
+    entry_columns: dict[str, int] = field(default_factory=dict)
 
     def fingerprint(self) -> str:
         return hashlib.sha256(
@@ -191,6 +193,26 @@ def prepare_table(
             }
             for col in columns
         ]
+        if key == "residents":
+            table.entry_columns = entry_fields(db, dorm.id, columns)
+            defaults = {
+                col.builtin_key: col.id
+                for col in columns
+                if col.builtin_key in ENTRY_ROLES and compatible(col, col.builtin_key)
+            }
+            # Обычные шаблоны сохраняют прежний формат. Изменённое назначение
+            # пользовательских столбцов входит в подпись актуального шаблона.
+            if table.entry_columns != defaults:
+                table.schema["identity_columns"] = table.entry_columns
+            by_id = {col.id: col for col in columns}
+            if importing and any(
+                column_id not in by_id or not compatible(by_id[column_id], role)
+                for role, column_id in table.entry_columns.items()
+            ):
+                raise HTTPException(
+                    409,
+                    "Сначала выберите действующие столбцы ФИО и телефона в окне добавления строки",
+                )
         if tab:
             options = options_for(tab)
             table.schema["format"] = options.table_format
@@ -597,6 +619,28 @@ def validate_rows(table: ExchangeTable, rows: list[tuple[int, list[Any]]]) -> li
                     422, f"{TEMPLATE_ERROR} Строка {index}, столбец «{col.name}»: {exc.detail}"
                 ) from exc
         if table.key in validators:
+            if table.key == "residents":
+                by_id = {col.column.id: col for col in table.columns if col.column}
+                for role, column_id in table.entry_columns.items():
+                    assigned = by_id[column_id]
+                    assert assigned.column is not None
+                    if assigned.column.builtin_key:
+                        continue
+                    key = str(column_id)
+                    value = parsed.values.get(key)
+                    builtin = parsed.builtin.get(role)
+                    if value is not None and builtin is not None and value != builtin:
+                        raise HTTPException(
+                            422,
+                            f"Строка {index}, столбец «{assigned.name}»: "
+                            "указаны разные значения одного поля. "
+                            f"Заполните назначенный столбец. {TEMPLATE_ERROR}",
+                        )
+                    if value is None:
+                        value = builtin
+                    if value is not None:
+                        parsed.builtin[role] = value
+                        parsed.values[key] = value
             try:
                 parsed.builtin = (
                     validators[table.key]
@@ -605,17 +649,30 @@ def validate_rows(table: ExchangeTable, rows: list[tuple[int, list[Any]]]) -> li
                 )
             except ValidationError as exc:
                 error = exc.errors(include_input=False)[0]
+                field_name = str(error["loc"][0])
+                selected_id = table.entry_columns.get(field_name)
                 name = next(
                     (
                         col.name
                         for col in table.columns
-                        if col.column and col.column.builtin_key == str(error["loc"][0])
+                        if col.column and col.column.id == selected_id
                     ),
-                    str(error["loc"][0]),
+                    None,
+                ) or next(
+                    (
+                        col.name
+                        for col in table.columns
+                        if col.column and col.column.builtin_key == field_name
+                    ),
+                    field_name,
                 )
                 raise HTTPException(
                     422, f"{TEMPLATE_ERROR} Строка {index}, столбец «{name}»: {error['msg']}"
                 ) from exc
+            if table.key == "residents":
+                for role, column_id in table.entry_columns.items():
+                    if str(column_id) in parsed.values and role in parsed.builtin:
+                        parsed.values[str(column_id)] = parsed.builtin[role]
         if (
             parsed.builtin.get("shift_start")
             and parsed.builtin.get("shift_end")

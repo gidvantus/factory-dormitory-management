@@ -55,7 +55,7 @@ def preview_block(
         raise HTTPException(422, "Выберите период не длиннее года")
     validate_config(db, payload, membership.organization_id)
     end = min(to_date, today_moscow()) if from_date <= today_moscow() else None
-    if payload.source_kind == "arrival_plan":
+    if payload.source_kind == "arrival_plan" or payload.display == "summary":
         end = to_date
     dormitories = scoped_dormitories(db, membership.organization_id)
     return calculate_widget(

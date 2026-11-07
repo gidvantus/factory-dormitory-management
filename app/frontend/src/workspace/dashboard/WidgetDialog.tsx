@@ -18,6 +18,8 @@ import { useOrganizedEditor } from '../../components/useOrganizedEditor';
 import type { DateRange } from './dates';
 import { formatCount } from './data';
 import { WidgetChart } from './WidgetChart';
+import { SummaryReportFields } from './SummaryReportFields';
+import { SummaryReport } from './SummaryReport';
 import styles from './WidgetDialog.module.css';
 
 const METRICS: { key: PlaceMetric; name: string }[] = [
@@ -146,6 +148,7 @@ export function WidgetDialog({
             ...items
               .filter(
                 (dorm) =>
+                  current.display !== 'summary' &&
                   current.all_dormitories &&
                   !current.excluded_dormitory_ids.includes(dorm.id) &&
                   !current.sources.some((source) => source.dormitory_id === dorm.id),
@@ -301,11 +304,19 @@ export function WidgetDialog({
       setError('Укажите название блока.');
       return;
     }
-    if (!config.sources.length) {
+    if (
+      config.display === 'summary' &&
+      (!config.summary?.metrics.length ||
+        (!config.all_dormitories && !config.summary.dormitory_ids.length))
+    ) {
+      setError('Выберите общежития и хотя бы один показатель.');
+      return;
+    }
+    if (config.display !== 'summary' && !config.sources.length) {
       setError('Выберите хотя бы одно общежитие.');
       return;
     }
-    if (missing.length) {
+    if (config.display !== 'summary' && missing.length) {
       setError('Настройте источники: ' + missing.map((dorm) => dorm.name).join(', '));
       return;
     }
@@ -384,14 +395,41 @@ export function WidgetDialog({
             change({
               ...config,
               display: event.target.value as WidgetConfig['display'],
-              period: event.target.value === 'chart' ? 'range' : config.period,
+              period: ['chart', 'summary'].includes(event.target.value) ? 'range' : config.period,
               grouping: 'dormitory',
+              ...(event.target.value === 'summary'
+                ? {
+                    source_kind: 'report',
+                    operation: 'sum',
+                    sources: [],
+                    summary: config.summary ?? {
+                      view: 'totals',
+                      label: 'dormitory',
+                      dormitory_ids: config.all_dormitories
+                        ? catalog.map((dorm) => dorm.id)
+                        : config.sources.map((source) => source.dormitory_id),
+                      metrics: [],
+                    },
+                  }
+                : config.display === 'summary'
+                  ? {
+                      sources: catalog
+                        .filter(
+                          (dorm) =>
+                            !config.excluded_dormitory_ids.includes(dorm.id) &&
+                            (config.all_dormitories ||
+                              config.summary?.dormitory_ids.includes(dorm.id)),
+                        )
+                        .map((dorm) => blankSource(dorm, config.source_kind)),
+                    }
+                  : {}),
             })
           }
         >
           <option value="number">Одна цифра</option>
           <option value="list">Список</option>
           <option value="chart">График</option>
+          <option value="summary">Большой сводный отчёт</option>
         </select>
       </label>
       {config.display === 'chart' && (
@@ -456,407 +494,434 @@ export function WidgetDialog({
                 />
               </label>
             </EditorSection>
-            {!organized && displayFields}
-            <EditorSection
-              title="Данные и расчёт"
-              description="Выберите источник, способ подсчёта и период. Сначала определяем данные, затем их вид."
-            >
-              <label className={styles.field}>
-                Источник данных
-                <select
-                  value={config.source_kind}
-                  onChange={(event) => {
-                    const kind = event.target.value as WidgetSource['kind'];
-                    change({
-                      ...config,
-                      source_kind: kind,
-                      period: kind === 'arrival_plan' ? 'range' : config.period,
-                      operation: kind === 'table' ? 'count' : 'sum',
-                      grouping: 'dormitory',
-                      sources: catalog
-                        .filter((dorm) => included(dorm.id))
-                        .map((dorm) => blankSource(dorm, kind)),
-                    });
-                  }}
+            {displayFields}
+            {config.display !== 'summary' && (
+              <>
+                <EditorSection
+                  title="Данные и расчёт"
+                  description="Выберите источник, способ подсчёта и период. Сначала определяем данные, затем их вид."
                 >
-                  <option value="report">Общий отчёт</option>
-                  <option value="places">Размещение персонала</option>
-                  <option value="arrival_plan">План заездов</option>
-                  <option value="table">Таблица / пользовательская вкладка</option>
-                </select>
-              </label>
-              {(config.display !== 'chart' || config.source_kind === 'table') && (
-                <label className={styles.field}>
-                  Период расчёта
-                  <select
-                    value={config.period}
-                    onChange={(event) =>
-                      change({ ...config, period: event.target.value as WidgetConfig['period'] })
-                    }
-                  >
-                    <option value="snapshot">
-                      {config.display === 'chart'
-                        ? 'Накопительно на каждую дату'
-                        : config.source_kind === 'arrival_plan'
-                          ? 'На последнюю дату периода'
-                          : 'На дату среза дашборда'}
-                    </option>
-                    <option value="range">
-                      {config.display === 'chart'
-                        ? 'Отдельно за каждый день'
-                        : 'За выбранный период'}
-                    </option>
-                  </select>
-                </label>
+                  <label className={styles.field}>
+                    Источник данных
+                    <select
+                      value={config.source_kind}
+                      onChange={(event) => {
+                        const kind = event.target.value as WidgetSource['kind'];
+                        change({
+                          ...config,
+                          source_kind: kind,
+                          period: kind === 'arrival_plan' ? 'range' : config.period,
+                          operation: kind === 'table' ? 'count' : 'sum',
+                          grouping: 'dormitory',
+                          sources: catalog
+                            .filter((dorm) => included(dorm.id))
+                            .map((dorm) => blankSource(dorm, kind)),
+                        });
+                      }}
+                    >
+                      <option value="report">Общий отчёт</option>
+                      <option value="places">Размещение персонала</option>
+                      <option value="arrival_plan">План заездов</option>
+                      <option value="table">Таблица / пользовательская вкладка</option>
+                    </select>
+                  </label>
+                  {(config.display !== 'chart' || config.source_kind === 'table') && (
+                    <label className={styles.field}>
+                      Период расчёта
+                      <select
+                        value={config.period}
+                        onChange={(event) =>
+                          change({
+                            ...config,
+                            period: event.target.value as WidgetConfig['period'],
+                          })
+                        }
+                      >
+                        <option value="snapshot">
+                          {config.display === 'chart'
+                            ? 'Накопительно на каждую дату'
+                            : config.source_kind === 'arrival_plan'
+                              ? 'На последнюю дату периода'
+                              : 'На дату среза дашборда'}
+                        </option>
+                        <option value="range">
+                          {config.display === 'chart'
+                            ? 'Отдельно за каждый день'
+                            : 'За выбранный период'}
+                        </option>
+                      </select>
+                    </label>
+                  )}
+                  {config.source_kind === 'table' && (
+                    <label className={styles.field}>
+                      Что считать
+                      <select
+                        value={config.operation}
+                        onChange={(event) =>
+                          change({
+                            ...config,
+                            operation: event.target.value as WidgetConfig['operation'],
+                          })
+                        }
+                      >
+                        <option value="count">Количество строк</option>
+                        <option value="sum">Сумма числового столбца</option>
+                      </select>
+                    </label>
+                  )}
+                </EditorSection>
+                {!organized && groupingFields}
+              </>
+            )}
+          </div>
+          {config.display === 'summary' ? (
+            <>
+              {loading && <p role="status">Загружаем показатели…</p>}
+              {loadError && (
+                <p role="alert">
+                  {loadError}{' '}
+                  <button type="button" onClick={() => setAttempt((value) => value + 1)}>
+                    Повторить загрузку
+                  </button>
+                </p>
               )}
-              {config.source_kind === 'table' && (
-                <label className={styles.field}>
-                  Что считать
-                  <select
-                    value={config.operation}
+              <SummaryReportFields config={config} catalog={catalog} onChange={change} />
+            </>
+          ) : (
+            <>
+              <p className={styles.hint}>
+                {config.source_kind === 'arrival_plan'
+                  ? 'Учитывается введённое количество приезжающих по датам заезда, включая будущие даты. Дни без записей дают 0. Заполнение ФИО не влияет на расчёт.'
+                  : config.display === 'chart'
+                    ? config.source_kind === 'table'
+                      ? 'График показывает текущие строки таблиц по выбранной дате. Можно считать отдельно за день или накопительно. Строки без выбранной даты не учитываются.'
+                      : 'График показывает значение выбранного показателя за каждую дату периода дашборда. Пропуски и ошибки данных разрывают линию.'
+                    : config.source_kind === 'table'
+                      ? 'Считаются текущие строки таблиц. За период — по выбранной дате; на дату среза — все строки с датой не позже среза. Строки без выбранной даты не учитываются.'
+                      : 'На дату среза берётся один день. За период суммируются дневные значения — для численности обычно нужен срез.'}
+              </p>
+              <EditorSection
+                title="Общежития и источники"
+                description="Выберите общежития. Общий подбор можно уточнить отдельно для каждого."
+              >
+                <div className={styles.sourceHeading}>
+                  {!organized && <h3>Общежития и источники</h3>}
+                  {config.source_kind !== 'arrival_plan' && (
+                    <button type="button" disabled={loading || !!loadError} onClick={copyFirst}>
+                      Подобрать по первому общежитию
+                    </button>
+                  )}
+                </div>
+                <label className={styles.check}>
+                  <input
+                    type="checkbox"
+                    checked={config.all_dormitories}
                     onChange={(event) =>
                       change({
                         ...config,
-                        operation: event.target.value as WidgetConfig['operation'],
+                        all_dormitories: event.target.checked,
+                        sources: event.target.checked
+                          ? catalog
+                              .filter((dorm) => !config.excluded_dormitory_ids.includes(dorm.id))
+                              .map(
+                                (dorm) =>
+                                  config.sources.find(
+                                    (source) => source.dormitory_id === dorm.id,
+                                  ) ?? blankSource(dorm, config.source_kind),
+                              )
+                          : config.sources,
                       })
                     }
-                  >
-                    <option value="count">Количество строк</option>
-                    <option value="sum">Сумма числового столбца</option>
-                  </select>
+                  />
+                  Учитывать все общежития, включая новые
                 </label>
-              )}
-            </EditorSection>
-            {!organized && groupingFields}
-          </div>
-          <p className={styles.hint}>
-            {config.source_kind === 'arrival_plan'
-              ? 'Учитывается введённое количество приезжающих по датам заезда, включая будущие даты. Дни без записей дают 0. Заполнение ФИО не влияет на расчёт.'
-              : config.display === 'chart'
-                ? config.source_kind === 'table'
-                  ? 'График показывает текущие строки таблиц по выбранной дате. Можно считать отдельно за день или накопительно. Строки без выбранной даты не учитываются.'
-                  : 'График показывает значение выбранного показателя за каждую дату периода дашборда. Пропуски и ошибки данных разрывают линию.'
-                : config.source_kind === 'table'
-                  ? 'Считаются текущие строки таблиц. За период — по выбранной дате; на дату среза — все строки с датой не позже среза. Строки без выбранной даты не учитываются.'
-                  : 'На дату среза берётся один день. За период суммируются дневные значения — для численности обычно нужен срез.'}
-          </p>
-          <EditorSection
-            title="Общежития и источники"
-            description="Выберите общежития. Общий подбор можно уточнить отдельно для каждого."
-          >
-            <div className={styles.sourceHeading}>
-              {!organized && <h3>Общежития и источники</h3>}
-              {config.source_kind !== 'arrival_plan' && (
-                <button type="button" disabled={loading || !!loadError} onClick={copyFirst}>
-                  Подобрать по первому общежитию
-                </button>
-              )}
-            </div>
-            <label className={styles.check}>
-              <input
-                type="checkbox"
-                checked={config.all_dormitories}
-                onChange={(event) =>
-                  change({
-                    ...config,
-                    all_dormitories: event.target.checked,
-                    sources: event.target.checked
-                      ? catalog
-                          .filter((dorm) => !config.excluded_dormitory_ids.includes(dorm.id))
-                          .map(
-                            (dorm) =>
-                              config.sources.find((source) => source.dormitory_id === dorm.id) ??
-                              blankSource(dorm, config.source_kind),
-                          )
-                      : config.sources,
-                  })
-                }
-              />
-              Учитывать все общежития, включая новые
-            </label>
-            <p className={styles.hint}>
-              {config.source_kind === 'arrival_plan'
-                ? 'При выборе всех общежитий новые общежития будут учитываться автоматически.'
-                : 'Для новых общежитий потребуется выбрать источник. Подбор сопоставляет названия и типы; проверьте результат. Скрытые вкладки доступны для расчётов.'}
-            </p>
-            {loading && <p role="status">Загружаем источники…</p>}
-            {loadError && (
-              <p role="alert">
-                {loadError}{' '}
-                <button
-                  className="link-button"
-                  type="button"
-                  onClick={() => setAttempt((value) => value + 1)}
-                >
-                  Повторить загрузку
-                </button>
-              </p>
-            )}
-            {!loading && !loadError && catalog.length === 0 && (
-              <p>Нет действующих общежитий. Создайте общежитие или восстановите его из архива.</p>
-            )}
-            {!loading &&
-              !loadError &&
-              catalog.map((dorm, index) => {
-                const source = config.sources.find((item) => item.dormitory_id === dorm.id),
-                  metadata = source ? sourceMetadata(dorm, source) : undefined;
-                const selected = included(dorm.id),
-                  valid = validSource(dorm, source, config);
-                return (
-                  <section key={dorm.id} className={styles.sourceCard}>
-                    <label className={styles.check}>
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={(event) => include(dorm, event.target.checked)}
-                      />
-                      {dorm.name}
-                      {dorm.is_archived ? ' (Архив)' : ''}
-                    </label>
-                    {selected && source && (
-                      <details open={index === 0}>
-                        <summary>{valid ? 'Источник выбран' : 'Настроить источник'}</summary>
-                        <div className={styles.grid}>
-                          {source.kind === 'arrival_plan' && (
-                            <p className={styles.hint}>
-                              Количество ожидаемых людей из плана заездов.
-                            </p>
-                          )}
-                          {source.kind === 'report' && (
-                            <label className={styles.field}>
-                              Строка отчёта — {dorm.name}
-                              <select
-                                value={source.row_id}
-                                onChange={(event) =>
-                                  setSource({ ...source, row_id: Number(event.target.value) })
-                                }
-                              >
-                                <option value={0}>Выберите строку</option>
-                                {metadata?.rows.map((row) => (
-                                  <option key={row.id} value={row.id}>
-                                    {row.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          )}
-                          {source.kind === 'places' && (
-                            <>
-                              <label className={styles.field}>
-                                Показатель — {dorm.name}
-                                <select
-                                  value={source.metric}
-                                  onChange={(event) =>
-                                    setSource({
-                                      ...source,
-                                      metric: event.target.value as PlaceMetric,
-                                    })
-                                  }
-                                >
-                                  {METRICS.map((item) => (
-                                    <option key={item.key} value={item.key}>
-                                      {item.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <label className={styles.field}>
-                                Хостел — {dorm.name}
-                                <select
-                                  value={source.hostel_id ?? ''}
-                                  onChange={(event) =>
-                                    setSource({
-                                      ...source,
-                                      hostel_id: event.target.value
-                                        ? Number(event.target.value)
-                                        : null,
-                                    })
-                                  }
-                                >
-                                  <option value="">Все хостелы</option>
-                                  {metadata?.hostels.map((item) => (
-                                    <option key={item.id} value={item.id}>
-                                      {item.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                            </>
-                          )}
-                          {source.kind === 'table' && (
-                            <>
-                              <label className={styles.field}>
-                                Таблица — {dorm.name}
-                                <select
-                                  value={source.table_key}
-                                  onChange={(event) =>
-                                    setSource({
-                                      ...blankSource(dorm, 'table'),
-                                      table_key: event.target.value as TableKey,
-                                    } as WidgetSource)
-                                  }
-                                >
-                                  <option value="">Выберите таблицу</option>
-                                  {dorm.sources
-                                    .filter((item) => item.kind === 'table')
-                                    .map((item) => (
-                                      <option key={item.key} value={item.key}>
-                                        {item.name}
-                                      </option>
-                                    ))}
-                                </select>
-                              </label>
-                              {config.operation === 'sum' && (
-                                <label className={styles.field}>
-                                  Числовой столбец — {dorm.name}
-                                  <select
-                                    value={source.value_column_id ?? ''}
-                                    onChange={(event) =>
-                                      setSource({
-                                        ...source,
-                                        value_column_id: Number(event.target.value) || null,
-                                      })
-                                    }
-                                  >
-                                    <option value="">Выберите столбец</option>
-                                    {metadata?.columns
-                                      .filter((col) => col.kind === 'number')
-                                      .map((col) => (
-                                        <option key={col.id} value={col.id}>
-                                          {col.name}
-                                        </option>
-                                      ))}
-                                  </select>
-                                </label>
+                <p className={styles.hint}>
+                  {config.source_kind === 'arrival_plan'
+                    ? 'При выборе всех общежитий новые общежития будут учитываться автоматически.'
+                    : 'Для новых общежитий потребуется выбрать источник. Подбор сопоставляет названия и типы; проверьте результат. Скрытые вкладки доступны для расчётов.'}
+                </p>
+                {loading && <p role="status">Загружаем источники…</p>}
+                {loadError && (
+                  <p role="alert">
+                    {loadError}{' '}
+                    <button
+                      className="link-button"
+                      type="button"
+                      onClick={() => setAttempt((value) => value + 1)}
+                    >
+                      Повторить загрузку
+                    </button>
+                  </p>
+                )}
+                {!loading && !loadError && catalog.length === 0 && (
+                  <p>
+                    Нет действующих общежитий. Создайте общежитие или восстановите его из архива.
+                  </p>
+                )}
+                {!loading &&
+                  !loadError &&
+                  catalog.map((dorm, index) => {
+                    const source = config.sources.find((item) => item.dormitory_id === dorm.id),
+                      metadata = source ? sourceMetadata(dorm, source) : undefined;
+                    const selected = included(dorm.id),
+                      valid = validSource(dorm, source, config);
+                    return (
+                      <section key={dorm.id} className={styles.sourceCard}>
+                        <label className={styles.check}>
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={(event) => include(dorm, event.target.checked)}
+                          />
+                          {dorm.name}
+                          {dorm.is_archived ? ' (Архив)' : ''}
+                        </label>
+                        {selected && source && (
+                          <details open={index === 0}>
+                            <summary>{valid ? 'Источник выбран' : 'Настроить источник'}</summary>
+                            <div className={styles.grid}>
+                              {source.kind === 'arrival_plan' && (
+                                <p className={styles.hint}>
+                                  Количество ожидаемых людей из плана заездов.
+                                </p>
                               )}
-                              <label className={styles.field}>
-                                Дата для расчёта — {dorm.name}
-                                <select
-                                  value={source.date_column_id ?? ''}
-                                  onChange={(event) =>
-                                    setSource({
-                                      ...source,
-                                      date_column_id: Number(event.target.value) || null,
-                                    })
-                                  }
-                                >
-                                  <option value="">Дата создания записи</option>
-                                  {metadata?.columns
-                                    .filter((col) => col.kind === 'date')
-                                    .map((col) => (
-                                      <option key={col.id} value={col.id}>
-                                        {col.name}
-                                      </option>
-                                    ))}
-                                </select>
-                              </label>
-                              {config.grouping === 'value' && (
+                              {source.kind === 'report' && (
                                 <label className={styles.field}>
-                                  Столбец группировки — {dorm.name}
+                                  Строка отчёта — {dorm.name}
                                   <select
-                                    value={source.group_column_id ?? ''}
+                                    value={source.row_id}
                                     onChange={(event) =>
-                                      setSource({
-                                        ...source,
-                                        group_column_id: Number(event.target.value) || null,
-                                      })
+                                      setSource({ ...source, row_id: Number(event.target.value) })
                                     }
                                   >
-                                    <option value="">Выберите столбец</option>
-                                    {metadata?.columns.map((col) => (
-                                      <option key={col.id} value={col.id}>
-                                        {col.name}
+                                    <option value={0}>Выберите строку</option>
+                                    {metadata?.rows.map((row) => (
+                                      <option key={row.id} value={row.id}>
+                                        {row.name}
                                       </option>
                                     ))}
                                   </select>
                                 </label>
                               )}
-                              <label className={styles.check}>
-                                <input
-                                  type="checkbox"
-                                  checked={!!source.filter}
-                                  onChange={(event) =>
-                                    setSource({
-                                      ...source,
-                                      filter: event.target.checked
-                                        ? {
-                                            column_id: metadata?.columns[0]?.id ?? 0,
-                                            operator: 'equals',
-                                            value: null,
-                                          }
-                                        : null,
-                                    })
-                                  }
-                                />
-                                Условие отбора — {dorm.name}
-                              </label>
-                              {source.filter && metadata && (
+                              {source.kind === 'places' && (
                                 <>
                                   <label className={styles.field}>
-                                    Столбец условия — {dorm.name}
+                                    Показатель — {dorm.name}
                                     <select
-                                      value={source.filter.column_id}
+                                      value={source.metric}
                                       onChange={(event) =>
                                         setSource({
                                           ...source,
-                                          filter: {
-                                            column_id: Number(event.target.value),
-                                            operator: 'equals',
-                                            value: null,
-                                          },
+                                          metric: event.target.value as PlaceMetric,
                                         })
                                       }
                                     >
-                                      {metadata.columns.map((col) => (
-                                        <option key={col.id} value={col.id}>
-                                          {col.name}
+                                      {METRICS.map((item) => (
+                                        <option key={item.key} value={item.key}>
+                                          {item.name}
                                         </option>
                                       ))}
                                     </select>
                                   </label>
                                   <label className={styles.field}>
-                                    Условие — {dorm.name}
+                                    Хостел — {dorm.name}
                                     <select
-                                      value={source.filter.operator}
+                                      value={source.hostel_id ?? ''}
                                       onChange={(event) =>
                                         setSource({
                                           ...source,
-                                          filter: {
-                                            ...source.filter!,
-                                            operator: event.target.value as 'equals' | 'not_empty',
-                                          },
+                                          hostel_id: event.target.value
+                                            ? Number(event.target.value)
+                                            : null,
                                         })
                                       }
                                     >
-                                      <option value="equals">Равно</option>
-                                      <option value="not_empty">Заполнено</option>
+                                      <option value="">Все хостелы</option>
+                                      {metadata?.hostels.map((item) => (
+                                        <option key={item.id} value={item.id}>
+                                          {item.name}
+                                        </option>
+                                      ))}
                                     </select>
                                   </label>
-                                  {filterInput(source, metadata)}
                                 </>
                               )}
-                            </>
-                          )}
-                          {!metadata && (
-                            <p className={styles.error}>Этот источник отсутствует в общежитии.</p>
-                          )}
-                        </div>
-                      </details>
-                    )}
-                  </section>
-                );
-              })}
-          </EditorSection>
-          {organized && (
-            <EditorSection
-              title="Отображение"
-              description="Теперь выберите, как показывать выбранные данные: цифрой, списком или графиком."
-            >
-              <div className={styles.grid}>
-                {displayFields}
-                {groupingFields}
-              </div>
-            </EditorSection>
+                              {source.kind === 'table' && (
+                                <>
+                                  <label className={styles.field}>
+                                    Таблица — {dorm.name}
+                                    <select
+                                      value={source.table_key}
+                                      onChange={(event) =>
+                                        setSource({
+                                          ...blankSource(dorm, 'table'),
+                                          table_key: event.target.value as TableKey,
+                                        } as WidgetSource)
+                                      }
+                                    >
+                                      <option value="">Выберите таблицу</option>
+                                      {dorm.sources
+                                        .filter((item) => item.kind === 'table')
+                                        .map((item) => (
+                                          <option key={item.key} value={item.key}>
+                                            {item.name}
+                                          </option>
+                                        ))}
+                                    </select>
+                                  </label>
+                                  {config.operation === 'sum' && (
+                                    <label className={styles.field}>
+                                      Числовой столбец — {dorm.name}
+                                      <select
+                                        value={source.value_column_id ?? ''}
+                                        onChange={(event) =>
+                                          setSource({
+                                            ...source,
+                                            value_column_id: Number(event.target.value) || null,
+                                          })
+                                        }
+                                      >
+                                        <option value="">Выберите столбец</option>
+                                        {metadata?.columns
+                                          .filter((col) => col.kind === 'number')
+                                          .map((col) => (
+                                            <option key={col.id} value={col.id}>
+                                              {col.name}
+                                            </option>
+                                          ))}
+                                      </select>
+                                    </label>
+                                  )}
+                                  <label className={styles.field}>
+                                    Дата для расчёта — {dorm.name}
+                                    <select
+                                      value={source.date_column_id ?? ''}
+                                      onChange={(event) =>
+                                        setSource({
+                                          ...source,
+                                          date_column_id: Number(event.target.value) || null,
+                                        })
+                                      }
+                                    >
+                                      <option value="">Дата создания записи</option>
+                                      {metadata?.columns
+                                        .filter((col) => col.kind === 'date')
+                                        .map((col) => (
+                                          <option key={col.id} value={col.id}>
+                                            {col.name}
+                                          </option>
+                                        ))}
+                                    </select>
+                                  </label>
+                                  {config.grouping === 'value' && (
+                                    <label className={styles.field}>
+                                      Столбец группировки — {dorm.name}
+                                      <select
+                                        value={source.group_column_id ?? ''}
+                                        onChange={(event) =>
+                                          setSource({
+                                            ...source,
+                                            group_column_id: Number(event.target.value) || null,
+                                          })
+                                        }
+                                      >
+                                        <option value="">Выберите столбец</option>
+                                        {metadata?.columns.map((col) => (
+                                          <option key={col.id} value={col.id}>
+                                            {col.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                  )}
+                                  <label className={styles.check}>
+                                    <input
+                                      type="checkbox"
+                                      checked={!!source.filter}
+                                      onChange={(event) =>
+                                        setSource({
+                                          ...source,
+                                          filter: event.target.checked
+                                            ? {
+                                                column_id: metadata?.columns[0]?.id ?? 0,
+                                                operator: 'equals',
+                                                value: null,
+                                              }
+                                            : null,
+                                        })
+                                      }
+                                    />
+                                    Условие отбора — {dorm.name}
+                                  </label>
+                                  {source.filter && metadata && (
+                                    <>
+                                      <label className={styles.field}>
+                                        Столбец условия — {dorm.name}
+                                        <select
+                                          value={source.filter.column_id}
+                                          onChange={(event) =>
+                                            setSource({
+                                              ...source,
+                                              filter: {
+                                                column_id: Number(event.target.value),
+                                                operator: 'equals',
+                                                value: null,
+                                              },
+                                            })
+                                          }
+                                        >
+                                          {metadata.columns.map((col) => (
+                                            <option key={col.id} value={col.id}>
+                                              {col.name}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                      <label className={styles.field}>
+                                        Условие — {dorm.name}
+                                        <select
+                                          value={source.filter.operator}
+                                          onChange={(event) =>
+                                            setSource({
+                                              ...source,
+                                              filter: {
+                                                ...source.filter!,
+                                                operator: event.target.value as
+                                                  'equals' | 'not_empty',
+                                              },
+                                            })
+                                          }
+                                        >
+                                          <option value="equals">Равно</option>
+                                          <option value="not_empty">Заполнено</option>
+                                        </select>
+                                      </label>
+                                      {filterInput(source, metadata)}
+                                    </>
+                                  )}
+                                </>
+                              )}
+                              {!metadata && (
+                                <p className={styles.error}>
+                                  Этот источник отсутствует в общежитии.
+                                </p>
+                              )}
+                            </div>
+                          </details>
+                        )}
+                      </section>
+                    );
+                  })}
+              </EditorSection>
+              {organized && (
+                <EditorSection
+                  title="Отображение"
+                  description="Теперь выберите, как показывать выбранные данные: цифрой, списком или графиком."
+                >
+                  <div className={styles.grid}>{groupingFields}</div>
+                </EditorSection>
+              )}
+            </>
           )}
         </fieldset>
         <EditorSection
@@ -876,10 +941,13 @@ export function WidgetDialog({
           {preview && (
             <div className={styles.preview}>
               <strong>
-                {config.display === 'chart'
-                  ? 'Предпросмотр графика'
-                  : 'Предпросмотр: ' + formatCount(preview.value)}
+                {config.display === 'summary'
+                  ? 'Предпросмотр сводного отчёта'
+                  : config.display === 'chart'
+                    ? 'Предпросмотр графика'
+                    : 'Предпросмотр: ' + formatCount(preview.value)}
               </strong>
+              {config.display === 'summary' && <SummaryReport result={preview} config={config} />}
               {config.display === 'chart' && (
                 <WidgetChart result={preview} range={range} name={config.name} />
               )}

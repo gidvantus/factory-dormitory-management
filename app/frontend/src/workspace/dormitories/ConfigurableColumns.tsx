@@ -41,7 +41,6 @@ import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 import { CellFillCell } from './CellFillCell';
 import { CellFillEditor } from './CellFillEditor';
 import { cellFillError, supportsCellFill, useCellFillSources } from './cellFill';
-import fillStyles from './CellFill.module.css';
 import { ColumnArchiveTabs } from '../../components/ColumnArchiveTabs';
 import { WorkingTable } from '../../components/WorkingTable';
 import { useWorkingColumns } from '../../components/workingTableContext';
@@ -128,9 +127,11 @@ export function TableColumnsProvider({
     fillVersion.current += 1;
     void Promise.all([
       api.tableColumns(dormitoryId, table, controller.signal),
-      table === 'archive' || table.startsWith('custom_')
-        ? personnelApi.binding(dormitoryId, table as SourceTable, controller.signal)
-        : Promise.resolve({ fields: {} }),
+      table === 'residents'
+        ? personnelApi.binding(dormitoryId, table, controller.signal).catch(() => ({ fields: {} }))
+        : table === 'archive' || table.startsWith('custom_')
+          ? personnelApi.binding(dormitoryId, table as SourceTable, controller.signal)
+          : Promise.resolve({ fields: {} }),
       table === 'outflow'
         ? api.outflowFields(dormitoryId, controller.signal)
         : Promise.resolve(null),
@@ -758,13 +759,19 @@ export function ConfiguredHeaders({ extra = [] }: { extra?: ExtraCell[] } = {}):
             <th scope="col" key={column.id} data-column-key={column.builtin_key ?? undefined}>
               {column.name}
               {column.fill && (
-                <small className={fillStyles.headerNote}>
-                  {column.fill.mode === 'pick'
-                    ? 'Выбор записи'
-                    : column.fill.update === 'copy'
-                      ? 'Разовая копия'
-                      : 'Из таблицы'}
-                </small>
+                <sup
+                  className="table-rule-mark"
+                  aria-label="Связь с таблицей"
+                  title={
+                    column.fill.mode === 'pick'
+                      ? 'Выбор записи'
+                      : column.fill.update === 'copy'
+                        ? 'Разовая копия'
+                        : 'Из таблицы'
+                  }
+                >
+                  ↗
+                </sup>
               )}
             </th>
           ))}

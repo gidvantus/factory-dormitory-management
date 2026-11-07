@@ -49,6 +49,7 @@ class RecordCreate(StrictModel):
     table_key: str = Field(pattern=r"^(residents|inflow|outflow|archive|custom_[1-9][0-9]*)$")
     identity: IdentityChoice
     values: dict[str, Any] = Field(default_factory=dict)
+    entry_columns: dict[Literal["full_name", "phone"], int] | None = None
 
 
 class RecordLink(StrictModel):
@@ -140,6 +141,7 @@ class BindingInput(StrictModel):
     fields: dict[
         Literal["full_name", "personnel_number", "phone", "shift_start", "shift_end", "reason"], int
     ]
+    convert_phone_to_text: bool = False
 
 
 ListFilter = Literal["all", "current", "ending"]
