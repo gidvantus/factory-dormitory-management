@@ -76,6 +76,12 @@ def _response(
     )
 
 
+@router.get("/entitlements", response_model=list[str], responses=CATALOG_RESPONSES)
+def list_entitlements(membership: Membership, db: DbSession) -> list[str]:
+    """Права купленных решений нужны меню даже при закрытом магазине."""
+    return sorted(owned_codes(db, membership.organization_id))
+
+
 @router.get(
     "",
     response_model=SolutionsResponse,

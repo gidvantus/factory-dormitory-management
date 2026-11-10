@@ -10,6 +10,22 @@ from tests.conftest import SERVICE_TOKEN, MainApi, login
 
 PATH = "/api/access-rights"
 ROW = {"role": "manager", "import_enabled": False, "export_enabled": True}
+ROW.update(
+    {
+        section + "_enabled": True
+        for section in (
+            "overview",
+            "dormitories",
+            "personnel",
+            "statistics",
+            "documents",
+            "shop",
+            "organization",
+            "members",
+            "profile",
+        )
+    }
+)
 
 
 def test_session_is_required(client: TestClient, main_api: MainApi) -> None:
@@ -37,6 +53,18 @@ def test_forwards_only_changed_checkbox(client: TestClient, main_api: MainApi) -
     assert request.method == "PATCH"
     assert request.url.path == "/api/platform/access-rights/manager"
     assert json.loads(request.content) == {"import_enabled": False}
+
+
+def test_forwards_sidebar_checkbox_without_resetting_other_permissions(
+    client: TestClient, main_api: MainApi
+) -> None:
+    main_api.handler = lambda request: httpx.Response(200, json={**ROW, "personnel_enabled": False})
+    login(client)
+    response = client.patch(PATH + "/manager", json={"personnel_enabled": False})
+    assert response.status_code == 200
+    assert response.json()["personnel_enabled"] is False
+    assert response.json()["dormitories_enabled"] is True
+    assert json.loads(main_api.requests[-1].content) == {"personnel_enabled": False}
 
 
 @pytest.mark.parametrize("code", [422, 503])

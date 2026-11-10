@@ -1,4 +1,4 @@
-"""Общие для платформы права трёх должностей на обмен данными."""
+"""Общие для платформы права должностей на разделы и обмен данными."""
 
 from sqlalchemy import Boolean, CheckConstraint, String, true
 from sqlalchemy.orm import Mapped, mapped_column
@@ -21,5 +21,32 @@ class RolePermission(Base):
         Boolean, nullable=False, default=True, server_default=true()
     )
     export_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    overview_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    dormitories_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    personnel_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    statistics_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    documents_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    shop_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    organization_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    members_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    profile_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )

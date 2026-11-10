@@ -8,6 +8,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -34,6 +35,23 @@ router = APIRouter(
     },
 )
 DbSession = Annotated[Session, Depends(get_db)]
+
+
+class DormitoryLookup(BaseModel):
+    id: int
+    name: str
+    client_name: str
+    is_archived: bool
+
+
+@router.get("/lookup", response_model=list[DormitoryLookup])
+def lookup_dormitories(
+    _user: SubscribedUser, membership: Membership, db: DbSession
+) -> list[DormitoryLookup]:
+    return [
+        DormitoryLookup(id=d.id, name=d.name, client_name=d.client_name, is_archived=d.is_archived)
+        for d in scoped_dormitories(db, membership.organization_id)
+    ]
 
 
 @router.get("", response_model=list[DormitoryResponse], summary="Список общежитий организации")

@@ -27,6 +27,15 @@ export interface RolePermission {
   role: AccessRole;
   import_enabled: boolean;
   export_enabled: boolean;
+  overview_enabled: boolean;
+  dormitories_enabled: boolean;
+  personnel_enabled: boolean;
+  statistics_enabled: boolean;
+  documents_enabled: boolean;
+  shop_enabled: boolean;
+  organization_enabled: boolean;
+  members_enabled: boolean;
+  profile_enabled: boolean;
 }
 
 export function getAccessRights(): Promise<RolePermission[]> {
@@ -35,7 +44,7 @@ export function getAccessRights(): Promise<RolePermission[]> {
 
 export function updateAccessRights(
   role: AccessRole,
-  rights: Partial<Pick<RolePermission, 'import_enabled' | 'export_enabled'>>,
+  rights: Partial<Omit<RolePermission, 'role'>>,
 ): Promise<RolePermission> {
   return request(`/access-rights/${role}`, { method: 'PATCH', body: JSON.stringify(rights) });
 }

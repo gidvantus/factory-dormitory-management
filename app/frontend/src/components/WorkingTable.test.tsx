@@ -6,6 +6,63 @@ import { emptyTableView } from './workingTableModel';
 
 afterEach(() => vi.unstubAllGlobals());
 
+it('сортирует текст по заголовку в обе стороны, не сбрасывая черновики и не вызывая настройку цвета', async () => {
+  const user = userEvent.setup();
+  render(<Example />);
+  const input = screen.getByLabelText('Имя 1');
+  await user.type(input, ' Петров');
+  const heading = screen.getByRole('columnheader', { name: 'Имя' });
+  await user.click(heading);
+  const names = (): (string | null)[] =>
+    within(screen.getByRole('table'))
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.querySelector('input')?.getAttribute('aria-label') ?? null);
+  expect(names()).toEqual(['Имя 2', 'Имя 1']);
+  expect(heading).toHaveAttribute('aria-sort', 'ascending');
+  expect(input).toBe(screen.getByLabelText('Имя 1'));
+  expect(input).toHaveValue('Иван Петров');
+  heading.focus();
+  await user.keyboard('{Enter}');
+  expect(names()).toEqual(['Имя 1', 'Имя 2']);
+  expect(heading).toHaveAttribute('aria-sort', 'descending');
+  await user.click(screen.getByRole('button', { name: 'Столбец: Имя. Цвет и порядок' }));
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  expect(names()).toEqual(['Имя 1', 'Имя 2']);
+});
+
+it('сравнивает числа со знаком и десятичной запятой, оставляет пустые ячейки и итог на месте', async () => {
+  const user = userEvent.setup();
+  render(
+    <WorkingTable columns={[{ id: 'number', label: 'Число', kind: 'number' }]}>
+      <thead>
+        <tr>
+          <th>Число</th>
+        </tr>
+      </thead>
+      <tbody>
+        {['10', '', '-2', '1,5', '1,15'].map((value, index) => (
+          <tr key={index}>
+            <td>{value}</td>
+          </tr>
+        ))}
+        <tr data-fixed-row>
+          <td>Итого</td>
+        </tr>
+      </tbody>
+    </WorkingTable>,
+  );
+  const values = (): string[] =>
+    within(screen.getByRole('table'))
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.textContent ?? '');
+  await user.click(screen.getByRole('columnheader', { name: 'Число' }));
+  expect(values()).toEqual(['-2', '1,15', '1,5', '10', '', 'Итого']);
+  await user.click(screen.getByRole('columnheader', { name: 'Число' }));
+  expect(values()).toEqual(['10', '1,5', '1,15', '-2', '', 'Итого']);
+});
+
 function Example({ viewKey }: { viewKey?: string }): JSX.Element {
   return (
     <WorkingTable

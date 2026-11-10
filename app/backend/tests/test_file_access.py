@@ -23,12 +23,31 @@ from app.file_access import (
 from app.models.dormitory import Dormitory
 from app.models.import_job import IMPORT_STATUS_READY, IMPORT_TABLE_PLACES, ImportJob
 from app.models.organization import OrganizationMember
+from app.models.role_permission import RolePermission
 from app.models.uploaded_file import UploadedFile
 from app.models.user import User
 from tests.conftest import create_user, organizations_for
 
 KEY = "2026-10-29/abc123.xlsx"
 OTHER_KEY = "2026-10-29/other.xlsx"
+
+
+def test_disabled_dormitory_section_denies_import_file_download(db_session: Session) -> None:
+    from sqlalchemy import select
+
+    user, dorm = user_with_dormitory(db_session)
+    store_import(db_session, dorm, KEY)
+    member = db_session.scalar(
+        select(OrganizationMember).where(OrganizationMember.user_id == user.id)
+    )
+    assert member is not None
+    member.role = "manager"
+    db_session.add(RolePermission(role="manager", dormitories_enabled=False))
+    db_session.commit()
+    assert not can_read(db_session, KEY, user)
+    member.role = "owner"
+    db_session.commit()
+    assert can_read(db_session, KEY, user)
 
 
 def user_with_dormitory(

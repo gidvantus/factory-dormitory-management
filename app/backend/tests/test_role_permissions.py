@@ -16,6 +16,20 @@ from tests.conftest import add_colleague, login, sign_in
 
 PLATFORM = "/api/platform/access-rights"
 HEADERS = {"X-Operator-Token": "unit-test-permissions-token"}
+MENU_ENABLED = {
+    section + "_enabled": True
+    for section in (
+        "overview",
+        "dormitories",
+        "personnel",
+        "statistics",
+        "documents",
+        "shop",
+        "organization",
+        "members",
+        "profile",
+    )
+}
 
 
 @pytest.fixture(autouse=True)
@@ -57,9 +71,19 @@ def test_only_operator_can_read_or_change_rights(client: TestClient, db_session:
 def test_checkbox_patch_preserves_other_right_and_other_roles(client: TestClient) -> None:
     response = client.patch(PLATFORM + "/manager", headers=HEADERS, json={"import_enabled": False})
     assert response.status_code == 200, response.text
-    assert response.json() == {"role": "manager", "import_enabled": False, "export_enabled": True}
+    assert response.json() == {
+        **MENU_ENABLED,
+        "role": "manager",
+        "import_enabled": False,
+        "export_enabled": True,
+    }
     response = client.patch(PLATFORM + "/manager", headers=HEADERS, json={"export_enabled": False})
-    assert response.json() == {"role": "manager", "import_enabled": False, "export_enabled": False}
+    assert response.json() == {
+        **MENU_ENABLED,
+        "role": "manager",
+        "import_enabled": False,
+        "export_enabled": False,
+    }
     loaded = client.get(PLATFORM, headers=HEADERS).json()
     assert loaded[0] == response.json()
     assert all(item["import_enabled"] and item["export_enabled"] for item in loaded[1:])
@@ -102,6 +126,7 @@ def test_denied_roles_cannot_use_any_exchange_endpoint(
     )
     db_session.commit()
     assert client.get("/api/me").json()["permissions"] == {
+        **MENU_ENABLED,
         "import_enabled": False,
         "export_enabled": False,
     }
@@ -149,6 +174,7 @@ def test_owner_always_keeps_both_rights(client: TestClient, db_session: Session)
         db_session.add(RolePermission(role=role, import_enabled=False, export_enabled=False))
     db_session.commit()
     assert client.get("/api/me").json()["permissions"] == {
+        **MENU_ENABLED,
         "import_enabled": True,
         "export_enabled": True,
     }

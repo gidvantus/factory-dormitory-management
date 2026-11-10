@@ -15,6 +15,15 @@ const ROLES: Record<AccessRole, string> = {
 const RIGHTS = [
   { key: 'import_enabled', label: 'Импорт' },
   { key: 'export_enabled', label: 'Экспорт' },
+  { key: 'overview_enabled', label: 'Обзор' },
+  { key: 'dormitories_enabled', label: 'Общежития' },
+  { key: 'personnel_enabled', label: 'Персонал' },
+  { key: 'statistics_enabled', label: 'Статистика' },
+  { key: 'documents_enabled', label: 'Документы' },
+  { key: 'shop_enabled', label: 'Магазин улучшений' },
+  { key: 'organization_enabled', label: 'Организация' },
+  { key: 'members_enabled', label: 'Сотрудники' },
+  { key: 'profile_enabled', label: 'Личные данные' },
 ] as const;
 
 export function AccessRights(): JSX.Element {
@@ -47,7 +56,7 @@ export function AccessRights(): JSX.Element {
 
   async function toggle(
     row: RolePermission,
-    key: 'import_enabled' | 'export_enabled',
+    key: (typeof RIGHTS)[number]['key'],
     checked: boolean,
   ): Promise<void> {
     if (inFlight.current) return;
@@ -83,8 +92,8 @@ export function AccessRights(): JSX.Element {
             <h1 className="page__title">Права доступа</h1>
           </div>
           <p className={s.description}>
-            Настройки действуют для сотрудников всех организаций. Отметьте, кому разрешены импорт и
-            экспорт данных. Изменения сохраняются автоматически.
+            Настройки действуют для сотрудников всех организаций. Отметьте доступные разделы, импорт
+            и экспорт для каждой должности. Изменения сохраняются автоматически.
           </p>
           {error && (
             <p className="alert alert--error" role="alert">
@@ -105,24 +114,24 @@ export function AccessRights(): JSX.Element {
             <div className={s.card}>
               <table className={s.table} aria-busy={saving}>
                 <caption className="visually-hidden">
-                  Права должностей на импорт и экспорт данных
+                  Права должностей на разделы кабинета, импорт и экспорт данных
                 </caption>
                 <thead>
                   <tr>
-                    <th scope="col">Должность</th>
-                    {RIGHTS.map((right) => (
-                      <th scope="col" key={right.key}>
-                        {right.label}
+                    <th scope="col">Раздел или действие</th>
+                    {Object.entries(ROLES).map(([role, label]) => (
+                      <th scope="col" key={role}>
+                        {label}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.role}>
-                      <th scope="row">{ROLES[row.role]}</th>
-                      {RIGHTS.map((right) => (
-                        <td key={right.key}>
+                  {RIGHTS.map((right) => (
+                    <tr key={right.key}>
+                      <th scope="row">{right.label}</th>
+                      {rows.map((row) => (
+                        <td key={row.role}>
                           <label className={s.control}>
                             <input
                               type="checkbox"
@@ -141,8 +150,8 @@ export function AccessRights(): JSX.Element {
                 </tbody>
               </table>
               <p className={s.note}>
-                У владельца организации всегда есть оба права. Без права кнопки обмена данными
-                скрыты. Разрешения отдельных таблиц также учитываются.
+                Владелец организации сохраняет полный доступ. Отключённые разделы скрыты и
+                недоступны по прямой ссылке. Разрешения отдельных таблиц также учитываются.
               </p>
             </div>
           )}

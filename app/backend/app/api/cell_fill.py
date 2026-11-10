@@ -82,7 +82,7 @@ def select_record(
     _dormitory: OwnDormitory,
 ) -> TabEntryResponse:
     lock_dormitory(db, dormitory_id)
-    require_writable_table(db, dormitory_id, table_key)
+    require_writable_table(db, dormitory_id, table_key, data=True)
     row = get_record(db, dormitory_id, table_key, row_id)
     if not isinstance(row, CustomTabEntry):
         raise HTTPException(422, "Выбор записи доступен в пользовательских таблицах")

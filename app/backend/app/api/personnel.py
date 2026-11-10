@@ -137,7 +137,7 @@ def create_record(
     # Права проверяются раньше блокировки: чужое общежитие не блокируется.
     own_dormitory(db, payload.dormitory_id, membership)
     lock_dormitory(db, payload.dormitory_id)
-    require_writable_table(db, payload.dormitory_id, payload.table_key)
+    require_writable_table(db, payload.dormitory_id, payload.table_key, data=True)
     columns = ensure_columns(db, payload.dormitory_id, payload.table_key)
     entry_columns = (
         {str(role): column for role, column in payload.entry_columns.items()}
@@ -254,7 +254,7 @@ def link_record(
 ) -> dict[str, Any]:
     own_dormitory(db, payload.dormitory_id, membership)
     lock_dormitory(db, payload.dormitory_id)
-    require_writable_table(db, payload.dormitory_id, payload.table_key)
+    require_writable_table(db, payload.dormitory_id, payload.table_key, data=True)
     identity_lock(db)
     row = get_record(db, payload.dormitory_id, payload.table_key, payload.row_id)
     if not isinstance(

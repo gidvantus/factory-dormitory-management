@@ -178,12 +178,16 @@ def can_read(session: Session, key: str | None, user: User | None = None) -> boo
     if user is None or user.active_organization_id is None:
         return False
     membership = session.scalar(
-        select(OrganizationMember.id).where(
+        select(OrganizationMember).where(
             OrganizationMember.organization_id == user.active_organization_id,
             OrganizationMember.user_id == user.id,
         )
     )
     if membership is None:
         # Ссылка на организацию без строки членства правом не является.
+        return False
+    from app.role_permissions import permissions_for
+
+    if not permissions_for(session, membership.role).dormitories_enabled:
         return False
     return _import_file_organization_id(session, normalized) == user.active_organization_id

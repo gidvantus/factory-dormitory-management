@@ -20,6 +20,7 @@ from app.cell_fill import (
 )
 from app.custom_tab_options import initialize_options, mapped_options, options_for
 from app.db import get_db
+from app.dormitory_arrivals import arrival_rows, source_fields
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.report import ReportRow
@@ -375,6 +376,31 @@ def create_table(
     db.commit()
     db.refresh(tab)
     return tab
+
+
+@router.get("/dormitories/{dormitory_id}/arrival-fields")
+def arrival_source_fields(
+    dormitory_id: EntityId, _user: SubscribedUser, db: DbSession, dormitory: OwnDormitory
+) -> list[dict[str, str]]:
+    return source_fields(db, dormitory.organization_id)
+
+
+@router.get(TAB_PATH + "/{tab_id}/arrival-rows")
+def list_arrival_rows(
+    dormitory_id: EntityId,
+    tab_id: EntityId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
+    from_date: Annotated[date | None, Query(alias="from")] = None,
+    to_date: Annotated[date | None, Query(alias="to")] = None,
+) -> list[dict]:
+    tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True)
+    options = options_for(tab)
+    if options.data_source != "arrival_plan":
+        raise HTTPException(409, "Во вкладке не включена связь с планом заездов")
+    validate_period(from_date, to_date)
+    return arrival_rows(db, dormitory_id, options.arrival_columns, from_date, to_date)
 
 
 @router.get(TAB_PATH + "/{tab_id}/rows", response_model=list[TabEntryResponse])

@@ -640,6 +640,7 @@ export function DormitorySettingsDialog({
                     )}
                     {node.custom && node.kind !== 'archive' && (
                       <CustomTabOptionsEditor
+                        dormitoryId={dormitoryId}
                         value={node.options ?? defaultTabOptions}
                         onChange={(options) => updateNode({ options })}
                         columns={columns}

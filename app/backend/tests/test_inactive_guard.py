@@ -186,7 +186,19 @@ def test_me_stays_open_for_inactive_user(client: TestClient, db_session: Session
         "is_active": False,
         # Роль в организации (issue #74): у неактивированного кабинета её нет.
         "role": None,
-        "permissions": {"import_enabled": False, "export_enabled": False},
+        "permissions": {
+            "import_enabled": False,
+            "export_enabled": False,
+            "overview_enabled": False,
+            "dormitories_enabled": False,
+            "personnel_enabled": False,
+            "statistics_enabled": False,
+            "documents_enabled": False,
+            "shop_enabled": False,
+            "organization_enabled": False,
+            "members_enabled": False,
+            "profile_enabled": False,
+        },
     }
 
 

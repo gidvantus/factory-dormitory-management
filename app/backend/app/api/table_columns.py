@@ -223,7 +223,7 @@ def save_custom_cell(
     _dormitory: OwnDormitory,
 ) -> CellRequest:
     lock_dormitory(db, dormitory_id)
-    require_writable_table(db, dormitory_id, table_key)
+    require_writable_table(db, dormitory_id, table_key, data=True)
     column = get_column(db, dormitory_id, table_key, column_id)
     if column.archived or column.builtin_key or column.fill:
         raise HTTPException(409, "Этот столбец недоступен для записи")

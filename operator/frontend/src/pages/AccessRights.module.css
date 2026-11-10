@@ -20,11 +20,13 @@
   width: 100%;
   border-collapse: collapse;
   text-align: left;
+  table-layout: fixed;
 }
 
 .table th,
 .table td {
-  padding: 14px 24px;
+  padding: 14px 16px;
+  overflow-wrap: anywhere;
   border-bottom: 1px solid var(--color-border, #e1ddd5);
 }
 
@@ -41,7 +43,7 @@
 
 .table th:not(:first-child),
 .table td {
-  width: 130px;
+  width: 22%;
   text-align: center;
 }
 
@@ -87,11 +89,20 @@
 @media (max-width: 520px) {
   .table th,
   .table td {
-    padding: 12px 10px;
+    padding: 10px 6px;
   }
 
   .table th:not(:first-child),
   .table td {
-    width: 80px;
+    width: 22%;
+  }
+  .table thead {
+    font-size: 11px;
+  }
+  .table tbody th {
+    font-size: 13px;
+  }
+  .control {
+    width: 100%;
   }
 }

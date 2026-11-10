@@ -26,6 +26,15 @@ class RolePermissionResponse(BaseModel):
     role: Literal["manager", "admin", "commandant"]
     import_enabled: bool
     export_enabled: bool
+    overview_enabled: bool = True
+    dormitories_enabled: bool = True
+    personnel_enabled: bool = True
+    statistics_enabled: bool = True
+    documents_enabled: bool = True
+    shop_enabled: bool = True
+    organization_enabled: bool = True
+    members_enabled: bool = True
+    profile_enabled: bool = True
 
 
 @router.get("", response_model=list[RolePermissionResponse])

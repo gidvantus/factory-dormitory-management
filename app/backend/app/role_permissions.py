@@ -1,4 +1,4 @@
-"""Единая проверка импорта и экспорта: профиль и API используют одни правила."""
+"""Профиль, права разделов и обмен данными используют одни настройки должности."""
 
 from typing import Annotated
 
@@ -29,16 +29,18 @@ EXCHANGE_USER_RESPONSES = {
 
 def permissions_for(db: Session, role: str | None) -> ExchangePermissions:
     if role == "owner":
-        return ExchangePermissions(import_enabled=True, export_enabled=True)
+        return ExchangePermissions(**dict.fromkeys(ExchangePermissions.model_fields, True))
     # Старые приглашения выдавали `member`; на них действуют права менеджера.
     if role == "member":
         role = "manager"
     if role not in ACCESS_ROLES:
-        return ExchangePermissions(import_enabled=False, export_enabled=False)
+        return ExchangePermissions(**dict.fromkeys(ExchangePermissions.model_fields, False))
     row = db.get(RolePermission, role)
     return ExchangePermissions(
-        import_enabled=row.import_enabled if row is not None else True,
-        export_enabled=row.export_enabled if row is not None else True,
+        **{
+            field: getattr(row, field) if row else True
+            for field in ExchangePermissions.model_fields
+        }
     )
 
 
