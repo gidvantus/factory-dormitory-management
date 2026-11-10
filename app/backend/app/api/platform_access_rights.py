@@ -43,12 +43,16 @@ def read_access_rights(db: DbSession) -> list[RolePermissionResponse]:
 def update_access_rights(
     role: AccessRole, payload: UpdateRolePermissionRequest, db: DbSession
 ) -> RolePermissionResponse:
-    row = db.get(RolePermission, role)
-    if row is None:
-        row = RolePermission(role=role)
-        db.add(row)
+    # Имя не `row`: в `app/api` оно закреплено за строкой таблицы каталога, и
+    # именно по нему инвентарь путей записи (`tests/test_notification_rule_write_paths.py`)
+    # узнаёт точку записи, которой нужен `notify_row_written`. Права должности —
+    # настройка платформы, строк каталога она не пишет.
+    permission = db.get(RolePermission, role)
+    if permission is None:
+        permission = RolePermission(role=role)
+        db.add(permission)
     for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(row, field, value)
+        setattr(permission, field, value)
     db.commit()
-    db.refresh(row)
-    return RolePermissionResponse.model_validate(row)
+    db.refresh(permission)
+    return RolePermissionResponse.model_validate(permission)
