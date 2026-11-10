@@ -21,6 +21,25 @@ export interface Operator {
   username: string;
 }
 
+export type AccessRole = 'manager' | 'admin' | 'commandant';
+
+export interface RolePermission {
+  role: AccessRole;
+  import_enabled: boolean;
+  export_enabled: boolean;
+}
+
+export function getAccessRights(): Promise<RolePermission[]> {
+  return request('/access-rights');
+}
+
+export function updateAccessRights(
+  role: AccessRole,
+  rights: Partial<Pick<RolePermission, 'import_enabled' | 'export_enabled'>>,
+): Promise<RolePermission> {
+  return request(`/access-rights/${role}`, { method: 'PATCH', body: JSON.stringify(rights) });
+}
+
 /** Отказ API с кодом ответа и текстом, который сервер прислал в `detail`. */
 export class ApiError extends Error {
   readonly status: number;

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ApiError } from '../../api/client';
 import type { ExchangeOptions } from '../../api/client';
+import { useExchangePermissions } from '../../auth/exchangePermissions';
 import {
   downloadTableFile,
   importTableFile,
@@ -43,10 +44,13 @@ export function TableExchange({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const canImport = !readOnly && !history && (options.import_enabled ?? true);
-  const canExport = options.export_enabled ?? true;
+  const permissions = useExchangePermissions();
+  const canImport =
+    permissions.import_enabled && !readOnly && !history && (options.import_enabled ?? true);
+  const canExport = permissions.export_enabled && (options.export_enabled ?? true);
 
   async function download(action: 'template' | 'export'): Promise<void> {
+    if (busy || (action === 'template' ? !canImport : !canExport)) return;
     setBusy(true);
     setError('');
     try {
@@ -60,7 +64,7 @@ export function TableExchange({
   }
 
   async function upload(): Promise<void> {
-    if (!file || busy) return;
+    if (!canImport || !file || busy) return;
     setBusy(true);
     setError('');
     try {
@@ -112,7 +116,7 @@ export function TableExchange({
       </div>
       {!open && error && <p role="alert">{error}</p>}
       {message && <p role="status">{message}</p>}
-      {open && (
+      {open && canImport && (
         <Modal
           title={`Импорт: ${name}`}
           onClose={() => setOpen(false)}

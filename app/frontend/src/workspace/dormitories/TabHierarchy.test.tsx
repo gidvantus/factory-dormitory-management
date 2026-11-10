@@ -65,7 +65,12 @@ it('показывает дочерние вкладки внутри их ра�
     if (url === '/api/me')
       return {
         status: 200,
-        body: { email: 'test@example.com', full_name: 'Тест', is_active: true },
+        body: {
+          email: 'test@example.com',
+          full_name: 'Тест',
+          is_active: true,
+          permissions: { import_enabled: true, export_enabled: true },
+        },
       };
     if (url === '/api/dormitories/7')
       return { status: 200, body: { id: 7, name: 'Северное', client_name: 'Клиент' } };
@@ -92,7 +97,12 @@ it('скрывает стандартную подвкладку отдельн�
     if (url === '/api/me')
       return {
         status: 200,
-        body: { email: 'test@example.com', full_name: 'Тест', is_active: true },
+        body: {
+          email: 'test@example.com',
+          full_name: 'Тест',
+          is_active: true,
+          permissions: { import_enabled: true, export_enabled: true },
+        },
       };
     if (url === '/api/dormitories/7')
       return {

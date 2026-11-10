@@ -38,6 +38,7 @@ from app.api import (
     payments,
     personnel,
     personnel_builder,
+    platform_access_rights,
     platform_company,
     platform_invoices,
     platform_organizations,
@@ -377,6 +378,7 @@ def create_app() -> FastAPI:
     # акта берут из них блок «Поставщик» и строку про НДС. Тот же заголовок
     # `X-Operator-Token` и та же зависимость на роутере.
     application.include_router(platform_company.router, prefix=API_PREFIX)
+    application.include_router(platform_access_rights.router, prefix=API_PREFIX)
     application.include_router(journal_router, prefix=API_PREFIX)
     application.include_router(dashboard.router, prefix=API_PREFIX)
     application.include_router(dashboard_blocks.router, prefix=API_PREFIX)

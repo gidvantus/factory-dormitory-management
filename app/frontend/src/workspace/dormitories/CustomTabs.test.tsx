@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { CustomTab, CustomTabRow, CustomTabTemplate, TableColumn } from '../../api/client';
 import { mockFetch } from '../../test/mockFetch';
 import { renderApp } from '../../test/renderApp';
+import { renderWithExchangePermissions as render } from '../../test/renderWithExchangePermissions';
 import { CreateCustomTabDialog } from './CreateCustomTabDialog';
 import { CustomTabTable } from './CustomTabTable';
 import { defaultTabOptions } from './customTabOptions';
@@ -49,7 +50,15 @@ afterEach(() => {
 
 function customPageResponse(url: string, tabs: CustomTab[]) {
   if (url === '/api/me')
-    return { status: 200, body: { email: 'test@example.com', full_name: 'Тест', is_active: true } };
+    return {
+      status: 200,
+      body: {
+        email: 'test@example.com',
+        full_name: 'Тест',
+        is_active: true,
+        permissions: { import_enabled: true, export_enabled: true },
+      },
+    };
   if (url === '/api/dormitories/7')
     return { status: 200, body: { id: 7, name: 'Северное', client_name: 'Клиент' } };
   if (url === '/api/dormitories/7/tabs') return { status: 200, body: tabs };
@@ -250,7 +259,12 @@ it('добавляет локальную вкладку, блокирует с�
     if (url === '/api/me')
       return {
         status: 200,
-        body: { email: 'test@example.com', full_name: 'Тест', is_active: true },
+        body: {
+          email: 'test@example.com',
+          full_name: 'Тест',
+          is_active: true,
+          permissions: { import_enabled: true, export_enabled: true },
+        },
       };
     if (url === '/api/dormitories/7')
       return { status: 200, body: { id: 7, name: 'Северное', client_name: 'Клиент' } };

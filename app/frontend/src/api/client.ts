@@ -1,5 +1,6 @@
 import { ACTIVATION_REQUIRED_DETAIL, notifyActivationRequired } from '../auth/activation';
 import { notifyTrialExpired } from '../auth/trial';
+import type { ExchangePermissions } from '../auth/exchangePermissions';
 import type {
   CatalogDormitory,
   DashboardLayout,
@@ -46,6 +47,8 @@ export interface UserProfile {
    * иначе пункт «Журнал» не появился бы до перезагрузки страницы.
    */
   role?: OrganizationRole | null;
+  /** Эффективные права на обмен данными из GET /api/me. */
+  permissions?: ExchangePermissions;
 }
 
 /**

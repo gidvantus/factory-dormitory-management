@@ -10,8 +10,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app import notification_rules
-from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
+from app.access import OwnDormitory
 from app.db import get_db
+from app.role_permissions import EXCHANGE_USER_RESPONSES, ExportUser, ImportUser
 from app.section_state import locked_dormitory
 from app.table_exchange import (
     MAX_BYTES,
@@ -27,7 +28,7 @@ from app.table_exchange import (
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/data-transfer/{table_key}",
     tags=["table-exchange"],
-    responses={**SUBSCRIBED_USER_RESPONSES},
+    responses=EXCHANGE_USER_RESPONSES,
 )
 DbSession = Annotated[Session, Depends(get_db)]
 EntityId = Annotated[int, Path(ge=1, le=2147483647)]
@@ -65,7 +66,7 @@ def file_response(data: bytes, name: str, kind: str) -> Response:
 def download_template(
     dormitory_id: EntityId,
     table_key: TableKey,
-    _user: SubscribedUser,
+    _user: ImportUser,
     db: DbSession,
     _dormitory: OwnDormitory,
     from_date: Start = None,
@@ -82,7 +83,7 @@ def download_template(
 def download_export(
     dormitory_id: EntityId,
     table_key: TableKey,
-    _user: SubscribedUser,
+    _user: ExportUser,
     db: DbSession,
     _dormitory: OwnDormitory,
     from_date: Start = None,
@@ -102,7 +103,7 @@ def upload_import(
     dormitory_id: EntityId,
     table_key: TableKey,
     file: UploadFile,
-    _user: SubscribedUser,
+    _user: ImportUser,
     db: DbSession,
     _dormitory: OwnDormitory,
     from_date: Start = None,

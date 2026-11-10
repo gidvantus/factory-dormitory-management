@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.consent import CONSENT_REQUIRED_DETAIL, TERMS_REQUIRED_DETAIL
+from app.schemas.role_permission import ExchangePermissions
 
 
 def normalize_email(email: str) -> str:
@@ -163,6 +164,7 @@ class MeResponse(UserResponse):
     """
 
     role: str | None
+    permissions: ExchangePermissions
 
 
 class ErrorResponse(BaseModel):

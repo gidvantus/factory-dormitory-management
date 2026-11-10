@@ -38,6 +38,7 @@ from app.models.report import ReportCell, ReportRow
 from app.models.report_readiness import ReportReadiness
 from app.models.report_template import ReportTemplate, ReportTemplateRow
 from app.models.resident import Resident
+from app.models.role_permission import RolePermission
 from app.models.solution import OrganizationSolution, Solution
 from app.models.statistics_report import StatisticsReport
 from app.models.table_column import ArchiveEntry, TableColumn
@@ -102,6 +103,7 @@ __all__ = [
     "ReportTemplate",
     "ReportTemplateRow",
     "Resident",
+    "RolePermission",
     "Solution",
     "StatisticsReport",
     "TableColumn",

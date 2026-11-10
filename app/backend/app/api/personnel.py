@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from app import notification_rules
 from app.access import (
-    SUBSCRIBED_USER_RESPONSES,
     OwnDormitory,
     SubscribedUser,
     own_dormitory,
@@ -60,6 +59,7 @@ from app.resident_identity import (
     save_entry_fields,
     write_entry_identity,
 )
+from app.role_permissions import EXCHANGE_USER_RESPONSES, ExportUser
 from app.schemas.inflow import UpdateInflowRequest
 from app.schemas.outflow import UpdateOutflowRequest
 from app.schemas.personnel import (
@@ -85,7 +85,7 @@ from app.table_data import (
     require_writable_table,
 )
 
-router = APIRouter(prefix="/personnel", tags=["personnel"], responses=SUBSCRIBED_USER_RESPONSES)
+router = APIRouter(prefix="/personnel", tags=["personnel"], responses=EXCHANGE_USER_RESPONSES)
 DbSession = Annotated[Session, Depends(get_db)]
 
 
@@ -107,7 +107,7 @@ def get_workspace(user: SubscribedUser, membership: Membership, db: DbSession) -
 
 @router.post("/export")
 def export_selected(
-    payload: PersonnelExportInput, user: SubscribedUser, membership: Membership, db: DbSession
+    payload: PersonnelExportInput, user: ExportUser, membership: Membership, db: DbSession
 ) -> Response:
     data = workspace(db, user, dormitory_scope(db, membership))
     return Response(

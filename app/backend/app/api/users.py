@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.organization import membership_role
 from app.db import get_db
+from app.role_permissions import permissions_for
 from app.schemas.user import ErrorResponse, MeResponse
 from app.security import CurrentUser
 
@@ -26,21 +27,23 @@ DbSession = Annotated[Session, Depends(get_db)]
     },
 )
 def read_me(user: CurrentUser, db: DbSession) -> MeResponse:
-    """Профиль и роль в организации.
+    """Профиль, роль в организации и текущие права на импорт и экспорт.
 
     Роль собирается отдельным запросом, а не берётся из `User`: строки членства
-    в `users` нет, и роль — единственное, что профилю нужно знать о кабинете
-    (по ней меню показывает разделы владельца). Схема `MeResponse`, а не
+    в `users` нет. По роли меню показывает разделы владельца, а права определяют
+    видимость действий обмена данными. Схема `MeResponse`, а не
     `UserResponse`, чтобы ответы входа, регистрации и активации не изменились.
 
     Неактивному пользователю ответ тоже `200`: роль у него уже может быть
     (`admin` приглашённого кабинета), а `is_active` говорит, что кабинет ещё не
     активирован.
     """
+    role = membership_role(user, db)
     return MeResponse(
         email=user.email,
         full_name=user.full_name,
         created_at=user.created_at,
         is_active=user.is_active,
-        role=membership_role(user, db),
+        role=role,
+        permissions=permissions_for(db, role),
     )
