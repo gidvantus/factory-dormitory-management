@@ -21,7 +21,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
+from app.access import OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.file_access import public_url, register_upload
 from app.models.hostel import Hostel, HostelCell
@@ -42,6 +42,7 @@ from app.places_import import (
     normalize_text,
     parse_places_workbook,
 )
+from app.role_permissions import EXCHANGE_USER_RESPONSES, ImportUser
 from app.schemas.hostel import (
     CreateHostelRequest,
     HostelMonthResponse,
@@ -71,7 +72,7 @@ router = APIRouter(
             "model": ErrorResponse,
             "description": "Нет валидной cookie сессии",
         },
-        **SUBSCRIBED_USER_RESPONSES,
+        **EXCHANGE_USER_RESPONSES,
     },
 )
 DbSession = Annotated[Session, Depends(get_db)]
@@ -355,7 +356,7 @@ def count_deleted_cells(db: Session, dormitory_id: int, parsed: ParsedImport) ->
 )
 def download_places_import_template(
     dormitory_id: DormitoryId,
-    _user: SubscribedUser,
+    _user: ImportUser,
     db: DbSession,
     month: Annotated[date, Query()],
     _dormitory: OwnDormitory,
@@ -424,7 +425,7 @@ def download_places_import_template(
 )
 async def upload_places_import(
     dormitory_id: DormitoryId,
-    user: SubscribedUser,
+    user: ImportUser,
     db: DbSession,
     file: Annotated[UploadFile, File()],
     _dormitory: OwnDormitory,
@@ -622,7 +623,7 @@ def apply_import(db: Session, dormitory_id: int, job: ImportJob) -> PlacesImport
 def confirm_places_import(
     dormitory_id: DormitoryId,
     import_id: ImportId,
-    _user: SubscribedUser,
+    _user: ImportUser,
     db: DbSession,
     _dormitory: OwnDormitory,
 ) -> PlacesImportApplied:

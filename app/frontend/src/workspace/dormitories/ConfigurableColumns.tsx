@@ -700,7 +700,11 @@ export function ConfiguredTable({
         .map((column) => `${column.id}:${column.position}:${column.archived}`)
         .join('|')}
       columns={[
-        ...visible.map((column) => ({ id: String(column.id), label: column.name })),
+        ...visible.map((column) => ({
+          id: String(column.id),
+          label: column.name,
+          kind: column.kind,
+        })),
         ...(actions ? [{ id: 'actions', label: 'Действия' }] : []),
         ...(trailing ??
           Array.from({ length: trailingColumns }, (_, index) => ({

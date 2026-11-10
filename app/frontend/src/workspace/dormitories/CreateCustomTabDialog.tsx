@@ -279,7 +279,12 @@ export function CreateCustomTabDialog({
         )}
       </EditorSection>
       {mode === 'blank' && kind === 'table' && (
-        <CustomTabOptionsEditor value={options} onChange={setOptions} disabled={saving} />
+        <CustomTabOptionsEditor
+          dormitoryId={dormitoryId}
+          value={options}
+          onChange={setOptions}
+          disabled={saving}
+        />
       )}
       {mode === 'blank' && kind === 'archive' && (
         <ExchangeOptionsEditor

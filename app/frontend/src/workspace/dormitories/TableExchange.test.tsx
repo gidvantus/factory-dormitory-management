@@ -1,9 +1,11 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
+import { ExchangePermissionsContext } from '../../auth/exchangePermissions';
 import { api } from '../../api/client';
 import { mockFetch } from '../../test/mockFetch';
 import { renderApp } from '../../test/renderApp';
+import { renderWithExchangePermissions as render } from '../../test/renderWithExchangePermissions';
 import { TableExchange } from './TableExchange';
 import { CreateCustomTabDialog } from './CreateCustomTabDialog';
 import { DormitorySettingsDialog } from './DormitorySettingsDialog';
@@ -22,6 +24,34 @@ const props = {
   beforeAction: async () => {},
   onImported: () => {},
 };
+
+it.each([
+  [false, false],
+  [true, false],
+  [false, true],
+  [true, true],
+])('показывает кнопки только при правах: импорт %s, экспорт %s', (importEnabled, exportEnabled) => {
+  render(<TableExchange {...props} />, {
+    import_enabled: importEnabled,
+    export_enabled: exportEnabled,
+  });
+  expect(screen.queryByRole('button', { name: 'Импорт из Excel' }) !== null).toBe(importEnabled);
+  expect(screen.queryByRole('button', { name: 'Экспорт в Excel' }) !== null).toBe(exportEnabled);
+});
+
+it('скрывает открытый импорт при отзыве права', async () => {
+  const view = render(<TableExchange {...props} />);
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Импорт из Excel' }));
+  expect(screen.getByTestId('table-import-modal')).toBeInTheDocument();
+  view.rerender(
+    <ExchangePermissionsContext.Provider value={{ import_enabled: false, export_enabled: true }}>
+      <TableExchange {...props} />
+    </ExchangePermissionsContext.Provider>,
+  );
+  expect(screen.queryByTestId('table-import-modal')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Импорт из Excel' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Экспорт в Excel' })).toBeInTheDocument();
+});
 
 it('скачивает шаблон текущей таблицы после завершения сохранений', async () => {
   const before = vi.fn().mockResolvedValue(undefined);
@@ -88,7 +118,15 @@ it('показывает причину отклонения шаблона и �
 it('после импорта из панели перечитывает отчёт и возвращает фокус на импорт', async () => {
   let imported = false;
   mockFetch((url) => {
-    if (url === '/api/me') return { status: 200, body: { full_name: 'Тест', is_active: true } };
+    if (url === '/api/me')
+      return {
+        status: 200,
+        body: {
+          full_name: 'Тест',
+          is_active: true,
+          permissions: { import_enabled: true, export_enabled: true },
+        },
+      };
     if (url === '/api/dormitories/7')
       return { status: 200, body: { id: 7, name: 'Северное', client_name: 'Клиент' } };
     if (url.endsWith('/tabs')) return { status: 200, body: [] };

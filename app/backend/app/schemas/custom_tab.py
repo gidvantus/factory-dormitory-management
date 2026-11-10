@@ -18,9 +18,16 @@ class TabOptions(BaseModel):
     show_dates: bool = True
     import_enabled: bool = True
     export_enabled: bool = True
+    data_source: Literal["manual", "arrival_plan"] = "manual"
+    arrival_columns: dict[str, str] = Field(default_factory=dict, max_length=100)
 
     @model_validator(mode="after")
     def calendar_period(self) -> "TabOptions":
+        if self.data_source == "arrival_plan":
+            self.table_format = "list"
+            self.date_column_id = None
+            self.show_dates = True
+            self.add_row = self.clear_list = self.row_actions = self.import_enabled = False
         if self.table_format == "calendar" and self.period_mode == "none":
             raise ValueError("Для дат в столбцах выберите месяц или диапазон дат")
         return self

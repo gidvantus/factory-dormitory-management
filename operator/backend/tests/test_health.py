@@ -64,6 +64,8 @@ def test_openapi_documents_the_contract(client: TestClient) -> None:
         # и снятие с продажи (#188).
         "/api/solutions",
         "/api/solutions/{solution_id}",
+        "/api/access-rights",
+        "/api/access-rights/{role}",
     }
     login = schema["paths"]["/api/auth/login"]["post"]
     assert login["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(

@@ -381,7 +381,7 @@ def write_settings(
                 if not tab.table_created:
                     initialize_options(db, tab, options)
                     options = options_for(tab)
-                if item.date_column_name:
+                if item.date_column_name and options.data_source != "arrival_plan":
                     options = options.model_copy(
                         update={"date_column_id": resolve_date_name(db, tab, item.date_column_name)}
                     )

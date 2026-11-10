@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { DormitoryHistoryTable } from './DormitoryHistoryTable';
+import { DormitoryArrivalTable } from './DormitoryArrivalTable';
 import type { MutableRefObject } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { CustomTab, CustomTabRow } from '../../api/client';
@@ -373,12 +374,16 @@ export function CustomTabTable({
         showActions={tab.options?.row_actions ?? true}
         showDates={tab.options?.show_dates ?? true}
       >
-        <CustomTableContent
-          dormitoryId={dormitoryId}
-          tab={tab}
-          range={range}
-          waitForSavesRef={waitForSavesRef}
-        />
+        {tab.options?.data_source === 'arrival_plan' ? (
+          <DormitoryArrivalTable dormitoryId={dormitoryId} tab={tab} range={range} />
+        ) : (
+          <CustomTableContent
+            dormitoryId={dormitoryId}
+            tab={tab}
+            range={range}
+            waitForSavesRef={waitForSavesRef}
+          />
+        )}
       </TableColumnsProvider>
     );
   return (

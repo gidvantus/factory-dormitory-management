@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react';
 
 import { api } from '../api/client';
+import { useExchangePermissions } from '../auth/exchangePermissions';
 import type { Solution } from '../api/client';
 
 export interface SolutionsValue {
@@ -42,6 +43,7 @@ const SolutionsContext = createContext<SolutionsValue>(EMPTY);
  * наружу не уходит и ошибка сети.
  */
 export function SolutionsProvider({ children }: { children: ReactNode }): JSX.Element {
+  const { shop_enabled: shopEnabled } = useExchangePermissions();
   const [status, setStatus] = useState<SolutionsValue['status']>('loading');
   const [items, setItems] = useState<Solution[]>([]);
   const [ownedCodes, setOwnedCodes] = useState<Set<string>>(() => new Set<string>());
@@ -50,6 +52,25 @@ export function SolutionsProvider({ children }: { children: ReactNode }): JSX.El
   useEffect(() => {
     const controller = new AbortController();
     setStatus('loading');
+    if (shopEnabled === false) {
+      void api
+        .solutionEntitlements(controller.signal)
+        .then((codes) => {
+          if (!controller.signal.aborted) {
+            setItems([]);
+            setOwnedCodes(new Set(codes));
+            setStatus('ready');
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setItems([]);
+            setOwnedCodes(new Set());
+            setStatus('error');
+          }
+        });
+      return () => controller.abort();
+    }
     void api
       .solutions(controller.signal)
       .then((value) => {
@@ -68,7 +89,7 @@ export function SolutionsProvider({ children }: { children: ReactNode }): JSX.El
         setStatus('error');
       });
     return () => controller.abort();
-  }, [attempt]);
+  }, [attempt, shopEnabled]);
 
   const reload = useCallback(() => {
     setAttempt((value) => value + 1);

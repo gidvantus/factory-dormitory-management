@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.cell_fill import FillResolver, choose_record
 from app.custom_tab_options import options_for
+from app.dormitory_arrivals import arrival_rows
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.dormitory_history import DormitoryDataEvent
@@ -252,6 +253,21 @@ def export_rows(
     table: ExchangeTable, start: date | None, end: date | None, user: Any
 ) -> list[list[Any]]:
     db, key, dorm = table.db, table.key, table.dormitory
+    if table.tab and options_for(table.tab).data_source == "arrival_plan":
+        options = options_for(table.tab)
+        return [
+            [
+                row["custom_values"].get(str(col.column.id)) if col.column else None
+                for col in table.columns
+            ]
+            for row in arrival_rows(
+                db,
+                dorm.id,
+                options.arrival_columns,
+                start if options.period_mode != "none" else None,
+                end if options.period_mode != "none" else None,
+            )
+        ]
     if table.tab and table.tab.kind == "archive":
         query = select(DormitoryDataEvent).where(
             DormitoryDataEvent.dormitory_id == dorm.id,

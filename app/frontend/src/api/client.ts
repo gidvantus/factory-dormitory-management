@@ -1,5 +1,6 @@
 import { ACTIVATION_REQUIRED_DETAIL, notifyActivationRequired } from '../auth/activation';
 import { notifyTrialExpired } from '../auth/trial';
+import type { ExchangePermissions } from '../auth/exchangePermissions';
 import type {
   CatalogDormitory,
   DashboardLayout,
@@ -46,6 +47,8 @@ export interface UserProfile {
    * иначе пункт «Журнал» не появился бы до перезагрузки страницы.
    */
   role?: OrganizationRole | null;
+  /** Эффективные права на обмен данными из GET /api/me. */
+  permissions?: ExchangePermissions;
 }
 
 /**
@@ -1005,6 +1008,8 @@ export interface ExchangeOptions {
   export_enabled?: boolean;
 }
 export interface CustomTabOptions extends ExchangeOptions {
+  data_source?: 'manual' | 'arrival_plan';
+  arrival_columns?: Record<string, string>;
   table_format: 'list' | 'calendar';
   period_mode: 'none' | 'range' | 'month';
   date_column_id: number | null;
@@ -1195,6 +1200,31 @@ function rulePath(dormitoryId: number): string {
 }
 
 export const api = {
+  arrivalSourceFields(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<{ id: string; label: string; kind: string }[]> {
+    return request(`/dormitories/${encodeURIComponent(id)}/arrival-fields`, { signal });
+  },
+  dormitoryArrivalRows(
+    id: string,
+    tabId: number,
+    signal?: AbortSignal,
+    range?: { from: string; to: string },
+  ): Promise<{ id: string; date: string; custom_values: Record<string, CellValue> }[]> {
+    const query = range ? `?from=${range.from}&to=${range.to}` : '';
+    return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/arrival-rows${query}`, {
+      signal,
+    });
+  },
+  dormitoryLookup(
+    signal?: AbortSignal,
+  ): Promise<Pick<Dormitory, 'id' | 'name' | 'client_name' | 'is_archived'>[]> {
+    return request('/dormitories/lookup', { signal });
+  },
+  solutionEntitlements(signal?: AbortSignal): Promise<string[]> {
+    return request('/solutions/entitlements', { signal });
+  },
   dormitorySettings(id: string, signal?: AbortSignal): Promise<DormitorySettings> {
     return request(`/dormitories/${encodeURIComponent(id)}/settings`, { signal });
   },

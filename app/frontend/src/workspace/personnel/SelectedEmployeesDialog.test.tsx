@@ -1,12 +1,36 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { personnelApi } from '../../api/personnel';
 import type { Employee, PersonnelData } from '../../api/personnel';
 import * as download from '../../api/download';
 import { SelectedEmployeesDialog } from './SelectedEmployeesDialog';
+import { renderWithExchangePermissions as render } from '../../test/renderWithExchangePermissions';
 
 afterEach(() => vi.restoreAllMocks());
+
+it('не показывает выгрузку без права экспорта', () => {
+  render(
+    <SelectedEmployeesDialog
+      people={[]}
+      data={{
+        today: '2026-11-10',
+        employees: [],
+        dormitories: [],
+        plans: [],
+        arrival_plans: [],
+        preferences: { revision: 0, blocks: [], lists: [] },
+      }}
+      criteria={{ filter: 'all', dormitory: null, scope: [], days: 5, query: '' }}
+      fields={[]}
+      onPerson={vi.fn()}
+      onClose={vi.fn()}
+    />,
+    { import_enabled: true, export_enabled: false },
+  );
+  expect(screen.queryByRole('button', { name: 'Выгрузить' })).not.toBeInTheDocument();
+});
+
 it('выгружает выбранных людей и дополнительные столбцы, даёт повторить после ошибки', async () => {
   const user = userEvent.setup();
   const person: Employee = {

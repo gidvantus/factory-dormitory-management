@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { useSession } from '../auth/SessionProvider';
+import { hasSectionAccess, sectionForPath } from '../auth/sectionPermissions';
 import { SubscriptionProvider } from '../auth/SubscriptionProvider';
 import { TrialProvider, useTrial } from '../auth/TrialProvider';
 import { subscribeToTrialExpired } from '../auth/trial';
@@ -103,6 +104,8 @@ export function Cabinet(): JSX.Element {
 
 function CabinetShell(): JSX.Element {
   const { user, logout } = useSession();
+  const canOpen = (key: Parameters<typeof hasSectionAccess>[1]): boolean =>
+    hasSectionAccess(user?.permissions, key, user?.role);
   const { locked } = useTrial();
   const { ownedCodes } = useSolutions();
   const navigate = useNavigate();
@@ -243,79 +246,89 @@ function CabinetShell(): JSX.Element {
         <nav aria-label="Основные разделы">
           <p className={styles['nav-label']}>Рабочее пространство</p>
           <ul className={styles['nav-list']}>
-            <li>
-              <NavLink
-                className={styles['nav-link']}
-                to="/cabinet"
-                end
-                onClick={closeMenu}
-                data-testid="workspace-nav-overview"
-              >
-                <WorkspaceIcon name="overview" />
-                Обзор
-              </NavLink>
-            </li>
-            <li>
-              <NavLink
-                className={styles['nav-link']}
-                to="/cabinet/dormitories"
-                aria-disabled={locked || undefined}
-                tabIndex={locked ? -1 : undefined}
-                onClick={(event) => {
-                  if (locked) event.preventDefault();
-                  closeMenu();
-                }}
-                data-testid="workspace-nav-dormitories"
-              >
-                <WorkspaceIcon name="house" />
-                Общежития
-              </NavLink>
-            </li>
-            <li>
-              {/* «Документы» не перечислены в `CLOSED_SECTIONS`: счета и акты
+            {canOpen('overview_enabled') && (
+              <li>
+                <NavLink
+                  className={styles['nav-link']}
+                  to="/cabinet"
+                  end
+                  onClick={closeMenu}
+                  data-testid="workspace-nav-overview"
+                >
+                  <WorkspaceIcon name="overview" />
+                  Обзор
+                </NavLink>
+              </li>
+            )}
+            {canOpen('dormitories_enabled') && (
+              <li>
+                <NavLink
+                  className={styles['nav-link']}
+                  to="/cabinet/dormitories"
+                  aria-disabled={locked || undefined}
+                  tabIndex={locked ? -1 : undefined}
+                  onClick={(event) => {
+                    if (locked) event.preventDefault();
+                    closeMenu();
+                  }}
+                  data-testid="workspace-nav-dormitories"
+                >
+                  <WorkspaceIcon name="house" />
+                  Общежития
+                </NavLink>
+              </li>
+            )}
+            {canOpen('documents_enabled') && (
+              <li>
+                {/* «Документы» не перечислены в `CLOSED_SECTIONS`: счета и акты
                   нужны именно на закрытом пробном периоде. */}
-              <NavLink
-                className={styles['nav-link']}
-                to="/cabinet/documents"
-                onClick={closeMenu}
-                data-testid="workspace-nav-documents"
-              >
-                <WorkspaceIcon name="document" />
-                Документы
-              </NavLink>
-            </li>
-            <li>
-              <NavLink
-                className={styles['nav-link']}
-                to="/cabinet/personnel"
-                aria-disabled={locked || undefined}
-                tabIndex={locked ? -1 : undefined}
-                onClick={(event) => {
-                  if (locked) event.preventDefault();
-                  closeMenu();
-                }}
-                data-testid="workspace-nav-personnel"
-              >
-                <WorkspaceIcon name="people" />
-                Персонал
-              </NavLink>
-            </li>
-            <li>
-              <NavLink
-                className={styles['nav-link']}
-                to="/cabinet/statistics"
-                aria-disabled={locked || undefined}
-                tabIndex={locked ? -1 : undefined}
-                onClick={(event) => {
-                  if (locked) event.preventDefault();
-                  closeMenu();
-                }}
-                data-testid="workspace-nav-statistics"
-              >
-                <WorkspaceIcon name="chart" />
-                Статистика
-              </NavLink>
-            </li>
+                <NavLink
+                  className={styles['nav-link']}
+                  to="/cabinet/documents"
+                  onClick={closeMenu}
+                  data-testid="workspace-nav-documents"
+                >
+                  <WorkspaceIcon name="document" />
+                  Документы
+                </NavLink>
+              </li>
+            )}
+            {canOpen('personnel_enabled') && (
+              <li>
+                <NavLink
+                  className={styles['nav-link']}
+                  to="/cabinet/personnel"
+                  aria-disabled={locked || undefined}
+                  tabIndex={locked ? -1 : undefined}
+                  onClick={(event) => {
+                    if (locked) event.preventDefault();
+                    closeMenu();
+                  }}
+                  data-testid="workspace-nav-personnel"
+                >
+                  <WorkspaceIcon name="people" />
+                  Персонал
+                </NavLink>
+              </li>
+            )}
+            {canOpen('statistics_enabled') && (
+              <li>
+                <NavLink
+                  className={styles['nav-link']}
+                  to="/cabinet/statistics"
+                  aria-disabled={locked || undefined}
+                  tabIndex={locked ? -1 : undefined}
+                  onClick={(event) => {
+                    if (locked) event.preventDefault();
+                    closeMenu();
+                  }}
+                  data-testid="workspace-nav-statistics"
+                >
+                  <WorkspaceIcon name="chart" />
+                  Статистика
+                </NavLink>
+              </li>
+            )}
             {/* «Журнал» — раздел уровня владельца и платное решение каталога (#95):
                 пункт виден, только когда роль `owner` **и** у организации есть
                 право на решение `journal`. Без права раздел не показывать нельзя
@@ -336,21 +349,23 @@ function CabinetShell(): JSX.Element {
                 </NavLink>
               </li>
             )}
-            <li>
-              {/* «Магазин улучшений» открыт всегда: на закрытом кабинете он
+            {canOpen('shop_enabled') && (
+              <li>
+                {/* «Магазин улучшений» открыт всегда: на закрытом кабинете он
                   показывает, что даёт тариф, и ведёт к его оплате — покупка самих
                   решений с #195 требует живого тарифа. Стоит после
                   «Статистики»: за ним идут разделы купленных решений. */}
-              <NavLink
-                className={styles['nav-link']}
-                to="/cabinet/shop"
-                onClick={closeMenu}
-                data-testid="workspace-nav-shop"
-              >
-                <WorkspaceIcon name="info" />
-                Магазин улучшений
-              </NavLink>
-            </li>
+                <NavLink
+                  className={styles['nav-link']}
+                  to="/cabinet/shop"
+                  onClick={closeMenu}
+                  data-testid="workspace-nav-shop"
+                >
+                  <WorkspaceIcon name="info" />
+                  Магазин улучшений
+                </NavLink>
+              </li>
+            )}
             {SOLUTION_NAV_ITEMS.filter((item) => ownedCodes.has(item.code)).map((item) => (
               <li key={item.code}>
                 {/* Раздел платной функции виден только при действующем праве
@@ -375,39 +390,45 @@ function CabinetShell(): JSX.Element {
               после меню. Читает ту же подписку, что обзор, — запроса не добавляет. */}
           <SidebarTariff />
           <nav className={styles['account-nav']} aria-label="Учётная запись">
-            <NavLink
-              className={styles['nav-link']}
-              to="/cabinet/organization"
-              end
-              onClick={closeMenu}
-              data-testid="workspace-nav-organization"
-            >
-              <WorkspaceIcon name="building" />
-              Организация
-            </NavLink>
-            <NavLink
-              className={styles['nav-link']}
-              to="/cabinet/organization/members"
-              aria-disabled={locked || undefined}
-              tabIndex={locked ? -1 : undefined}
-              onClick={(event) => {
-                if (locked) event.preventDefault();
-                closeMenu();
-              }}
-              data-testid="workspace-nav-members"
-            >
-              <WorkspaceIcon name="people" />
-              Сотрудники
-            </NavLink>
-            <NavLink
-              className={styles['nav-link']}
-              to="/cabinet/profile"
-              onClick={closeMenu}
-              data-testid="workspace-nav-profile"
-            >
-              <WorkspaceIcon name="profile" />
-              Личные данные
-            </NavLink>
+            {canOpen('organization_enabled') && (
+              <NavLink
+                className={styles['nav-link']}
+                to="/cabinet/organization"
+                end
+                onClick={closeMenu}
+                data-testid="workspace-nav-organization"
+              >
+                <WorkspaceIcon name="building" />
+                Организация
+              </NavLink>
+            )}
+            {canOpen('members_enabled') && (
+              <NavLink
+                className={styles['nav-link']}
+                to="/cabinet/organization/members"
+                aria-disabled={locked || undefined}
+                tabIndex={locked ? -1 : undefined}
+                onClick={(event) => {
+                  if (locked) event.preventDefault();
+                  closeMenu();
+                }}
+                data-testid="workspace-nav-members"
+              >
+                <WorkspaceIcon name="people" />
+                Сотрудники
+              </NavLink>
+            )}
+            {canOpen('profile_enabled') && (
+              <NavLink
+                className={styles['nav-link']}
+                to="/cabinet/profile"
+                onClick={closeMenu}
+                data-testid="workspace-nav-profile"
+              >
+                <WorkspaceIcon name="profile" />
+                Личные данные
+              </NavLink>
+            )}
           </nav>
           <div className={styles.account}>
             <span className={styles['account-avatar']} aria-hidden="true">
@@ -467,7 +488,21 @@ function CabinetShell(): JSX.Element {
               {logoutError}
             </p>
           )}
-          {locked && isClosedSection(trimmedPath) ? <Navigate to="/cabinet" replace /> : <Outlet />}
+          {(() => {
+            const section = sectionForPath(trimmedPath);
+            if (section && !canOpen(section.key))
+              return (
+                <section role="alert">
+                  <h1>Раздел недоступен</h1>
+                  <p>Доступ к разделу «{section.label}» отключён для вашей должности.</p>
+                </section>
+              );
+            return locked && isClosedSection(trimmedPath) ? (
+              <Navigate to="/cabinet" replace />
+            ) : (
+              <Outlet />
+            );
+          })()}
         </main>
       </div>
     </div>

@@ -10,6 +10,7 @@
   padding: 0 6px;
 }
 .selects {
+  margin-bottom: 12px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
   gap: 12px;

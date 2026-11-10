@@ -132,7 +132,9 @@ def get_custom_tab(
     return tab
 
 
-def require_writable_table(db: Session, dormitory_id: int, table_key: str) -> None:
+def require_writable_table(
+    db: Session, dormitory_id: int, table_key: str, *, data: bool = False
+) -> None:
     if table_key.startswith("custom_"):
         tab = get_custom_tab(
             db, dormitory_id, int(table_key.removeprefix("custom_")), require_active=True
@@ -141,6 +143,8 @@ def require_writable_table(db: Session, dormitory_id: int, table_key: str) -> No
             raise HTTPException(
                 409, "Архив действий заполняется автоматически и доступен только для чтения"
             )
+        if data and (tab.options or {}).get("data_source") == "arrival_plan":
+            raise HTTPException(409, "Данные этой вкладки изменяются в плане заездов персонала")
     else:
         require_section_writable(db, dormitory_id, table_key)
 

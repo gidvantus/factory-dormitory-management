@@ -4,6 +4,7 @@ import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 import type { FormEvent } from 'react';
 
 import { api, ApiError } from '../../api/client';
+import { useExchangePermissions } from '../../auth/exchangePermissions';
 import type { HostelPlaces, PlaceField } from '../../api/client';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { formatDate } from '../dashboard/dates';
@@ -323,6 +324,7 @@ export function HostelPlaces({
   onMonthChange,
   legacyImport = true,
 }: Props): JSX.Element {
+  const permissions = useExchangePermissions();
   const [data, setData] = useState<HostelPlaces>({ months: [] });
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
@@ -460,7 +462,7 @@ export function HostelPlaces({
                   <div className={styles.hostelActions}>
                     {/* Импорт открывается из строки хостела: шаблон и разбор
                         остаются месячными, но кнопка стоит там, где хостел. */}
-                    {legacyImport && (
+                    {legacyImport && permissions.import_enabled && (
                       <button
                         type="button"
                         className="btn btn--ghost btn--compact"
@@ -563,7 +565,7 @@ export function HostelPlaces({
           onRemoved={refresh}
         />
       )}
-      {importingMonth && (
+      {importingMonth && permissions.import_enabled && (
         <ImportPlacesDialog
           dormitoryId={dormitoryId}
           month={importingMonth.slice(0, 7)}

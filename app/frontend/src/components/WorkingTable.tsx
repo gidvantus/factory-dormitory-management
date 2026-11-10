@@ -1,5 +1,7 @@
 import { OrderContext } from './workingTableContext';
 import { navigateTable } from './tableKeyboard';
+import { compareTableValues, tableCellValue } from './tableSorting';
+import type { SortValue, TableSort } from './tableSorting';
 import {
   Children,
   Fragment,
@@ -22,6 +24,7 @@ import type { TableColor, TableView, TableViewState } from './workingTableModel'
 interface ViewColumn {
   id: string;
   label: string;
+  kind?: string;
 }
 interface NodeProps {
   children?: ReactNode;
@@ -90,9 +93,11 @@ export function WorkingTable({
     { node: HTMLElement; axis: 'rows' | 'columns'; key: string; label: string }[]
   >([]);
   const [widths, setWidths] = useState<number[]>([]);
+  const [sort, setSort] = useState<TableSort | null>(null);
+  const [sortValues, setSortValues] = useState<Record<string, Record<string, SortValue>>>({});
   const drag = useRef<{ axis: 'rows' | 'columns'; key: string } | null>(null);
   const headings = columnNodes(children);
-  const columns =
+  const columns: ViewColumn[] =
     explicitColumns ??
     headings.map((node, index) => ({
       id: nodeKey(node, index),
@@ -109,6 +114,14 @@ export function WorkingTable({
   );
   const rowKeys = movable.map(nodeKey);
   const rowOrder = orderedKeys(rowKeys, view.state.rows);
+  if (sort)
+    rowOrder.sort((a, b) =>
+      compareTableValues(
+        sortValues[a]?.[sort.column] ?? null,
+        sortValues[b]?.[sort.column] ?? null,
+        sort.direction,
+      ),
+    );
   const renderedRowKeys: string[] = [];
   const readonly = readOnly;
 
@@ -117,6 +130,7 @@ export function WorkingTable({
     setView(emptyTableView());
     setLoaded(!viewKey);
     setLoadError('');
+    setSort(null);
     if (viewKey)
       void request<TableView>(`/${viewKey}`, { signal: controller.signal })
         .then((result) => {
@@ -160,6 +174,7 @@ export function WorkingTable({
   }
 
   function move(axis: 'rows' | 'columns', source: string, target: string): void {
+    if (axis === 'rows') setSort(null);
     const active = axis === 'rows' ? rowOrder : order;
     const reordered = moveKey(active, source, target);
     // Сохраняем также строки вне выбранного периода и столбцы других месяцев.
@@ -247,6 +262,25 @@ export function WorkingTable({
     if (head)
       Array.from(head.cells).forEach((cell, index) => {
         const key = order[index];
+        if (
+          key &&
+          cell.colSpan === 1 &&
+          columns.find((column) => column.id === key)?.label &&
+          key !== 'actions'
+        ) {
+          cell.dataset.tableColumn = key;
+          cell.dataset.tableSortable = 'true';
+          const tabIndex = cell.getAttribute('tabindex');
+          const title = cell.title;
+          cell.tabIndex = 0;
+          cell.title = 'Нажмите для сортировки по возрастанию или убыванию';
+          cleanups.push(() => {
+            delete cell.dataset.tableSortable;
+            if (tabIndex === null) cell.removeAttribute('tabindex');
+            else cell.setAttribute('tabindex', tabIndex);
+            cell.title = title;
+          });
+        }
         addHost(
           cell,
           'columns',
@@ -293,6 +327,15 @@ export function WorkingTable({
     let frame = 0;
     const measure = (): void => {
       frame = 0;
+      if (
+        sort &&
+        (!table.contains(document.activeElement) || document.activeElement?.closest('thead'))
+      ) {
+        const values = collectSortValues(sort.column);
+        setSortValues((previous) =>
+          JSON.stringify(previous) === JSON.stringify(values) ? previous : values,
+        );
+      }
       const hasLayout = table.getClientRects().length > 0;
       const canvas =
         typeof CanvasRenderingContext2D === 'undefined'
@@ -379,10 +422,7 @@ export function WorkingTable({
               .map((text) => measureText(text) + pixels(font.letterSpacing) * text.length),
           );
           const nativeControlWidth =
-            editor instanceof HTMLSelectElement ||
-            (editor instanceof HTMLInputElement && editor.type === 'number')
-              ? pixels(font.fontSize) * 1.5
-              : 0;
+            editor instanceof HTMLSelectElement ? pixels(font.fontSize) * 1.5 : 0;
           next[index] = Math.max(
             next[index],
             Math.ceil(line + padding + editorPadding + nativeControlWidth + controlsWidth + 2),
@@ -406,22 +446,66 @@ export function WorkingTable({
     resizeObserver?.observe(table);
     table.addEventListener('input', schedule);
     table.addEventListener('change', schedule);
+    table.addEventListener('focusout', schedule);
     document.fonts?.ready.then(schedule).catch(() => {});
     return () => {
       observer.disconnect();
       resizeObserver?.disconnect();
       table.removeEventListener('input', schedule);
       table.removeEventListener('change', schedule);
+      table.removeEventListener('focusout', schedule);
       if (frame) cancelAnimationFrame(frame);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, children, hosts]);
+  }, [signature, children, hosts, sort?.column]);
 
   const selectedOrder = selected?.axis === 'rows' ? rowOrder : order;
   const selectedIndex = selected ? selectedOrder.indexOf(selected.key) : -1;
   const selectedColor = selected
     ? view.state[selected.axis === 'rows' ? 'row_colors' : 'column_colors'][selected.key]
     : null;
+  useLayoutEffect(() => {
+    ref.current
+      ?.querySelectorAll<HTMLTableCellElement>('thead [data-table-sortable]')
+      .forEach((cell) => {
+        cell.setAttribute(
+          'aria-sort',
+          sort && sort.column === cell.dataset.tableColumn ? sort.direction : 'none',
+        );
+      });
+  }, [sort, hosts]);
+  function collectSortValues(column: string): typeof sortValues {
+    const values: typeof sortValues = {};
+    const index = order.indexOf(column);
+    const kind = columns.find((item) => item.id === column)?.kind;
+    Array.from(ref.current?.tBodies ?? [])
+      .flatMap((body) => Array.from(body.rows))
+      .forEach((row) => {
+        if (row.dataset.rowKey && row.cells[index])
+          values[row.dataset.rowKey] = { [column]: tableCellValue(row.cells[index], kind) };
+      });
+    return values;
+  }
+  function sortHeader(target: EventTarget): boolean {
+    if (
+      !(target instanceof Element) ||
+      target.closest('button,a,input,select,textarea,[data-table-tool]')
+    )
+      return false;
+    const cell = target.closest<HTMLTableCellElement>('thead [data-table-sortable]');
+    if (!cell?.dataset.tableColumn) return false;
+    const column = cell.dataset.tableColumn;
+    // Читаем и несохранённые значения перед перестановкой, сохраняя DOM ячеек.
+    setSortValues(collectSortValues(column));
+    setSort((previous) => ({
+      column,
+      direction:
+        previous?.column === column && previous.direction === 'ascending'
+          ? 'descending'
+          : 'ascending',
+    }));
+    return true;
+  }
   return (
     <OrderContext.Provider value={order}>
       {loadError && (
@@ -469,7 +553,19 @@ export function WorkingTable({
         }}
         onKeyDown={(event) => {
           props.onKeyDown?.(event);
+          if (
+            !event.defaultPrevented &&
+            ['Enter', ' '].includes(event.key) &&
+            sortHeader(event.target)
+          ) {
+            event.preventDefault();
+            return;
+          }
           navigateTable(event);
+        }}
+        onClick={(event) => {
+          props.onClick?.(event);
+          if (!event.defaultPrevented) sortHeader(event.target);
         }}
       >
         {!!widths.length && (
