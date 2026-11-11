@@ -1,10 +1,125 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { WorkingTable } from './WorkingTable';
 import { emptyTableView } from './workingTableModel';
 
 afterEach(() => vi.unstubAllGlobals());
+
+it('Ctrl с колёсиком масштабирует выбранную таблицу и восстанавливает её масштаб', async () => {
+  const saved = new Map<string, number>();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (!url.endsWith('/zoom')) return Response.json(emptyTableView());
+      if (init?.method === 'PUT') saved.set(url, JSON.parse(String(init.body)).percent);
+      return Response.json({ percent: saved.get(url) ?? 100 });
+    }),
+  );
+  function Tables(): JSX.Element {
+    return (
+      <>
+        <WorkingTable viewKey="dormitories/7/table-views/report" aria-label="Отчёт">
+          <tbody>
+            <tr>
+              <td>Данные отчёта</td>
+            </tr>
+          </tbody>
+        </WorkingTable>
+        <WorkingTable viewKey="dormitories/7/table-views/residents" aria-label="Жильцы">
+          <tbody>
+            <tr>
+              <td>Данные жильцов</td>
+            </tr>
+          </tbody>
+        </WorkingTable>
+      </>
+    );
+  }
+  const { unmount } = render(<Tables />);
+  const target = screen.getByText('Данные отчёта');
+  const scroll = createEvent.wheel(target, { deltaY: -100, cancelable: true });
+  fireEvent(target, scroll);
+  expect(scroll.defaultPrevented).toBe(false);
+  const zoom = createEvent.wheel(target, { ctrlKey: true, deltaY: -100, cancelable: true });
+  fireEvent(target, zoom);
+  expect(zoom.defaultPrevented).toBe(true);
+  expect(screen.getByRole('table', { name: 'Отчёт' }).style.zoom).toBe('1.1');
+  expect(screen.getByRole('table', { name: 'Жильцы' }).style.zoom).not.toBe('1.1');
+  unmount();
+  render(<Tables />);
+  await waitFor(() =>
+    expect(screen.getByRole('table', { name: 'Отчёт' }).style.zoom).toBe('1.1'),
+  );
+  expect([...saved.values()]).toEqual([110]);
+});
+
+it('распознаёт даты и списки Excel, сохраняет многострочный текст и пустые ячейки', async () => {
+  const user = userEvent.setup();
+  function Table(): JSX.Element {
+    const [date, setDate] = useState('');
+    const [status, setStatus] = useState('');
+    const [notes, setNotes] = useState('');
+    const [count, setCount] = useState('3');
+    return (
+      <WorkingTable pasteCells>
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Статус</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr key="top">
+            <td>
+              <input
+                type="date"
+                aria-label="Дата"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
+            </td>
+            <td>
+              <select
+                aria-label="Статус"
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                <option value="">—</option>
+                <option value="ready">Готово</option>
+              </select>
+            </td>
+          </tr>
+          <tr key="bottom">
+            <td>
+              <textarea
+                aria-label="Заметка"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </td>
+            <td>
+              <input
+                type="number"
+                aria-label="Число"
+                value={count}
+                onChange={(e) => setCount(e.target.value)}
+              />
+            </td>
+          </tr>
+        </tbody>
+      </WorkingTable>
+    );
+  }
+  render(<Table />);
+  await user.click(screen.getByLabelText('Дата'));
+  await user.paste('11.11.2026\tГотово\r\n"Первая строка\r\nВторая ""строка"""\t\r\n');
+  expect(screen.getByLabelText('Дата')).toHaveValue('2026-11-11');
+  expect(screen.getByLabelText('Статус')).toHaveValue('ready');
+  expect(screen.getByLabelText('Заметка')).toHaveValue('Первая строка\nВторая "строка"');
+  expect(screen.getByLabelText('Число')).toHaveValue(null);
+});
 
 it('сортирует текст по заголовку в обе стороны, не сбрасывая черновики и не вызывая настройку цвета', async () => {
   const user = userEvent.setup();

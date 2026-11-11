@@ -36,6 +36,17 @@ class DashboardDay(BaseModel):
     turnover: float | None
 
 
+class DashboardBreakdownItem(BaseModel):
+    id: str
+    label: str
+    value: float | None
+
+
+class DashboardBreakdown(BaseModel):
+    to_date: date | None
+    items: list[DashboardBreakdownItem]
+
+
 class DashboardResponse(BaseModel):
     layout: LayoutResponse
     widgets: list[WidgetResult]

@@ -2,54 +2,20 @@ import { useEffect, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 
 import { WorkspaceIcon } from '../WorkspaceIcon';
-import type { WorkspaceIconName } from '../WorkspaceIcon';
+import { BUILTIN_BLOCK_NAMES } from '../../api/dashboardBlocks';
+import type { BuiltinMetric } from '../../api/dashboardBlocks';
 import { DashboardChart } from './DashboardChart';
 import { EMPTY_DASHBOARD, loadDashboard, METRICS } from './data';
-import type {
-  DashboardData,
-  DashboardLoader,
-  DailyMetrics,
-  DormitoryMetrics,
-  Metric,
-} from './data';
+import type { DashboardData, DashboardLoader, DailyMetrics, Metric } from './data';
 import { currentMonth, formatDate, rangeError, todayDate } from './dates';
 import type { DateRange } from './dates';
 import styles from './Dashboard.module.css';
 import { usePageRefresh } from '../usePageRefresh';
 import { DashboardBlocks } from './DashboardBlocks';
 import { DashboardSummary, ReportProgress } from './DashboardSummary';
-import { MetricBars } from './MetricBars';
 import { reportReady } from './summary';
 
-const breakdowns: {
-  key: keyof Pick<DormitoryMetrics, 'residents' | 'attendance' | 'turnover'>;
-  title: string;
-  icon: WorkspaceIconName;
-  tone: string;
-  description: string;
-}[] = [
-  {
-    key: 'residents',
-    title: 'Вахтовики по общежитиям',
-    icon: 'people',
-    tone: 'mint',
-    description: 'Количество проживающих · человек',
-  },
-  {
-    key: 'turnover',
-    title: 'Текучка по общежитиям',
-    icon: 'door',
-    tone: 'peach',
-    description: 'На дату среза · человек',
-  },
-  {
-    key: 'attendance',
-    title: 'Выход на работу',
-    icon: 'chart',
-    tone: 'sky',
-    description: 'По каждому клиенту · человек',
-  },
-];
+const breakdowns: BuiltinMetric[] = ['residents', 'turnover', 'attendance'];
 
 export function Dashboard({
   loader = loadDashboard,
@@ -286,53 +252,10 @@ export function Dashboard({
         loading={loading}
         onChange={() => setAttempt((value) => value + 1)}
         cards={[
-          ...breakdowns.map((block) => ({
-            key: block.key,
-            name: block.title,
-            content: (
-              <section
-                key={block.key}
-                className={styles.card}
-                aria-labelledby={`breakdown-${block.key}`}
-              >
-                <div className={styles.cardHead}>
-                  <div>
-                    <h3 className={styles.cardTitle} id={`breakdown-${block.key}`}>
-                      {block.title}
-                    </h3>
-                    <p className={styles.cardSubtitle}>{block.description}</p>
-                  </div>
-                  <span className={styles.blockIcon} data-tone={block.tone}>
-                    <WorkspaceIcon name={block.icon} />
-                  </span>
-                </div>
-                {(block.key === 'attendance' ? data.clients.length : data.dormitories.length) ? (
-                  <MetricBars
-                    clients={block.key === 'attendance'}
-                    items={
-                      block.key === 'attendance'
-                        ? data.clients.map((client) => ({
-                            id: client.name,
-                            label: client.name,
-                            value: client.attendance,
-                          }))
-                        : data.dormitories.map((dormitory) => ({
-                            id: dormitory.id,
-                            label: dormitory.name,
-                            value: dormitory[block.key],
-                            archived: dormitory.is_archived,
-                          }))
-                    }
-                  />
-                ) : (
-                  <div className={styles.blockEmpty}>
-                    <WorkspaceIcon name="house" />
-                    <p>Пока нет данных по общежитиям</p>
-                    <span>Здесь появится разбивка после заполнения отчётов.</span>
-                  </div>
-                )}
-              </section>
-            ),
+          ...breakdowns.map((metric) => ({
+            key: metric,
+            name: BUILTIN_BLOCK_NAMES[metric],
+            metric,
           })),
           {
             key: 'reports',

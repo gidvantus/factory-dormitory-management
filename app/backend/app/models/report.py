@@ -8,6 +8,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -17,6 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.report_defaults import ReportMetric
 
 
 class ReportRow(Base):
@@ -27,6 +29,7 @@ class ReportRow(Base):
         ForeignKey("dormitories.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    metric_key: Mapped[ReportMetric | None] = mapped_column(String(20), nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     formula: Mapped[str | None] = mapped_column(Text, nullable=True)
     link: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
@@ -34,7 +37,10 @@ class ReportRow(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    __table_args__ = (UniqueConstraint("dormitory_id", "name", name="uq_report_rows_dorm_name"),)
+    __table_args__ = (
+        UniqueConstraint("dormitory_id", "name", name="uq_report_rows_dorm_name"),
+        Index("uq_report_rows_dorm_metric", "dormitory_id", "metric_key", unique=True),
+    )
 
 
 class ReportCell(Base):

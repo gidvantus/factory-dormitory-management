@@ -6,6 +6,7 @@ import { Modal } from '../../components/Modal';
 import { currentMonth } from '../dashboard/dates';
 import styles from './ResidentsTable.module.css';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { ClearStandardListButton } from './ClearStandardListButton';
 import {
   ColumnsControls,
   ConfiguredCells,
@@ -514,7 +515,21 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
           <p>Место проживания выбирается из хостелов, действующих в текущем месяце.</p>
         </div>
       }
-      secondary={<ColumnsControls />}
+      secondary={
+        <>
+          <ColumnsControls />
+          <ClearStandardListButton
+            dormitoryId={dormitoryId}
+            section="residents"
+            title="Проживающие"
+            disabled={status !== 'ready' || adding || removing}
+            onCleared={() => {
+              setStatus('loading');
+              setAttempt((value) => value + 1);
+            }}
+          />
+        </>
+      }
       primary={
         <button
           type="button"

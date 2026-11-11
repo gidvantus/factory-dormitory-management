@@ -28,6 +28,7 @@ from app.schemas.custom_tab import CreateTabRequest, TabOptions
 from app.schemas.table_column import CellFill, ColumnRequest, ColumnResponse
 from app.section_state import (
     SECTIONS,
+    STANDARD_CLEAR_LIST_DEFAULTS,
     locked_dormitory,
     section_ancestors,
     section_parents,
@@ -94,6 +95,7 @@ class SaveSettings(BaseModel):
     sections: dict[str, Literal["active", "hidden"]] = Field(default_factory=dict)
     deleted: list[str] = Field(default_factory=list)
     exchange_options: dict[str, ExchangeOptions] = Field(default_factory=dict)
+    standard_clear_list: dict[str, bool] = Field(default_factory=dict)
 
 
 def settings_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
@@ -130,6 +132,7 @@ def settings_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
     ]
     configuration = {
         "exchange_options": dorm.exchange_options or {},
+        "standard_clear_list": dorm.standard_clear_list or {},
         "tables": tables,
         "tabs": [
             {
@@ -154,6 +157,7 @@ def settings_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
     ).hexdigest()
     return {
         "exchange_options": dorm.exchange_options or {},
+        "standard_clear_list": dorm.standard_clear_list or {},
         "revision": revision,
         "tables": tables,
         "tabs": tab_data,
@@ -275,6 +279,12 @@ def write_settings(
         dorm.exchange_options = {
             **(dorm.exchange_options or {}),
             **{key: value.model_dump() for key, value in payload.exchange_options.items()},
+        }
+        if payload.standard_clear_list.keys() - STANDARD_CLEAR_LIST_DEFAULTS.keys():
+            raise HTTPException(422, "Выберите стандартную таблицу со списком записей")
+        dorm.standard_clear_list = {
+            **(dorm.standard_clear_list or {}),
+            **payload.standard_clear_list,
         }
         if len({item.key for item in payload.tabs}) != len(payload.tabs) or len(
             {item.key for item in payload.tables}

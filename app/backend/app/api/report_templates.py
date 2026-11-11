@@ -25,6 +25,7 @@ from app.schemas.report_template import (
 )
 from app.schemas.user import ErrorResponse
 from app.table_data import lock_dormitory, snapshot_link
+from app.table_views import remap_colors, table_colors
 
 router = APIRouter(
     prefix="/report-templates",
@@ -104,7 +105,7 @@ def create_template(
     db: DbSession,
 ) -> ReportTemplateResponse:
     # Шаблон копирует строки отчёта: чужое общежитие — тот же 404, что и несуществующее.
-    own_dormitory(db, payload.dormitory_id, membership)
+    dorm = own_dormitory(db, payload.dormitory_id, membership)
     lock_dormitory(db, payload.dormitory_id)
     rows = list(
         db.scalars(
@@ -117,10 +118,16 @@ def create_template(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "В отчёте пока нет строк")
     if name_taken(db, membership.organization_id, payload.name):
         raise HTTPException(status.HTTP_409_CONFLICT, "Шаблон с таким названием уже есть")
+    colors = table_colors(db, dorm, "report")
+    if "row_colors" in colors:
+        colors["row_colors"] = remap_colors(
+            colors["row_colors"], {row.id: index for index, row in enumerate(rows, start=1)}
+        )
     template = ReportTemplate(
         name=payload.name,
         created_by_id=user.id,
         organization_id=membership.organization_id,
+        colors=colors,
     )
     db.add(template)
     try:
@@ -129,6 +136,7 @@ def create_template(
             ReportTemplateRow(
                 template_id=template.id,
                 name=row.name,
+                metric_key=row.metric_key,
                 position=index,
                 formula=row.formula,
                 link_snapshot=snapshot_link(db, row),

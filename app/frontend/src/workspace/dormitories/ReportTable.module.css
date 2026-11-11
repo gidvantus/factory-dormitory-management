@@ -347,3 +347,8 @@
 .dialogDelete {
   margin-right: auto;
 }
+.mainFormula:global(.table-rule-mark) {
+  font-size: 0.75em;
+  font-weight: 800;
+  color: var(--color-text);
+}

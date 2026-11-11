@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.report_defaults import ReportMetric
 from app.schemas.table_column import ReportSourceLink
 
 
@@ -75,10 +76,23 @@ class SaveReportCellRequest(BaseModel):
         return normalized or None
 
 
+class ReportCellWrite(SaveReportCellRequest):
+    row_id: int = Field(ge=1, le=2147483647)
+    report_date: date
+
+
+class SaveReportCellsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cells: list[ReportCellWrite] = Field(min_length=1, max_length=5000)
+
+
 class ReportRowResponse(BaseModel):
     link: ReportSourceLink | None = None
     id: int
     name: str
+    metric_key: ReportMetric | None = None
+    metric_block_name: str | None = None
     position: int
     formula: str | None
     values: dict[str, str]

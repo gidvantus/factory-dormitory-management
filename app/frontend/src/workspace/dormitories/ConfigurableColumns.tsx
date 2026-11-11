@@ -690,6 +690,7 @@ export function ConfiguredTable({
     <WorkingTable
       className={className}
       configured
+      pasteCells
       readOnly={settings?.readOnly}
       viewKey={
         location.pathname.startsWith('/preview/')
@@ -706,11 +707,13 @@ export function ConfiguredTable({
           kind: column.kind,
         })),
         ...(actions ? [{ id: 'actions', label: 'Действия' }] : []),
-        ...(trailing ??
+        ...(
+          trailing ??
           Array.from({ length: trailingColumns }, (_, index) => ({
             id: `day-${index}`,
             label: `День ${index + 1}`,
-          }))),
+          }))
+        ).map((column) => ({ ...column, compact: true })),
       ]}
     >
       {children}

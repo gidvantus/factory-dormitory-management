@@ -486,14 +486,24 @@ export function HostelPlaces({
                 <div className={styles.tableScroll}>
                   <WorkingTable
                     className={styles.table}
+                    pasteCells
                     viewKey={
                       location.pathname.startsWith('/preview/')
                         ? undefined
                         : `dormitories/${dormitoryId}/table-views/places`
                     }
+                    zoomKey={
+                      location.pathname.startsWith('/preview/')
+                        ? undefined
+                        : `dormitories/${dormitoryId}/table-views/places-${hostel.id}-${month.month}`
+                    }
                     columns={[
                       { id: 'name', label: 'Наименование' },
-                      ...month.days.map((day) => ({ id: day, label: formatDate(day, false) })),
+                      ...month.days.map((day) => ({
+                        id: day,
+                        label: formatDate(day, false),
+                        compact: true,
+                      })),
                     ]}
                   >
                     <thead>

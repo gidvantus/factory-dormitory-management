@@ -1,5 +1,8 @@
 import { OrderContext } from './workingTableContext';
 import { navigateTable } from './tableKeyboard';
+import { useTableZoom } from './useTableZoom';
+import { bodyCell, fillPastedCell, parseClipboardGrid, pasteTargets } from './tablePaste';
+import type { TablePasteCell } from './tablePaste';
 import { compareTableValues, tableCellValue } from './tableSorting';
 import type { SortValue, TableSort } from './tableSorting';
 import {
@@ -13,7 +16,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { ComponentPropsWithoutRef, ReactElement, ReactNode } from 'react';
+import type { ClipboardEvent, ComponentPropsWithoutRef, ReactElement, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError, request } from '../api/client';
 import { Modal } from './Modal';
@@ -25,6 +28,17 @@ interface ViewColumn {
   id: string;
   label: string;
   kind?: string;
+  compact?: boolean;
+}
+
+function canGrow(column: ViewColumn): boolean {
+  const label = column.label.trim();
+  return (
+    !!label &&
+    !column.compact &&
+    (!column.kind || ['text', 'textarea', 'employee'].includes(column.kind)) &&
+    !/^(?:№|дата|статус|период|итого|действия)(?:\s|$)/iu.test(label)
+  );
 }
 interface NodeProps {
   children?: ReactNode;
@@ -59,24 +73,32 @@ function columnNodes(children: ReactNode): ReactElement<NodeProps>[] {
 
 export function WorkingTable({
   viewKey: providedViewKey,
+  zoomKey,
   revisionKey,
   columns: explicitColumns,
   configured = false,
   readOnly = false,
+  pasteCells = false,
   children,
   className = '',
   style,
   ...props
 }: ComponentPropsWithoutRef<'table'> & {
   viewKey?: string;
+  zoomKey?: string;
   revisionKey?: string;
   columns?: ViewColumn[];
   configured?: boolean;
   readOnly?: boolean;
+  pasteCells?: boolean | ((cells: TablePasteCell[]) => Promise<void>);
 }): JSX.Element {
   const surface = useContext(EditorSurfaceContext);
   const viewKey = surface ? undefined : providedViewKey;
   const ref = useRef<HTMLTableElement>(null);
+  const { scale, saveFailed: zoomSaveFailed } = useTableZoom(
+    ref,
+    surface ? undefined : (zoomKey ?? viewKey),
+  );
   const originalBackgrounds = useRef(new WeakMap<HTMLTableCellElement, string>());
   const [view, setView] = useState<TableView>(emptyTableView);
   const [loaded, setLoaded] = useState(!viewKey);
@@ -95,6 +117,8 @@ export function WorkingTable({
   const [widths, setWidths] = useState<number[]>([]);
   const [sort, setSort] = useState<TableSort | null>(null);
   const [sortValues, setSortValues] = useState<Record<string, Record<string, SortValue>>>({});
+  const [pasteNotice, setPasteNotice] = useState('');
+  const pasting = useRef(false);
   const drag = useRef<{ axis: 'rows' | 'columns'; key: string } | null>(null);
   const headings = columnNodes(children);
   const columns: ViewColumn[] =
@@ -323,7 +347,8 @@ export function WorkingTable({
 
   useLayoutEffect(() => {
     const table = ref.current;
-    if (!table) return;
+    const container = table?.parentElement;
+    if (!table || !container) return;
     let frame = 0;
     const measure = (): void => {
       frame = 0;
@@ -343,6 +368,7 @@ export function WorkingTable({
           : document.createElement('canvas').getContext('2d');
       const measureText = (text: string): number =>
         canvas?.measureText(text).width ?? text.length * 7;
+      const pixels = (value: string): number => parseFloat(value) || 0;
       const next = order.map(() => 0);
       Array.from(table.rows).forEach((row) =>
         Array.from(row.cells).forEach((cell, index) => {
@@ -367,6 +393,8 @@ export function WorkingTable({
           const editor = cell.querySelector<
             HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
           >('input:not([type="hidden"]),textarea,select');
+          const toggle =
+            editor instanceof HTMLInputElement && ['checkbox', 'radio'].includes(editor.type);
           const clone = cell.cloneNode(true) as HTMLElement;
           clone
             .querySelectorAll(
@@ -376,23 +404,23 @@ export function WorkingTable({
           let value = clone.textContent?.trim() ?? '';
           if (editor instanceof HTMLSelectElement)
             value += editor.selectedOptions[0]?.textContent ?? '';
-          else if (editor instanceof HTMLInputElement && editor.type === 'checkbox') value += '✓';
-          else if (editor) value += editor.value;
+          else if (editor && !toggle) value += editor.value;
           const textElement =
             editor ??
-            cell.querySelector('output, a, button:not(.working-table-grip), strong') ??
+            cell.querySelector(
+              'output, a, button:not(.working-table-grip, .working-table-edit-button), strong',
+            ) ??
             cell;
           const font = getComputedStyle(textElement);
           const spacing = getComputedStyle(cell);
           if (canvas) canvas.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`;
-          const pixels = (value: string): number => parseFloat(value) || 0;
           const padding =
             pixels(spacing.paddingLeft) +
             pixels(spacing.paddingRight) +
             pixels(spacing.borderLeftWidth) +
             pixels(spacing.borderRightWidth);
           const editorPadding =
-            textElement !== cell
+            textElement !== cell && !toggle
               ? pixels(font.paddingLeft) +
                 pixels(font.paddingRight) +
                 pixels(font.borderLeftWidth) +
@@ -405,7 +433,7 @@ export function WorkingTable({
           ).reduce(
             (sum, node) =>
               sum +
-              node.getBoundingClientRect().width +
+              node.getBoundingClientRect().width / scale +
               pixels(getComputedStyle(node.parentElement!).columnGap),
             0,
           );
@@ -421,8 +449,13 @@ export function WorkingTable({
               .split('\n')
               .map((text) => measureText(text) + pixels(font.letterSpacing) * text.length),
           );
-          const nativeControlWidth =
-            editor instanceof HTMLSelectElement ? pixels(font.fontSize) * 1.5 : 0;
+          let nativeControlWidth = 0;
+          if (editor instanceof HTMLSelectElement) nativeControlWidth = pixels(font.fontSize) * 1.5;
+          if (toggle)
+            nativeControlWidth =
+              editor.getBoundingClientRect().width / scale +
+              pixels(font.marginInlineStart) +
+              pixels(font.marginInlineEnd);
           next[index] = Math.max(
             next[index],
             Math.ceil(line + padding + editorPadding + nativeControlWidth + controlsWidth + 2),
@@ -430,10 +463,36 @@ export function WorkingTable({
           );
         }),
       );
-      if (hasLayout)
+      if (hasLayout && next.length) {
+        const containerStyle = getComputedStyle(container);
+        const tableStyle = getComputedStyle(table);
+        const borderSpacing =
+          tableStyle.borderCollapse === 'separate'
+            ? pixels(tableStyle.borderSpacing) * (next.length + 1)
+            : 0;
+        // clientWidth округлён до целых. Остаток пикселя заполняет width: 100%.
+        const availableWidth =
+          container.clientWidth -
+          1 -
+          pixels(containerStyle.paddingLeft) -
+          pixels(containerStyle.paddingRight) -
+          pixels(tableStyle.borderLeftWidth) -
+          pixels(tableStyle.borderRightWidth) -
+          pixels(tableStyle.paddingLeft) -
+          pixels(tableStyle.paddingRight) -
+          borderSpacing;
+        const spareWidth = availableWidth - next.reduce((sum, width) => sum + width, 0);
+        if (spareWidth > 0) {
+          const flexible = new Set(columns.filter(canGrow).map((column) => column.id));
+          const recipients = flexible.size ? flexible.size : next.length;
+          order.forEach((key, index) => {
+            if (!flexible.size || flexible.has(key)) next[index] += spareWidth / recipients;
+          });
+        }
         setWidths((previous) =>
           JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
         );
+      }
     };
     const schedule = (): void => {
       if (!frame) frame = requestAnimationFrame(measure);
@@ -444,6 +503,7 @@ export function WorkingTable({
     const resizeObserver =
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
     resizeObserver?.observe(table);
+    resizeObserver?.observe(container);
     table.addEventListener('input', schedule);
     table.addEventListener('change', schedule);
     table.addEventListener('focusout', schedule);
@@ -457,7 +517,7 @@ export function WorkingTable({
       if (frame) cancelAnimationFrame(frame);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, children, hosts, sort?.column]);
+  }, [signature, children, hosts, sort?.column, scale]);
 
   const selectedOrder = selected?.axis === 'rows' ? rowOrder : order;
   const selectedIndex = selected ? selectedOrder.indexOf(selected.key) : -1;
@@ -506,6 +566,67 @@ export function WorkingTable({
     }));
     return true;
   }
+
+  async function paste(event: ClipboardEvent<HTMLTableElement>): Promise<void> {
+    props.onPaste?.(event);
+    if (!pasteCells || event.defaultPrevented) return;
+    const table = event.currentTarget;
+    const start = bodyCell(table, event.target);
+    if (!start || (event.target instanceof Element && event.target.closest('[data-table-tool]')))
+      return;
+    const text = event.clipboardData.getData('text/plain');
+    if (!text && !event.clipboardData.types?.includes('text/plain')) return;
+    const spreadsheet =
+      text.includes('\t') ||
+      /<table[\s>]/i.test(event.clipboardData.getData('text/html')) ||
+      (!(event.target instanceof HTMLTextAreaElement) && /[\r\n]/.test(text));
+    if (
+      !spreadsheet &&
+      event.target instanceof Element &&
+      event.target.matches('input,textarea,[contenteditable]')
+    )
+      return;
+    event.preventDefault();
+    if (readonly || pasting.current) return;
+    const maximum = typeof pasteCells === 'function' ? 5000 : 500;
+    if (text.length > 2_000_000) {
+      setPasteNotice('Диапазон слишком большой. Вставьте его частями.');
+      return;
+    }
+    const grid = parseClipboardGrid(text);
+    const size = grid.reduce((sum, row) => sum + row.length, 0);
+    if (size > maximum) {
+      setPasteNotice(`За раз можно вставить до ${maximum} ячеек. Разделите диапазон на части.`);
+      return;
+    }
+    const cells = pasteTargets(table, start, grid);
+    if (!cells.length) {
+      setPasteNotice('В выбранном диапазоне нет доступных для ввода ячеек.');
+      return;
+    }
+    pasting.current = true;
+    try {
+      let inserted = 0;
+      if (typeof pasteCells === 'function') {
+        setPasteNotice('Сохраняем вставленные значения…');
+        await pasteCells(cells);
+        inserted = cells.length;
+      } else {
+        for (const cell of cells) if (fillPastedCell(cell)) inserted++;
+      }
+      const skipped = size - inserted;
+      setPasteNotice(`Вставлено ячеек: ${inserted}.${skipped ? ` Пропущено: ${skipped}.` : ''}`);
+    } catch (caught) {
+      setPasteNotice(caught instanceof Error ? caught.message : 'Не удалось вставить значения.');
+    } finally {
+      pasting.current = false;
+      if (start.isConnected && table.ownerDocument.activeElement === table.ownerDocument.body) {
+        start.tabIndex = -1;
+        start.focus({ preventScroll: true });
+      }
+    }
+  }
+
   return (
     <OrderContext.Provider value={order}>
       {loadError && (
@@ -537,19 +658,26 @@ export function WorkingTable({
           </button>
         </p>
       )}
+      {pasteNotice && (
+        <p className="working-table-notice" role="status">
+          {pasteNotice}
+        </p>
+      )}
+      {zoomSaveFailed && (
+        <p className="working-table-notice" role="alert">
+          Не удалось сохранить масштаб таблицы.
+        </p>
+      )}
       <table
         {...props}
         ref={ref}
         className={`working-table ${className}`}
         style={{
           ...style,
+          zoom: scale === 1 ? style?.zoom : scale,
           tableLayout: 'fixed',
-          ...(widths.length
-            ? {
-                width: widths.reduce((sum, width) => sum + width, 0),
-                minWidth: widths.reduce((sum, width) => sum + width, 0),
-              }
-            : {}),
+          width: '100%',
+          minWidth: widths.length ? widths.reduce((sum, width) => sum + width, 0) : style?.minWidth,
         }}
         onKeyDown={(event) => {
           props.onKeyDown?.(event);
@@ -565,8 +693,23 @@ export function WorkingTable({
         }}
         onClick={(event) => {
           props.onClick?.(event);
-          if (!event.defaultPrevented) sortHeader(event.target);
+          if (event.defaultPrevented || sortHeader(event.target)) return;
+          if (
+            pasteCells &&
+            !readonly &&
+            event.target instanceof Element &&
+            !event.target.closest(
+              'button,a,input,select,textarea,label,[role="button"],[contenteditable]',
+            )
+          ) {
+            const cell = bodyCell(event.currentTarget, event.target);
+            if (cell) {
+              cell.tabIndex = -1;
+              cell.focus({ preventScroll: true });
+            }
+          }
         }}
+        onPaste={(event) => void paste(event)}
       >
         {!!widths.length && (
           <colgroup>

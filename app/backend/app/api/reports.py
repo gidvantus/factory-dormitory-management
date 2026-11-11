@@ -5,15 +5,16 @@ from decimal import Decimal, InvalidOperation
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.arrival_plans import report_arrivals
 from app.db import get_db
+from app.models.dashboard_block import DashboardLayout
 from app.models.report import ReportCell, ReportRow
-from app.report_defaults import required_row_name
+from app.report_defaults import REPORT_METRIC_BLOCK_NAMES
 from app.report_formula import FormulaError, calculate_formula, compile_formula, format_number
 from app.schemas.report import (
     CreateReportRowRequest,
@@ -21,6 +22,7 @@ from app.schemas.report import (
     ReportResponse,
     ReportRowResponse,
     SaveReportCellRequest,
+    SaveReportCellsRequest,
     UpdateReportRowRequest,
 )
 from app.schemas.table_column import ArrivalPlanReportLink, PlaceReportLink, report_link_adapter
@@ -97,6 +99,7 @@ def row_response(row: ReportRow) -> ReportRowResponse:
     return ReportRowResponse(
         id=row.id,
         name=row.name,
+        metric_key=row.metric_key,
         position=row.position,
         formula=row.formula,
         link=row.link,
@@ -106,6 +109,31 @@ def row_response(row: ReportRow) -> ReportRowResponse:
 
 
 @router.get("", response_model=ReportResponse, summary="Общий отчёт за период")
+def report_with_block_names(
+    dormitory_id: DormitoryId,
+    user: SubscribedUser,
+    db: DbSession,
+    from_date: Annotated[date, Query(alias="from")],
+    to_date: Annotated[date, Query(alias="to")],
+    dormitory: OwnDormitory,
+) -> ReportResponse:
+    report = read_report(dormitory_id, user, db, from_date, to_date, dormitory)
+    settings = (
+        db.scalar(
+            select(DashboardLayout.builtin_settings).where(
+                DashboardLayout.organization_id == dormitory.organization_id
+            )
+        )
+        or {}
+    )
+    for row in report.rows:
+        if row.metric_key:
+            row.metric_block_name = settings.get(row.metric_key, {}).get(
+                "name", REPORT_METRIC_BLOCK_NAMES[row.metric_key]
+            )
+    return report
+
+
 def read_report(
     dormitory_id: DormitoryId,
     _user: SubscribedUser,
@@ -262,15 +290,10 @@ def update_row(
     rows = get_rows(db, dormitory_id)
     old_name = row.name
     new_name = payload.name if payload.name is not None else old_name
-    if required_row_name(old_name):
-        if new_name != old_name:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "Название обязательной строки нельзя изменить"
-            )
-        if "formula" in payload.model_fields_set and payload.formula is None:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, "Обязательная строка должна оставаться формулой"
-            )
+    if row.metric_key and "formula" in payload.model_fields_set and payload.formula is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Обязательная строка должна оставаться формулой"
+        )
     if any(item.id != row.id and item.name.casefold() == new_name.casefold() for item in rows):
         raise HTTPException(status.HTTP_409_CONFLICT, "Строка с таким названием уже есть")
     replacements = {
@@ -285,7 +308,7 @@ def update_row(
         else row.link
     )
     if link:
-        if replacements[row.id] or required_row_name(old_name):
+        if replacements[row.id] or row.metric_key:
             raise HTTPException(422, "Выберите формулу или связь с таблицей")
         link = validate_link(
             db, dormitory_id, report_link_adapter.validate_python(link)
@@ -346,7 +369,7 @@ def delete_row(
 ) -> None:
     require_section_writable(db, dormitory_id, "report")
     row = get_row(db, dormitory_id, row_id)
-    if required_row_name(row.name):
+    if row.metric_key:
         raise HTTPException(status.HTTP_409_CONFLICT, "Обязательную строку нельзя удалить")
     from app.personnel_builder_dependencies import builder_dependencies
 
@@ -359,6 +382,59 @@ def delete_row(
             raise HTTPException(status.HTTP_409_CONFLICT, "На строку ссылаются другие формулы")
     db.execute(delete(ReportCell).where(ReportCell.row_id == row_id))
     db.delete(row)
+    db.commit()
+
+
+def require_manual_row(row: ReportRow) -> None:
+    if row.formula:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Формульную строку нельзя заполнить вручную")
+    if row.link:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Связанную строку нельзя заполнить вручную")
+
+
+def write_cells(db: Session, changes: dict[tuple[int, date], str | None]) -> None:
+    coordinates = list(changes)
+    existing = {}
+    for start in range(0, len(coordinates), 400):
+        matches = db.scalars(
+            select(ReportCell).where(
+                tuple_(ReportCell.row_id, ReportCell.report_date).in_(
+                    coordinates[start : start + 400]
+                )
+            )
+        )
+        existing.update({(cell.row_id, cell.report_date): cell for cell in matches})
+    for (row_id, report_date), value in changes.items():
+        cell = existing.get((row_id, report_date))
+        if value is None:
+            if cell is not None:
+                db.delete(cell)
+        elif cell is None:
+            db.add(ReportCell(row_id=row_id, report_date=report_date, value=value))
+        elif cell.value != value:
+            cell.value = value
+            cell.updated_at = func.now()
+
+
+@router.put("/cells", status_code=status.HTTP_204_NO_CONTENT, summary="Вставить диапазон в отчёт")
+def save_cells(
+    dormitory_id: DormitoryId,
+    payload: SaveReportCellsRequest,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
+) -> None:
+    lock_dormitory(db, dormitory_id)
+    require_section_writable(db, dormitory_id, "report")
+    rows = {row.id: row for row in get_rows(db, dormitory_id)}
+    for row_id in {cell.row_id for cell in payload.cells}:
+        if row_id not in rows:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Строка не найдена")
+        require_manual_row(rows[row_id])
+    changes = {(cell.row_id, cell.report_date): cell.value for cell in payload.cells}
+    if len(changes) != len(payload.cells):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Ячейки в диапазоне повторяются")
+    write_cells(db, changes)
     db.commit()
 
 
@@ -378,20 +454,6 @@ def save_cell(
 ) -> None:
     require_section_writable(db, dormitory_id, "report")
     lock_dormitory(db, dormitory_id)
-    row = get_row(db, dormitory_id, row_id)
-    if row.formula:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Формульную строку нельзя заполнить вручную")
-    if row.link:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Связанную строку нельзя заполнить вручную")
-    cell = db.scalar(
-        select(ReportCell).where(ReportCell.row_id == row_id, ReportCell.report_date == report_date)
-    )
-    if payload.value is None:
-        if cell is not None:
-            db.delete(cell)
-    elif cell is None:
-        db.add(ReportCell(row_id=row_id, report_date=report_date, value=payload.value))
-    else:
-        cell.value = payload.value
-        cell.updated_at = func.now()
+    require_manual_row(get_row(db, dormitory_id, row_id))
+    write_cells(db, {(row_id, report_date): payload.value})
     db.commit()

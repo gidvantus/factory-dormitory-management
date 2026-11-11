@@ -28,6 +28,9 @@ class DashboardLayout(Base):
     revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     order: Mapped[list[str]] = mapped_column(JSON, default=lambda: list(DEFAULT_DASHBOARD_ORDER))
     hidden: Mapped[list[str]] = mapped_column(JSON, default=list, server_default=text("'[]'"))
+    builtin_settings: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, server_default=text("'{}'"), nullable=False
+    )
 
 
 class DashboardBlock(Base):

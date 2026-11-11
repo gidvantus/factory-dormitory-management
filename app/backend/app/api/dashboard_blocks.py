@@ -93,6 +93,10 @@ def update_layout(
     ):
         raise HTTPException(422, "Укажите каждый существующий блок ровно один раз")
     layout.order, layout.hidden = payload.order, payload.hidden
+    if payload.builtin_settings is not None:
+        layout.builtin_settings = {
+            key: config.model_dump() for key, config in payload.builtin_settings.items()
+        }
     layout.revision += 1
     db.commit()
     return layout_response(db, organization_id, layout)

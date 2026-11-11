@@ -8,6 +8,46 @@ from tests.conftest import sign_in
 DASHBOARD_EMAIL = "dashboard@example.com"
 
 
+def test_renamed_report_rows_feed_builtin_blocks_and_independent_dates(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session, email=DASHBOARD_EMAIL)
+    dorm = dormitory(client, "Северное", "Клиент", {"Выход Итого": "10"})
+    base = f"/api/dormitories/{dorm}/report"
+    period = "?from=2025-09-01&to=2025-09-02"
+    rows = client.get(base + period).json()["rows"]
+    row_id = next(row["id"] for row in rows if row["metric_key"] == "attendance")
+    assert client.patch(f"{base}/rows/{row_id}", json={"name": "Работают"}).status_code == 200
+    assert (
+        client.post(base + "/rows", json={"name": "Выход Итого", "formula": "=999"}).status_code
+        == 201
+    )
+    layout = client.get("/api/dashboard/layout").json()
+    settings = {"attendance": {"name": "Смены", "date_mode": "range", "aggregate": "average"}}
+    saved = client.put(
+        "/api/dashboard/layout",
+        json={
+            "revision": layout["revision"],
+            "order": layout["order"],
+            "hidden": [],
+            "builtin_settings": settings,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert client.get("/api/dashboard/layout").json()["builtin_settings"] == settings
+    report = client.get(base + period).json()["rows"]
+    assert next(row for row in report if row["id"] == row_id)["metric_block_name"] == "Смены"
+    assert client.get("/api/dashboard" + period).json()["clients"] == [
+        {"name": "Клиент", "attendance": 10}
+    ]
+    path = "/api/dashboard/breakdowns/attendance"
+    for aggregate, value in [("last", 10), ("average", 5), ("sum", 10)]:
+        response = client.get(path + period + "&aggregate=" + aggregate)
+        assert response.status_code == 200, response.text
+        assert response.json()["items"] == [{"id": "Клиент", "label": "Клиент", "value": value}]
+    assert client.get(path + "?from=2025-09-01&to=2025-09-01").json()["items"][0]["value"] == 0
+
+
 def dormitory(client: TestClient, name: str, customer: str, values: dict[str, str]) -> int:
     response = client.post("/api/dormitories", json={"name": name, "client_name": customer})
     assert response.status_code == 201

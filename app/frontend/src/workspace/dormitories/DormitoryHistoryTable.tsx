@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { CustomTab, DormitoryHistoryPage } from '../../api/client';
+import { useTableZoom } from '../../components/useTableZoom';
 import type { DateRange } from '../dashboard/dates';
 import { usePageRefresh } from '../usePageRefresh';
 import s from './DormitoryHistoryTable.module.css';
@@ -27,6 +28,11 @@ export function DormitoryHistoryTable({
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const controller = useRef<AbortController | null>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
+  const { scale, saveFailed } = useTableZoom(
+    tableRef,
+    `dormitories/${dormitoryId}/table-views/${tab.table_key}`,
+  );
   const revision = usePageRefresh();
 
   useEffect(() => {
@@ -118,8 +124,13 @@ export function DormitoryHistoryTable({
           </button>
         </p>
       )}
+      {saveFailed && (
+        <p className={s.error} role="alert">
+          Не удалось сохранить масштаб таблицы.
+        </p>
+      )}
       <div className={s.scroll}>
-        <table className={`data-table ${s.table}`}>
+        <table ref={tableRef} className={`data-table ${s.table}`} style={{ zoom: scale }}>
           <thead>
             <tr>
               <th scope="col">Дата</th>

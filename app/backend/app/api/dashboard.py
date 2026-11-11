@@ -3,7 +3,7 @@
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -14,8 +14,10 @@ from app.api.organization import Membership
 from app.api.reports import read_report
 from app.dashboard_blocks import calculate_widget, layout_response
 from app.db import get_db
-from app.report_defaults import REQUIRED_REPORT_ROW_NAMES
+from app.report_defaults import REPORT_METRIC_NAMES, ReportMetric
 from app.schemas.dashboard import (
+    DashboardBreakdown,
+    DashboardBreakdownItem,
     DashboardClient,
     DashboardDay,
     DashboardDormitory,
@@ -27,7 +29,9 @@ from app.schemas.report_readiness import ReportReadinessResponse
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"], responses={**SUBSCRIBED_USER_RESPONSES})
 DbSession = Annotated[Session, Depends(get_db)]
-ATTENDANCE, RESIDENTS, TURNOVER = REQUIRED_REPORT_ROW_NAMES
+ATTENDANCE: ReportMetric = "attendance"
+RESIDENTS: ReportMetric = "residents"
+TURNOVER: ReportMetric = "turnover"
 
 
 def sum_complete(values: list[Decimal | None]) -> float | None:
@@ -37,8 +41,7 @@ def sum_complete(values: list[Decimal | None]) -> float | None:
     return float(sum((value for value in values if value is not None), Decimal(0)))
 
 
-def metric(rows: dict[str, ReportRowResponse], name: str, day: date) -> Decimal | None:
-    row = rows.get(name)
+def metric(row: ReportRowResponse | None, day: date) -> Decimal | None:
     if row is None:
         return None
     text = row.values.get(day.isoformat())
@@ -47,6 +50,49 @@ def metric(rows: dict[str, ReportRowResponse], name: str, day: date) -> Decimal 
 
 def as_float(value: Decimal | None) -> float | None:
     return float(value) if value is not None else None
+
+
+@router.get("/breakdowns/{metric_key}", response_model=DashboardBreakdown)
+def read_breakdown(
+    metric_key: ReportMetric,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+    from_date: Annotated[date, Query(alias="from")],
+    to_date: Annotated[date, Query(alias="to")],
+    aggregate: Literal["last", "average", "sum"] = "last",
+) -> DashboardBreakdown:
+    if from_date > to_date or (to_date - from_date).days > 365:
+        raise HTTPException(422, "Выберите период не длиннее года")
+    end = min(to_date, readiness.today_moscow())
+    if end < from_date:
+        return DashboardBreakdown(to_date=None, items=[])
+    start = end if aggregate == "last" else from_date
+    days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+    items = []
+    clients: dict[str, list[Decimal | None]] = defaultdict(list)
+    for dorm in scoped_dormitories(db, membership.organization_id):
+        if dorm.is_archived:
+            continue
+        report = read_report(dorm.id, user, db, start, end, dorm)
+        row = next((row for row in report.rows if row.metric_key == metric_key), None)
+        values = [metric(row, day) for day in days]
+        value = None
+        if all(day_value is not None for day_value in values):
+            value = sum((day_value for day_value in values if day_value is not None), Decimal(0))
+            if aggregate == "average":
+                value /= len(days)
+        if metric_key == ATTENDANCE:
+            clients[dorm.client_name].append(value)
+        else:
+            items.append(
+                DashboardBreakdownItem(id=str(dorm.id), label=dorm.name, value=as_float(value))
+            )
+    items.extend(
+        DashboardBreakdownItem(id=name, label=name, value=sum_complete(values))
+        for name, values in clients.items()
+    )
+    return DashboardBreakdown(to_date=end, items=items)
 
 
 @router.get("", response_model=DashboardResponse, summary="Обзор по действующим общежитиям")
@@ -77,11 +123,11 @@ def read_dashboard(
     ]
     if dormitory_id is not None and not any(item.id == dormitory_id for item in dormitories):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Общежитие не найдено")
-    by_day: dict[date, dict[str, list[Decimal | None]]] = {
-        day: {name: [] for name in REQUIRED_REPORT_ROW_NAMES} for day in days
+    by_day: dict[date, dict[ReportMetric, list[Decimal | None]]] = {
+        day: {key: [] for key in REPORT_METRIC_NAMES} for day in days
     }
-    chart_by_day: dict[date, dict[str, list[Decimal | None]]] = {
-        day: {name: [] for name in REQUIRED_REPORT_ROW_NAMES} for day in days
+    chart_by_day: dict[date, dict[ReportMetric, list[Decimal | None]]] = {
+        day: {key: [] for key in REPORT_METRIC_NAMES} for day in days
     }
     by_client: dict[str, list[Decimal | None]] = defaultdict(list)
     dormitory_results: list[DashboardDormitory] = []
@@ -93,20 +139,20 @@ def read_dashboard(
             if snapshot_date
             else None
         )
-        rows = {row.name: row for row in report.rows} if report else {}
+        rows = {row.metric_key: row for row in report.rows if row.metric_key} if report else {}
         if report:
             reports[dormitory.id] = report
 
         for day in days:
-            for name in REQUIRED_REPORT_ROW_NAMES:
-                value = metric(rows, name, day)
+            for name in REPORT_METRIC_NAMES:
+                value = metric(rows.get(name), day)
                 by_day[day][name].append(value)
                 if dormitory_id is None or dormitory.id == dormitory_id:
                     chart_by_day[day][name].append(value)
 
         snapshot = {
-            name: metric(rows, name, snapshot_date) if snapshot_date else None
-            for name in REQUIRED_REPORT_ROW_NAMES
+            name: metric(rows.get(name), snapshot_date) if snapshot_date else None
+            for name in REPORT_METRIC_NAMES
         }
         by_client[dormitory.client_name].append(snapshot[ATTENDANCE])
         dormitory_results.append(

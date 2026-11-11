@@ -121,6 +121,7 @@ export function DormitoryArrivalTable({
               id: String(column.id),
               label: column.name,
               kind: column.kind,
+              compact: tab.options?.arrival_columns?.[String(column.id)] === 'status',
             }))}
           >
             <thead>

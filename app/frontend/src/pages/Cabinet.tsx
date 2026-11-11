@@ -6,6 +6,7 @@ import { hasSectionAccess, sectionForPath } from '../auth/sectionPermissions';
 import { SubscriptionProvider } from '../auth/SubscriptionProvider';
 import { TrialProvider, useTrial } from '../auth/TrialProvider';
 import { subscribeToTrialExpired } from '../auth/trial';
+import { TableHorizontalScrollbar } from '../components/TableHorizontalScrollbar';
 import { SidebarTariff } from '../workspace/SidebarTariff';
 import { SolutionsProvider, useSolutions } from '../workspace/SolutionsProvider';
 import { JOURNAL_CODE, TELEGRAM_NOTIFICATIONS_CODE } from '../workspace/solutions';
@@ -504,6 +505,7 @@ function CabinetShell(): JSX.Element {
             );
           })()}
         </main>
+        <TableHorizontalScrollbar scopeRef={mainRef} />
       </div>
     </div>
   );

@@ -15,6 +15,7 @@ import type {
 } from '../../api/client';
 import { CustomTabOptionsEditor } from './CustomTabOptionsEditor';
 import { defaultTabOptions } from './customTabOptions';
+import { standardClearListDefaults } from './tabStructure';
 import { Modal } from '../../components/Modal';
 import { columnKinds } from './columnKinds';
 import { RowDialog } from './ReportTable';
@@ -40,6 +41,7 @@ interface Node {
   reason: string | null;
   options?: CustomTabOptions;
   exchange?: ExchangeOptions;
+  clearList?: boolean;
   dateColumnName?: string | null;
 }
 const errorText = (error: unknown): string =>
@@ -97,6 +99,7 @@ export function DormitorySettingsDialog({
         status: item.status,
         custom: false,
         exchange: data.exchange_options?.[item.key] ?? {},
+        clearList: data.standard_clear_list?.[item.key] ?? standardClearListDefaults[item.key],
         reason: item.delete_block_reason,
       })),
       ...data.tabs.map((item) => ({
@@ -278,6 +281,15 @@ export function DormitorySettingsDialog({
         )
         .map((item) => item.key);
       const input: SettingsInput = {
+        standard_clear_list: Object.fromEntries(
+          nodes.flatMap((item) =>
+            item.clearList !== undefined &&
+            item.clearList !==
+              (snapshot.standard_clear_list?.[item.key] ?? standardClearListDefaults[item.key])
+              ? [[item.key, item.clearList]]
+              : [],
+          ),
+        ),
         exchange_options: Object.fromEntries(
           nodes
             .filter((item) => !item.custom && !['movement', 'payments'].includes(item.key))
@@ -649,6 +661,22 @@ export function DormitorySettingsDialog({
                         disabled={blocked || busy}
                       />
                     )}
+                    {node.clearList !== undefined && (
+                      <EditorSection
+                        title="Кнопки и действия"
+                        description="Настройте доступные действия для этой таблицы."
+                      >
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={node.clearList}
+                            disabled={blocked || busy}
+                            onChange={(event) => updateNode({ clearList: event.target.checked })}
+                          />{' '}
+                          Очистить список
+                        </label>
+                      </EditorSection>
+                    )}
                     {((!node.custom && !['movement', 'payments'].includes(node.key)) ||
                       node.kind === 'archive') && (
                       <ExchangeOptionsEditor
@@ -1008,9 +1036,8 @@ export function DormitorySettingsDialog({
             <main className={styles.fullPage}>
               <h3>Библиотека структур</h3>
               <p className={styles.hint}>
-                Шаблон хранит вкладки, столбцы, списки, формулы и связи на момент сохранения. Записи
-                и дневные значения не копируются. Исходное общежитие и новые копии меняются
-                независимо.
+                Шаблон хранит структуру вкладок, формулы, связи и цвета на момент сохранения. Записи
+                и дневные значения не копируются. Исходное общежитие и копии меняются независимо.
               </p>
               <div className={styles.templateSave}>
                 <label>
