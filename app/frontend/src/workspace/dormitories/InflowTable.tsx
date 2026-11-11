@@ -11,6 +11,7 @@ import { InflowActionDialog } from './InflowActionDialog';
 import { useTableSaves } from './tableColumnsContext';
 import styles from './InflowTable.module.css';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { ClearStandardListButton } from './ClearStandardListButton';
 import {
   ColumnsControls,
   ConfiguredCells,
@@ -289,7 +290,21 @@ function InflowContent({
       className={styles.page}
       data-testid="dormitory-inflow"
       heading={<h2>Приток</h2>}
-      secondary={<ColumnsControls />}
+      secondary={
+        <>
+          <ColumnsControls />
+          <ClearStandardListButton
+            dormitoryId={dormitoryId}
+            section="inflow"
+            title="Приток"
+            disabled={status !== 'ready' || adding || removing}
+            onCleared={() => {
+              setStatus('loading');
+              setAttempt((value) => value + 1);
+            }}
+          />
+        </>
+      }
       primary={
         <button
           type="button"

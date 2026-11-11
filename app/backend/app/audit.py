@@ -233,6 +233,7 @@ ACTION_TITLES: dict[str, str] = {
     "post_dormitories_outflow": "Добавить строку оттока",
     "post_dormitories_payments": "Добавить строку выплаты",
     "delete_dormitories_payments": "Очистить весь список аванса или расчёта",
+    "post_dormitories_sections_clear": "Очистить список вкладки общежития",
     "post_dormitories_report_rows": "Добавить строку отчёта",
     "patch_dormitories_report_rows": "Изменить строку отчёта",
     "patch_dormitories_residents": "Сохранить поля проживающего",

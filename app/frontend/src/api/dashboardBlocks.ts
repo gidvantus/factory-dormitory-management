@@ -46,11 +46,31 @@ export interface WidgetDefinition {
   id: number;
   config: WidgetConfig;
 }
+export const BUILTIN_BLOCK_NAMES = {
+  residents: 'Вахтовики по общежитиям',
+  turnover: 'Текучка по общежитиям',
+  attendance: 'Выход на работу',
+} as const;
+
+export type BuiltinMetric = keyof typeof BUILTIN_BLOCK_NAMES;
+
+export interface BuiltinBlockConfig {
+  name: string;
+  date_mode: 'overview' | 'date' | 'range';
+  aggregate: 'last' | 'average' | 'sum';
+}
+
+export interface DashboardBreakdown {
+  to_date: string | null;
+  items: { id: string; label: string; value: number | null }[];
+}
+
 export interface DashboardLayout {
   revision: number;
   order: string[];
   hidden: string[];
   blocks: WidgetDefinition[];
+  builtin_settings?: Partial<Record<BuiltinMetric, BuiltinBlockConfig>>;
 }
 export interface WidgetResult {
   id: number;
@@ -63,6 +83,7 @@ export interface WidgetResult {
       dormitory_id: number;
       label: string;
       metric: string;
+      row_name?: string | null;
       aggregate: SummaryMetric['aggregate'];
       value: number | null;
       daily: { date: string; value: number | null }[];

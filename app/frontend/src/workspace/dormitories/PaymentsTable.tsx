@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 
-import { api, ApiError } from '../../api/client';
+import { api, ApiError, waitForDormitoryWrites } from '../../api/client';
 import type { PaymentField, PaymentKind, PaymentRow } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
 import styles from './PaymentsTable.module.css';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { TableLayoutContext } from './tableLayoutContext';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import {
   ColumnsControls,
@@ -148,6 +149,7 @@ function PaymentsContent({
   kind: PaymentKind;
   range: DateRange;
 }): JSX.Element {
+  const { clearList = true } = useContext(TableLayoutContext);
   const [rows, setRows] = useState<PaymentRow[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
@@ -214,6 +216,7 @@ function PaymentsContent({
     setClearing(true);
     setError('');
     try {
+      await waitForDormitoryWrites(dormitoryId);
       await api.clearPaymentRows(dormitoryId, kind);
       setRows([]);
       setConfirmClear(false);
@@ -232,19 +235,21 @@ function PaymentsContent({
       secondary={
         <>
           <ColumnsControls />
-          <button
-            type="button"
-            className="btn btn--danger-text btn--compact"
-            aria-busy={clearing}
-            disabled={adding || removing || clearing || status !== 'ready'}
-            onClick={() => {
-              setError('');
-              setConfirmClear(true);
-            }}
-          >
-            <WorkspaceIcon name="trash" />
-            {clearing ? 'Очищаем…' : 'Очистить список'}
-          </button>
+          {clearList && (
+            <button
+              type="button"
+              className="btn btn--danger-text btn--compact"
+              aria-busy={clearing}
+              disabled={adding || removing || clearing || status !== 'ready'}
+              onClick={() => {
+                setError('');
+                setConfirmClear(true);
+              }}
+            >
+              <WorkspaceIcon name="trash" />
+              {clearing ? 'Очищаем…' : 'Очистить список'}
+            </button>
+          )}
         </>
       }
       primary={

@@ -2498,7 +2498,8 @@ table.working-table th[aria-sort='descending'] {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
-table.working-table th[data-table-sortable]:focus-visible {
+table.working-table th[data-table-sortable]:focus-visible,
+table.working-table tbody :is(td, th)[tabindex='-1']:focus {
   outline: 2px solid var(--accent, #318878);
   outline-offset: -2px;
 }
@@ -2508,30 +2509,36 @@ table.working-table > :is(thead, tbody, tfoot) > tr > :is(th, td) {
   max-width: none;
   white-space: nowrap;
 }
-table.working-table :is(input, select, textarea) {
-  max-width: 100%;
+table.working-table input:is([type='checkbox'], [type='radio']) {
+  width: auto;
 }
 table.working-table :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
   width: 100%;
+  max-width: 100%;
   min-width: 0;
+}
+table.working-table {
+  --table-grip-inset: var(--gap-4);
 }
 .working-table-handle {
   display: inline-flex;
   position: absolute;
-  inset-inline-start: var(--gap-4);
+  inset-inline-start: var(--table-grip-inset);
   top: 50%;
   transform: translateY(-50%);
   margin: 0;
 }
-.working-table .working-table-grip {
+.working-table :is(.working-table-grip, .working-table-edit-button) {
   min-width: var(--table-grip-size);
   width: var(--table-grip-size);
   height: var(--table-grip-size);
   min-height: var(--table-grip-size);
   padding: 0;
   color: var(--color-text-muted);
-  cursor: grab;
   font-size: var(--text-xs);
+}
+.working-table .working-table-grip {
+  cursor: grab;
 }
 .working-table-grip:active {
   cursor: grabbing;
@@ -2624,7 +2631,10 @@ table.working-table > :is(thead, tbody, tfoot) > tr > [data-table-color='rose'],
 }
 
 table.working-table > :is(thead, tbody) > tr > [data-has-table-tools] {
-  padding-inline-start: calc(var(--table-grip-size) + var(--gap-8));
+  /* Маркер занимает эту область даже в ячейках с локальным правилом padding. */
+  padding-inline-start: calc(
+    var(--table-grip-inset) + var(--table-grip-size) + var(--gap-4)
+  ) !important;
 }
 .table-rule-mark {
   display: inline;

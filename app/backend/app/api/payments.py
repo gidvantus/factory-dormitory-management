@@ -12,7 +12,7 @@ from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.models.payment import PaymentEntry
 from app.schemas.payment import PaymentKind, PaymentResponse, UpdatePaymentRequest
-from app.section_state import require_section_writable
+from app.section_state import require_clear_list, require_section_writable
 from app.table_data import lock_dormitory
 
 router = APIRouter(
@@ -136,8 +136,7 @@ def clear_payments(
     db: DbSession,
     _dormitory: OwnDormitory,
 ) -> None:
-    require_section_writable(db, dormitory_id, kind)
-    lock_dormitory(db, dormitory_id)
+    require_clear_list(db, dormitory_id, kind)
     db.execute(
         delete(PaymentEntry).where(
             PaymentEntry.dormitory_id == dormitory_id, PaymentEntry.kind == kind

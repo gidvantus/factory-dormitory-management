@@ -2,7 +2,10 @@ import { ACTIVATION_REQUIRED_DETAIL, notifyActivationRequired } from '../auth/ac
 import { notifyTrialExpired } from '../auth/trial';
 import type { ExchangePermissions } from '../auth/exchangePermissions';
 import type {
+  BuiltinBlockConfig,
+  BuiltinMetric,
   CatalogDormitory,
+  DashboardBreakdown,
   DashboardLayout,
   WidgetConfig,
   WidgetResult,
@@ -97,6 +100,7 @@ export interface Dormitory {
   section_states?: Record<string, 'active' | 'hidden' | 'deleted'>;
   section_parents?: Record<string, string | null>;
   exchange_options?: Record<string, ExchangeOptions>;
+  standard_clear_list?: Record<string, boolean>;
   created_at: string;
 }
 
@@ -547,6 +551,8 @@ export interface ReportRow {
   link?: ReportLink | null;
   id: number;
   name: string;
+  metric_key?: BuiltinMetric | null;
+  metric_block_name?: string | null;
   position: number;
   formula: string | null;
   values: Record<string, string>;
@@ -1080,6 +1086,7 @@ export interface SettingsColumn extends TableColumn {
 }
 export interface DormitorySettings {
   exchange_options?: Record<string, ExchangeOptions>;
+  standard_clear_list?: Record<string, boolean>;
   revision: string;
   tables: Record<string, SettingsColumn[]>;
   tabs: CustomTab[];
@@ -1088,6 +1095,7 @@ export interface DormitorySettings {
 }
 export interface SettingsInput {
   exchange_options?: Record<string, ExchangeOptions>;
+  standard_clear_list?: Record<string, boolean>;
   revision: string;
   tables: { key: string; columns: (ColumnInput & { id?: number; archived: boolean })[] }[];
   tabs: {
@@ -1232,6 +1240,11 @@ export const api = {
     return request(`/dormitories/${encodeURIComponent(id)}/settings`, {
       method: 'PUT',
       body: JSON.stringify(input),
+    });
+  },
+  clearStandardList(id: string, key: 'residents' | 'inflow' | 'outflow'): Promise<void> {
+    return request(`/dormitories/${encodeURIComponent(id)}/sections/${key}/clear`, {
+      method: 'POST',
     });
   },
   structureTemplates(signal?: AbortSignal): Promise<StructureTemplate[]> {
@@ -1802,12 +1815,22 @@ export const api = {
     return request<CatalogDormitory[]>('/dashboard/sources', { signal });
   },
   saveDashboardLayout(
-    input: Pick<DashboardLayout, 'revision' | 'order' | 'hidden'>,
+    input: Pick<DashboardLayout, 'revision' | 'order' | 'hidden' | 'builtin_settings'>,
   ): Promise<DashboardLayout> {
     return request<DashboardLayout>('/dashboard/layout', {
       method: 'PUT',
       body: JSON.stringify(input),
     });
+  },
+  dashboardBreakdown(
+    metric: BuiltinMetric,
+    from: string,
+    to: string,
+    aggregate: BuiltinBlockConfig['aggregate'],
+    signal?: AbortSignal,
+  ): Promise<DashboardBreakdown> {
+    const query = new URLSearchParams({ from, to, aggregate });
+    return request<DashboardBreakdown>(`/dashboard/breakdowns/${metric}?${query}`, { signal });
   },
   saveDashboardBlock(
     revision: number,
@@ -2235,11 +2258,33 @@ export const api = {
     });
   },
 
+  tableZoom(viewKey: string, signal: AbortSignal): Promise<{ percent: number }> {
+    return request<{ percent: number }>(`/${viewKey}/zoom`, { signal });
+  },
+
+  saveTableZoom(viewKey: string, percent: number): Promise<{ percent: number }> {
+    return sendRequest<{ percent: number }>(`/${viewKey}/zoom`, {
+      method: 'PUT',
+      body: JSON.stringify({ percent }),
+      keepalive: true,
+    });
+  },
+
   saveReportCell(id: string, rowId: number, date: string, value: string): Promise<void> {
     return request<void>(
       `/dormitories/${encodeURIComponent(id)}/report/rows/${rowId}/cells/${date}`,
       { method: 'PUT', body: JSON.stringify({ value }) },
     );
+  },
+
+  saveReportCells(
+    id: string,
+    cells: { row_id: number; report_date: string; value: string }[],
+  ): Promise<void> {
+    return request<void>(`/dormitories/${encodeURIComponent(id)}/report/cells`, {
+      method: 'PUT',
+      body: JSON.stringify({ cells }),
+    });
   },
 };
 

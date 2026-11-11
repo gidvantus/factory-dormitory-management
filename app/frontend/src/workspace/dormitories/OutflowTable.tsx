@@ -12,6 +12,7 @@ import { OutflowReasonInput } from './OutflowReasonInput';
 import { OutflowEvictionDialog } from './OutflowEvictionDialog';
 import styles from './OutflowTable.module.css';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { ClearStandardListButton } from './ClearStandardListButton';
 import {
   ColumnsControls,
   ConfiguredCells,
@@ -279,7 +280,21 @@ function OutflowContent({
       className={styles.page}
       data-testid="dormitory-outflow"
       heading={<h2>Отток</h2>}
-      secondary={<ColumnsControls />}
+      secondary={
+        <>
+          <ColumnsControls />
+          <ClearStandardListButton
+            dormitoryId={dormitoryId}
+            section="outflow"
+            title="Отток"
+            disabled={status !== 'ready' || adding || removing}
+            onCleared={() => {
+              setStatus('loading');
+              setAttempt((value) => value + 1);
+            }}
+          />
+        </>
+      }
       primary={
         <button
           type="button"

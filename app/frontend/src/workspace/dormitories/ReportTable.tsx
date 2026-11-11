@@ -1,11 +1,15 @@
 import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
 import { WorkingTable } from '../../components/WorkingTable';
+import { ungroupClipboardNumber } from '../../components/tablePaste';
+import type { TablePasteCell } from '../../components/tablePaste';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 import type { FormEvent } from 'react';
 
 import { api, ApiError } from '../../api/client';
 import type { ReportLink, ReportRow } from '../../api/client';
+import { BUILTIN_BLOCK_NAMES } from '../../api/dashboardBlocks';
+import type { BuiltinMetric } from '../../api/dashboardBlocks';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { useEditorPreview } from '../../components/EditorSurface';
 import { EditorSection } from '../../components/EditorSection';
@@ -22,7 +26,30 @@ interface Props {
   range: DateRange;
 }
 
-const requiredRowNames = new Set(['Выход Итого', 'Проживает Итого', 'Текучка Итого']);
+const legacyMetrics: Record<string, BuiltinMetric> = {
+  'Выход Итого': 'attendance',
+  'Проживает Итого': 'residents',
+  'Текучка Итого': 'turnover',
+};
+
+function reportBlockName(row: ReportRow): string | null {
+  const metric = row.metric_key === undefined ? legacyMetrics[row.name] : row.metric_key;
+  return metric ? (row.metric_block_name ?? BUILTIN_BLOCK_NAMES[metric]) : null;
+}
+
+function ReportFormulaMark({ row }: { row: ReportRow }): JSX.Element | null {
+  if (!row.formula) return null;
+  const blockName = reportBlockName(row);
+  return (
+    <sup
+      className={`table-rule-mark ${blockName ? styles.mainFormula : ''}`}
+      title={blockName ? `Основная строка · «${blockName}» в Обзоре\n${row.formula}` : row.formula}
+      aria-label={blockName ? `Основная строка для блока «${blockName}»` : 'Формула'}
+    >
+      {blockName ? 'ƒ·' : 'ƒ'}
+    </sup>
+  );
+}
 
 function daysInRange(range: DateRange): string[] {
   const start = dateNumber(range.from);
@@ -33,18 +60,24 @@ function daysInRange(range: DateRange): string[] {
   );
 }
 
+type ReportEditors = Map<HTMLInputElement, () => Promise<boolean>>;
+
 function ReportCellInput({
   row,
   date,
   value,
   onSave,
   onError,
+  editors,
+  disabled,
 }: {
   row: ReportRow;
   date: string;
   value: string;
   onSave: (value: string) => Promise<void>;
   onError: () => void;
+  editors: ReportEditors;
+  disabled: boolean;
 }): JSX.Element {
   const [draft, setDraft] = useState(value);
   const [state, setState] = useState<'idle' | 'saving' | 'error'>('idle');
@@ -52,40 +85,52 @@ function ReportCellInput({
   const saved = useRef(value);
   useUnsavedChanges(draft !== saved.current);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inFlight = useRef(false);
-  const pending = useRef(false);
+  const input = useRef<HTMLInputElement>(null);
+  const inFlight = useRef<Promise<boolean> | null>(null);
   const disposed = useRef(false);
   const saveRef = useRef(onSave);
   const errorRef = useRef(onError);
   saveRef.current = onSave;
   errorRef.current = onError;
 
-  const flush = useCallback(async function save(): Promise<void> {
+  const flush = useCallback(async function save(): Promise<boolean> {
     if (inFlight.current) {
-      pending.current = true;
-      return;
+      await inFlight.current;
+      return save();
     }
     const next = latest.current;
-    if (next === saved.current) return;
-    inFlight.current = true;
+    if (next === saved.current) return true;
     if (!disposed.current) setState('saving');
-    try {
-      await saveRef.current(next);
-      saved.current = next;
-      if (!disposed.current) setState('idle');
-    } catch {
-      if (!disposed.current) {
-        setState('error');
-        errorRef.current();
-      }
-    } finally {
-      inFlight.current = false;
-      if (pending.current && latest.current !== saved.current) {
-        pending.current = false;
-        void save();
-      }
-    }
+    const operation = saveRef
+      .current(next)
+      .then(
+        () => {
+          saved.current = next;
+          if (!disposed.current) setState('idle');
+          return true;
+        },
+        () => {
+          if (!disposed.current) {
+            setState('error');
+            errorRef.current();
+          }
+          return false;
+        },
+      )
+      .finally(() => {
+        inFlight.current = null;
+      });
+    inFlight.current = operation;
+    return operation;
   }, []);
+
+  const commit = useCallback((): Promise<boolean> => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    return flush();
+  }, [flush]);
 
   useEffect(() => {
     if (latest.current === saved.current) {
@@ -97,14 +142,14 @@ function ReportCellInput({
 
   useEffect(() => {
     disposed.current = false;
+    const element = input.current;
+    if (element) editors.set(element, commit);
     return () => {
+      if (element) editors.delete(element);
       disposed.current = true;
-      if (timer.current) {
-        clearTimeout(timer.current);
-        void flush();
-      }
+      if (timer.current) void commit();
     };
-  }, [flush]);
+  }, [commit, editors]);
 
   function change(next: string): void {
     latest.current = next;
@@ -117,22 +162,16 @@ function ReportCellInput({
     }, 650);
   }
 
-  function blur(): void {
-    if (timer.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
-    void flush();
-  }
-
   return (
     <div className={styles.cellEditor} data-save-state={state}>
       <input
+        ref={input}
         aria-label={`${row.name}, ${formatDate(date)}`}
         data-testid={`report-cell-${row.id}-${date}`}
         value={draft}
         onChange={(event) => change(event.target.value)}
-        onBlur={blur}
+        onBlur={() => void commit()}
+        disabled={disabled}
         maxLength={200}
         title={
           state === 'error'
@@ -169,7 +208,8 @@ export function RowDialog({
   initialLink?: ReportLink | null;
 }): JSX.Element {
   const organized = useOrganizedEditor();
-  const required = row !== null && requiredRowNames.has(row.name);
+  const blockName = row && reportBlockName(row);
+  const required = !!blockName;
   const formulaRef = useRef<HTMLTextAreaElement | null>(null);
   const [referenceQuery, setReferenceQuery] = useState('');
   const [name, setName] = useState(row?.name ?? '');
@@ -294,14 +334,14 @@ export function RowDialog({
             onChange={(event) => setName(event.target.value)}
             maxLength={120}
             required
-            disabled={saving || deleting || required}
+            disabled={saving || deleting}
             placeholder="Например, Проживающие"
           />
         </label>
         {required && (
           <p className={styles.formulaHelp}>
-            Это обязательная итоговая строка. Её название и тип нельзя изменить, но формулу можно
-            настроить.
+            Основная строка отчёта. Её формула определяет значения блока «{blockName}» в «Обзоре».
+            Связь сохраняется при переименовании.
           </p>
         )}
       </EditorSection>
@@ -576,8 +616,8 @@ function SaveTemplateDialog({
     >
       <form className={styles.rowForm} noValidate onSubmit={(event) => void submit(event)}>
         <p className={styles.formulaHelp}>
-          Сохранятся {rowCount} строк: названия, порядок, формулы и связи со столбцами. Значения
-          ячеек в шаблон не попадут.
+          Шаблон сохранит {rowCount} строк вместе с формулами, связями и цветами строк и столбцов.
+          Значения ячеек в шаблон не попадут.
         </p>
         <label className={styles.field} htmlFor="report-template-name">
           Название шаблона
@@ -628,6 +668,8 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
   const [editing, setEditing] = useState<ReportRow | null | 'new'>(null);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [templateNotice, setTemplateNotice] = useState('');
+  const [pasting, setPasting] = useState(false);
+  const editors = useRef<ReportEditors>(new Map()).current;
   const loadedRange = useRef('');
   const rangeKey = `${dormitoryId}:${range.from}:${range.to}`;
 
@@ -656,6 +698,31 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
 
   const refresh = useCallback(() => setAttempt((current) => current + 1), []);
   const days = daysInRange(range);
+
+  async function pasteReportCells(cells: TablePasteCell[]): Promise<void> {
+    const changes = cells.map(({ cell, value }) => ({
+      row_id: Number(cell.parentElement?.dataset.reportRow),
+      report_date: cell.dataset.reportDate ?? '',
+      value: ungroupClipboardNumber(value),
+    }));
+    if (changes.some(({ value }) => value.length > 200 || /[\n\0]/.test(value)))
+      throw new Error('В ячейку отчёта можно вставить одну строку длиной до 200 символов.');
+    setPasting(true);
+    try {
+      const pending = cells.flatMap(({ cell }) => {
+        const input = cell.querySelector('input');
+        const commit = input && editors.get(input);
+        return commit ? [commit()] : [];
+      });
+      if ((await Promise.all(pending)).includes(false))
+        throw new Error('Сначала исправьте ошибки сохранения в выбранных ячейках.');
+      await api.saveReportCells(dormitoryId, changes);
+      setSaveError('');
+      refresh();
+    } finally {
+      setPasting(false);
+    }
+  }
 
   async function moveRow(rowId: number, direction: 'up' | 'down'): Promise<void> {
     if (movingRow !== null) return;
@@ -761,6 +828,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
           <div className={styles.tableScroll}>
             <WorkingTable
               className={styles.table}
+              pasteCells={pasteReportCells}
               readOnly={settings?.readOnly}
               revisionKey={rows.map((row) => `${row.id}:${row.position}`).join('|')}
               viewKey={
@@ -770,7 +838,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
               }
               columns={[
                 { id: 'name', label: 'Наименование' },
-                ...days.map((day) => ({ id: day, label: formatDate(day, false) })),
+                ...days.map((day) => ({ id: day, label: formatDate(day, false), compact: true })),
               ]}
             >
               <thead>
@@ -785,7 +853,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
               </thead>
               <tbody>
                 {rows.map((row, index) => (
-                  <tr key={row.id}>
+                  <tr key={row.id} data-report-row={row.id}>
                     <th scope="row">
                       <div className={styles.rowName}>
                         <button
@@ -795,15 +863,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                           data-testid={`report-edit-row-${row.id}`}
                         >
                           {row.name}
-                          {row.formula && (
-                            <sup
-                              className="table-rule-mark"
-                              title={row.formula}
-                              aria-label="Формула"
-                            >
-                              ƒ
-                            </sup>
-                          )}
+                          <ReportFormulaMark row={row} />
                           {row.link && (
                             <sup
                               className="table-rule-mark"
@@ -837,7 +897,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                       </div>
                     </th>
                     {days.map((day) => (
-                      <td key={day}>
+                      <td key={day} data-report-date={day}>
                         {row.formula || row.link ? (
                           <output
                             className={row.errors[day] ? styles.formulaError : styles.formulaValue}
@@ -857,6 +917,8 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                             row={row}
                             date={day}
                             value={row.values[day] ?? ''}
+                            editors={editors}
+                            disabled={pasting || !!settings?.readOnly}
                             onSave={async (value) => {
                               await api.saveReportCell(dormitoryId, row.id, day, value);
                               setSaveError('');

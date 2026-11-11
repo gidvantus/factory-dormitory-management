@@ -17,7 +17,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
+from app.models.dormitory import Dormitory
+from app.models.report import ReportRow
 from app.models.report_template import ReportTemplate
+from app.table_views import TableColors, restore_table_colors
 
 # Один текст на «шаблона нет» и «шаблон чужой»: различать их нельзя.
 TEMPLATE_NOT_FOUND_DETAIL = "Шаблон не найден"
@@ -54,3 +57,13 @@ def name_taken(db: Session, organization_id: int, name: str) -> bool:
         select(ReportTemplate.name).where(ReportTemplate.organization_id == organization_id)
     )
     return any(existing.casefold() == normalized for existing in names)
+
+
+def restore_report_colors(
+    db: Session, dorm: Dormitory, colors: TableColors, rows: dict[int, ReportRow]
+) -> None:
+    if any(colors.values()):
+        db.flush()
+        restore_table_colors(
+            db, dorm, "report", colors, row_ids={key: row.id for key, row in rows.items()}
+        )

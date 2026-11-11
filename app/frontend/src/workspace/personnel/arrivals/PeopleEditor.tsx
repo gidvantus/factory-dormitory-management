@@ -11,6 +11,7 @@ export function PeopleEditor({
   page,
   onPage,
   onChange,
+  zoomKey,
 }: {
   people: Person[];
   count: number;
@@ -18,6 +19,7 @@ export function PeopleEditor({
   page: number;
   onPage: (page: number) => void;
   onChange: (index: number, person: Person) => void;
+  zoomKey?: string;
 }): JSX.Element {
   const pages = Math.max(1, Math.ceil(count / PEOPLE_PAGE_SIZE));
   const currentPage = Math.min(page, pages - 1);
@@ -41,10 +43,12 @@ export function PeopleEditor({
         >
           <WorkingTable
             className={s.peopleEditTable}
+            zoomKey={zoomKey}
+            pasteCells
             columns={[
               { id: 'number', label: '№' },
               { id: 'name', label: 'ФИО' },
-              ...fields.map((field) => ({ id: field.id, label: field.label })),
+              ...fields.map((field) => ({ id: field.id, label: field.label, kind: field.type })),
             ]}
           >
             <thead>
