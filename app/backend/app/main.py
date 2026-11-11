@@ -423,14 +423,12 @@ def create_app() -> FastAPI:
     # внутри сети compose. nginx фронта проксирует только `/api/`, поэтому
     # наружу путь не публикуется. `include_in_schema=False` держит его и в
     # `/openapi.json`: клиентский контракт метриками не расширяется.
+    #
+    # Ни `tags`, ни `summary`, ни `response_class` у маршрута нет намеренно:
+    # схему он не печатает, а ответ — готовый `Response` из `app.metrics`,
+    # поэтому эти поля не читает никто.
     # -----------------------------------------------------------------------
-    @application.get(
-        "/metrics",
-        tags=["metrics"],
-        response_class=Response,
-        include_in_schema=False,
-        summary="Метрики Prometheus",
-    )
+    @application.get("/metrics", include_in_schema=False)
     def get_metrics() -> Response:
         """Отдать метрики в текстовом формате Prometheus (`text/plain; version=0.0.4`)."""
         return metrics.exposition()

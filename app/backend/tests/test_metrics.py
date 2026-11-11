@@ -228,3 +228,36 @@ def test_db_size_is_refreshed_not_more_often_than_every_30_seconds(
 
     exposition = generate_latest().decode()
     assert value(exposition, "db_size_bytes") == 2_000_000
+
+
+def test_db_size_warning_is_logged_at_most_once_a_minute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WARNING о недоступной базе — не чаще раза в минуту, а не на каждый скрейп.
+
+    Ограничение отдельное: попытка чтения идёт раз в 30 с, но лог заполнялся бы
+    строкой каждые 30 с вместо минуты. Стенд без базы — штатный случай, и в нём
+    такая строка нужна как диагноз, а не как шум.
+    """
+
+    def unavailable() -> int:
+        raise RuntimeError("база недоступна")
+
+    warnings: list[str] = []
+    monkeypatch.setattr(metrics, "query_db_size_bytes", unavailable)
+    monkeypatch.setattr(metrics.logger, "warning", lambda *_args, **_kwargs: warnings.append("!"))
+
+    # Обе отметки сбрасываются: состояние модуля общее для всего прогона.
+    monkeypatch.setattr(metrics, "_last_db_size_check", None)
+    monkeypatch.setattr(metrics, "_last_db_size_warning", None)
+
+    metrics.refresh_db_size(now=100.0)
+    assert len(warnings) == 1
+
+    # Через 31 с — новая попытка чтения, но минута ещё не прошла: молча.
+    metrics.refresh_db_size(now=131.0)
+    assert len(warnings) == 1
+
+    # Через 61 с от первого предупреждения — снова одна строка.
+    metrics.refresh_db_size(now=161.0)
+    assert len(warnings) == 2
