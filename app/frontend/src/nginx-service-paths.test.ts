@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-
 import { describe, expect, it } from 'vitest';
+
+import { location } from './test/nginxConfig';
 
 /**
  * Служебные пути, которых у фронта быть не должно.
@@ -14,26 +13,23 @@ import { describe, expect, it } from 'vitest';
  * закрытый путь становился неотличим от открытого (тестировщик поймал ровно
  * это, T12/Ф1).
  *
+ * Слэш на конце — отдельный случай: `=` сравнивает путь побайтово, поэтому у
+ * `/metrics/` свой блок. Тест держит оба, иначе «наглухо» закрыт только
+ * канонический путь (наблюдение тестировщика в отчёте №3).
+ *
  * Тест текстовый, как `nginx-cache.test.ts`: nginx в jsdom не проверить, а
- * регресс иначе виден только на стенде или в бою.
+ * регресс иначе виден только на стенде или в бою. Чтение конфига и разбор
+ * `location` — в `test/nginxConfig.ts`.
  */
-const CONFIG = readFileSync(resolve(process.cwd(), 'nginx.conf'), 'utf8').replace(/#[^\n]*/g, '');
-
-/** Тело `location` по точному пути-образцу; пустая строка, если блока нет. */
-function location(path: string): string {
-  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = new RegExp(`location\\s+${escaped}\\s*\\{([^}]*)\\}`, 'm').exec(CONFIG);
-  return match ? match[1] : '';
-}
-
 describe('служебные пути: метрики не публикуются наружу', () => {
-  it('/metrics отвечает 404, а не SPA-страницей', () => {
-    expect(location('= /metrics')).toContain('return 404');
+  it.each(['= /metrics', '= /metrics/'])('%s отвечает 404, а не SPA-страницей', (path) => {
+    expect(location(path)).toContain('return 404');
   });
 
-  it('/metrics не проксируется в API и не раздаётся как статика', () => {
-    const metrics = location('= /metrics');
-    expect(metrics).not.toContain('proxy_pass');
-    expect(metrics).not.toContain('try_files');
+  it('служебный путь не проксируется в API и не раздаётся как статика', () => {
+    for (const path of ['= /metrics', '= /metrics/']) {
+      expect(location(path)).not.toContain('proxy_pass');
+      expect(location(path)).not.toContain('try_files');
+    }
   });
 });
