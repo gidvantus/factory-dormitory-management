@@ -10,6 +10,7 @@ import { Modal, ModalCancelButton } from '../../components/Modal';
 import { formatDate } from '../dashboard/dates';
 import { ImportPlacesDialog } from './ImportPlacesDialog';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { useDormitoryPages } from './useDormitoryPages';
 import styles from './HostelPlaces.module.css';
 
 interface Props {
@@ -340,16 +341,25 @@ export function HostelPlaces({
   const range = monthDates(month);
   const rangeKey = `${dormitoryId}:${range.from}:${range.to}`;
   const refresh = useCallback(() => setAttempt((value) => value + 1), []);
+  const [loadingPage, setLoadingPage] = useState(true);
+  const pager = useDormitoryPages(dormitoryId, rangeKey, refresh, setError);
+  const { options: pagingOptions, setInfo } = pager;
 
   useEffect(() => {
     const controller = new AbortController();
     const background = loadedRange.current === rangeKey;
+    setLoadingPage(true);
     if (!background) setStatus('loading');
     void api
-      .hostelPlaces(dormitoryId, range.from, range.to, controller.signal)
+      .hostelPlaces(dormitoryId, range.from, range.to, controller.signal, pagingOptions)
       .then((result) => {
         if (!controller.signal.aborted) {
           setData(result);
+          setInfo({
+            page: result.page ?? 1,
+            total: result.total ?? result.months[0]?.hostels.length ?? 0,
+            size: result.page_size,
+          });
           loadedRange.current = rangeKey;
           setStatus('ready');
           setError('');
@@ -368,12 +378,23 @@ export function HostelPlaces({
             setStatus('error');
           }
         }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingPage(false);
       });
     return () => controller.abort();
-  }, [dormitoryId, range.from, range.to, rangeKey, attempt]);
+  }, [dormitoryId, range.from, range.to, rangeKey, attempt, pagingOptions, setInfo]);
 
   return (
     <DormitoryTableFrame
+      paging={
+        status === 'ready' && {
+          pager,
+          loading: loadingPage,
+          label: 'Поиск по хостелам',
+          unit: 'хостелов',
+        }
+      }
       className={styles.page}
       data-testid="dormitory-places"
       heading={
@@ -445,11 +466,15 @@ export function HostelPlaces({
             <div className={styles.monthHeading}>
               <div>
                 <h3>{monthTitle(month.month)}</h3>
-                <p>{month.hostels.length} хостелов</p>
+                <p>{pager.info.total} хостелов</p>
               </div>
             </div>
             {month.hostels.length === 0 && (
-              <p className={styles.empty}>В этом месяце хостелов пока нет.</p>
+              <p className={styles.empty}>
+                {pager.search
+                  ? 'По запросу хостелы не найдены.'
+                  : 'В этом месяце хостелов пока нет.'}
+              </p>
             )}
             {month.hostels.map((hostel) => (
               <article

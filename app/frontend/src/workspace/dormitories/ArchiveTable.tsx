@@ -5,6 +5,7 @@ import { Modal } from '../../components/Modal';
 import { formatDate } from '../dashboard/dates';
 import type { DateRange } from '../dashboard/dates';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { tablePage, useDormitoryPages } from './useDormitoryPages';
 import {
   ColumnsControls,
   ConfiguredHeaders,
@@ -29,15 +30,26 @@ function ArchiveContent({
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [deleting, setDeleting] = useState<ArchiveRow | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const pager = useDormitoryPages(
+    dormitoryId,
+    `${range.from}:${range.to}`,
+    () => setAttempt((n) => n + 1),
+    setError,
+  );
+  const { options: pagingOptions, setInfo } = pager;
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError('');
     void api
-      .archive(dormitoryId, range.from, range.to, controller.signal)
+      .archive(dormitoryId, range.from, range.to, controller.signal, pagingOptions)
       .then((result) => {
         if (!controller.signal.aborted) {
-          setRows(result);
+          const page = tablePage(result);
+          setRows(page.rows);
+          setInfo({ page: page.page, total: page.total });
+          setHasLoaded(true);
           setLoading(false);
         }
       })
@@ -48,13 +60,20 @@ function ArchiveContent({
         }
       });
     return () => controller.abort();
-  }, [dormitoryId, range.from, range.to, attempt, personnelFields]);
+  }, [dormitoryId, range.from, range.to, attempt, personnelFields, pagingOptions, setInfo]);
   async function add(): Promise<void> {
     setBusy(true);
     setError('');
     try {
       const row = await api.createArchiveRow(dormitoryId);
-      setRows((current) => [...current, row]);
+      if (pager.info.total >= 100 || pager.search || pager.options.sort) {
+        if (!pager.search && !pager.options.sort)
+          pager.changePage(Math.ceil((pager.info.total + 1) / 100));
+        setAttempt((n) => n + 1);
+      } else {
+        setRows((current) => [...current, row]);
+        setInfo({ page: 1, total: pager.info.total + 1 });
+      }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось добавить запись.');
     } finally {
@@ -68,6 +87,8 @@ function ArchiveContent({
     try {
       await api.deleteArchiveRow(dormitoryId, deleting.id);
       setRows(rows.filter((row) => row.id !== deleting.id));
+      if (pager.info.total > 100) setAttempt((n) => n + 1);
+      else setInfo({ page: 1, total: Math.max(0, pager.info.total - 1) });
       setDeleting(null);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось удалить запись.');
@@ -80,6 +101,7 @@ function ArchiveContent({
       className={styles.page}
       data-testid="dormitory-archive"
       heading={<h2>Архив</h2>}
+      paging={hasLoaded && { pager, loading }}
       secondary={<ColumnsControls />}
       primary={
         <button
@@ -105,9 +127,9 @@ function ArchiveContent({
           </button>
         </p>
       )}
-      {!loading && (
+      {hasLoaded && (
         <div className={styles.tableScroll}>
-          <ConfiguredTable className={styles.table}>
+          <ConfiguredTable className={styles.table} {...pager.tableProps}>
             <thead>
               <tr>
                 <ConfiguredHeaders />

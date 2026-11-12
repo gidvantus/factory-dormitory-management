@@ -82,6 +82,7 @@ from app.table_data import (
     get_record,
     lock_dormitory,
     normalize_value,
+    read_columns,
     require_writable_table,
 )
 
@@ -513,7 +514,7 @@ def get_binding(
     db: DbSession,
     _dormitory: OwnDormitory,
 ) -> dict[str, Any]:
-    columns = ensure_columns(db, dormitory_id, table_key)
+    columns = read_columns(db, dormitory_id, table_key)
     item = db.scalar(
         select(PersonnelBinding).where(
             PersonnelBinding.dormitory_id == dormitory_id, PersonnelBinding.table_key == table_key

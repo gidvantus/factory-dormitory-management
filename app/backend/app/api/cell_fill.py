@@ -3,6 +3,7 @@
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
@@ -16,7 +17,6 @@ from app.table_data import (
     get_custom_tab,
     get_record,
     lock_dormitory,
-    records_for,
     require_writable_table,
 )
 
@@ -103,13 +103,17 @@ def values(
     _user: SubscribedUser,
     db: DbSession,
     _dormitory: OwnDormitory,
+    row_ids: Annotated[str | None, Query(pattern=r"^[0-9]{1,10}(?:,[0-9]{1,10}){0,99}$")] = None,
 ) -> list[TabEntryResponse]:
     if not table_key.startswith("custom_"):
         raise HTTPException(422, "Связанные ячейки доступны в пользовательских таблицах")
-    get_custom_tab(db, dormitory_id, int(table_key.removeprefix("custom_")), require_table=True)
+    tab = get_custom_tab(db, dormitory_id, int(table_key[7:]), require_table=True)
     resolver = FillResolver(db, dormitory_id)
-    return [
-        resolver.response(row)
-        for row in records_for(db, dormitory_id, table_key)
-        if isinstance(row, CustomTabEntry)
-    ]
+    query = select(CustomTabEntry).where(
+        CustomTabEntry.dormitory_id == dormitory_id, CustomTabEntry.tab_id == tab.id
+    )
+    if row_ids:
+        query = query.where(
+            CustomTabEntry.id.in_([int(identifier) for identifier in row_ids.split(",")])
+        )
+    return [resolver.response(row) for row in db.scalars(query.order_by(CustomTabEntry.id))]

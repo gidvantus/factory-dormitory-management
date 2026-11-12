@@ -42,6 +42,7 @@ from app.models.role_permission import RolePermission
 from app.models.solution import OrganizationSolution, Solution
 from app.models.statistics_report import StatisticsReport
 from app.models.table_column import ArchiveEntry, TableColumn
+from app.models.table_import_job import TableImportJob
 from app.models.table_view import TableView
 from app.models.tariff import Tariff
 from app.models.telegram import (
@@ -107,6 +108,7 @@ __all__ = [
     "Solution",
     "StatisticsReport",
     "TableColumn",
+    "TableImportJob",
     "TableView",
     "Tariff",
     "TelegramLink",

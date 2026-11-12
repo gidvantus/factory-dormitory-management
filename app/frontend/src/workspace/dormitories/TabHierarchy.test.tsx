@@ -115,7 +115,7 @@ it('скрывает стандартную подвкладку отдельн�
         },
       };
     if (url.endsWith('/tabs')) return { status: 200, body: [] };
-    if (url.includes('/inflow?')) return { status: 200, body: [] };
+    if (url.includes('/inflow?')) return { status: 200, body: { rows: [], total: 0, page: 1 } };
     if (url.endsWith('/tables/inflow/columns')) return { status: 200, body: [] };
     return { status: 404 };
   });

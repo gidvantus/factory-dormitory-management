@@ -43,6 +43,7 @@ import { CellFillEditor } from './CellFillEditor';
 import { cellFillError, supportsCellFill, useCellFillSources } from './cellFill';
 import { ColumnArchiveTabs } from '../../components/ColumnArchiveTabs';
 import { WorkingTable } from '../../components/WorkingTable';
+import type { PagedTableRows } from '../../components/WorkingTable';
 import { useWorkingColumns } from '../../components/workingTableContext';
 
 export function TableColumnsProvider({
@@ -51,12 +52,14 @@ export function TableColumnsProvider({
   children,
   showActions = true,
   showDates = true,
+  pageScoped = false,
 }: {
   dormitoryId: string;
   table: TableKey;
   children: ReactNode;
   showActions?: boolean;
   showDates?: boolean;
+  pageScoped?: boolean;
 }): JSX.Element {
   const [columns, setColumns] = useState<TableColumn[]>([]);
   const settings = useSettingsNavigation();
@@ -67,6 +70,7 @@ export function TableColumnsProvider({
   const [dialog, setDialog] = useState<ColumnsDialog>(null);
   const [values, setValues] = useState<Record<string, CellValue>>({});
   const [fillRows, setFillRows] = useState<Record<number, CellFillRow>>({});
+  const [visibleRowIds, setVisibleRowIds] = useState('');
   const [fillRefreshError, setFillRefreshError] = useState('');
   const fillVersion = useRef(0);
   const refreshFillValues = useRef<() => void>(() => {});
@@ -155,6 +159,8 @@ export function TableColumnsProvider({
   }, [dormitoryId, table, attempt, revision]);
   useEffect(() => {
     if (!columns.some((column) => !column.archived && column.fill)) return;
+    if (pageScoped && !visibleRowIds) return;
+    if (pageScoped) setFillRows({});
     const controller = new AbortController();
     let pending = false;
     async function refresh(): Promise<void> {
@@ -162,7 +168,12 @@ export function TableColumnsProvider({
       const version = fillVersion.current;
       pending = true;
       try {
-        const rows = await api.cellFillValues(dormitoryId, table, controller.signal);
+        const rows = await api.cellFillValues(
+          dormitoryId,
+          table,
+          controller.signal,
+          pageScoped ? visibleRowIds : undefined,
+        );
         if (!controller.signal.aborted && version === fillVersion.current) {
           setFillRows(Object.fromEntries(rows.map((row) => [row.id, row])));
           setFillRefreshError('');
@@ -190,7 +201,7 @@ export function TableColumnsProvider({
       document.removeEventListener('visibilitychange', focus);
       refreshFillValues.current = () => {};
     };
-  }, [columns, dormitoryId, table]);
+  }, [columns, dormitoryId, table, pageScoped, visibleRowIds]);
   const context: TableColumnsContext = {
     dormitoryId,
     table,
@@ -201,6 +212,7 @@ export function TableColumnsProvider({
     error,
     values,
     fillRows,
+    setVisibleRowIds: pageScoped ? setVisibleRowIds : undefined,
     fillSaved: (row) => {
       fillVersion.current += 1;
       setFillRows((current) => ({ ...current, [row.id]: row }));
@@ -674,11 +686,13 @@ export function ConfiguredTable({
   children,
   trailingColumns = 0,
   trailing,
+  pagedRows,
 }: {
   className: string;
   children: ReactNode;
   trailingColumns?: number;
   trailing?: { id: string; label: string }[];
+  pagedRows?: PagedTableRows;
 }): JSX.Element {
   const { columns, dormitoryId, table } = useColumns();
   const settings = useSettingsNavigation();
@@ -691,6 +705,7 @@ export function ConfiguredTable({
       className={className}
       configured
       pasteCells
+      pagedRows={pagedRows}
       readOnly={settings?.readOnly}
       viewKey={
         location.pathname.startsWith('/preview/')

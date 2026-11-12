@@ -212,6 +212,6 @@ describe('Заполнение ячеек в рабочих компонента
       expect(screen.getByLabelText('Дата заселения, строка 20')).toHaveTextContent('07.10.2026'),
     );
     expect(manual).toHaveValue('Прежний текст черновик');
-    expect(refresh).toHaveBeenCalledWith('7', 'custom_9', expect.any(AbortSignal));
+    expect(refresh).toHaveBeenCalledWith('7', 'custom_9', expect.any(AbortSignal), undefined);
   });
 });

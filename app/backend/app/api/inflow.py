@@ -44,6 +44,7 @@ from app.schemas.inflow import (
 from app.schemas.resident import UpdateResidentRequest
 from app.section_state import require_section_writable
 from app.table_data import ensure_columns, lock_dormitory
+from app.table_pagination import Paging, TablePage, record_page
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/inflow",
@@ -62,30 +63,41 @@ def get_inflow(db: Session, dormitory_id: int, row_id: int) -> PersonnelInflow:
     return row
 
 
-@router.get("", response_model=list[InflowResponse], summary="Приток персонала за период")
+@router.get(
+    "", response_model=list[InflowResponse] | TablePage[InflowResponse], summary="Приток за период"
+)
 def list_inflow(
     dormitory_id: DormitoryId,
     _user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
-    _dormitory: OwnDormitory,
-) -> list[PersonnelInflow]:
+    dormitory: OwnDormitory,
+    paging: Paging,
+) -> list[PersonnelInflow] | TablePage[InflowResponse]:
     if from_date > to_date or (to_date - from_date).days > 365:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Выберите период не длиннее года")
-    return list(
-        db.scalars(
-            select(PersonnelInflow)
-            .where(
-                PersonnelInflow.dormitory_id == dormitory_id,
-                or_(
-                    PersonnelInflow.settlement_date.is_(None),
-                    PersonnelInflow.settlement_date.between(from_date, to_date),
-                ),
-            )
-            .order_by(PersonnelInflow.id.desc())
+    query = (
+        select(PersonnelInflow)
+        .where(
+            PersonnelInflow.dormitory_id == dormitory_id,
+            or_(
+                PersonnelInflow.settlement_date.is_(None),
+                PersonnelInflow.settlement_date.between(from_date, to_date),
+            ),
         )
+        .order_by(PersonnelInflow.id.desc())
     )
+    if paging.page is None:
+        return list(db.scalars(query))
+    return record_page(
+        db,
+        dormitory,
+        "inflow",
+        query,
+        paging,
+        search=lambda row: (row.full_name, row.personnel_number),
+    ).response(InflowResponse.model_validate)
 
 
 @router.post(

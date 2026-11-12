@@ -11,6 +11,7 @@ import { CreateCustomTabDialog } from './CreateCustomTabDialog';
 import { DormitorySettingsDialog } from './DormitorySettingsDialog';
 
 afterEach(() => {
+  sessionStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -81,11 +82,19 @@ it('скачивает шаблон текущей таблицы после з�
 
 it('отправляет файл multipart без JSON-заголовка и обновляет данные после сохранения', async () => {
   const changed = vi.fn();
+  let jobId: string | undefined;
   const fetch = mockFetch((_url, init) => {
+    if (init?.method !== 'POST')
+      return {
+        status: 200,
+        body: { id: jobId, status: 'completed', rows_added: 2, cells_added: 0 },
+      };
     expect(init?.body).toBeInstanceOf(FormData);
     expect((init?.body as FormData).get('file')).toBeInstanceOf(File);
     expect(init?.headers).not.toHaveProperty('Content-Type');
-    return { status: 200, body: { rows_added: 2, cells_added: 0 } };
+    jobId = new Headers(init.headers).get('Idempotency-Key') ?? undefined;
+    expect(jobId).toMatch(/^[a-f0-9-]{36}$/);
+    return { status: 202, body: { id: jobId, status: 'pending', rows_added: 0, cells_added: 0 } };
   });
   render(<TableExchange {...props} onImported={changed} />);
   const user = userEvent.setup();
@@ -93,11 +102,54 @@ it('отправляет файл multipart без JSON-заголовка и о
   expect(screen.getByRole('button', { name: 'Добавить данные из файла' })).toBeDisabled();
   await user.upload(screen.getByLabelText('Заполненный шаблон'), new File(['xlsx'], 'Отпуск.xlsx'));
   await user.click(screen.getByRole('button', { name: 'Добавить данные из файла' }));
-  await waitFor(() => expect(changed).toHaveBeenCalledOnce());
-  expect(fetch.mock.calls[0][0]).toBe('/api/dormitories/7/data-transfer/custom_9/import');
+  expect(await screen.findByRole('progressbar')).toHaveAttribute('value', '100');
+  expect(fetch.mock.calls[0][0]).toBe('/api/dormitories/7/data-transfer/custom_9/import/jobs');
+  expect(fetch.mock.calls[1][0]).toBe(
+    `/api/dormitories/7/data-transfer/custom_9/import/jobs/${jobId}`,
+  );
   expect(screen.getByRole('status')).toHaveTextContent('Добавлено строк: 2');
+  await user.click(screen.getByRole('button', { name: 'Закрыть' }));
+  expect(changed).toHaveBeenCalledOnce();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
+
+it('показывает счётчик в окне и 100% только после сохранения', async () => {
+  const changed = vi.fn();
+  let poll = 0;
+  mockFetch((_url, init) => {
+    if (init?.method === 'POST') return { status: 202, body: { status: 'pending' } };
+    poll += 1;
+    const completed = poll > 2;
+    return {
+      status: 200,
+      body: {
+        status: completed ? 'completed' : 'pending',
+        rows_added: completed ? 2325 : 0,
+        progress: { rows_processed: poll === 1 ? 850 : 2325, rows_total: 2325 },
+      },
+    };
+  });
+  render(<TableExchange {...props} onImported={changed} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Импорт из Excel' }));
+  await user.upload(screen.getByLabelText('Заполненный шаблон'), new File(['xlsx'], 'Отпуск.xlsx'));
+  await user.click(screen.getByRole('button', { name: 'Добавить данные из файла' }));
+  const dialog = within(screen.getByRole('dialog'));
+  expect(await dialog.findByText('Обработано строк: 850 из 2 325 · 37%')).toBeInTheDocument();
+  expect(dialog.getByRole('progressbar')).toHaveAttribute('value', '37');
+  expect(
+    await dialog.findByText('Обработано строк: 2 325 из 2 325 · 99%', {}, { timeout: 2500 }),
+  ).toBeInTheDocument();
+  expect(dialog.getByRole('progressbar')).toHaveAttribute('value', '99');
+  expect(
+    await dialog.findByText('Обработано строк: 2 325 из 2 325 · 100%', {}, { timeout: 2500 }),
+  ).toBeInTheDocument();
+  expect(dialog.getByRole('progressbar')).toHaveAttribute('value', '100');
+  expect(dialog.getByText('Импорт завершён. Добавлено строк: 2325.')).toBeInTheDocument();
+  expect(changed).not.toHaveBeenCalled();
+  await user.click(dialog.getByRole('button', { name: 'Закрыть' }));
+  expect(changed).toHaveBeenCalledOnce();
+}, 10_000);
 
 it('показывает причину отклонения шаблона и позволяет исправить файл', async () => {
   const changed = vi.fn();
@@ -115,6 +167,62 @@ it('показывает причину отклонения шаблона и �
   expect(screen.getByRole('button', { name: 'Добавить данные из файла' })).toBeEnabled();
 });
 
+it('отменяет выполняющийся импорт и позволяет выбрать другой файл', async () => {
+  const changed = vi.fn();
+  let cancelRequested = false;
+  mockFetch((url, init) => {
+    if (url.endsWith('/cancel')) {
+      expect(init?.method).toBe('POST');
+      cancelRequested = true;
+      return { status: 200, body: { status: 'pending', cancel_requested: true } };
+    }
+    if (init?.method === 'POST') return { status: 202, body: { status: 'pending' } };
+    return {
+      status: 200,
+      body: cancelRequested
+        ? { status: 'cancelled' }
+        : { status: 'pending', progress: { rows_processed: 500, rows_total: 1000 } },
+    };
+  });
+  render(<TableExchange {...props} onImported={changed} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Импорт из Excel' }));
+  await user.upload(screen.getByLabelText('Заполненный шаблон'), new File(['xlsx'], 'Отпуск.xlsx'));
+  await user.click(screen.getByRole('button', { name: 'Добавить данные из файла' }));
+  expect(await screen.findByRole('progressbar')).toHaveAttribute('value', '50');
+  await user.click(screen.getByRole('button', { name: 'Отменить импорт' }));
+  expect(await screen.findByText('Импорт отменён. Данные из файла не сохранены.')).toBeVisible();
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  expect(changed).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: 'Выбрать другой файл' }));
+  expect(screen.getByLabelText('Заполненный шаблон')).toHaveValue('');
+});
+
+it('после 504 проверяет статус принятого задания и не отправляет файл повторно', async () => {
+  const changed = vi.fn();
+  let jobId: string | null = null;
+  const fetch = mockFetch((url, init) => {
+    if (init?.method === 'POST') {
+      jobId = new Headers(init.headers).get('Idempotency-Key');
+      return { status: 504 };
+    }
+    expect(url).toBe(`/api/dormitories/7/data-transfer/custom_9/import/jobs/${jobId}`);
+    return {
+      status: 200,
+      body: { id: jobId, status: 'completed', rows_added: 2336, cells_added: 0 },
+    };
+  });
+  render(<TableExchange {...props} onImported={changed} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Импорт из Excel' }));
+  await user.upload(screen.getByLabelText('Заполненный шаблон'), new File(['xlsx'], 'Отпуск.xlsx'));
+  await user.click(screen.getByRole('button', { name: 'Добавить данные из файла' }));
+  expect(await screen.findByText('Импорт завершён. Добавлено строк: 2336.')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Закрыть' }));
+  expect(changed).toHaveBeenCalledOnce();
+  expect(fetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+});
+
 it('после импорта из панели перечитывает отчёт и возвращает фокус на импорт', async () => {
   let imported = false;
   mockFetch((url) => {
@@ -130,9 +238,9 @@ it('после импорта из панели перечитывает отч�
     if (url === '/api/dormitories/7')
       return { status: 200, body: { id: 7, name: 'Северное', client_name: 'Клиент' } };
     if (url.endsWith('/tabs')) return { status: 200, body: [] };
-    if (url.includes('/data-transfer/report/import?')) {
+    if (url.includes('/data-transfer/report/import/jobs?')) {
       imported = true;
-      return { status: 200, body: { rows_added: 0, cells_added: 1 } };
+      return { status: 202, body: { status: 'completed', rows_added: 0, cells_added: 1 } };
     }
     return { status: 404 };
   });
@@ -157,6 +265,8 @@ it('после импорта из панели перечитывает отч�
   await user.click(actions().getByRole('button', { name: 'Импорт из Excel' }));
   await user.upload(screen.getByLabelText('Заполненный шаблон'), new File(['xlsx'], 'Отчёт.xlsx'));
   await user.click(screen.getByRole('button', { name: 'Добавить данные из файла' }));
+  expect(await screen.findByRole('progressbar')).toHaveAttribute('value', '100');
+  await user.click(screen.getByRole('button', { name: 'Закрыть' }));
   expect(await screen.findByDisplayValue('25')).toBeInTheDocument();
   expect(report).toHaveBeenCalledTimes(2);
   expect(screen.getByText('Импорт завершён. Добавлено ячеек: 1.')).toBeInTheDocument();

@@ -31,6 +31,33 @@ interface ViewColumn {
   compact?: boolean;
 }
 
+export interface PagedTableRows {
+  sort: TableSort | null;
+  onSort: (sort: TableSort) => void;
+  onOrderSaved: () => void;
+}
+
+interface RowMove {
+  source: string;
+  target: string;
+  after: boolean;
+}
+
+const WIDTH_SAMPLE_SIZE = 30;
+
+function rowsForWidth(table: HTMLTableElement): HTMLTableRowElement[] {
+  const sample: HTMLTableRowElement[] = [];
+  for (const body of table.tBodies) {
+    for (const row of body.rows) {
+      if (row.hidden || !row.cells.length || (row.cells.length === 1 && row.cells[0].colSpan > 1))
+        continue;
+      sample.push(row);
+      if (sample.length === WIDTH_SAMPLE_SIZE) return sample;
+    }
+  }
+  return sample;
+}
+
 function canGrow(column: ViewColumn): boolean {
   const label = column.label.trim();
   return (
@@ -79,6 +106,8 @@ export function WorkingTable({
   configured = false,
   readOnly = false,
   pasteCells = false,
+  pagedRows,
+  sortable = true,
   children,
   className = '',
   style,
@@ -91,6 +120,8 @@ export function WorkingTable({
   configured?: boolean;
   readOnly?: boolean;
   pasteCells?: boolean | ((cells: TablePasteCell[]) => Promise<void>);
+  pagedRows?: PagedTableRows;
+  sortable?: boolean;
 }): JSX.Element {
   const surface = useContext(EditorSurfaceContext);
   const viewKey = surface ? undefined : providedViewKey;
@@ -115,7 +146,9 @@ export function WorkingTable({
     { node: HTMLElement; axis: 'rows' | 'columns'; key: string; label: string }[]
   >([]);
   const [widths, setWidths] = useState<number[]>([]);
-  const [sort, setSort] = useState<TableSort | null>(null);
+  const fitted = useRef<{ key: string; hasRows: boolean } | null>(null);
+  const [localSort, setSort] = useState<TableSort | null>(null);
+  const sort = pagedRows ? pagedRows.sort : localSort;
   const [sortValues, setSortValues] = useState<Record<string, Record<string, SortValue>>>({});
   const [pasteNotice, setPasteNotice] = useState('');
   const pasting = useRef(false);
@@ -137,8 +170,8 @@ export function WorkingTable({
       !flatten(node.props.children).some((cell) => (cell.props.colSpan ?? 1) > 1),
   );
   const rowKeys = movable.map(nodeKey);
-  const rowOrder = orderedKeys(rowKeys, view.state.rows);
-  if (sort)
+  const rowOrder = pagedRows ? rowKeys : orderedKeys(rowKeys, view.state.rows);
+  if (sort && !pagedRows)
     rowOrder.sort((a, b) =>
       compareTableValues(
         sortValues[a]?.[sort.column] ?? null,
@@ -174,7 +207,7 @@ export function WorkingTable({
     return () => controller.abort();
   }, [viewKey, retry, revisionKey]);
 
-  async function save(state: TableViewState): Promise<void> {
+  async function save(state: TableViewState, rowMove?: RowMove): Promise<void> {
     if (busy || readonly || !loaded) return;
     setBusy(true);
     setError('');
@@ -182,10 +215,11 @@ export function WorkingTable({
       const result = viewKey
         ? await request<TableView>(`/${viewKey}`, {
             method: 'PUT',
-            body: JSON.stringify({ revision: view.revision, state }),
+            body: JSON.stringify({ revision: view.revision, state, row_move: rowMove }),
           })
         : { revision: view.revision + 1, state };
       setView(result);
+      if (rowMove) pagedRows?.onOrderSaved();
     } catch (caught) {
       setError(
         caught instanceof ApiError
@@ -198,6 +232,15 @@ export function WorkingTable({
   }
 
   function move(axis: 'rows' | 'columns', source: string, target: string): void {
+    if (axis === 'rows' && pagedRows) {
+      if (source !== target)
+        void save(view.state, {
+          source,
+          target,
+          after: rowOrder.indexOf(source) < rowOrder.indexOf(target),
+        });
+      return;
+    }
     if (axis === 'rows') setSort(null);
     const active = axis === 'rows' ? rowOrder : order;
     const reordered = moveKey(active, source, target);
@@ -254,6 +297,10 @@ export function WorkingTable({
     });
 
   const signature = `${order.join('|')}:${renderedRowKeys.join('|')}:${JSON.stringify(view.state.row_colors)}:${JSON.stringify(view.state.column_colors)}:${readonly}`;
+  const fitKey = JSON.stringify([
+    providedViewKey ?? zoomKey,
+    order.map((key) => columns.find((column) => column.id === key)),
+  ]);
   useLayoutEffect(() => {
     const table = ref.current;
     if (!table) return;
@@ -287,9 +334,11 @@ export function WorkingTable({
       Array.from(head.cells).forEach((cell, index) => {
         const key = order[index];
         if (
+          sortable &&
           key &&
           cell.colSpan === 1 &&
           columns.find((column) => column.id === key)?.label &&
+          (!pagedRows || columns.find((column) => column.id === key)?.kind !== 'action') &&
           key !== 'actions'
         ) {
           cell.dataset.tableColumn = key;
@@ -320,6 +369,27 @@ export function WorkingTable({
       const first = row.cells[0];
       if (first) addHost(first, 'rows', key, String(index + 1));
     });
+    for (const row of table.rows) {
+      Array.from(row.cells).forEach((cell, index) => {
+        if (cell.colSpan > 1 || index >= order.length) return;
+        const key = order[index];
+        cell.dataset.tableColumn = key;
+        const rowKey = row.dataset.rowKey;
+        const fill = (rowKey && view.state.row_colors[rowKey]) || view.state.column_colors[key];
+        if (fill) {
+          if (!originalBackgrounds.current.has(cell))
+            originalBackgrounds.current.set(cell, cell.style.backgroundColor);
+          cell.dataset.tableColor = fill;
+          cell.style.backgroundColor = `var(--table-fill-${fill})`;
+        } else {
+          delete cell.dataset.tableColor;
+          if (originalBackgrounds.current.has(cell)) {
+            cell.style.backgroundColor = originalBackgrounds.current.get(cell)!;
+            originalBackgrounds.current.delete(cell);
+          }
+        }
+      });
+    }
     const drop = (event: DragEvent): void => {
       const cell = (event.target as Element).closest<HTMLTableCellElement>('th,td');
       const source = drag.current;
@@ -343,25 +413,19 @@ export function WorkingTable({
     };
     // Порталы добавляют только кнопки; порядок данных меняется через React.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, children, loaded, busy]);
+  }, [signature, children, loaded, busy, sortable]);
 
   useLayoutEffect(() => {
     const table = ref.current;
     const container = table?.parentElement;
-    if (!table || !container) return;
-    let frame = 0;
+    if (!table || !container || !order.length) return;
+    if (fitted.current?.key === fitKey && fitted.current.hasRows) return;
+
     const measure = (): void => {
-      frame = 0;
-      if (
-        sort &&
-        (!table.contains(document.activeElement) || document.activeElement?.closest('thead'))
-      ) {
-        const values = collectSortValues(sort.column);
-        setSortValues((previous) =>
-          JSON.stringify(previous) === JSON.stringify(values) ? previous : values,
-        );
-      }
-      const hasLayout = table.getClientRects().length > 0;
+      const bodyRows = rowsForWidth(table);
+      const hasRows = bodyRows.length > 0;
+      if (fitted.current?.key === fitKey && (fitted.current.hasRows || !hasRows)) return;
+
       const canvas =
         typeof CanvasRenderingContext2D === 'undefined'
           ? null
@@ -370,26 +434,10 @@ export function WorkingTable({
         canvas?.measureText(text).width ?? text.length * 7;
       const pixels = (value: string): number => parseFloat(value) || 0;
       const next = order.map(() => 0);
-      Array.from(table.rows).forEach((row) =>
+      const headerRows = Array.from(table.tHead?.rows ?? []);
+      for (const row of [...headerRows, ...bodyRows]) {
         Array.from(row.cells).forEach((cell, index) => {
           if (cell.colSpan > 1 || index >= next.length) return;
-          const key = order[index];
-          cell.dataset.tableColumn = key;
-          const rowKey = row.dataset.rowKey;
-          const fill = (rowKey && view.state.row_colors[rowKey]) || view.state.column_colors[key];
-          if (fill) {
-            if (!originalBackgrounds.current.has(cell))
-              originalBackgrounds.current.set(cell, cell.style.backgroundColor);
-            cell.dataset.tableColor = fill;
-            cell.style.backgroundColor = `var(--table-fill-${fill})`;
-          } else {
-            delete cell.dataset.tableColor;
-            if (originalBackgrounds.current.has(cell)) {
-              cell.style.backgroundColor = originalBackgrounds.current.get(cell)!;
-              originalBackgrounds.current.delete(cell);
-            }
-          }
-          if (!hasLayout) return;
           const editor = cell.querySelector<
             HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
           >('input:not([type="hidden"]),textarea,select');
@@ -461,63 +509,88 @@ export function WorkingTable({
             Math.ceil(line + padding + editorPadding + nativeControlWidth + controlsWidth + 2),
             editor instanceof HTMLInputElement && editor.type === 'date' ? 132 : 0,
           );
-        }),
-      );
-      if (hasLayout && next.length) {
-        const containerStyle = getComputedStyle(container);
-        const tableStyle = getComputedStyle(table);
-        const borderSpacing =
-          tableStyle.borderCollapse === 'separate'
-            ? pixels(tableStyle.borderSpacing) * (next.length + 1)
-            : 0;
-        // clientWidth округлён до целых. Остаток пикселя заполняет width: 100%.
-        const availableWidth =
-          container.clientWidth -
-          1 -
-          pixels(containerStyle.paddingLeft) -
-          pixels(containerStyle.paddingRight) -
-          pixels(tableStyle.borderLeftWidth) -
-          pixels(tableStyle.borderRightWidth) -
-          pixels(tableStyle.paddingLeft) -
-          pixels(tableStyle.paddingRight) -
-          borderSpacing;
-        const spareWidth = availableWidth - next.reduce((sum, width) => sum + width, 0);
-        if (spareWidth > 0) {
-          const flexible = new Set(columns.filter(canGrow).map((column) => column.id));
-          const recipients = flexible.size ? flexible.size : next.length;
-          order.forEach((key, index) => {
-            if (!flexible.size || flexible.has(key)) next[index] += spareWidth / recipients;
-          });
-        }
-        setWidths((previous) =>
-          JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
-        );
+        });
       }
+      fitted.current = { key: fitKey, hasRows };
+      const containerStyle = getComputedStyle(container);
+      const tableStyle = getComputedStyle(table);
+      const borderSpacing =
+        tableStyle.borderCollapse === 'separate'
+          ? pixels(tableStyle.borderSpacing) * (next.length + 1)
+          : 0;
+      // clientWidth округлён до целых. Остаток пикселя заполняет width: 100%.
+      const availableWidth =
+        container.clientWidth -
+        1 -
+        pixels(containerStyle.paddingLeft) -
+        pixels(containerStyle.paddingRight) -
+        pixels(tableStyle.borderLeftWidth) -
+        pixels(tableStyle.borderRightWidth) -
+        pixels(tableStyle.paddingLeft) -
+        pixels(tableStyle.paddingRight) -
+        borderSpacing;
+      const spareWidth = availableWidth - next.reduce((sum, width) => sum + width, 0);
+      if (spareWidth > 0) {
+        const flexible = new Set(columns.filter(canGrow).map((column) => column.id));
+        const recipients = flexible.size ? flexible.size : next.length;
+        order.forEach((key, index) => {
+          if (!flexible.size || flexible.has(key)) next[index] += spareWidth / recipients;
+        });
+      }
+      setWidths((previous) =>
+        JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
+      );
+    };
+
+    // Скрытая таблица получит размеры, когда станет видимой.
+    if (table.getClientRects().length) {
+      measure();
+      return;
+    }
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (!table.getClientRects().length) return;
+      observer.disconnect();
+      measure();
+    });
+    observer.observe(table);
+    return () => observer.disconnect();
+    // После загрузки первых строк ввод и перелистывание сохраняют ширину.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitKey, children, signature]);
+
+  const clientSortColumn = pagedRows ? undefined : sort?.column;
+  useLayoutEffect(() => {
+    const table = ref.current;
+    if (!table || !clientSortColumn) return;
+    let frame = 0;
+    const update = (): void => {
+      frame = 0;
+      if (table.contains(document.activeElement) && !document.activeElement?.closest('thead'))
+        return;
+      const values = collectSortValues(clientSortColumn);
+      setSortValues((previous) =>
+        JSON.stringify(previous) === JSON.stringify(values) ? previous : values,
+      );
     };
     const schedule = (): void => {
-      if (!frame) frame = requestAnimationFrame(measure);
+      if (!frame) frame = requestAnimationFrame(update);
     };
-    measure();
+    update();
     const observer = new MutationObserver(schedule);
     observer.observe(table, { childList: true, subtree: true, characterData: true });
-    const resizeObserver =
-      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
-    resizeObserver?.observe(table);
-    resizeObserver?.observe(container);
     table.addEventListener('input', schedule);
     table.addEventListener('change', schedule);
     table.addEventListener('focusout', schedule);
-    document.fonts?.ready.then(schedule).catch(() => {});
     return () => {
       observer.disconnect();
-      resizeObserver?.disconnect();
       table.removeEventListener('input', schedule);
       table.removeEventListener('change', schedule);
       table.removeEventListener('focusout', schedule);
       if (frame) cancelAnimationFrame(frame);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, children, hosts, sort?.column, scale]);
+  }, [signature, children, hosts, clientSortColumn]);
 
   const selectedOrder = selected?.axis === 'rows' ? rowOrder : order;
   const selectedIndex = selected ? selectedOrder.indexOf(selected.key) : -1;
@@ -555,15 +628,18 @@ export function WorkingTable({
     const cell = target.closest<HTMLTableCellElement>('thead [data-table-sortable]');
     if (!cell?.dataset.tableColumn) return false;
     const column = cell.dataset.tableColumn;
-    // Читаем и несохранённые значения перед перестановкой, сохраняя DOM ячеек.
-    setSortValues(collectSortValues(column));
-    setSort((previous) => ({
+    const nextSort: TableSort = {
       column,
       direction:
-        previous?.column === column && previous.direction === 'ascending'
-          ? 'descending'
-          : 'ascending',
-    }));
+        sort?.column === column && sort.direction === 'ascending' ? 'descending' : 'ascending',
+    };
+    if (pagedRows) {
+      pagedRows.onSort(nextSort);
+      return true;
+    }
+    // Читаем и несохранённые значения перед перестановкой, сохраняя DOM ячеек.
+    setSortValues(collectSortValues(column));
+    setSort(nextSort);
     return true;
   }
 

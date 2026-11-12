@@ -7,6 +7,53 @@ import { emptyTableView } from './workingTableModel';
 
 afterEach(() => vi.unstubAllGlobals());
 
+it('измеряет заголовок и первые 30 строк при открытии и изменении столбца', async () => {
+  const layout = vi
+    .spyOn(HTMLTableElement.prototype, 'getClientRects')
+    .mockReturnValue({ length: 1 } as DOMRectList);
+  const canvas = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+  const measure = vi.spyOn(HTMLTableCellElement.prototype, 'cloneNode');
+  const table = (heading: string, page: number) => (
+    <WorkingTable>
+      <thead>
+        <tr>
+          <th>{heading}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {page > 0 &&
+          Array.from({ length: 35 }, (_, index) => (
+            <tr key={`${page}-${index}`}>
+              <td>
+                <input aria-label={`Имя ${index + 1}`} defaultValue={`Запись ${page}-${index}`} />
+              </td>
+            </tr>
+          ))}
+      </tbody>
+    </WorkingTable>
+  );
+  try {
+    const view = render(table('Имя', 0));
+    expect(measure).toHaveBeenCalledTimes(1);
+    measure.mockClear();
+    view.rerender(table('Имя', 1));
+    expect(measure).toHaveBeenCalledTimes(31);
+    measure.mockClear();
+    fireEvent.input(screen.getByRole('textbox', { name: 'Имя 1' }), {
+      target: { value: 'Длинное имя' },
+    });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    view.rerender(table('Имя', 2));
+    expect(measure).not.toHaveBeenCalled();
+    view.rerender(table('Полное имя', 2));
+    expect(measure).toHaveBeenCalledTimes(31);
+  } finally {
+    measure.mockRestore();
+    canvas.mockRestore();
+    layout.mockRestore();
+  }
+});
+
 it('Ctrl с колёсиком масштабирует выбранную таблицу и восстанавливает её масштаб', async () => {
   const saved = new Map<string, number>();
   vi.stubGlobal(
@@ -49,9 +96,7 @@ it('Ctrl с колёсиком масштабирует выбранную та�
   expect(screen.getByRole('table', { name: 'Жильцы' }).style.zoom).not.toBe('1.1');
   unmount();
   render(<Tables />);
-  await waitFor(() =>
-    expect(screen.getByRole('table', { name: 'Отчёт' }).style.zoom).toBe('1.1'),
-  );
+  await waitFor(() => expect(screen.getByRole('table', { name: 'Отчёт' }).style.zoom).toBe('1.1'));
   expect([...saved.values()]).toEqual([110]);
 });
 

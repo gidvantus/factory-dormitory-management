@@ -37,7 +37,8 @@ def locked_dormitory(db: Session, dormitory_id: int) -> Dormitory:
     item = db.scalar(
         select(Dormitory)
         .where(Dormitory.id == dormitory_id)
-        .with_for_update()
+        # Сериализуем правки, оставляя возможность добавить задание с FK на общежитие.
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     if item is None:

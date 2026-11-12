@@ -85,7 +85,7 @@ it('перечитывает актуальный статус, передаёт
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   expect(
     fetch.mock.calls.some(([url]) =>
-      String(url).endsWith('/tabs/2/arrival-rows?from=2026-11-01&to=2026-11-30'),
+      String(url).endsWith('/tabs/2/arrival-rows?from=2026-11-01&to=2026-11-30&page=1'),
     ),
   ).toBe(true);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Обновить' })).toBeEnabled());

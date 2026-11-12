@@ -41,7 +41,7 @@
     )
   );
 }
-.table :is(th, td) {
+.report table.table > :is(thead, tbody) > tr > :is(th, td) {
   border-bottom: var(--summary-border-width) solid var(--color-border);
   border-inline-end: var(--summary-border-width) solid var(--color-border);
   padding: var(--gap-6) var(--summary-cell-padding);
@@ -56,7 +56,7 @@
   background: var(--color-bg-alt);
   color: var(--color-text-muted);
 }
-.table tbody th {
+.report table.table > tbody > tr > th {
   text-align: start;
   font-weight: normal;
   padding-inline: var(--gap-8);

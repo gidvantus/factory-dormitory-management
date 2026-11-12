@@ -2517,6 +2517,9 @@ table.working-table :is(input:not([type='checkbox']):not([type='radio']), select
   max-width: 100%;
   min-width: 0;
 }
+table.working-table input:is(:not([type]), [type='text'], [type='tel']):not(:focus) {
+  text-overflow: ellipsis;
+}
 table.working-table {
   --table-grip-inset: var(--gap-4);
 }

@@ -20,6 +20,7 @@ import styles from './ReportTable.module.css';
 import { ReportLinkEditor } from './ReportLinkEditor';
 import { useSettingsNavigation } from './settingsContext';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { useDormitoryPages } from './useDormitoryPages';
 
 interface Props {
   dormitoryId: string;
@@ -659,6 +660,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
   const settings = useSettingsNavigation();
   const settingsRevision = settings?.revision;
   const [rows, setRows] = useState<ReportRow[]>([]);
+  const [outline, setOutline] = useState<ReportRow[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -672,16 +674,23 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
   const editors = useRef<ReportEditors>(new Map()).current;
   const loadedRange = useRef('');
   const rangeKey = `${dormitoryId}:${range.from}:${range.to}`;
+  const [loadingPage, setLoadingPage] = useState(true);
+  const refresh = useCallback(() => setAttempt((current) => current + 1), []);
+  const pager = useDormitoryPages(dormitoryId, rangeKey, refresh, setError);
+  const { options: pagingOptions, setInfo } = pager;
 
   useEffect(() => {
     const controller = new AbortController();
     const background = loadedRange.current === rangeKey;
+    setLoadingPage(true);
     if (!background) setStatus('loading');
     void api
-      .report(dormitoryId, range.from, range.to, controller.signal)
+      .report(dormitoryId, range.from, range.to, controller.signal, pagingOptions)
       .then((report) => {
         if (!controller.signal.aborted) {
           setRows(report.rows);
+          setOutline(report.outline ?? report.rows);
+          setInfo({ page: report.page ?? 1, total: report.total ?? report.rows.length });
           loadedRange.current = rangeKey;
           setError('');
           setStatus('ready');
@@ -692,11 +701,22 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
           setError(caught instanceof ApiError ? caught.message : 'Не удалось загрузить отчёт.');
           if (!background) setStatus('error');
         }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingPage(false);
       });
     return () => controller.abort();
-  }, [dormitoryId, range.from, range.to, rangeKey, attempt, settingsRevision]);
+  }, [
+    dormitoryId,
+    range.from,
+    range.to,
+    rangeKey,
+    attempt,
+    settingsRevision,
+    pagingOptions,
+    setInfo,
+  ]);
 
-  const refresh = useCallback(() => setAttempt((current) => current + 1), []);
   const days = daysInRange(range);
 
   async function pasteReportCells(cells: TablePasteCell[]): Promise<void> {
@@ -742,6 +762,9 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
 
   return (
     <DormitoryTableFrame
+      paging={
+        status === 'ready' && { pager, loading: loadingPage, label: 'Поиск по названию строки' }
+      }
       className={styles.report}
       aria-labelledby="report-title"
       data-testid="dormitory-report"
@@ -762,7 +785,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
           className="btn btn--ghost btn--compact"
           type="button"
           onClick={() => setTemplateDialogOpen(true)}
-          disabled={status !== 'ready' || rows.length === 0}
+          disabled={status !== 'ready' || outline.length === 0}
           data-testid="report-save-template"
         >
           Сохранить как шаблон
@@ -815,7 +838,10 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
           </button>
         </div>
       )}
-      {status === 'ready' && rows.length === 0 && (
+      {status === 'ready' && rows.length === 0 && pager.search && (
+        <p>По запросу строки не найдены.</p>
+      )}
+      {status === 'ready' && rows.length === 0 && !pager.search && (
         <div className={styles.empty}>
           <strong>Пока нет строк отчёта</strong>
           <p>
@@ -828,9 +854,10 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
           <div className={styles.tableScroll}>
             <WorkingTable
               className={styles.table}
+              {...pager.tableProps}
               pasteCells={pasteReportCells}
               readOnly={settings?.readOnly}
-              revisionKey={rows.map((row) => `${row.id}:${row.position}`).join('|')}
+              revisionKey={outline.map((row) => `${row.id}:${row.position}`).join('|')}
               viewKey={
                 location.pathname.startsWith('/preview/')
                   ? undefined
@@ -852,7 +879,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, index) => (
+                {rows.map((row) => (
                   <tr key={row.id} data-report-row={row.id}>
                     <th scope="row">
                       <div className={styles.rowName}>
@@ -879,7 +906,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                             type="button"
                             aria-label={`Переместить строку ${row.name} вверх`}
                             title="Переместить вверх"
-                            disabled={index === 0 || movingRow !== null}
+                            disabled={row.id === outline[0]?.id || movingRow !== null}
                             onClick={() => void moveRow(row.id, 'up')}
                           >
                             ↑
@@ -888,7 +915,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                             type="button"
                             aria-label={`Переместить строку ${row.name} вниз`}
                             title="Переместить вниз"
-                            disabled={index === rows.length - 1 || movingRow !== null}
+                            disabled={row.id === outline.at(-1)?.id || movingRow !== null}
                             onClick={() => void moveRow(row.id, 'down')}
                           >
                             ↓
@@ -946,7 +973,7 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
         <RowDialog
           dormitoryId={dormitoryId}
           row={editing === 'new' ? null : editing}
-          rows={rows}
+          rows={outline}
           onClose={() => setEditing(null)}
           onChanged={refresh}
         />
