@@ -135,6 +135,7 @@ export function ArrivalDialog({
               </label>
             </div>
             <PeopleEditor
+              zoomKey="personnel/table-views/arrival-people-editor"
               people={draft.people}
               count={count}
               fields={personal}

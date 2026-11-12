@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { DormitoryHistoryTable } from './DormitoryHistoryTable';
+import { DormitoryArrivalTable } from './DormitoryArrivalTable';
 import type { MutableRefObject } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { CustomTab, CustomTabRow } from '../../api/client';
@@ -15,6 +16,7 @@ import styles from './OutflowTable.module.css';
 import { CreateTableDialog } from './CreateTableDialog';
 import { useSettingsNavigation } from './settingsContext';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { tablePage, useDormitoryPages } from './useDormitoryPages';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import { CustomDayCell } from './CustomDayCell';
 import { PersonnelTableCells } from './PersonnelTableCells';
@@ -39,6 +41,7 @@ function CustomTableContent({
     error: columnsError,
     waitForRowSaves,
     personnelFields,
+    setVisibleRowIds,
   } = useColumns();
   const options = { ...defaultTabOptions, ...tab.options };
   const [clearing, setClearing] = useState(false);
@@ -57,6 +60,15 @@ function CustomTableContent({
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [deleting, setDeleting] = useState<CustomTabRow | null>(null);
+  const pager = useDormitoryPages(
+    dormitoryId,
+    `${tab.id}:${range.from}:${range.to}`,
+    () => setAttempt((n) => n + 1),
+    setError,
+  );
+  const { options: pagingOptions, setInfo } = pager;
+  const visibleRowIds = rows.map((row) => row.id).join(',');
+  useEffect(() => setVisibleRowIds?.(visibleRowIds), [setVisibleRowIds, visibleRowIds]);
   useEffect(() => {
     if (!waitForSavesRef) return;
     waitForSavesRef.current = async () => {
@@ -70,7 +82,6 @@ function CustomTableContent({
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    setLoaded(false);
     setError('');
     void api
       .customTabRows(
@@ -78,10 +89,13 @@ function CustomTableContent({
         tab.id,
         controller.signal,
         options.period_mode === 'none' ? undefined : range,
+        pagingOptions,
       )
       .then((items) => {
         if (!controller.signal.aborted) {
-          setRows(items);
+          const page = tablePage(items);
+          setRows(page.rows);
+          setInfo({ page: page.page, total: page.total });
           setLoaded(true);
           setLoading(false);
         }
@@ -102,6 +116,8 @@ function CustomTableContent({
     options.period_mode,
     options.date_column_id,
     options.table_format,
+    pagingOptions,
+    setInfo,
   ]);
 
   async function clear(): Promise<void> {
@@ -112,6 +128,8 @@ function CustomTableContent({
       await Promise.all(rows.map((row) => waitForRowSaves(row.id)));
       await api.clearCustomTab(dormitoryId, tab.id);
       setRows([]);
+      setInfo({ page: 1, total: 0 });
+      pager.changePage(1);
       setClearing(false);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось очистить список.');
@@ -132,7 +150,14 @@ function CustomTableContent({
             : range.from
           : undefined;
       const row = await api.createCustomTabRow(dormitoryId, tab.id, date);
-      setRows((current) => [...current, row]);
+      if (pager.info.total >= 100 || pager.search || pager.options.sort) {
+        if (!pager.search && !pager.options.sort)
+          pager.changePage(Math.ceil((pager.info.total + 1) / 100));
+        setAttempt((n) => n + 1);
+      } else {
+        setRows((current) => [...current, row]);
+        setInfo({ page: 1, total: pager.info.total + 1 });
+      }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось добавить строку.');
     } finally {
@@ -147,6 +172,8 @@ function CustomTableContent({
       await waitForRowSaves(deleting.id);
       await api.deleteCustomTabRow(dormitoryId, tab.id, deleting.id);
       setRows((current) => current.filter((row) => row.id !== deleting.id));
+      if (pager.info.total > 100) setAttempt((n) => n + 1);
+      else setInfo({ page: 1, total: Math.max(0, pager.info.total - 1) });
       setDeleting(null);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось удалить запись.');
@@ -159,6 +186,7 @@ function CustomTableContent({
       className={styles.page}
       data-testid="custom-tab-table"
       heading={<h2>{tab.name}</h2>}
+      paging={loaded && { pager, loading: loading || busy }}
       secondary={
         <>
           {tab.is_active && <ColumnsControls />}
@@ -216,6 +244,7 @@ function CustomTableContent({
         <div className={styles.tableScroll}>
           <ConfiguredTable
             className={styles.table}
+            {...pager.tableProps}
             trailing={days.map((day) => ({ id: day, label: formatDate(day, false) }))}
           >
             <thead>
@@ -372,13 +401,18 @@ export function CustomTabTable({
         table={tab.table_key}
         showActions={tab.options?.row_actions ?? true}
         showDates={tab.options?.show_dates ?? true}
+        pageScoped
       >
-        <CustomTableContent
-          dormitoryId={dormitoryId}
-          tab={tab}
-          range={range}
-          waitForSavesRef={waitForSavesRef}
-        />
+        {tab.options?.data_source === 'arrival_plan' ? (
+          <DormitoryArrivalTable dormitoryId={dormitoryId} tab={tab} range={range} />
+        ) : (
+          <CustomTableContent
+            dormitoryId={dormitoryId}
+            tab={tab}
+            range={range}
+            waitForSavesRef={waitForSavesRef}
+          />
+        )}
       </TableColumnsProvider>
     );
   return (

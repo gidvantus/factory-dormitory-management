@@ -24,13 +24,21 @@ PARENTS = {
     "advance": "payments",
     "settlement": "payments",
 }
+STANDARD_CLEAR_LIST_DEFAULTS = {
+    "residents": False,
+    "inflow": False,
+    "outflow": False,
+    "advance": True,
+    "settlement": True,
+}
 
 
 def locked_dormitory(db: Session, dormitory_id: int) -> Dormitory:
     item = db.scalar(
         select(Dormitory)
         .where(Dormitory.id == dormitory_id)
-        .with_for_update()
+        # Сериализуем правки, оставляя возможность добавить задание с FK на общежитие.
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     if item is None:
@@ -54,7 +62,9 @@ def section_ancestors(dormitory: Dormitory, key: str) -> list[str]:
     return result
 
 
-def require_section(db: Session, dormitory_id: int, key: str, *, writable: bool = False) -> None:
+def require_section(
+    db: Session, dormitory_id: int, key: str, *, writable: bool = False
+) -> Dormitory:
     dormitory = locked_dormitory(db, dormitory_id) if writable else db.get(Dormitory, dormitory_id)
     if dormitory is None:
         raise HTTPException(404, "Общежитие не найдено")
@@ -73,7 +83,14 @@ def require_section(db: Session, dormitory_id: int, key: str, *, writable: bool 
                 f"Вкладка «{SECTIONS[current]}» скрыта и доступна только для просмотра. "
                 "Сначала восстановите её.",
             )
+    return dormitory
 
 
 def require_section_writable(db: Session, dormitory_id: int, key: str) -> None:
     require_section(db, dormitory_id, key, writable=True)
+
+
+def require_clear_list(db: Session, dormitory_id: int, key: str) -> None:
+    dormitory = require_section(db, dormitory_id, key, writable=True)
+    if not (dormitory.standard_clear_list or {}).get(key, STANDARD_CLEAR_LIST_DEFAULTS[key]):
+        raise HTTPException(409, "Очистка списка отключена в настройках вкладки")

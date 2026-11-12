@@ -1,8 +1,8 @@
 import { Link, useLocation } from 'react-router-dom';
 
 /**
- * Навигация кабинета: шесть разделов — организации, счета, тарифы, решения,
- * пользователи и реквизиты поставщика.
+ * Навигация кабинета: организации, счета, тарифы, решения, пользователи,
+ * права доступа и реквизиты поставщика.
  *
  * Активный раздел помечен `aria-current="page"` и подчёркиванием на линии шапки:
  * цвет в метке не участвует, а скринридер читает «текущая страница». Раздел
@@ -22,6 +22,7 @@ export function OperatorNav(): JSX.Element {
   const onSolutions = pathname === '/solutions' || pathname.startsWith('/solutions/');
   const onInvoices = pathname === '/invoices' || pathname.startsWith('/invoices/');
   const onCompany = pathname === '/company' || pathname.startsWith('/company/');
+  const onAccessRights = pathname === '/access-rights' || pathname.startsWith('/access-rights/');
   const onOrganizations = pathname === '/' || pathname.startsWith('/organizations/');
 
   return (
@@ -65,6 +66,14 @@ export function OperatorNav(): JSX.Element {
         data-testid="operator-nav-users"
       >
         Пользователи
+      </Link>
+      <Link
+        className="nav__link"
+        to="/access-rights"
+        aria-current={onAccessRights ? 'page' : undefined}
+        data-testid="operator-nav-access-rights"
+      >
+        Права доступа
       </Link>
       <Link
         className="nav__link"

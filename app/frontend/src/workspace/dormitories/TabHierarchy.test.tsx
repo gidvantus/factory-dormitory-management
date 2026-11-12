@@ -65,7 +65,12 @@ it('показывает дочерние вкладки внутри их ра�
     if (url === '/api/me')
       return {
         status: 200,
-        body: { email: 'test@example.com', full_name: 'Тест', is_active: true },
+        body: {
+          email: 'test@example.com',
+          full_name: 'Тест',
+          is_active: true,
+          permissions: { import_enabled: true, export_enabled: true },
+        },
       };
     if (url === '/api/dormitories/7')
       return { status: 200, body: { id: 7, name: 'Северное', client_name: 'Клиент' } };
@@ -92,7 +97,12 @@ it('скрывает стандартную подвкладку отдельн�
     if (url === '/api/me')
       return {
         status: 200,
-        body: { email: 'test@example.com', full_name: 'Тест', is_active: true },
+        body: {
+          email: 'test@example.com',
+          full_name: 'Тест',
+          is_active: true,
+          permissions: { import_enabled: true, export_enabled: true },
+        },
       };
     if (url === '/api/dormitories/7')
       return {
@@ -105,7 +115,7 @@ it('скрывает стандартную подвкладку отдельн�
         },
       };
     if (url.endsWith('/tabs')) return { status: 200, body: [] };
-    if (url.includes('/inflow?')) return { status: 200, body: [] };
+    if (url.includes('/inflow?')) return { status: 200, body: { rows: [], total: 0, page: 1 } };
     if (url.endsWith('/tables/inflow/columns')) return { status: 200, body: [] };
     return { status: 404 };
   });

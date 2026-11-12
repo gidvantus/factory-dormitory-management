@@ -79,22 +79,29 @@ export function EmployeeNameCell({
         />
       ) : (
         <div className={styles.nameCell}>
-          <a
-            href={
-              employeeId ? `/cabinet/personnel?employee=${encodeURIComponent(employeeId)}` : '#'
-            }
-            className={styles.nameLink}
-            title="Открыть карточку сотрудника"
-            aria-busy={card.busy}
-            onClick={(event) => {
-              if (employeeId && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey))
-                return;
-              event.preventDefault();
-              void card.open();
-            }}
-          >
-            {name}
-          </a>
+          {card.canOpen ? (
+            <a
+              href={
+                employeeId ? `/cabinet/personnel?employee=${encodeURIComponent(employeeId)}` : '#'
+              }
+              className={styles.nameLink}
+              title="Открыть карточку сотрудника"
+              aria-busy={card.busy}
+              onClick={(event) => {
+                if (
+                  employeeId &&
+                  (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
+                )
+                  return;
+                event.preventDefault();
+                void card.open();
+              }}
+            >
+              {name}
+            </a>
+          ) : (
+            <span>{name}</span>
+          )}
           {!disabled && (
             <button
               type="button"

@@ -3,6 +3,7 @@ import { EditorSection } from '../../components/EditorSection';
 import { useOrganizedEditor } from '../../components/useOrganizedEditor';
 import styles from './CustomTabOptionsEditor.module.css';
 import { ExchangeOptionsEditor } from './ExchangeOptionsEditor';
+import { SourceChoice, ArrivalSourceEditor } from './ArrivalSourceEditor';
 
 export function CustomTabOptionsEditor({
   value,
@@ -11,6 +12,7 @@ export function CustomTabOptionsEditor({
   dateColumnName,
   onDateColumnName,
   disabled = false,
+  dormitoryId,
 }: {
   value: CustomTabOptions;
   onChange: (value: CustomTabOptions) => void;
@@ -18,6 +20,7 @@ export function CustomTabOptionsEditor({
   dateColumnName?: string | null;
   onDateColumnName?: (name: string | null) => void;
   disabled?: boolean;
+  dormitoryId?: string;
 }): JSX.Element {
   const organized = useOrganizedEditor();
   function patch(next: Partial<CustomTabOptions>): void {
@@ -28,6 +31,54 @@ export function CustomTabOptionsEditor({
     onChange({ ...value, ...next });
   }
   const dates = columns?.filter((col) => col.kind === 'date' && !col.archived);
+  if (value.data_source === 'arrival_plan')
+    return (
+      <fieldset
+        className={styles.editor}
+        disabled={disabled}
+        data-editor-options={organized || undefined}
+      >
+        <legend>Возможности вкладки</legend>
+        <SourceChoice value={value} onChange={onChange} columns={columns} />
+        <ArrivalSourceEditor
+          dormitoryId={dormitoryId}
+          value={value}
+          onChange={onChange}
+          columns={columns}
+        />
+        <EditorSection
+          title="Даты и период"
+          description="Период отбирает людей по дате заезда из персонала."
+        >
+          <div className={styles.selects}>
+            <label>
+              Выбор периода
+              <select
+                aria-label="Выбор периода"
+                value={value.period_mode}
+                onChange={(event) =>
+                  patch({ period_mode: event.target.value as CustomTabOptions['period_mode'] })
+                }
+              >
+                <option value="none">Ближайшие заезды — год вперёд</option>
+                <option value="range">Диапазон дат</option>
+                <option value="month">Переключение месяцев</option>
+              </select>
+            </label>
+          </div>
+        </EditorSection>
+        <div className={styles.checks}>
+          <label>
+            <input
+              type="checkbox"
+              checked={value.export_enabled ?? true}
+              onChange={(event) => patch({ export_enabled: event.target.checked })}
+            />{' '}
+            Экспорт данных в Excel
+          </label>
+        </div>
+      </fieldset>
+    );
   return (
     <fieldset
       className={styles.editor}
@@ -35,6 +86,7 @@ export function CustomTabOptionsEditor({
       data-editor-options={organized || undefined}
     >
       <legend>Возможности вкладки</legend>
+      <SourceChoice value={value} onChange={onChange} columns={columns} />
       <div className={styles.selects}>
         <EditorSection
           title="Вид таблицы"

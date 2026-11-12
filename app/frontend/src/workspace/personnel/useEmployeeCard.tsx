@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useExchangePermissions } from '../../auth/exchangePermissions';
 import { createPortal } from 'react-dom';
 import { ApiError, waitForDormitoryWrites } from '../../api/client';
 import { personnelApi } from '../../api/personnel';
@@ -22,18 +23,28 @@ export function useEmployeeCard({
   fields?: Partial<IdentityFields>;
   beforeOpen?: () => Promise<unknown>;
   onLinked?: (id: string) => void;
-}): { open: () => Promise<void>; busy: boolean; error: string; dialog: JSX.Element | null } {
+}): {
+  open: () => Promise<void>;
+  canOpen: boolean;
+  busy: boolean;
+  error: string;
+  dialog: JSX.Element | null;
+} {
+  const canOpen = useExchangePermissions().personnel_enabled !== false;
   const [panel, setPanel] = useState<'profile' | 'identity' | null>(null);
   const [linkedId, setLinkedId] = useState(employeeId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => setLinkedId(employeeId), [employeeId]);
+  useEffect(() => {
+    if (!canOpen) setPanel(null);
+  }, [canOpen]);
   function linked(id: string): void {
     setLinkedId(id);
     onLinked?.(id);
   }
   async function open(): Promise<void> {
-    if (busy) return;
+    if (busy || !canOpen) return;
     setBusy(true);
     setError('');
     try {
@@ -86,5 +97,5 @@ export function useEmployeeCard({
         document.body,
       )
     ) : null;
-  return { open, busy, error, dialog };
+  return { open, canOpen, busy, error, dialog: canOpen ? dialog : null };
 }

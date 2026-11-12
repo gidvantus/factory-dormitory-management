@@ -3,10 +3,22 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.report_defaults import ReportMetric
+from app.table_views import TableColors
 
 
 class ReportTemplate(Base):
@@ -20,6 +32,7 @@ class ReportTemplate(Base):
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    colors: Mapped[TableColors] = mapped_column(JSON, default=dict, server_default=text("'{}'"))
     created_by_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -42,6 +55,7 @@ class ReportTemplateRow(Base):
         ForeignKey("report_templates.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    metric_key: Mapped[ReportMetric | None] = mapped_column(String(20), nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     formula: Mapped[str | None] = mapped_column(Text, nullable=True)
     link_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)

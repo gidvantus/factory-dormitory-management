@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -10,6 +10,7 @@ import { Personnel } from '../Personnel';
 import { BlockDialog } from './Dialogs';
 import { filterPeople } from './helpers';
 import { defaultColumns } from '../../test/tableColumns';
+import { renderWithExchangePermissions as render } from '../../test/renderWithExchangePermissions';
 
 const source = (
   dorm: number,

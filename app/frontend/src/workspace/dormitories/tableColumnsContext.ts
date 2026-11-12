@@ -20,6 +20,7 @@ export interface TableColumnsContext {
   values: Record<string, CellValue>;
   fillRows?: Record<number, CellFillRow>;
   fillSaved?: (row: CellFillRow) => void;
+  setVisibleRowIds?: (ids: string) => void;
   personnelFields?: Record<string, number>;
   outflowFields?: OutflowFields | null;
   saved: (key: string, value: CellValue) => void;

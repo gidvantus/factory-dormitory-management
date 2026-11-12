@@ -1,5 +1,6 @@
 """Точка входа FastAPI."""
 
+import asyncio
 import json
 import logging
 import time
@@ -38,6 +39,7 @@ from app.api import (
     payments,
     personnel,
     personnel_builder,
+    platform_access_rights,
     platform_company,
     platform_invoices,
     platform_organizations,
@@ -71,11 +73,13 @@ from app.api import (
 # подменил бы его.
 from app.api.audit import router as journal_router
 from app.config import get_settings
-from app.db import get_db
+from app.db import engine, get_db
 from app.file_access import can_read, content_type_for, normalize_key
 from app.schemas.user import ErrorResponse
+from app.section_permissions import require_section_access
 from app.security import OptionalUser
 from app.storage import StorageNotFoundError, log_storage_mode, storage
+from app.table_import_queue import process_import_queue
 
 API_PREFIX = "/api"
 
@@ -261,7 +265,16 @@ async def lifespan(_application: FastAPI) -> AsyncIterator[None]:
     log_storage_mode()
     if audit.month_guard():
         audit.refresh_audit_storage()
-    yield
+    if engine.dialect.name != "postgresql":
+        yield
+        return
+    stop = asyncio.Event()
+    import_worker = asyncio.create_task(process_import_queue(stop))
+    try:
+        yield
+    finally:
+        stop.set()
+        await import_worker
 
 
 def create_app() -> FastAPI:
@@ -349,7 +362,9 @@ def create_app() -> FastAPI:
     application.include_router(activation.router, prefix=API_PREFIX)
     application.include_router(recovery.router, prefix=API_PREFIX)
     application.include_router(users.router, prefix=API_PREFIX)
-    application.include_router(organization.router, prefix=API_PREFIX)
+    application.include_router(
+        organization.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
     # Платформенный контур кабинета оператора: отдельный префикс и отдельный
     # сервисный токен, cookie основного кабинета его не открывает.
     application.include_router(platform_organizations.router, prefix=API_PREFIX)
@@ -377,35 +392,94 @@ def create_app() -> FastAPI:
     # акта берут из них блок «Поставщик» и строку про НДС. Тот же заголовок
     # `X-Operator-Token` и та же зависимость на роутере.
     application.include_router(platform_company.router, prefix=API_PREFIX)
+    application.include_router(platform_access_rights.router, prefix=API_PREFIX)
     application.include_router(journal_router, prefix=API_PREFIX)
-    application.include_router(dashboard.router, prefix=API_PREFIX)
-    application.include_router(dashboard_blocks.router, prefix=API_PREFIX)
-    application.include_router(report_readiness.router, prefix=API_PREFIX)
-    application.include_router(hostels.router, prefix=API_PREFIX)
-    application.include_router(inflow.router, prefix=API_PREFIX)
-    application.include_router(outflow.router, prefix=API_PREFIX)
-    application.include_router(payments.router, prefix=API_PREFIX)
-    application.include_router(personnel.router, prefix=API_PREFIX)
-    application.include_router(personnel_builder.router, prefix=API_PREFIX)
-    application.include_router(arrival_plans.router, prefix=API_PREFIX)
-    application.include_router(residents.router, prefix=API_PREFIX)
-    application.include_router(dormitories.router, prefix=API_PREFIX)
-    application.include_router(reports.router, prefix=API_PREFIX)
-    application.include_router(report_templates.router, prefix=API_PREFIX)
-    application.include_router(table_columns.router, prefix=API_PREFIX)
-    application.include_router(table_views.router, prefix=API_PREFIX)
-    application.include_router(table_exchange.router, prefix=API_PREFIX)
-    application.include_router(cell_fill.router, prefix=API_PREFIX)
-    application.include_router(custom_tabs.router, prefix=API_PREFIX)
-    application.include_router(dormitory_history_api.router, prefix=API_PREFIX)
-    application.include_router(sections.router, prefix=API_PREFIX)
-    application.include_router(statistics_reports.router, prefix=API_PREFIX)
-    application.include_router(tab_catalog.router, prefix=API_PREFIX)
-    application.include_router(dormitory_settings.router, prefix=API_PREFIX)
-    application.include_router(dormitory_templates.router, prefix=API_PREFIX)
+    application.include_router(
+        dashboard.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        dashboard_blocks.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        report_readiness.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        hostels.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        inflow.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        outflow.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        payments.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        personnel.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        personnel_builder.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        arrival_plans.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        residents.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        dormitories.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        reports.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        report_templates.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        table_columns.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        table_views.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        table_exchange.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        cell_fill.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        custom_tabs.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        dormitory_history_api.router,
+        prefix=API_PREFIX,
+        dependencies=[Depends(require_section_access)],
+    )
+    application.include_router(
+        sections.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        statistics_reports.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        tab_catalog.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        dormitory_settings.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        dormitory_templates.router,
+        prefix=API_PREFIX,
+        dependencies=[Depends(require_section_access)],
+    )
     application.include_router(tariffs.router, prefix=API_PREFIX)
-    application.include_router(solutions.router, prefix=API_PREFIX)
-    application.include_router(billing.router, prefix=API_PREFIX)
+    application.include_router(
+        solutions.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
+    application.include_router(
+        billing.router, prefix=API_PREFIX, dependencies=[Depends(require_section_access)]
+    )
     application.include_router(trial.router, prefix=API_PREFIX)
     application.include_router(documents.router, prefix=API_PREFIX)
     application.include_router(telegram.router, prefix=API_PREFIX)

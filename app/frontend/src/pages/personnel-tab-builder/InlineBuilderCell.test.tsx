@@ -11,7 +11,7 @@ function Example(): JSX.Element {
   const [values, setValues] = useState(['Исходное', '12']);
   return (
     <UnsavedChangesProvider>
-      <WorkingTable>
+      <WorkingTable pasteCells>
         <thead>
           <tr>
             <th>Текст</th>
@@ -78,4 +78,13 @@ it('Escape отменяет черновик, а некорректное чис
   await user.type(screen.getByLabelText('Текст 1'), ' черновик');
   await user.keyboard('{Escape}');
   expect(screen.getByLabelText('Сохранённые значения')).toHaveTextContent('Исходное;12');
+});
+
+it('вставляет диапазон в ячейки конструктора и сохраняет обе правки', async () => {
+  const user = userEvent.setup();
+  render(<Example />);
+  await user.click(screen.getByRole('button', { name: 'Редактировать Текст 1' }));
+  await user.paste('Скопировано\t12,5');
+  expect(screen.getByLabelText('Сохранённые значения')).toHaveTextContent('Скопировано;12.5');
+  expect(screen.getByText('Вставлено ячеек: 2.')).toBeInTheDocument();
 });

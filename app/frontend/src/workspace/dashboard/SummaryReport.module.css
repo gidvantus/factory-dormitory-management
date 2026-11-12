@@ -20,6 +20,15 @@
 .labelColumn {
   width: var(--summary-label-width);
 }
+.report[data-metrics='true'] .labelColumn {
+  width: 13%;
+}
+.metricColumn {
+  width: 14%;
+}
+.report[data-metrics='true'] {
+  --summary-metric-min: 120px;
+}
 .totalColumn {
   width: var(--summary-total-width);
 }
@@ -27,12 +36,12 @@
   min-width: max(
     calc(100% + var(--summary-day-width)),
     calc(
-      var(--summary-label-min) + var(--summary-total-min) + var(--summary-days) *
-        var(--summary-day-width)
+      var(--summary-label-min) + var(--summary-metric-min, 0px) + var(--summary-total-min) +
+        var(--summary-days) * var(--summary-day-width)
     )
   );
 }
-.table :is(th, td) {
+.report table.table > :is(thead, tbody) > tr > :is(th, td) {
   border-bottom: var(--summary-border-width) solid var(--color-border);
   border-inline-end: var(--summary-border-width) solid var(--color-border);
   padding: var(--gap-6) var(--summary-cell-padding);
@@ -47,7 +56,7 @@
   background: var(--color-bg-alt);
   color: var(--color-text-muted);
 }
-.table tbody th {
+.report table.table > tbody > tr > th {
   text-align: start;
   font-weight: normal;
   padding-inline: var(--gap-8);
@@ -56,8 +65,12 @@
   display: block;
   font-size: var(--text-xs);
 }
-.table tr[data-group-start='true'] > * {
+.table tbody > tr:first-child > * {
   border-top: var(--summary-border-width) solid var(--color-border-strong);
+}
+.table .groupLabel {
+  vertical-align: middle;
+  background: var(--color-bg-alt);
 }
 .total {
   background: var(--color-bg-alt);
@@ -72,6 +85,13 @@
 }
 .mobileRow > strong {
   display: block;
+  overflow-wrap: anywhere;
+}
+.mobileMetric + .mobileMetric {
+  margin-block-start: var(--gap-12);
+}
+.mobileMetric > strong {
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 .days {

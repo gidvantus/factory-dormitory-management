@@ -1,5 +1,6 @@
-"""Общее оформление таблиц: цвета и порядок без изменения значений ячеек."""
+"""Общее оформление таблиц и личный масштаб."""
 
+from datetime import date
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -9,13 +10,24 @@ from sqlalchemy.orm import Session
 
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.api.organization import Membership
+from app.custom_tab_options import options_for
 from app.db import get_db
+from app.dormitory_arrivals import arrival_rows
+from app.models.custom_tab import CustomTabEntry
 from app.models.organization import Organization
+from app.models.payment import PaymentEntry
+from app.models.report import ReportRow
 from app.models.table_view import TableView
-from app.table_data import DEFAULT_COLUMNS, lock_dormitory, require_writable_table
+from app.models.user import User
+from app.table_data import (
+    DEFAULT_COLUMNS,
+    TABLE_MODELS,
+    get_custom_tab,
+    lock_dormitory,
+    require_writable_table,
+)
 
-# Роутер закрыт `SubscribedUser`, поэтому 403 объявляется один раз здесь, а не
-# в каждой ручке: `/openapi.json` обязан показывать его у всех четырёх.
+# Роутер закрыт `SubscribedUser`, поэтому 403 объявляется один раз для всех маршрутов.
 router = APIRouter(tags=["table-views"], responses={**SUBSCRIBED_USER_RESPONSES})
 DbSession = Annotated[Session, Depends(get_db)]
 ViewKey = Annotated[str, Path(min_length=1, max_length=120, pattern=r"^[\w.-]+$")]
@@ -45,6 +57,131 @@ class SaveView(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: int = Field(ge=0)
     state: ViewState
+
+
+class TableRowMove(BaseModel):
+    source: Annotated[str, Field(min_length=1, max_length=160)] | int
+    target: Annotated[str, Field(min_length=1, max_length=160)] | int
+    after: bool
+
+
+class SaveDormitoryView(SaveView):
+    row_move: TableRowMove | None = None
+
+
+def move_table_row(
+    db: Session, dormitory_id: int, table_key: str, previous: list[str], move: TableRowMove
+) -> list[str]:
+    if table_key == "report":
+        query = select(ReportRow.id).where(ReportRow.dormitory_id == dormitory_id)
+        identifiers = [
+            str(key) for key in db.scalars(query.order_by(ReportRow.position, ReportRow.id))
+        ]
+    elif table_key.startswith("custom_"):
+        tab_id = int(table_key[7:])
+        tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True)
+        options = options_for(tab)
+        if options.data_source == "arrival_plan":
+            identifiers = [
+                row["id"]
+                for row in arrival_rows(
+                    db, dormitory_id, options.arrival_columns, date(2, 1, 1), date(9998, 12, 31)
+                )
+            ]
+        else:
+            query = select(CustomTabEntry.id).where(
+                CustomTabEntry.dormitory_id == dormitory_id, CustomTabEntry.tab_id == tab_id
+            )
+            identifiers = [str(key) for key in db.scalars(query.order_by(CustomTabEntry.id))]
+    else:
+        model = TABLE_MODELS[table_key]
+        query = select(model.id).where(model.dormitory_id == dormitory_id)
+        if model is PaymentEntry:
+            query = query.where(PaymentEntry.kind == table_key)
+        order = model.id.desc() if table_key in {"residents", "inflow", "outflow"} else model.id
+        identifiers = [str(key) for key in db.scalars(query.order_by(order))]
+    available = set(identifiers)
+    source, target = str(move.source), str(move.target)
+    if source == target or source not in available or target not in available:
+        raise HTTPException(409, "Строки изменились. Обновите таблицу и повторите действие.")
+    saved = [key for key in previous if key in available]
+    saved_set = set(saved)
+    ordered = saved + [key for key in identifiers if key not in saved_set]
+    boundary = max(len(saved), ordered.index(source) + 1, ordered.index(target) + 1)
+    ordered.remove(source)
+    ordered.insert(ordered.index(target) + int(move.after), source)
+    result = ordered[:boundary]
+    if len(result) > 20000:
+        raise HTTPException(422, "Слишком много строк для сохранения порядка")
+    return result
+
+
+class TableZoom(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    percent: int = Field(default=100, ge=50, le=200)
+
+
+def personal_view_key(
+    user: User, organization_id: int, scope: str, key: str
+) -> tuple[int, str, str]:
+    return organization_id, f"zoom:user-{user.id}:{scope}", key
+
+
+def save_zoom(
+    db: Session, user: User, identifier: tuple[int, str, str], payload: TableZoom
+) -> TableZoom:
+    db.scalar(select(User.id).where(User.id == user.id).with_for_update())
+    row = db.get(TableView, identifier, populate_existing=True)
+    if payload.percent == 100:
+        if row is not None:
+            db.delete(row)
+    else:
+        if row is None:
+            organization_id, scope, key = identifier
+            row = TableView(organization_id=organization_id, scope=scope, table_key=key)
+            db.add(row)
+        row.state = payload.model_dump()
+    db.commit()
+    return payload
+
+
+@router.get("/dormitories/{dormitory_id}/table-views/{key}/zoom")
+def read_dormitory_zoom(
+    key: ViewKey, user: SubscribedUser, dorm: OwnDormitory, db: DbSession
+) -> TableZoom:
+    row = db.get(
+        TableView, personal_view_key(user, dorm.organization_id, f"dormitory-{dorm.id}", key)
+    )
+    return TableZoom.model_validate(row.state) if row else TableZoom()
+
+
+@router.put("/dormitories/{dormitory_id}/table-views/{key}/zoom")
+def save_dormitory_zoom(
+    key: ViewKey, payload: TableZoom, user: SubscribedUser, dorm: OwnDormitory, db: DbSession
+) -> TableZoom:
+    return save_zoom(
+        db,
+        user,
+        personal_view_key(user, dorm.organization_id, f"dormitory-{dorm.id}", key),
+        payload,
+    )
+
+
+@router.get("/personnel/table-views/{key}/zoom")
+def read_personnel_zoom(
+    key: ViewKey, user: SubscribedUser, membership: Membership, db: DbSession
+) -> TableZoom:
+    row = db.get(TableView, personal_view_key(user, membership.organization_id, "personnel", key))
+    return TableZoom.model_validate(row.state) if row else TableZoom()
+
+
+@router.put("/personnel/table-views/{key}/zoom")
+def save_personnel_zoom(
+    key: ViewKey, payload: TableZoom, user: SubscribedUser, membership: Membership, db: DbSession
+) -> TableZoom:
+    return save_zoom(
+        db, user, personal_view_key(user, membership.organization_id, "personnel", key), payload
+    )
 
 
 def response(row: TableView | None) -> dict[str, Any]:
@@ -81,7 +218,11 @@ def read_dormitory_view(
 
 @router.put("/dormitories/{dormitory_id}/table-views/{key}")
 def save_dormitory_view(
-    key: ViewKey, payload: SaveView, _user: SubscribedUser, dorm: OwnDormitory, db: DbSession
+    key: ViewKey,
+    payload: SaveDormitoryView,
+    _user: SubscribedUser,
+    dorm: OwnDormitory,
+    db: DbSession,
 ) -> dict[str, Any]:
     if key not in (*DEFAULT_COLUMNS, "report", "places") and not (
         key.startswith("custom_") and key[7:].isdigit()
@@ -95,6 +236,12 @@ def save_dormitory_view(
     if payload.revision != (current.revision if current else 0):
         raise HTTPException(
             409, "Оформление изменено в другом окне. Обновите оформление и повторите действие."
+        )
+    if payload.row_move:
+        if key not in (*TABLE_MODELS, "report") and not key.startswith("custom_"):
+            raise HTTPException(422, "Перемещение строк страниц недоступно в этой таблице")
+        payload.state.rows = move_table_row(
+            db, dorm.id, key, current.state.get("rows", []) if current else [], payload.row_move
         )
     if key in ("report", "places"):
         from app.section_state import require_section_writable
@@ -113,8 +260,6 @@ def save_dormitory_view(
             for position, column in enumerate(ordered):
                 column.position = position
     if key == "report" and payload.state.rows:
-        from app.models.report import ReportRow
-
         rows = list(
             db.scalars(
                 select(ReportRow)

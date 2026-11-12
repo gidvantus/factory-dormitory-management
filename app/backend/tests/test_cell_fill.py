@@ -384,6 +384,9 @@ def test_period_filter_uses_linked_dates_and_handles_missing_source(
     response = client.get(path, params={"from": "2026-10-01", "to": "2026-10-01"})
     assert response.status_code == 200
     assert response.json() == []
+    page = client.get(path, params={"from": "2026-10-01", "to": "2026-10-01", "page": 1})
+    assert page.status_code == 200
+    assert page.json() == {"rows": [], "total": 0, "page": 1}
 
 
 def test_report_template_copies_cell_sources_with_new_identifiers(

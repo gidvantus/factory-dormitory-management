@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useExchangePermissions } from '../auth/exchangePermissions';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { api, ApiError } from '../api/client';
@@ -31,8 +32,11 @@ export const RULES_ACTION_ERROR_TEXT = 'Не удалось изменить п�
  * закончиться между загрузками.
  */
 export function NotificationRules(): JSX.Element {
+  const { dormitories_enabled: dormitoriesEnabled } = useExchangePermissions();
   const [params, setParams] = useSearchParams();
-  const [dormitories, setDormitories] = useState<Dormitory[]>([]);
+  const [dormitories, setDormitories] = useState<
+    Pick<Dormitory, 'id' | 'name' | 'client_name' | 'is_archived'>[]
+  >([]);
   const [rules, setRules] = useState<NotificationRule[]>([]);
   const [catalog, setCatalog] = useState<NotificationRuleCatalog | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,8 +55,8 @@ export function NotificationRules(): JSX.Element {
 
   useEffect(() => {
     const controller = new AbortController();
-    void api
-      .dormitories(controller.signal)
+    const load = dormitoriesEnabled === false ? api.dormitoryLookup : api.dormitories;
+    void load(controller.signal)
       .then((items) => {
         if (controller.signal.aborted) return;
         // Архивное общежитие правил не принимает: в селекторе ему не место.
@@ -67,7 +71,7 @@ export function NotificationRules(): JSX.Element {
         if (caught instanceof ApiError && caught.status === 403) setLocked(true);
       });
     return () => controller.abort();
-  }, [attempt]);
+  }, [attempt, dormitoriesEnabled]);
 
   // Адрес сохраняет выбор после обновления; недоступное общежитие заменяем доступным.
   useEffect(() => {

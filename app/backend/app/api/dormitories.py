@@ -8,6 +8,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,11 +20,13 @@ from app.dormitory_templates import apply_snapshot, own_template
 from app.models.dormitory import Dormitory
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplateRow
-from app.report_defaults import DEFAULT_REPORT_FORMULA, REQUIRED_REPORT_ROW_NAMES, required_row_name
+from app.report_defaults import DEFAULT_REPORT_FORMULA, missing_report_metrics
 from app.report_templates import own_template as own_report_template
+from app.report_templates import restore_report_colors
 from app.schemas.dormitory import CreateDormitoryRequest, DormitoryResponse, UpdateDormitoryRequest
 from app.schemas.user import ErrorResponse
 from app.table_data import restore_link
+from app.table_views import TableColors
 
 router = APIRouter(
     prefix="/dormitories",
@@ -34,6 +37,23 @@ router = APIRouter(
     },
 )
 DbSession = Annotated[Session, Depends(get_db)]
+
+
+class DormitoryLookup(BaseModel):
+    id: int
+    name: str
+    client_name: str
+    is_archived: bool
+
+
+@router.get("/lookup", response_model=list[DormitoryLookup])
+def lookup_dormitories(
+    _user: SubscribedUser, membership: Membership, db: DbSession
+) -> list[DormitoryLookup]:
+    return [
+        DormitoryLookup(id=d.id, name=d.name, client_name=d.client_name, is_archived=d.is_archived)
+        for d in scoped_dormitories(db, membership.organization_id)
+    ]
 
 
 @router.get("", response_model=list[DormitoryResponse], summary="Список общежитий организации")
@@ -60,10 +80,12 @@ def create_dormitory(
     db: DbSession,
 ) -> DormitoryResponse:
     template_rows: list[ReportTemplateRow] = []
+    template_colors: TableColors = {}
     if payload.template_id is not None:
         # Шаблон отчёта берётся из библиотеки своей организации: чужой отвечает
         # тем же 404 «Шаблон не найден», что и несуществующий.
-        own_report_template(db, payload.template_id, membership.organization_id)
+        template = own_report_template(db, payload.template_id, membership.organization_id)
+        template_colors = template.colors
         template_rows = list(
             db.scalars(
                 select(ReportTemplateRow)
@@ -97,7 +119,12 @@ def create_dormitory(
     if payload.tabs is not None:
         try:
             initialize_structure(
-                db, dormitory, payload.tabs, template_rows, membership.organization_id
+                db,
+                dormitory,
+                payload.tabs,
+                template_rows,
+                membership.organization_id,
+                template_colors=template_colors,
             )
         except HTTPException:
             db.rollback()
@@ -105,48 +132,37 @@ def create_dormitory(
         db.commit()
         db.refresh(dormitory)
         return DormitoryResponse.model_validate(dormitory)
-    aliases = {
-        row.name: canonical
-        for row in template_rows
-        if (canonical := required_row_name(row.name)) is not None and row.name != canonical
-    }
-    copied_names: set[str] = set()
     next_position = 0
     mapped_columns: dict[int, int] = {}
     mapped_sources: dict[str, int] = {}
+    copied_rows: dict[int, ReportRow] = {}
     for row in template_rows:
         next_position += 1
-        canonical = required_row_name(row.name)
-        name = canonical or row.name
-        copied_names.add(name)
-        formula = row.formula
-        if formula:
-            for old_name, new_name in aliases.items():
-                formula = formula.replace(f"[{old_name}]", f"[{new_name}]")
-        db.add(
-            ReportRow(
-                dormitory_id=dormitory.id,
-                name=name,
-                formula=formula or DEFAULT_REPORT_FORMULA if canonical else formula,
-                position=next_position,
-                link=restore_link(
-                    db, dormitory.id, row.link_snapshot, mapped_columns, mapped_sources
-                )
-                if not canonical
-                else None,
-            )
+        copied = ReportRow(
+            dormitory_id=dormitory.id,
+            name=row.name,
+            metric_key=row.metric_key,
+            formula=(row.formula or DEFAULT_REPORT_FORMULA) if row.metric_key else row.formula,
+            position=next_position,
+            link=restore_link(db, dormitory.id, row.link_snapshot, mapped_columns, mapped_sources)
+            if not row.metric_key
+            else None,
         )
+        db.add(copied)
+        copied_rows[row.position] = copied
     db.add_all(
         ReportRow(
             dormitory_id=dormitory.id,
             name=name,
+            metric_key=metric,
             formula=DEFAULT_REPORT_FORMULA,
             position=next_position + index,
         )
-        for index, name in enumerate(
-            (name for name in REQUIRED_REPORT_ROW_NAMES if name not in copied_names), start=1
+        for index, (metric, name) in enumerate(
+            missing_report_metrics((row.name, row.metric_key) for row in template_rows), start=1
         )
     )
+    restore_report_colors(db, dormitory, template_colors, copied_rows)
     db.commit()
     db.refresh(dormitory)
     return DormitoryResponse.model_validate(dormitory)

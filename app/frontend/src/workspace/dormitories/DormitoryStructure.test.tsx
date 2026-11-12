@@ -139,8 +139,8 @@ it('открывает выбранный отдельно Приток как �
           ),
         },
       };
-    if (url.endsWith('/tabs') || url.includes('/inflow?') || url.endsWith('/columns'))
-      return { status: 200, body: [] };
+    if (url.includes('/inflow?')) return { status: 200, body: { rows: [], total: 0, page: 1 } };
+    if (url.endsWith('/tabs') || url.endsWith('/columns')) return { status: 200, body: [] };
     return { status: 404 };
   });
   renderApp('/cabinet/dormitories/7/inflow');

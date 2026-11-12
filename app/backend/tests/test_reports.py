@@ -75,6 +75,35 @@ def test_report_is_shared_and_formula_fills_each_date(
     }
 
 
+def test_report_range_saves_together_and_rejects_calculated_or_foreign_rows(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session, email=REPORTS_EMAIL)
+    base = f"/api/dormitories/{create_dormitory(client)}/report"
+    manual = create_row(client, base, "Ввод")
+    calculated = create_row(client, base, "Удвоено", "=[Ввод]*2")
+    foreign = create_row(
+        client, f"/api/dormitories/{create_dormitory(client, 'Другое')}/report", "Ввод"
+    )
+    first = {"row_id": manual, "report_date": "2026-10-01", "value": " 7 "}
+    second = {"row_id": manual, "report_date": "2026-10-02", "value": "12"}
+    assert client.put(base + "/cells", json={"cells": [first, second]}).status_code == 204
+    for row_id, expected in ((calculated, 409), (foreign, 404)):
+        response = client.put(
+            base + "/cells",
+            json={"cells": [{**first, "value": "99"}, {**second, "row_id": row_id}]},
+        )
+        assert response.status_code == expected, response.text
+    assert client.put(base + "/cells", json={"cells": [first, first]}).status_code == 422
+    report = client.get(base + "?from=2026-10-01&to=2026-10-02").json()
+    rows = {row["id"]: row["values"] for row in report["rows"]}
+    assert rows[manual] == {"2026-10-01": "7", "2026-10-02": "12"}
+    assert rows[calculated] == {"2026-10-01": "14", "2026-10-02": "24"}
+    assert client.put(base + "/cells", json={"cells": [{**first, "value": ""}]}).status_code == 204
+    rows = client.get(base + "?from=2026-10-01&to=2026-10-02").json()["rows"]
+    assert next(row for row in rows if row["id"] == manual)["values"] == {"2026-10-02": "12"}
+
+
 def test_rename_preserves_formula_and_deletion_checks_dependencies(
     client: TestClient, db_session: Session
 ) -> None:
@@ -191,7 +220,7 @@ def test_formula_treats_empty_cells_as_zero(client: TestClient, db_session: Sess
     }
 
 
-def test_required_totals_keep_name_and_formula_but_allow_formula_edit(
+def test_required_totals_can_be_renamed_and_keep_their_dependencies(
     client: TestClient, db_session: Session
 ) -> None:
     sign_in(client, db_session, email=REPORTS_EMAIL)
@@ -199,15 +228,18 @@ def test_required_totals_keep_name_and_formula_but_allow_formula_edit(
     rows = client.get(f"{base}?from=2026-10-01&to=2026-10-01").json()["rows"]
     total_id = rows[0]["id"]
     assert client.delete(f"{base}/rows/{total_id}").status_code == 409
-    assert client.patch(f"{base}/rows/{total_id}", json={"name": "Другое"}).status_code == 409
+    dependent = create_row(client, base, "Зависимый итог", "=[Выход Итого]*2")
+    renamed = client.patch(f"{base}/rows/{total_id}", json={"name": "Работают"})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["metric_key"] == "attendance"
+    assert client.delete(f"{base}/rows/{total_id}").status_code == 409
     assert client.patch(f"{base}/rows/{total_id}", json={"formula": None}).status_code == 409
     assert (
         client.put(f"{base}/rows/{total_id}/cells/2026-10-01", json={"value": "3"}).status_code
         == 409
     )
     assert (
-        client.post(f"{base}/rows", json={"name": "выход итого", "formula": "=5"}).status_code
-        == 409
+        client.post(f"{base}/rows", json={"name": "работают", "formula": "=5"}).status_code == 409
     )
     source_id = create_row(client, base, "Выход")
     assert client.patch(f"{base}/rows/{total_id}", json={"formula": "=[Выход]"}).status_code == 200
@@ -215,6 +247,11 @@ def test_required_totals_keep_name_and_formula_but_allow_formula_edit(
         client.put(f"{base}/rows/{source_id}/cells/2026-10-01", json={"value": "7"}).status_code
         == 204
     )
-    updated = client.get(f"{base}?from=2026-10-01&to=2026-10-01").json()["rows"][0]
-    assert updated["name"] == "Выход Итого"
+    updated_rows = client.get(f"{base}?from=2026-10-01&to=2026-10-01").json()["rows"]
+    updated = updated_rows[0]
+    assert updated["name"] == "Работают"
+    assert updated["metric_block_name"] == "Выход на работу"
     assert updated["values"] == {"2026-10-01": "7"}
+    assert next(row for row in updated_rows if row["id"] == dependent)["values"] == {
+        "2026-10-01": "14"
+    }

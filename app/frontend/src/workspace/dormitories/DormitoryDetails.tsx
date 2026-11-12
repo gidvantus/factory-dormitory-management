@@ -25,6 +25,7 @@ import { TableLayoutContext } from './tableLayoutContext';
 
 import {
   standardTabs as sections,
+  standardClearListDefaults,
   standardParents,
   standardChain,
   standardPath,
@@ -100,6 +101,10 @@ export function DormitoryDetails(): JSX.Element {
   const selectedStandardKeys = standardKey ? standardChain(standardKey, parents) : [];
   const standardDeleted = selectedStandardKeys.some((key) => states[key] === 'deleted');
   const standardReadOnly = selectedStandardKeys.some((key) => states[key] === 'hidden');
+  const clearList =
+    primaryPath !== 'custom' && standardKey
+      ? (dormitory?.standard_clear_list?.[standardKey] ?? standardClearListDefaults[standardKey])
+      : undefined;
   const customReadOnly =
     standardReadOnly || standardDeleted || customAncestors.some((tab) => !tab.is_active);
   const rootSections = sections.filter(({ path }) => !parents[path]);
@@ -418,7 +423,9 @@ export function DormitoryDetails(): JSX.Element {
                 <p>Добавьте её обратно через «Настроить».</p>
               </div>
             ) : (
-              <TableLayoutContext.Provider value={{ exchange, period, readOnly: standardReadOnly }}>
+              <TableLayoutContext.Provider
+                value={{ exchange, period, readOnly: standardReadOnly, clearList }}
+              >
                 <div key={dataRevision} className={styles.sectionContent}>
                   {primaryPath === 'custom' ? (
                     tabsLoading ? (
@@ -515,6 +522,7 @@ export function DormitoryDetails(): JSX.Element {
                     ? {
                         ...current,
                         exchange_options: data.exchange_options,
+                        standard_clear_list: data.standard_clear_list,
                         section_states: Object.fromEntries(
                           data.sections.map((item) => [item.key, item.status]),
                         ),

@@ -43,6 +43,9 @@ EXEMPT_PATHS = frozenset(
         # неверный токен, включая пустой настроенный секрет), — поэтому cookie и
         # guard неактивного кабинета к ним неприменимы.
         "/api/platform/organizations",
+        # Общие права должностей открываются сервисным токеном оператора.
+        "/api/platform/access-rights",
+        "/api/platform/access-rights/{role}",
         "/api/platform/organizations/{organization_id}",
         # Пользователи платформы — второй раздел того же контура: авторизация
         # тоже заголовком `X-Operator-Token`, cookie и guard кабинета клиента
@@ -183,6 +186,19 @@ def test_me_stays_open_for_inactive_user(client: TestClient, db_session: Session
         "is_active": False,
         # Роль в организации (issue #74): у неактивированного кабинета её нет.
         "role": None,
+        "permissions": {
+            "import_enabled": False,
+            "export_enabled": False,
+            "overview_enabled": False,
+            "dormitories_enabled": False,
+            "personnel_enabled": False,
+            "statistics_enabled": False,
+            "documents_enabled": False,
+            "shop_enabled": False,
+            "organization_enabled": False,
+            "members_enabled": False,
+            "profile_enabled": False,
+        },
     }
 
 

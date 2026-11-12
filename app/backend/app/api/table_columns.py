@@ -30,9 +30,11 @@ from app.table_data import (
     get_record,
     lock_dormitory,
     normalize_value,
+    read_columns,
     require_column_type_change,
     require_writable_table,
 )
+from app.table_pagination import Paging, TablePage, record_page
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/tables",
@@ -83,7 +85,7 @@ def list_columns(
     db: DbSession,
     _dormitory: OwnDormitory,
 ) -> list[dict[str, Any]]:
-    columns = ensure_columns(db, dormitory_id, table_key)
+    columns = read_columns(db, dormitory_id, table_key)
     result = [
         {
             **ColumnResponse.model_validate(column).model_dump(),
@@ -223,7 +225,7 @@ def save_custom_cell(
     _dormitory: OwnDormitory,
 ) -> CellRequest:
     lock_dormitory(db, dormitory_id)
-    require_writable_table(db, dormitory_id, table_key)
+    require_writable_table(db, dormitory_id, table_key, data=True)
     column = get_column(db, dormitory_id, table_key, column_id)
     if column.archived or column.builtin_key or column.fill:
         raise HTTPException(409, "Этот столбец недоступен для записи")
@@ -256,31 +258,34 @@ class ArchiveResponse(BaseModel):
     custom_values: dict[str, Any]
 
 
-@router.get("/archive/rows", response_model=list[ArchiveResponse])
+@router.get("/archive/rows", response_model=list[ArchiveResponse] | TablePage[ArchiveResponse])
 def list_archive(
     dormitory_id: DormitoryId,
     _user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
-    _dormitory: OwnDormitory,
-) -> list[ArchiveEntry]:
-    lock_dormitory(db, dormitory_id)
+    dormitory: OwnDormitory,
+    paging: Paging,
+) -> list[ArchiveEntry] | TablePage[ArchiveResponse]:
     if from_date > to_date or (to_date - from_date).days > 365:
         raise HTTPException(422, "Выберите период не длиннее года")
     zone = ZoneInfo("Europe/Moscow")
     start = datetime.combine(from_date, time.min, zone).astimezone(UTC)
     end = datetime.combine(to_date + timedelta(days=1), time.min, zone).astimezone(UTC)
-    return list(
-        db.scalars(
-            select(ArchiveEntry)
-            .where(
-                ArchiveEntry.dormitory_id == dormitory_id,
-                ArchiveEntry.created_at >= start,
-                ArchiveEntry.created_at < end,
-            )
-            .order_by(ArchiveEntry.id)
+    query = (
+        select(ArchiveEntry)
+        .where(
+            ArchiveEntry.dormitory_id == dormitory_id,
+            ArchiveEntry.created_at >= start,
+            ArchiveEntry.created_at < end,
         )
+        .order_by(ArchiveEntry.id)
+    )
+    if paging.page is None:
+        return list(db.scalars(query))
+    return record_page(db, dormitory, "archive", query, paging).response(
+        ArchiveResponse.model_validate
     )
 
 

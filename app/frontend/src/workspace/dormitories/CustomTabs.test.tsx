@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { CustomTab, CustomTabRow, CustomTabTemplate, TableColumn } from '../../api/client';
 import { mockFetch } from '../../test/mockFetch';
 import { renderApp } from '../../test/renderApp';
+import { renderWithExchangePermissions as render } from '../../test/renderWithExchangePermissions';
 import { CreateCustomTabDialog } from './CreateCustomTabDialog';
 import { CustomTabTable } from './CustomTabTable';
 import { defaultTabOptions } from './customTabOptions';
@@ -49,7 +50,15 @@ afterEach(() => {
 
 function customPageResponse(url: string, tabs: CustomTab[]) {
   if (url === '/api/me')
-    return { status: 200, body: { email: 'test@example.com', full_name: 'Тест', is_active: true } };
+    return {
+      status: 200,
+      body: {
+        email: 'test@example.com',
+        full_name: 'Тест',
+        is_active: true,
+        permissions: { import_enabled: true, export_enabled: true },
+      },
+    };
   if (url === '/api/dormitories/7')
     return { status: 200, body: { id: 7, name: 'Северное', client_name: 'Клиент' } };
   if (url === '/api/dormitories/7/tabs') return { status: 200, body: tabs };
@@ -133,14 +142,16 @@ it('переключает месяцы, скрывает ненужные во�
   expect(screen.queryByRole('button', { name: 'Удалить' })).not.toBeInTheDocument();
   expect(screen.queryByRole('columnheader', { name: 'Выезд' })).not.toBeInTheDocument();
   expect(
-    calls.some((url) => url.endsWith(`?from=${currentMonth().from}&to=${currentMonth().to}`)),
+    calls.some((url) =>
+      url.endsWith(`?from=${currentMonth().from}&to=${currentMonth().to}&page=1`),
+    ),
   ).toBe(true);
   const tools = within(screen.getByTestId('dormitory-table-tools'));
   const filters = within(tools.getByRole('group', { name: 'Фильтры таблицы' }));
   expect(filters.getByRole('form', { name: 'Период общежития' })).toBeInTheDocument();
   fireEvent.change(filters.getByLabelText('Месяц'), { target: { value: '2026-02' } });
   await waitFor(() =>
-    expect(calls.some((url) => url.endsWith('?from=2026-02-01&to=2026-02-28'))).toBe(true),
+    expect(calls.some((url) => url.endsWith('?from=2026-02-01&to=2026-02-28&page=1'))).toBe(true),
   );
   const actions = within(tools.getByRole('group', { name: 'Действия с таблицей' }));
   expect(actions.getByRole('button', { name: 'Экспорт в Excel' })).toBeEnabled();
@@ -228,9 +239,9 @@ it('показывает диапазон в панели таблицы и уб
   });
   await user.click(filters.getByRole('button', { name: 'Применить' }));
   await waitFor(() =>
-    expect(calls.some((url) => url.endsWith('/tabs/9/rows?from=2026-02-01&to=2026-02-03'))).toBe(
-      true,
-    ),
+    expect(
+      calls.some((url) => url.endsWith('/tabs/9/rows?from=2026-02-01&to=2026-02-03&page=1')),
+    ).toBe(true),
   );
   await user.click(screen.getByTestId('dormitory-custom-tab-10'));
   await waitFor(() =>
@@ -250,7 +261,12 @@ it('добавляет локальную вкладку, блокирует с�
     if (url === '/api/me')
       return {
         status: 200,
-        body: { email: 'test@example.com', full_name: 'Тест', is_active: true },
+        body: {
+          email: 'test@example.com',
+          full_name: 'Тест',
+          is_active: true,
+          permissions: { import_enabled: true, export_enabled: true },
+        },
       };
     if (url === '/api/dormitories/7')
       return { status: 200, body: { id: 7, name: 'Северное', client_name: 'Клиент' } };
@@ -303,7 +319,7 @@ it('добавляет локальную вкладку, блокирует с�
       };
     }
     if (url.endsWith('/tables/custom_9/columns')) return { status: 200, body: columns };
-    if (url.endsWith('/tabs/9/rows')) {
+    if (url.split('?')[0].endsWith('/tabs/9/rows')) {
       if (init?.method === 'POST') {
         rows = [{ id: 20, custom_values: {} }];
         return { status: 201, body: rows[0] };
@@ -329,7 +345,7 @@ it('добавляет локальную вкладку, блокирует с�
   expect(await screen.findByTestId('custom-tab-empty')).toBeInTheDocument();
   expect(screen.getByTestId('dormitory-custom-tab-9')).toHaveAttribute('aria-current', 'page');
   expect(screen.getByRole('button', { name: '+ Добавить строку' })).toBeDisabled();
-  expect(requests.mock.calls.some(([url]) => String(url).endsWith('/tabs/9/rows'))).toBe(false);
+  expect(requests.mock.calls.some(([url]) => String(url).includes('/tabs/9/rows?'))).toBe(false);
   await user.click(screen.getByRole('button', { name: 'Создать таблицу' }));
   await user.click(await screen.findByRole('button', { name: '+ Добавить столбец' }));
   await user.type(screen.getByLabelText('Название столбца 1'), 'Статус');

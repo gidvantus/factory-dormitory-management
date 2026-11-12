@@ -1,10 +1,11 @@
 """Управление стандартными вкладками и отдельными подвкладками."""
 
+from collections.abc import Sequence
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
@@ -18,9 +19,16 @@ from app.models.payment import PaymentEntry
 from app.models.report import ReportCell, ReportRow
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
+from app.personnel import record_changed
 from app.personnel_builder_dependencies import builder_dependencies
-from app.report_defaults import DEFAULT_REPORT_FORMULA, required_row_name
-from app.section_state import SECTIONS, locked_dormitory, section_parents, section_status
+from app.report_defaults import DEFAULT_REPORT_FORMULA, REPORT_METRIC_NAMES
+from app.section_state import (
+    SECTIONS,
+    locked_dormitory,
+    require_clear_list,
+    section_parents,
+    section_status,
+)
 from app.tab_catalog import normalized_name
 from app.tab_tree import all_tabs, delete_tabs, descendants
 
@@ -87,7 +95,10 @@ def metadata(db: Session, dormitory_id: int) -> list[SectionResponse]:
         )
     )
     if any(
-        not required_row_name(row.name) or row.formula != DEFAULT_REPORT_FORMULA or row.link
+        row.metric_key is None
+        or row.name != REPORT_METRIC_NAMES[row.metric_key]
+        or row.formula != DEFAULT_REPORT_FORMULA
+        or row.link
         for row in rows
     ) or (
         rows
@@ -192,6 +203,40 @@ def update_section(
     dormitory.section_states = states
     db.commit()
     return metadata(db, dormitory_id)
+
+
+@router.post(
+    "/{key}/clear", status_code=status.HTTP_204_NO_CONTENT, summary="Очистить список вкладки"
+)
+def clear_section_rows(
+    dormitory_id: EntityId,
+    key: Literal["residents", "inflow", "outflow"],
+    user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
+) -> None:
+    require_clear_list(db, dormitory_id, key)
+    rows: Sequence[Resident | PersonnelInflow | PersonnelOutflow]
+    if key == "residents":
+        rows = db.scalars(select(Resident).where(Resident.dormitory_id == dormitory_id)).all()
+    elif key == "inflow":
+        rows = db.scalars(
+            select(PersonnelInflow).where(
+                PersonnelInflow.dormitory_id == dormitory_id,
+                or_(PersonnelInflow.processed_as.is_(None), PersonnelInflow.processed_as == ""),
+            )
+        ).all()
+    else:
+        rows = db.scalars(
+            select(PersonnelOutflow).where(
+                PersonnelOutflow.dormitory_id == dormitory_id,
+                PersonnelOutflow.evicted_at.is_(None),
+            )
+        ).all()
+    for row in rows:
+        record_changed(db, row, user.id, kind="deleted", title=f"Очищен список «{SECTIONS[key]}»")
+        db.delete(row)
+    db.commit()
 
 
 @router.delete("/{key}", response_model=list[SectionResponse])

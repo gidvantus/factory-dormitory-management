@@ -12,6 +12,8 @@ import { OutflowReasonInput } from './OutflowReasonInput';
 import { OutflowEvictionDialog } from './OutflowEvictionDialog';
 import styles from './OutflowTable.module.css';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { tablePage, useDormitoryPages } from './useDormitoryPages';
+import { ClearStandardListButton } from './ClearStandardListButton';
 import {
   ColumnsControls,
   ConfiguredCells,
@@ -233,15 +235,26 @@ function OutflowContent({
   const [removing, setRemoving] = useState(false);
   const [evicting, setEvicting] = useState<OutflowRow | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const pager = useDormitoryPages(
+    dormitoryId,
+    `${range.from}:${range.to}`,
+    () => setAttempt((n) => n + 1),
+    setError,
+  );
+  const { options: pagingOptions, setInfo } = pager;
 
   useEffect(() => {
     const controller = new AbortController();
     setStatus('loading');
     void api
-      .outflow(dormitoryId, range.from, range.to, controller.signal)
+      .outflow(dormitoryId, range.from, range.to, controller.signal, pagingOptions)
       .then((result) => {
         if (!controller.signal.aborted) {
-          setRows(result);
+          const page = tablePage(result);
+          setRows(page.rows);
+          setInfo({ page: page.page, total: page.total });
+          setHasLoaded(true);
           setStatus('ready');
           setError('');
         }
@@ -253,7 +266,7 @@ function OutflowContent({
         }
       });
     return () => controller.abort();
-  }, [dormitoryId, range.from, range.to, attempt]);
+  }, [dormitoryId, range.from, range.to, attempt, pagingOptions, setInfo]);
 
   function add(): void {
     setAdding(true);
@@ -266,6 +279,8 @@ function OutflowContent({
     try {
       await api.deleteOutflowRow(dormitoryId, deleting.id);
       setRows((current) => current.filter((row) => row.id !== deleting.id));
+      if (pager.info.total > 100) setAttempt((value) => value + 1);
+      else setInfo({ page: 1, total: Math.max(0, pager.info.total - 1) });
       setDeleting(null);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось удалить строку.');
@@ -279,7 +294,22 @@ function OutflowContent({
       className={styles.page}
       data-testid="dormitory-outflow"
       heading={<h2>Отток</h2>}
-      secondary={<ColumnsControls />}
+      paging={hasLoaded && { pager, loading: status === 'loading' }}
+      secondary={
+        <>
+          <ColumnsControls />
+          <ClearStandardListButton
+            dormitoryId={dormitoryId}
+            section="outflow"
+            title="Отток"
+            disabled={status !== 'ready' || adding || removing}
+            onCleared={() => {
+              setStatus('loading');
+              setAttempt((value) => value + 1);
+            }}
+          />
+        </>
+      }
       primary={
         <button
           type="button"
@@ -299,6 +329,7 @@ function OutflowContent({
           onClose={() => setAdding(false)}
           onSaved={() => {
             setAdding(false);
+            pager.changePage(1);
             setAttempt((n) => n + 1);
           }}
         />
@@ -324,9 +355,9 @@ function OutflowContent({
           {error}
         </p>
       )}
-      {status === 'ready' && (
+      {hasLoaded && (
         <div className={styles.tableScroll}>
-          <ConfiguredTable className={styles.table}>
+          <ConfiguredTable className={styles.table} {...pager.tableProps}>
             <thead>
               <tr>
                 <ConfiguredHeaders />

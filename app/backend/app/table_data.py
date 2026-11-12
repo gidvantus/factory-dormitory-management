@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, object_session
 
 from app.models.custom_tab import CustomTab, CustomTabEntry
+from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel, HostelCell
 from app.models.inflow import PersonnelInflow
 from app.models.outflow import PersonnelOutflow
@@ -26,6 +27,7 @@ from app.schemas.table_column import (
     report_link_adapter,
 )
 from app.section_state import locked_dormitory, require_section, require_section_writable
+from app.table_views import restore_table_colors, table_colors
 
 Record = (
     Resident | PersonnelInflow | PersonnelOutflow | PaymentEntry | ArchiveEntry | CustomTabEntry
@@ -132,7 +134,9 @@ def get_custom_tab(
     return tab
 
 
-def require_writable_table(db: Session, dormitory_id: int, table_key: str) -> None:
+def require_writable_table(
+    db: Session, dormitory_id: int, table_key: str, *, data: bool = False
+) -> None:
     if table_key.startswith("custom_"):
         tab = get_custom_tab(
             db, dormitory_id, int(table_key.removeprefix("custom_")), require_active=True
@@ -141,6 +145,8 @@ def require_writable_table(db: Session, dormitory_id: int, table_key: str) -> No
             raise HTTPException(
                 409, "Архив действий заполняется автоматически и доступен только для чтения"
             )
+        if data and (tab.options or {}).get("data_source") == "arrival_plan":
+            raise HTTPException(409, "Данные этой вкладки изменяются в плане заездов персонала")
     else:
         require_section_writable(db, dormitory_id, table_key)
 
@@ -249,6 +255,22 @@ def ensure_columns(db: Session, dormitory_id: int, table_key: str) -> list[Table
             )
     db.flush()
     return columns_for(db, dormitory_id, table_key)
+
+
+def read_columns(db: Session, dormitory_id: int, table_key: str) -> list[TableColumn]:
+    """Чтение готовых столбцов не ждёт блокировку, которую держит импорт."""
+    if table_key.startswith("custom_"):
+        get_custom_tab(db, dormitory_id, int(table_key[7:]), require_table=True)
+        return columns_for(db, dormitory_id, table_key)
+    require_section(db, dormitory_id, table_key)
+    columns = columns_for(db, dormitory_id, table_key)
+    required = {
+        "inflow": {"action_check_in", "action_outflow"},
+        "residents": {"action_settlement"},
+    }.get(table_key, set())
+    if columns and required <= {column.builtin_key for column in columns}:
+        return columns
+    return ensure_columns(db, dormitory_id, table_key)
 
 
 def get_column(db: Session, dormitory_id: int, table_key: str, column_id: int) -> TableColumn:
@@ -515,8 +537,11 @@ def snapshot_link(db: Session, row: ReportRow) -> dict[str, Any] | None:
     link = validate_link(db, row.dormitory_id, report_link_adapter.validate_python(row.link))
     if isinstance(link, PlaceReportLink):
         hostel = db.get(Hostel, link.hostel_id) if link.hostel_id is not None else None
+        dorm = db.get(Dormitory, row.dormitory_id)
+        assert dorm is not None
         return {
             "rule": link.model_dump(),
+            "table_colors": table_colors(db, dorm, "places"),
             "hostel": {
                 "name": hostel.name,
                 "active_from_month": hostel.active_from_month.isoformat(),
@@ -565,8 +590,13 @@ def snapshot_table(
     # Preserve the full source schema, including removed built-ins. Otherwise a custom
     # replacement named "Причина" would collide with the default field in a new dormitory.
     columns = columns_for(db, dormitory_id, table_key)
+    dorm = db.get(Dormitory, dormitory_id)
+    assert dorm is not None
+    colors = table_colors(db, dorm, table_key)
+    colors.pop("row_colors", None)
     snapshot: dict[str, Any] = {
         "rule": rule,
+        "table_colors": colors,
         "columns": [
             {
                 "id": col.id,
@@ -610,6 +640,9 @@ def restore_link(
     rule = dict(snapshot["rule"])
     if rule["table_key"] == "arrival_plan":
         return rule
+    colors = snapshot.get("table_colors", {})
+    dorm = db.get(Dormitory, dormitory_id)
+    assert dorm is not None
     if rule["table_key"] == "places":
         if rule.get("hostel_id") is not None:
             key = f"hostel_{rule['hostel_id']}"
@@ -627,6 +660,7 @@ def restore_link(
                 db.flush()
                 sources[key] = hostel.id
             rule["hostel_id"] = sources[key]
+        restore_table_colors(db, dorm, "places", colors)
         return rule
     if rule["table_key"].startswith("custom_"):
         key = rule["table_key"]
@@ -689,6 +723,7 @@ def restore_link(
         else:
             target.name = source["name"]
         mapped[source["id"]] = target.id
+    restore_table_colors(db, dorm, rule["table_key"], colors, row_ids={}, column_ids=mapped)
     for dependency in snapshot.get("fill_sources", []):
         restore_link(db, dormitory_id, dependency, mapped, sources, remap_fill=False)
     if remap_fill:
