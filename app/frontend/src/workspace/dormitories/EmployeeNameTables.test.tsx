@@ -92,7 +92,7 @@ function fixtures(
     columns,
   });
   const record = { ...row, employee_id: unlinked ? null : 'person' };
-  vi.spyOn(api, 'inflow').mockResolvedValue([record]);
+  vi.spyOn(api, 'inflow').mockResolvedValue({ rows: [record], total: 1, page: 1 });
   vi.spyOn(api, 'outflow').mockResolvedValue([record]);
   vi.spyOn(api, 'archive').mockResolvedValue([record]);
   vi.spyOn(api, 'customTabRows').mockResolvedValue([record]);

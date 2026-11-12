@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { api, ApiError } from '../../api/client';
+import { api, ApiError, waitForDormitoryWrites } from '../../api/client';
 import type { PaymentKind, Resident, ResidentField, ResidentsResponse } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { currentMonth } from '../dashboard/dates';
 import styles from './ResidentsTable.module.css';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { useDormitoryPages } from './useDormitoryPages';
 import { ClearStandardListButton } from './ClearStandardListButton';
 import {
   ColumnsControls,
@@ -424,7 +425,10 @@ function ResidentRow({
 function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element {
   const { reload: reloadColumns, columns, personnelFields, values } = useColumns();
   const month = currentMonth().from.slice(0, 7);
-  const [data, setData] = useState<ResidentsResponse>({ residents: [], hostels: [] });
+  const [data, setData] = useState<ResidentsResponse & { page?: number }>({
+    residents: [],
+    hostels: [],
+  });
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
@@ -432,6 +436,10 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
   const [deleting, setDeleting] = useState<Resident | null>(null);
   const [removing, setRemoving] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const pager = useDormitoryPages(dormitoryId, month, () => setAttempt((n) => n + 1), setError);
+  const { options: pagingOptions, setInfo, setSearch } = pager;
+  const serverPaging = data.page !== undefined;
   const [transferring, setTransferring] = useState<{
     resident: Resident;
     trigger: HTMLButtonElement;
@@ -449,12 +457,33 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
   }, [transferNotice]);
 
   useEffect(() => {
+    if (!serverPaging || query.trim() === pagingOptions.search) return;
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      void waitForDormitoryWrites(dormitoryId)
+        .then(() => {
+          if (!cancelled) setSearch(query);
+        })
+        .catch((caught: unknown) => {
+          if (!cancelled && caught instanceof ApiError) setError(caught.message);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [dormitoryId, query, serverPaging, setSearch, pagingOptions.search]);
+
+  useEffect(() => {
     const controller = new AbortController();
+    setStatus('loading');
     void api
-      .residents(dormitoryId, month, controller.signal)
+      .residents(dormitoryId, month, controller.signal, pagingOptions)
       .then((result) => {
         if (!controller.signal.aborted) {
           setData(result);
+          setInfo({ page: result.page ?? 1, total: result.total ?? result.residents.length });
+          setHasLoaded(true);
           setStatus('ready');
           setError('');
         }
@@ -468,7 +497,7 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
         }
       });
     return () => controller.abort();
-  }, [dormitoryId, month, attempt]);
+  }, [dormitoryId, month, attempt, pagingOptions, setInfo]);
 
   function add(): void {
     setAdding(true);
@@ -485,6 +514,7 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
         residents: current.residents.filter((row) => row.id !== deleting.id),
       }));
       setDeleting(null);
+      if (serverPaging) setAttempt((n) => n + 1);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось удалить строку.');
     } finally {
@@ -492,18 +522,23 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
     }
   }
 
-  const visible = data.residents.filter((resident) => {
-    const current = { ...resident };
-    for (const role of ['full_name', 'phone'] as const) {
-      const columnId = personnelFields?.[role];
-      if (columnId === undefined || columns.find((column) => column.id === columnId)?.builtin_key)
-        continue;
-      const key = `${resident.id}:${columnId}`;
-      const value = key in values ? values[key] : resident.custom_values?.[columnId];
-      if (value !== undefined) current[role] = value === null ? null : String(value);
-    }
-    return matchesResident(current, query);
-  });
+  const visible = serverPaging
+    ? data.residents
+    : data.residents.filter((resident) => {
+        const current = { ...resident };
+        for (const role of ['full_name', 'phone'] as const) {
+          const columnId = personnelFields?.[role];
+          if (
+            columnId === undefined ||
+            columns.find((column) => column.id === columnId)?.builtin_key
+          )
+            continue;
+          const key = `${resident.id}:${columnId}`;
+          const value = key in values ? values[key] : resident.custom_values?.[columnId];
+          if (value !== undefined) current[role] = value === null ? null : String(value);
+        }
+        return matchesResident(current, query);
+      });
   const visibleIds = new Set(visible.map((resident) => resident.id));
   return (
     <DormitoryTableFrame
@@ -541,33 +576,39 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
           {adding ? 'Добавляем…' : '+ Добавить строку'}
         </button>
       }
-      filters={
-        status === 'ready' && (
-          <div className={styles.searchBar}>
-            <label>
-              Поиск по проживающим
-              <input
-                type="search"
-                value={query}
-                maxLength={255}
-                placeholder="ФИО, телефон или табельный номер"
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
-            {query && (
-              <button
-                type="button"
-                className="btn btn--ghost btn--compact"
-                onClick={() => setQuery('')}
-              >
-                Сбросить поиск
-              </button>
-            )}
-            <span aria-live="polite">
-              Найдено {visible.length} из {data.residents.length}
-            </span>
-          </div>
-        )
+      paging={
+        hasLoaded && {
+          pager,
+          loading: status === 'loading',
+          search: (
+            <div className={styles.searchBar}>
+              <label>
+                Поиск по проживающим
+                <input
+                  type="search"
+                  value={query}
+                  maxLength={255}
+                  placeholder="ФИО, телефон или табельный номер"
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+              {query && (
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--compact"
+                  onClick={() => setQuery('')}
+                >
+                  Сбросить поиск
+                </button>
+              )}
+              <span aria-live="polite">
+                {serverPaging
+                  ? `Найдено: ${pager.info.total}`
+                  : `Найдено ${visible.length} из ${data.residents.length}`}
+              </span>
+            </div>
+          ),
+        }
       }
     >
       {status === 'loading' && <p role="status">Загружаем проживающих…</p>}
@@ -603,13 +644,14 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
           onClose={() => setAdding(false)}
           onSaved={() => {
             setAdding(false);
+            pager.changePage(1);
             setAttempt((n) => n + 1);
           }}
         />
       )}
-      {status === 'ready' && (
+      {hasLoaded && (
         <div className={styles.tableScroll}>
-          <ConfiguredTable className={styles.table}>
+          <ConfiguredTable className={styles.table} {...pager.tableProps}>
             <thead>
               <tr>
                 <ConfiguredHeaders />
@@ -620,7 +662,7 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
                 <ResidentRow
                   key={resident.id}
                   resident={resident}
-                  index={index}
+                  index={index + (pager.info.page - 1) * 100}
                   hidden={!visibleIds.has(resident.id)}
                   hostels={data.hostels}
                   dormitoryId={dormitoryId}
@@ -640,10 +682,10 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
               ))}
             </tbody>
           </ConfiguredTable>
-          {data.residents.length === 0 && (
+          {data.residents.length === 0 && !(serverPaging && pager.search) && (
             <p className={styles.empty}>Здесь пока нет проживающих. Добавьте первую строку.</p>
           )}
-          {data.residents.length > 0 && !visible.length && (
+          {(data.residents.length > 0 || (serverPaging && pager.search)) && !visible.length && (
             <p className={styles.empty}>По вашему запросу проживающие не найдены.</p>
           )}
         </div>
@@ -661,6 +703,7 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
               residents: current.residents.filter((row) => row.id !== residentId),
             }));
             setTransferring(null);
+            if (serverPaging) setAttempt((n) => n + 1);
             setTransferNotice(`Проживающий переведён в общежитие «${destination.name}».`);
           }}
         />
@@ -677,6 +720,7 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
               residents: current.residents.filter((row) => row.id !== residentId),
             }));
             setOutflowing(null);
+            if (serverPaging) setAttempt((n) => n + 1);
             setTransferNotice(
               'Проживающий перенесён в «Отток». Его записи на аванс и расчёт удалены.',
             );

@@ -24,6 +24,7 @@ import { RuleSummary } from './RuleSummary';
 import { BindingDialog } from '../personnel/BindingDialog';
 import type { SourceTable } from '../../api/personnel';
 import styles from './DormitorySettingsDialog.module.css';
+import optionStyles from './CustomTabOptionsEditor.module.css';
 import { CellFillEditor } from './CellFillEditor';
 import { ExchangeOptionsEditor } from './ExchangeOptionsEditor';
 import { cellFillError, personnelFillSource, sourceFields, supportsCellFill } from './cellFill';
@@ -666,15 +667,17 @@ export function DormitorySettingsDialog({
                         title="Кнопки и действия"
                         description="Настройте доступные действия для этой таблицы."
                       >
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={node.clearList}
-                            disabled={blocked || busy}
-                            onChange={(event) => updateNode({ clearList: event.target.checked })}
-                          />{' '}
-                          Очистить список
-                        </label>
+                        <div className={optionStyles.checks}>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={node.clearList}
+                              disabled={blocked || busy}
+                              onChange={(event) => updateNode({ clearList: event.target.checked })}
+                            />
+                            Очистить список
+                          </label>
+                        </div>
                       </EditorSection>
                     )}
                     {((!node.custom && !['movement', 'payments'].includes(node.key)) ||

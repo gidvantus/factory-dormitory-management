@@ -7,6 +7,7 @@ import { Modal } from '../../components/Modal';
 import type { DateRange } from '../dashboard/dates';
 import styles from './PaymentsTable.module.css';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { tablePage, useDormitoryPages } from './useDormitoryPages';
 import { TableLayoutContext } from './tableLayoutContext';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import {
@@ -162,15 +163,26 @@ function PaymentsContent({
   const from = kind === 'settlement' ? range.from : '';
   const to = kind === 'settlement' ? range.to : '';
   const title = kind === 'advance' ? 'На аванс' : 'На расчёт';
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const pager = useDormitoryPages(
+    dormitoryId,
+    `${kind}:${from}:${to}`,
+    () => setAttempt((n) => n + 1),
+    setError,
+  );
+  const { options: pagingOptions, setInfo } = pager;
 
   useEffect(() => {
     const controller = new AbortController();
     setStatus('loading');
     void api
-      .payments(dormitoryId, kind, from, to, controller.signal)
+      .payments(dormitoryId, kind, from, to, controller.signal, pagingOptions)
       .then((result) => {
         if (!controller.signal.aborted) {
-          setRows(result);
+          const page = tablePage(result);
+          setRows(page.rows);
+          setInfo({ page: page.page, total: page.total });
+          setHasLoaded(true);
           setStatus('ready');
           setError('');
         }
@@ -182,14 +194,21 @@ function PaymentsContent({
         }
       });
     return () => controller.abort();
-  }, [dormitoryId, kind, from, to, attempt]);
+  }, [dormitoryId, kind, from, to, attempt, pagingOptions, setInfo]);
 
   async function add(): Promise<void> {
     setAdding(true);
     setError('');
     try {
       const row = await api.createPaymentRow(dormitoryId, kind);
-      setRows((current) => [...current, row]);
+      if (pager.info.total >= 100 || pager.search || pager.options.sort) {
+        if (!pager.search && !pager.options.sort)
+          pager.changePage(Math.ceil((pager.info.total + 1) / 100));
+        setAttempt((n) => n + 1);
+      } else {
+        setRows((current) => [...current, row]);
+        setInfo({ page: 1, total: pager.info.total + 1 });
+      }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось добавить строку.');
     } finally {
@@ -204,6 +223,8 @@ function PaymentsContent({
     try {
       await api.deletePaymentRow(dormitoryId, kind, deleting.id);
       setRows((current) => current.filter((row) => row.id !== deleting.id));
+      if (pager.info.total > 100) setAttempt((n) => n + 1);
+      else setInfo({ page: 1, total: Math.max(0, pager.info.total - 1) });
       setDeleting(null);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось удалить строку.');
@@ -219,6 +240,8 @@ function PaymentsContent({
       await waitForDormitoryWrites(dormitoryId);
       await api.clearPaymentRows(dormitoryId, kind);
       setRows([]);
+      setInfo({ page: 1, total: 0 });
+      pager.changePage(1);
       setConfirmClear(false);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось очистить список.');
@@ -232,6 +255,7 @@ function PaymentsContent({
       className={styles.page}
       data-testid={`dormitory-payments-${kind}`}
       heading={<h2>{title}</h2>}
+      paging={hasLoaded && { pager, loading: status === 'loading' }}
       secondary={
         <>
           <ColumnsControls />
@@ -285,9 +309,9 @@ function PaymentsContent({
           {error}
         </p>
       )}
-      {status === 'ready' && (
+      {hasLoaded && (
         <div className={styles.tableScroll}>
-          <ConfiguredTable className={styles.table}>
+          <ConfiguredTable className={styles.table} {...pager.tableProps}>
             <thead>
               <tr>
                 <ConfiguredHeaders />

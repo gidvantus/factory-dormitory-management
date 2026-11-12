@@ -1,5 +1,6 @@
 """Точка входа FastAPI."""
 
+import asyncio
 import json
 import logging
 import time
@@ -72,12 +73,13 @@ from app.api import (
 # подменил бы его.
 from app.api.audit import router as journal_router
 from app.config import get_settings
-from app.db import get_db
+from app.db import engine, get_db
 from app.file_access import can_read, content_type_for, normalize_key
 from app.schemas.user import ErrorResponse
 from app.section_permissions import require_section_access
 from app.security import OptionalUser
 from app.storage import StorageNotFoundError, log_storage_mode, storage
+from app.table_import_queue import process_import_queue
 
 API_PREFIX = "/api"
 
@@ -263,7 +265,16 @@ async def lifespan(_application: FastAPI) -> AsyncIterator[None]:
     log_storage_mode()
     if audit.month_guard():
         audit.refresh_audit_storage()
-    yield
+    if engine.dialect.name != "postgresql":
+        yield
+        return
+    stop = asyncio.Event()
+    import_worker = asyncio.create_task(process_import_queue(stop))
+    try:
+        yield
+    finally:
+        stop.set()
+        await import_worker
 
 
 def create_app() -> FastAPI:

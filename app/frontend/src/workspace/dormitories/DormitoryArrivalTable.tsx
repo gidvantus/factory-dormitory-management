@@ -7,6 +7,7 @@ import { formatDate } from '../dashboard/dates';
 import { ColumnsControls } from './ConfigurableColumns';
 import { useColumns } from './tableColumnsContext';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { tablePage, useDormitoryPages } from './useDormitoryPages';
 import styles from './OutflowTable.module.css';
 
 type ArrivalRow = { id: string; date: string; custom_values: Record<string, CellValue> };
@@ -35,10 +36,16 @@ export function DormitoryArrivalTable({
   const [attempt, setAttempt] = useState(0);
   const mapping = JSON.stringify(tab.options?.arrival_columns ?? {});
   const withPeriod = tab.options?.period_mode !== 'none';
+  const pager = useDormitoryPages(
+    dormitoryId,
+    `${tab.id}:${range.from}:${range.to}`,
+    () => setAttempt((n) => n + 1),
+    setError,
+  );
+  const { options: pagingOptions, setInfo } = pager;
   useEffect(() => {
     const controller = new AbortController();
     let pending = false;
-    setRows(null);
     setError('');
     const refresh = (): void => {
       if (pending || document.visibilityState === 'hidden') return;
@@ -50,10 +57,13 @@ export function DormitoryArrivalTable({
           tab.id,
           controller.signal,
           withPeriod ? { from: range.from, to: range.to } : undefined,
+          pagingOptions,
         )
         .then((items) => {
           if (!controller.signal.aborted) {
-            setRows(items);
+            const page = tablePage(items);
+            setRows(page.rows);
+            setInfo({ page: page.page, total: page.total });
             setError('');
           }
         })
@@ -78,12 +88,23 @@ export function DormitoryArrivalTable({
       window.removeEventListener('focus', refresh);
       document.removeEventListener('visibilitychange', refresh);
     };
-  }, [dormitoryId, tab.id, range.from, range.to, withPeriod, mapping, attempt]);
+  }, [
+    dormitoryId,
+    tab.id,
+    range.from,
+    range.to,
+    withPeriod,
+    mapping,
+    attempt,
+    pagingOptions,
+    setInfo,
+  ]);
   return (
     <DormitoryTableFrame
       className={styles.page}
       data-testid="dormitory-arrival-table"
       heading={<h2>{tab.name}</h2>}
+      paging={rows !== null && { pager, loading: refreshing }}
       secondary={tab.is_active && <ColumnsControls />}
       primary={
         <button
@@ -114,6 +135,7 @@ export function DormitoryArrivalTable({
         <div className={styles.tableScroll}>
           <WorkingTable
             className={styles.table}
+            {...pager.tableProps}
             aria-label={tab.name}
             viewKey={`dormitories/${dormitoryId}/table-views/${tab.table_key}`}
             readOnly={!tab.is_active}

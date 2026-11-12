@@ -171,6 +171,8 @@ EXCLUDED_TABLES = frozenset(
         "audit_events",
         "dormitory_data_events",
         "personnel_builders",
+        "table_import_jobs",
+        "table_import_progress",
     }
 )
 
@@ -424,7 +426,7 @@ class AuditContext:
             "ip": self.ip,
             "user_agent": self.user_agent,
             "request_body": self.request_body,
-            "path_params": dict(self.scope.get("path_params") or {}) or None,
+            "path_params": _json_safe(dict(self.scope.get("path_params") or {})) or None,
             "request_id": self.request_id,
             "changes": changes,
         }

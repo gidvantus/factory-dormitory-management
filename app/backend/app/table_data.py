@@ -257,6 +257,22 @@ def ensure_columns(db: Session, dormitory_id: int, table_key: str) -> list[Table
     return columns_for(db, dormitory_id, table_key)
 
 
+def read_columns(db: Session, dormitory_id: int, table_key: str) -> list[TableColumn]:
+    """Чтение готовых столбцов не ждёт блокировку, которую держит импорт."""
+    if table_key.startswith("custom_"):
+        get_custom_tab(db, dormitory_id, int(table_key[7:]), require_table=True)
+        return columns_for(db, dormitory_id, table_key)
+    require_section(db, dormitory_id, table_key)
+    columns = columns_for(db, dormitory_id, table_key)
+    required = {
+        "inflow": {"action_check_in", "action_outflow"},
+        "residents": {"action_settlement"},
+    }.get(table_key, set())
+    if columns and required <= {column.builtin_key for column in columns}:
+        return columns
+    return ensure_columns(db, dormitory_id, table_key)
+
+
 def get_column(db: Session, dormitory_id: int, table_key: str, column_id: int) -> TableColumn:
     column = db.get(TableColumn, column_id)
     if column is None or column.dormitory_id != dormitory_id or column.table_key != table_key:

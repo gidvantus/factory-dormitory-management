@@ -1207,6 +1207,31 @@ function rulePath(dormitoryId: number): string {
   return `/dormitories/${encodeURIComponent(String(dormitoryId))}/telegram-rules`;
 }
 
+export interface TablePage<T> {
+  rows: T[];
+  total: number;
+  page: number;
+}
+
+export interface TablePageOptions {
+  page: number;
+  search: string;
+  sort?: { column: string; direction: 'ascending' | 'descending' };
+}
+
+function tableQuery(filters: Record<string, string> = {}, options?: TablePageOptions): string {
+  const params = new URLSearchParams(filters);
+  if (options) {
+    params.set('page', String(options.page));
+    if (options.search) params.set('q', options.search);
+    if (options.sort) {
+      params.set('sort_column', options.sort.column);
+      params.set('direction', options.sort.direction);
+    }
+  }
+  return params.size ? `?${params}` : '';
+}
+
 export const api = {
   arrivalSourceFields(
     id: string,
@@ -1219,8 +1244,12 @@ export const api = {
     tabId: number,
     signal?: AbortSignal,
     range?: { from: string; to: string },
-  ): Promise<{ id: string; date: string; custom_values: Record<string, CellValue> }[]> {
-    const query = range ? `?from=${range.from}&to=${range.to}` : '';
+    paging?: TablePageOptions,
+  ): Promise<
+    | TablePage<{ id: string; date: string; custom_values: Record<string, CellValue> }>
+    | { id: string; date: string; custom_values: Record<string, CellValue> }[]
+  > {
+    const query = tableQuery(range, paging);
     return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/arrival-rows${query}`, {
       signal,
     });
@@ -1332,10 +1361,10 @@ export const api = {
     to: string,
     signal?: AbortSignal,
     cursor?: string,
-  ): Promise<DormitoryHistoryPage> {
-    const params = new URLSearchParams({ from, to });
-    if (cursor) params.set('cursor', cursor);
-    return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/history?${params}`, {
+    paging?: TablePageOptions,
+  ): Promise<DormitoryHistoryPage & { page?: number; total?: number }> {
+    const params = tableQuery({ from, to, ...(cursor ? { cursor } : {}) }, paging);
+    return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/history${params}`, {
       signal,
     });
   },
@@ -1344,8 +1373,9 @@ export const api = {
     tabId: number,
     signal?: AbortSignal,
     range?: { from: string; to: string },
-  ): Promise<CustomTabRow[]> {
-    const query = range ? `?from=${range.from}&to=${range.to}` : '';
+    paging?: TablePageOptions,
+  ): Promise<TablePage<CustomTabRow> | CustomTabRow[]> {
+    const query = tableQuery(range, paging);
     return request(`/dormitories/${encodeURIComponent(id)}/tabs/${tabId}/rows${query}`, { signal });
   },
   createCustomTabRow(id: string, tabId: number, date?: string): Promise<CustomTabRow> {
@@ -1449,12 +1479,26 @@ export const api = {
       { method: 'PUT', body: JSON.stringify({ record_id: recordId }) },
     );
   },
-  cellFillValues(id: string, table: TableKey, signal?: AbortSignal): Promise<CellFillRow[]> {
-    return request(`/dormitories/${encodeURIComponent(id)}/cell-fill/${table}/values`, { signal });
+  cellFillValues(
+    id: string,
+    table: TableKey,
+    signal?: AbortSignal,
+    rowIds?: string,
+  ): Promise<CellFillRow[]> {
+    const query = rowIds ? `?${new URLSearchParams({ row_ids: rowIds })}` : '';
+    return request(`/dormitories/${encodeURIComponent(id)}/cell-fill/${table}/values${query}`, {
+      signal,
+    });
   },
-  archive(id: string, from: string, to: string, signal?: AbortSignal): Promise<ArchiveRow[]> {
+  archive(
+    id: string,
+    from: string,
+    to: string,
+    signal?: AbortSignal,
+    paging?: TablePageOptions,
+  ): Promise<TablePage<ArchiveRow> | ArchiveRow[]> {
     return request(
-      `/dormitories/${encodeURIComponent(id)}/tables/archive/rows?${new URLSearchParams({ from, to })}`,
+      `/dormitories/${encodeURIComponent(id)}/tables/archive/rows${tableQuery({ from, to }, paging)}`,
       { signal },
     );
   },
@@ -1891,23 +1935,40 @@ export const api = {
     return request<Dormitory>(`/dormitories/${encodeURIComponent(id)}`, { signal });
   },
 
-  report(id: string, from: string, to: string, signal?: AbortSignal): Promise<DormitoryReport> {
-    const query = new URLSearchParams({ from, to });
-    return request<DormitoryReport>(`/dormitories/${encodeURIComponent(id)}/report?${query}`, {
+  report(
+    id: string,
+    from: string,
+    to: string,
+    signal?: AbortSignal,
+    paging?: TablePageOptions,
+  ): Promise<DormitoryReport & { page?: number; total?: number; outline?: ReportRow[] }> {
+    const query = tableQuery({ from, to }, paging);
+    return request(`/dormitories/${encodeURIComponent(id)}/report${query}`, {
       signal,
     });
   },
 
-  hostelPlaces(id: string, from: string, to: string, signal?: AbortSignal): Promise<HostelPlaces> {
-    const query = new URLSearchParams({ from, to });
-    return request<HostelPlaces>(`/dormitories/${encodeURIComponent(id)}/hostels?${query}`, {
+  hostelPlaces(
+    id: string,
+    from: string,
+    to: string,
+    signal?: AbortSignal,
+    paging?: TablePageOptions,
+  ): Promise<HostelPlaces & { page?: number; total?: number; page_size?: number }> {
+    const query = tableQuery({ from, to }, paging);
+    return request(`/dormitories/${encodeURIComponent(id)}/hostels${query}`, {
       signal,
     });
   },
 
-  residents(id: string, month: string, signal?: AbortSignal): Promise<ResidentsResponse> {
-    const query = new URLSearchParams({ month: `${month}-01` });
-    return request<ResidentsResponse>(`/dormitories/${encodeURIComponent(id)}/residents?${query}`, {
+  residents(
+    id: string,
+    month: string,
+    signal?: AbortSignal,
+    paging?: TablePageOptions,
+  ): Promise<ResidentsResponse & { total?: number; page?: number }> {
+    const query = tableQuery({ month: `${month}-01` }, paging);
+    return request(`/dormitories/${encodeURIComponent(id)}/residents${query}`, {
       signal,
     });
   },
@@ -2016,9 +2077,15 @@ export const api = {
     return request(`/dormitories/${encodeURIComponent(id)}/outflow/fields`, { signal });
   },
 
-  inflow(id: string, from: string, to: string, signal?: AbortSignal): Promise<InflowRow[]> {
-    const query = new URLSearchParams({ from, to });
-    return request<InflowRow[]>(`/dormitories/${encodeURIComponent(id)}/inflow?${query}`, {
+  inflow(
+    id: string,
+    from: string,
+    to: string,
+    options: TablePageOptions,
+    signal?: AbortSignal,
+  ): Promise<TablePage<InflowRow>> {
+    const query = tableQuery({ from, to }, options);
+    return request(`/dormitories/${encodeURIComponent(id)}/inflow${query}`, {
       signal,
     });
   },
@@ -2094,9 +2161,15 @@ export const api = {
     });
   },
 
-  outflow(id: string, from: string, to: string, signal?: AbortSignal): Promise<OutflowRow[]> {
-    const query = new URLSearchParams({ from, to });
-    return request<OutflowRow[]>(`/dormitories/${encodeURIComponent(id)}/outflow?${query}`, {
+  outflow(
+    id: string,
+    from: string,
+    to: string,
+    signal?: AbortSignal,
+    paging?: TablePageOptions,
+  ): Promise<TablePage<OutflowRow> | OutflowRow[]> {
+    const query = tableQuery({ from, to }, paging);
+    return request(`/dormitories/${encodeURIComponent(id)}/outflow${query}`, {
       signal,
     });
   },
@@ -2149,14 +2222,12 @@ export const api = {
     from: string,
     to: string,
     signal?: AbortSignal,
-  ): Promise<PaymentRow[]> {
-    const query = kind === 'settlement' ? `?${new URLSearchParams({ from, to })}` : '';
-    return request<PaymentRow[]>(
-      `/dormitories/${encodeURIComponent(id)}/payments/${kind}${query}`,
-      {
-        signal,
-      },
-    );
+    paging?: TablePageOptions,
+  ): Promise<TablePage<PaymentRow> | PaymentRow[]> {
+    const query = tableQuery(kind === 'settlement' ? { from, to } : {}, paging);
+    return request(`/dormitories/${encodeURIComponent(id)}/payments/${kind}${query}`, {
+      signal,
+    });
   },
 
   createPaymentRow(id: string, kind: PaymentKind): Promise<PaymentRow> {

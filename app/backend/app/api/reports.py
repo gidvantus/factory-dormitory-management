@@ -36,6 +36,7 @@ from app.table_data import (
     records_for,
     validate_link,
 )
+from app.table_pagination import Paging, page_items
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/report",
@@ -108,7 +109,13 @@ def row_response(row: ReportRow) -> ReportRowResponse:
     )
 
 
-@router.get("", response_model=ReportResponse, summary="Общий отчёт за период")
+class ReportPage(ReportResponse):
+    total: int
+    page: int
+    outline: list[ReportRowResponse]
+
+
+@router.get("", response_model=ReportResponse | ReportPage, summary="Общий отчёт за период")
 def report_with_block_names(
     dormitory_id: DormitoryId,
     user: SubscribedUser,
@@ -116,7 +123,8 @@ def report_with_block_names(
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
     dormitory: OwnDormitory,
-) -> ReportResponse:
+    paging: Paging,
+) -> ReportResponse | ReportPage:
     report = read_report(dormitory_id, user, db, from_date, to_date, dormitory)
     settings = (
         db.scalar(
@@ -131,7 +139,31 @@ def report_with_block_names(
             row.metric_block_name = settings.get(row.metric_key, {}).get(
                 "name", REPORT_METRIC_BLOCK_NAMES[row.metric_key]
             )
-    return report
+    if paging.page is None:
+        return report
+    key = paging.sort_column
+    if key and key != "name" and "-" not in key:
+        raise HTTPException(422, "Этот столбец недоступен для сортировки")
+
+    def order(row: ReportRowResponse) -> str | None:
+        return row.name if key == "name" else row.values.get(key or "")
+
+    page = page_items(
+        report.rows,
+        paging,
+        ranks={},
+        row_key=lambda row: str(row.id),
+        search=lambda row: (row.name,),
+        order=order if key else None,
+    )
+    return ReportPage(
+        from_date=from_date,
+        to_date=to_date,
+        rows=page.rows,
+        total=page.total,
+        page=page.page,
+        outline=[row.model_copy(update={"values": {}, "errors": {}}) for row in report.rows],
+    )
 
 
 def read_report(

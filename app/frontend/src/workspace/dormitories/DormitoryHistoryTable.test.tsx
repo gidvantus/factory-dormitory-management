@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
@@ -68,34 +68,52 @@ describe('Подвкладка типа Архив', () => {
     ]);
     expect(screen.getByText(first.author)).toBeInTheDocument();
     expect(screen.getByText(/02\.11\.(?:20)?26.*13:15:00/)).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: /Страницы таблицы/ })).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: /Добавить|Удалить|Очистить|столбц/ }),
     ).not.toBeInTheDocument();
     expect(columns).not.toHaveBeenCalled();
   });
 
-  it('загружает следующую страницу и обновляет историю с начала', async () => {
+  it('синхронизирует страницы над и под таблицей и обновляет историю с начала', async () => {
     const user = userEvent.setup();
     const load = vi
       .spyOn(api, 'dormitoryHistory')
-      .mockResolvedValueOnce({ items: [first], next_cursor: 'cursor-2' })
+      .mockResolvedValueOnce({ items: [first], next_cursor: null, total: 101, page: 1 })
       .mockResolvedValueOnce({
         items: [{ ...first, id: 1, action: 'Отток → удалена запись «Иванов»' }],
         next_cursor: null,
+        total: 101,
+        page: 2,
       })
+      .mockResolvedValueOnce({ items: [first], next_cursor: null, total: 101, page: 1 })
       .mockResolvedValueOnce({ items: [], next_cursor: null });
     render(<DormitoryHistoryTable dormitoryId="7" tab={tab} range={range} />);
-    await user.click(await screen.findByRole('button', { name: 'Показать ещё' }));
+    const top = await screen.findByRole('navigation', { name: 'Страницы таблицы сверху' });
+    const bottom = screen.getByRole('navigation', { name: 'Страницы таблицы снизу' });
+    const table = screen.getByRole('table');
+    expect(top.compareDocumentPosition(table)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(table.compareDocumentPosition(bottom)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByRole('button', { name: 'Найти' })).toBeEnabled();
+    await user.click(within(bottom).getByRole('button', { name: 'Дальше' }));
     expect(await screen.findByText('Отток → удалена запись «Иванов»')).toBeInTheDocument();
-    expect(screen.getByText(/ФИО: «Петров» → «Метров»/)).toBeInTheDocument();
+    expect(screen.queryByText(/ФИО: «Петров» → «Метров»/)).not.toBeInTheDocument();
+    expect(top).toHaveTextContent('Страница 2 из 2');
+    expect(bottom).toHaveTextContent('Страница 2 из 2');
+    expect(within(bottom).getByRole('button', { name: 'Дальше' })).toBeDisabled();
     expect(load).toHaveBeenLastCalledWith(
       '7',
       9,
       range.from,
       range.to,
       expect.any(AbortSignal),
-      'cursor-2',
+      undefined,
+      expect.objectContaining({ page: 2 }),
     );
+    await user.click(within(top).getByRole('button', { name: 'Назад' }));
+    await screen.findByText(/ФИО: «Петров» → «Метров»/);
+    expect(top).toHaveTextContent('Страница 1 из 2');
+    expect(bottom).toHaveTextContent('Страница 1 из 2');
     await user.click(screen.getByRole('button', { name: 'Обновить' }));
     expect(
       await screen.findByText('За выбранный период изменений данных нет.'),

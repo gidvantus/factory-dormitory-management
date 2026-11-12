@@ -103,7 +103,7 @@ describe('общежития', () => {
         return { status: 200, body: snapshot };
       }
       if (url.includes('/7/residents?')) return { status: 200, body: { residents, hostels: [] } };
-      if (url.includes('/7/inflow?')) return { status: 200, body: [] };
+      if (url.includes('/7/inflow?')) return { status: 200, body: { rows: [], total: 0, page: 1 } };
       if (url.endsWith('/7/sections/residents/clear') && init?.method === 'POST') {
         residents = [];
         return { status: 204 };

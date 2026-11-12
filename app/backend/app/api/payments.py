@@ -14,6 +14,7 @@ from app.models.payment import PaymentEntry
 from app.schemas.payment import PaymentKind, PaymentResponse, UpdatePaymentRequest
 from app.section_state import require_clear_list, require_section_writable
 from app.table_data import lock_dormitory
+from app.table_pagination import Paging, TablePage, record_page
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/payments",
@@ -32,16 +33,21 @@ def get_payment(db: Session, dormitory_id: int, kind: PaymentKind, row_id: int) 
     return row
 
 
-@router.get("/{kind}", response_model=list[PaymentResponse], summary="Список на аванс или расчёт")
+@router.get(
+    "/{kind}",
+    response_model=list[PaymentResponse] | TablePage[PaymentResponse],
+    summary="Список на аванс или расчёт",
+)
 def list_payments(
     dormitory_id: DormitoryId,
     kind: PaymentKind,
     _user: SubscribedUser,
     db: DbSession,
-    _dormitory: OwnDormitory,
+    dormitory: OwnDormitory,
+    paging: Paging,
     from_date: Annotated[date | None, Query(alias="from")] = None,
     to_date: Annotated[date | None, Query(alias="to")] = None,
-) -> list[PaymentEntry]:
+) -> list[PaymentEntry] | TablePage[PaymentResponse]:
     query = select(PaymentEntry).where(
         PaymentEntry.dormitory_id == dormitory_id, PaymentEntry.kind == kind
     )
@@ -61,7 +67,10 @@ def list_payments(
                 PaymentEntry.settlement_date.between(from_date, to_date),
             )
         )
-    return list(db.scalars(query.order_by(PaymentEntry.id)))
+    query = query.order_by(PaymentEntry.id)
+    if paging.page is None:
+        return list(db.scalars(query))
+    return record_page(db, dormitory, kind, query, paging).response(PaymentResponse.model_validate)
 
 
 @router.post(

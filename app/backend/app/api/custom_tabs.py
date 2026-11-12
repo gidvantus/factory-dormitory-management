@@ -1,7 +1,8 @@
 """Вкладки одного общежития с независимым копированием структуры из другого."""
 
+from collections.abc import Callable
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import select
@@ -40,7 +41,15 @@ from app.schemas.custom_tab import (
 from app.section_state import SECTIONS, require_section_writable, section_parents, section_status
 from app.tab_catalog import normalized_name
 from app.tab_tree import all_tabs, copy_columns, delete_tabs, descendants
-from app.table_data import get_custom_tab, get_record, lock_dormitory
+from app.table_data import get_column, get_custom_tab, get_record, lock_dormitory
+from app.table_pagination import (
+    Paging,
+    TablePage,
+    display_reader,
+    page_items,
+    record_page,
+    saved_ranks,
+)
 
 router = APIRouter(tags=["custom-tabs"], responses={**SUBSCRIBED_USER_RESPONSES})
 DbSession = Annotated[Session, Depends(get_db)]
@@ -391,58 +400,92 @@ def list_arrival_rows(
     tab_id: EntityId,
     _user: SubscribedUser,
     db: DbSession,
-    _dormitory: OwnDormitory,
+    dormitory: OwnDormitory,
+    paging: Paging,
     from_date: Annotated[date | None, Query(alias="from")] = None,
     to_date: Annotated[date | None, Query(alias="to")] = None,
-) -> list[dict]:
+) -> list[dict[str, Any]] | dict[str, Any]:
     tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True)
     options = options_for(tab)
     if options.data_source != "arrival_plan":
         raise HTTPException(409, "Во вкладке не включена связь с планом заездов")
     validate_period(from_date, to_date)
-    return arrival_rows(db, dormitory_id, options.arrival_columns, from_date, to_date)
+    rows = arrival_rows(db, dormitory_id, options.arrival_columns, from_date, to_date)
+    if paging.page is None:
+        return rows
+    sort_key = paging.sort_column
+    if sort_key and sort_key not in options.arrival_columns:
+        raise HTTPException(422, "Этот столбец недоступен для сортировки")
+    result = page_items(
+        rows,
+        paging,
+        ranks=saved_ranks(db, dormitory, tab.table_key),
+        row_key=lambda row: row["id"],
+        search=lambda row: row["custom_values"].values(),
+        order=(lambda row: row["custom_values"].get(sort_key)) if sort_key else None,
+    )
+    return {"rows": result.rows, "total": result.total, "page": result.page}
 
 
-@router.get(TAB_PATH + "/{tab_id}/rows", response_model=list[TabEntryResponse])
+@router.get(
+    TAB_PATH + "/{tab_id}/rows", response_model=list[TabEntryResponse] | TablePage[TabEntryResponse]
+)
 def list_rows(
     dormitory_id: EntityId,
     tab_id: EntityId,
     _user: SubscribedUser,
     db: DbSession,
-    _dormitory: OwnDormitory,
+    dormitory: OwnDormitory,
+    paging: Paging,
     from_date: Annotated[date | None, Query(alias="from")] = None,
     to_date: Annotated[date | None, Query(alias="to")] = None,
-) -> list[TabEntryResponse]:
-    lock_dormitory(db, dormitory_id)
+) -> list[TabEntryResponse] | TablePage[TabEntryResponse]:
     tab = get_custom_tab(db, dormitory_id, tab_id, require_table=True)
     validate_period(from_date, to_date)
-    rows = list(
-        db.scalars(
-            select(CustomTabEntry)
-            .where(
-                CustomTabEntry.dormitory_id == dormitory_id,
-                CustomTabEntry.tab_id == tab_id,
-            )
-            .order_by(CustomTabEntry.id)
+    query = (
+        select(CustomTabEntry)
+        .where(
+            CustomTabEntry.dormitory_id == dormitory_id,
+            CustomTabEntry.tab_id == tab_id,
         )
+        .order_by(CustomTabEntry.id)
     )
     resolver = FillResolver(db, dormitory_id)
-    result = [resolver.response(row) for row in rows]
     options = options_for(tab)
+    period_filter: Callable[[CustomTabEntry], bool] | None = None
     if from_date and to_date and options.table_format == "list" and options.period_mode != "none":
         if options.date_column_id is None:
             raise HTTPException(409, "Выберите столбец даты в настройках вкладки")
-        column = resolver.columns[options.date_column_id]
-        key = str(column.id)
-        result = [
-            entry
-            for entry in result
-            if isinstance(
-                value := (entry.fill_values if column.fill else entry.custom_values).get(key), str
+        column = get_column(db, dormitory_id, tab.table_key, options.date_column_id)
+        start, end = from_date.isoformat(), to_date.isoformat()
+        if column.fill:
+            date_value = display_reader(db, column, resolver)
+
+            def within_period(row: CustomTabEntry) -> bool:
+                value = None if column.archived else date_value(row)
+                return isinstance(value, str) and start <= value <= end
+
+            period_filter = within_period
+        else:
+            query = query.where(
+                CustomTabEntry.custom_values[str(column.id)].as_string().between(start, end)
             )
-            and from_date.isoformat() <= value <= to_date.isoformat()
+    if paging.page is None:
+        return [
+            resolver.response(row)
+            for row in db.scalars(query)
+            if not period_filter or period_filter(row)
         ]
-    return result
+
+    return record_page(
+        db,
+        dormitory,
+        tab.table_key,
+        query,
+        paging,
+        predicate=period_filter,
+        resolver=resolver,
+    ).response(resolver.response)
 
 
 def validate_period(start: date | None, end: date | None) -> None:
