@@ -18,13 +18,24 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.access import OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.file_access import public_url, register_upload
-from app.models.hostel import Hostel, HostelCell
+from app.hostel_rows import (
+    DEFAULT_ROWS,
+    MANUAL_KEYS,
+    display_number,
+    manual_fields,
+    read_place_days,
+    rows_for,
+    validate_rows,
+)
+from app.hostel_templates import snapshot_rows, template_rows
+from app.models.hostel import Hostel, HostelCell, HostelTemplate
 from app.models.import_job import (
     IMPORT_STATUS_APPLIED,
     IMPORT_STATUS_FAILED,
@@ -32,7 +43,7 @@ from app.models.import_job import (
     IMPORT_TABLE_PLACES,
     ImportJob,
 )
-from app.place_values import active_in_month, place_day_values
+from app.place_values import active_in_month
 from app.places_import import (
     ImportIssue,
     ParsedImport,
@@ -47,9 +58,10 @@ from app.schemas.hostel import (
     CreateHostelRequest,
     HostelMonthResponse,
     HostelResponse,
-    PlaceField,
+    HostelTemplateRequest,
     PlacesResponse,
     SaveHostelCellRequest,
+    UpdateHostelRequest,
 )
 from app.schemas.places_import import (
     PlacesImportApplied,
@@ -135,6 +147,27 @@ def list_sources(
     ]
 
 
+@router.get("/report-sources", summary="Строки общего отчёта для связи с хостелом")
+def list_report_sources(
+    dormitory_id: DormitoryId,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
+) -> list[dict[str, int | str]]:
+    from app.models.report import ReportRow
+    from app.section_state import require_section
+
+    require_section(db, dormitory_id, "report")
+    return [
+        {"id": row.id, "name": row.name}
+        for row in db.scalars(
+            select(ReportRow)
+            .where(ReportRow.dormitory_id == dormitory_id)
+            .order_by(ReportRow.position, ReportRow.id)
+        )
+    ]
+
+
 class PlacesPage(PlacesResponse):
     total: int
     page: int
@@ -180,22 +213,7 @@ def read_places(
             size=page_size,
         )
         hostels = selected.rows
-    cells = (
-        list(
-            db.scalars(
-                select(HostelCell).where(
-                    HostelCell.hostel_id.in_([hostel.id for hostel in hostels]),
-                    HostelCell.report_date >= from_date,
-                    HostelCell.report_date <= to_date,
-                )
-            )
-        )
-        if hostels
-        else []
-    )
-    values: dict[int, dict[str, dict[str, int]]] = {hostel.id: {} for hostel in hostels}
-    for cell in cells:
-        values[cell.hostel_id].setdefault(cell.field, {})[cell.report_date.isoformat()] = cell.value
+    calculated = read_place_days(db, hostels, from_date, to_date)
 
     months: list[HostelMonthResponse] = []
     month = first_month
@@ -203,25 +221,32 @@ def read_places(
         start = max(from_date, month)
         end = min(to_date, next_month(month) - timedelta(days=1))
         days = [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
-        day_keys = {day.isoformat() for day in days}
         visible: list[HostelResponse] = []
         for hostel in hostels:
             if not active_in_month(hostel, month):
                 continue
-            row_values = {
-                field: {day: value for day, value in day_values.items() if day in day_keys}
-                for field, day_values in values[hostel.id].items()
+            rows = rows_for(hostel, month)
+            row_values: dict[str, dict[str, int | str]] = {
+                row.key: {} for row in rows if not row.archived and (row.formula or row.link)
             }
-            for field in ("free_m", "free_f", "residents_total", "free_total", "paid_total"):
-                row_values[field] = {}
+            errors: dict[str, dict[str, str]] = {}
             for day in days:
+                entry = calculated[hostel.id, day]
                 key = day.isoformat()
-                calculated = place_day_values(
-                    {field: entries[key] for field, entries in row_values.items() if key in entries}
+                for field, value in entry.values.items():
+                    row_values.setdefault(field, {})[key] = display_number(value)
+                for field, error in entry.errors.items():
+                    errors.setdefault(field, {})[key] = error
+            visible.append(
+                HostelResponse(
+                    id=hostel.id,
+                    name=hostel.name,
+                    values=row_values,
+                    rows=rows,
+                    version=hostel.layout_version,
+                    errors=errors,
                 )
-                for field, value in calculated.items():
-                    row_values.setdefault(field, {})[key] = value
-            visible.append(HostelResponse(id=hostel.id, name=hostel.name, values=row_values))
+            )
         months.append(HostelMonthResponse(month=month, days=days, hostels=visible))
         month = next_month(month)
     if selected:
@@ -250,10 +275,142 @@ def create_hostel(
             status.HTTP_409_CONFLICT, "Хостел с таким названием уже есть в этом месяце"
         )
     hostel = Hostel(dormitory_id=dormitory_id, name=payload.name, active_from_month=payload.month)
+    if payload.rows is not None:
+        rows = validate_rows(db, dormitory_id, payload.rows)
+        hostel.layouts = {payload.month.isoformat(): [row.model_dump() for row in rows]}
     db.add(hostel)
     db.commit()
     db.refresh(hostel)
     return {"id": hostel.id, "name": hostel.name}
+
+
+@router.get("/settings")
+def hostel_settings(
+    dormitory_id: DormitoryId,
+    month: Annotated[date, Query()],
+    _user: SubscribedUser,
+    db: DbSession,
+    dormitory: OwnDormitory,
+) -> dict[str, Any]:
+    if month.day != 1:
+        raise HTTPException(422, NOT_FIRST_DAY_DETAIL)
+    hostels = db.scalars(
+        select(Hostel).where(Hostel.dormitory_id == dormitory_id).order_by(Hostel.id)
+    )
+    templates = db.scalars(
+        select(HostelTemplate)
+        .where(HostelTemplate.organization_id == dormitory.organization_id)
+        .order_by(HostelTemplate.name, HostelTemplate.id)
+    )
+    return {
+        "defaults": [row.model_dump() for row in DEFAULT_ROWS],
+        "hostels": [
+            {
+                "id": hostel.id,
+                "name": hostel.name,
+                "version": hostel.layout_version,
+                "rows": [row.model_dump() for row in rows_for(hostel, month)],
+                "until": min(
+                    (key for key in hostel.layouts if key > month.isoformat()), default=None
+                ),
+            }
+            for hostel in hostels
+            if active_in_month(hostel, month)
+        ],
+        "templates": [{"id": item.id, "name": item.name} for item in templates],
+    }
+
+
+@router.get("/templates/{template_id}")
+def read_hostel_template(
+    template_id: HostelId,
+    _user: SubscribedUser,
+    db: DbSession,
+    dormitory: OwnDormitory,
+) -> dict[str, Any]:
+    template = db.get(HostelTemplate, template_id)
+    if template is None or template.organization_id != dormitory.organization_id:
+        raise HTTPException(404, "Шаблон не найден")
+    rows, warnings = template_rows(db, dormitory.id, template.rows)
+    db.commit()
+    return {"rows": rows, "warnings": warnings}
+
+
+@router.post("/templates", status_code=201)
+def save_hostel_template(
+    dormitory_id: DormitoryId,
+    payload: HostelTemplateRequest,
+    _user: SubscribedUser,
+    db: DbSession,
+    dormitory: OwnDormitory,
+) -> dict[str, int | str]:
+    require_section_writable(db, dormitory_id, "places")
+    rows = snapshot_rows(db, dormitory_id, validate_rows(db, dormitory_id, payload.rows))
+    template = HostelTemplate(
+        organization_id=dormitory.organization_id,
+        name=payload.name,
+        name_key=payload.name.casefold(),
+        rows=rows,
+    )
+    db.add(template)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Шаблон с таким названием уже существует") from exc
+    return {"id": template.id, "name": template.name}
+
+
+@router.put("/{hostel_id}/settings", status_code=204)
+def update_hostel_settings(
+    dormitory_id: DormitoryId,
+    hostel_id: HostelId,
+    payload: UpdateHostelRequest,
+    _user: SubscribedUser,
+    db: DbSession,
+    _dormitory: OwnDormitory,
+) -> None:
+    require_section_writable(db, dormitory_id, "places")
+    hostel = get_hostel(db, dormitory_id, hostel_id)
+    if not active_in_month(hostel, payload.month):
+        raise HTTPException(409, "Хостел не действует в этом месяце")
+    if payload.version != hostel.layout_version:
+        raise HTTPException(409, "Настройки уже изменились. Откройте их заново")
+    for other in db.scalars(
+        select(Hostel).where(Hostel.dormitory_id == dormitory_id, Hostel.id != hostel_id)
+    ):
+        if (
+            other.name.casefold() == payload.name.casefold()
+            and (
+                other.active_until_month is None
+                or other.active_until_month > hostel.active_from_month
+            )
+            and (
+                hostel.active_until_month is None
+                or hostel.active_until_month > other.active_from_month
+            )
+        ):
+            raise HTTPException(409, "В этот период уже есть хостел с таким названием")
+    supplied = {row.key for row in payload.rows}
+    rows = validate_rows(
+        db,
+        dormitory_id,
+        [
+            *payload.rows,
+            *(
+                row.model_copy(update={"archived": True})
+                for row in rows_for(hostel, payload.month)
+                if row.key not in supplied
+            ),
+        ],
+    )
+    hostel.name = payload.name
+    hostel.layouts = {
+        **hostel.layouts,
+        payload.month.isoformat(): [row.model_dump() for row in rows],
+    }
+    hostel.layout_version += 1
+    db.commit()
 
 
 @router.delete(
@@ -290,7 +447,7 @@ def save_hostel_cell(
     dormitory_id: DormitoryId,
     hostel_id: HostelId,
     report_date: date,
-    field: PlaceField,
+    field: Annotated[str, Path(min_length=1, max_length=24)],
     payload: SaveHostelCellRequest,
     _user: SubscribedUser,
     db: DbSession,
@@ -300,6 +457,8 @@ def save_hostel_cell(
     hostel = get_hostel(db, dormitory_id, hostel_id)
     if not active_in_month(hostel, report_date.replace(day=1)):
         raise HTTPException(status.HTTP_409_CONFLICT, "Хостел не действует в этом месяце")
+    if field not in manual_fields(hostel, report_date):
+        raise HTTPException(422, "Заполнять можно только действующую ручную строку")
     cell = db.scalar(
         select(HostelCell).where(
             HostelCell.hostel_id == hostel_id,
@@ -403,6 +562,8 @@ def download_places_import_template(
             .order_by(Hostel.active_from_month, Hostel.id)
         )
     )
+    if any(rows_for(hostel, month) != list(DEFAULT_ROWS) for hostel in hostels):
+        raise HTTPException(409, "Для настроенных строк используйте «Импорт из Excel» во вкладке")
     values: dict[int, dict[date, dict[str, int]]] = {hostel.id: {} for hostel in hostels}
     if hostels:
         cells = db.scalars(
@@ -571,6 +732,12 @@ def apply_import(db: Session, dormitory_id: int, job: ImportJob) -> PlacesImport
     month = date.fromisoformat(str(months[0]))
     rows: list[dict[str, Any]] = list(stored.get("rows") or [])
 
+    if any(
+        active_in_month(hostel, month) and rows_for(hostel, month) != list(DEFAULT_ROWS)
+        for hostel in db.scalars(select(Hostel).where(Hostel.dormitory_id == dormitory_id))
+    ):
+        raise HTTPException(409, "Для настроенных строк используйте «Импорт из Excel» во вкладке")
+
     known: dict[str, Hostel] = {}
     for existing in db.scalars(select(Hostel).where(Hostel.dormitory_id == dormitory_id)):
         known.setdefault(normalize_name(existing.name), existing)
@@ -588,6 +755,10 @@ def apply_import(db: Session, dormitory_id: int, job: ImportJob) -> PlacesImport
             db.flush()
             known[key] = hostel
         elif not active_in_month(hostel, month):
+            if rows_for(hostel, month) != list(DEFAULT_ROWS):
+                raise HTTPException(
+                    409, "Для настроенных строк используйте «Импорт из Excel» во вкладке"
+                )
             # Продлеваем период по тем же правилам, что у POST /hostels: хостел,
             # созданный позже или убранный раньше, снова действует в этом месяце.
             if hostel.active_from_month > month:
@@ -604,6 +775,7 @@ def apply_import(db: Session, dormitory_id: int, job: ImportJob) -> PlacesImport
                 HostelCell.hostel_id.in_(hostel_ids),
                 HostelCell.report_date >= month,
                 HostelCell.report_date < next_month(month),
+                HostelCell.field.in_(MANUAL_KEYS | {"free_m", "free_f"}),
             )
         )
 

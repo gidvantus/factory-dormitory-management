@@ -576,7 +576,10 @@ export function ColumnForm({
             title="Варианты для выбора"
             description="Добавьте варианты. Использованные варианты можно архивировать без потери старых значений."
           >
-            <fieldset disabled={saving || !!column?.builtin_key} className={styles.options}>
+            <fieldset
+              disabled={saving || (!!column?.builtin_key && column.builtin_key !== 'gender')}
+              className={styles.options}
+            >
               <legend>Варианты списка</legend>
               {options.map((option, index) => (
                 <div className={styles.option} key={option.id ?? `new-${index}`}>

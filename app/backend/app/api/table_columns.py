@@ -69,6 +69,14 @@ def prepare_options(payload: ColumnRequest, existing: TableColumn | None) -> lis
     return result
 
 
+def update_column_options(payload: ColumnRequest, column: TableColumn) -> None:
+    if column.builtin_key and column.builtin_key != "gender":
+        if [item.model_dump() for item in payload.options] != column.options:
+            raise HTTPException(409, "Варианты стандартного столбца изменять нельзя")
+        return
+    column.options = prepare_options(payload, column if payload.kind == column.kind else None)
+
+
 def check_name(columns: list[TableColumn], name: str, column_id: int | None = None) -> None:
     if any(
         col.id != column_id and not col.archived and col.name.casefold() == name.casefold()
@@ -151,11 +159,7 @@ def update_column(
         raise HTTPException(409, "Сначала восстановите столбец")
     check_name(columns, payload.name, column.id)
     require_column_type_change(db, column, payload.kind)
-    if column.builtin_key:
-        if [item.model_dump() for item in payload.options] != column.options:
-            raise HTTPException(409, "Варианты стандартного столбца изменять нельзя")
-    else:
-        column.options = prepare_options(payload, column if payload.kind == column.kind else None)
+    update_column_options(payload, column)
     column.kind = payload.kind
     column.name = payload.name
     if "fill" in payload.model_fields_set and assign_fill(column, payload.fill):

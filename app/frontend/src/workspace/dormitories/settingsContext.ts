@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react';
 
 export interface SettingsNavigation {
-  open: (key?: string, page?: 'structure' | 'links' | 'templates') => void;
+  open: (key?: string, page?: 'structure' | 'links' | 'templates', createHostel?: boolean) => void;
   revision: number;
   readOnly: boolean;
 }

@@ -62,6 +62,7 @@ export function DormitoryDetails(): JSX.Element {
   const [settings, setSettings] = useState<{
     key?: string;
     page?: 'structure' | 'links' | 'templates';
+    createHostel?: boolean;
   } | null>(null);
   const [settingsRevision, setSettingsRevision] = useState(0);
   const [dataRevision, setDataRevision] = useState(0);
@@ -412,7 +413,7 @@ export function DormitoryDetails(): JSX.Element {
           )}
           <SettingsContext.Provider
             value={{
-              open: (key, page) => setSettings({ key, page }),
+              open: (key, page, createHostel) => setSettings({ key, page, createHostel }),
               revision: settingsRevision,
               readOnly: primaryPath === 'custom' ? customReadOnly : standardReadOnly,
             }}
@@ -514,6 +515,9 @@ export function DormitoryDetails(): JSX.Element {
               dormitoryId={dormitoryId}
               initialKey={settings.key}
               initialPage={settings.page}
+              placesMonth={placesMonth}
+              createHostel={settings.createHostel}
+              onHostelsChanged={() => setSettingsRevision((value) => value + 1)}
               onClose={() => setSettings(null)}
               onChanged={(data) => {
                 setCustomTabs(data.tabs);
