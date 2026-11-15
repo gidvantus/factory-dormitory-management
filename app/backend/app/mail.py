@@ -12,6 +12,7 @@ import html
 import logging
 import smtplib
 from email.message import EmailMessage
+from pathlib import Path
 from typing import NamedTuple
 
 from sqlalchemy import select
@@ -38,6 +39,14 @@ RECOVERY_WINDOW_MINUTES = 60
 
 # Столько ждём SMTP-сервер, прежде чем считать попытку неудачной.
 SMTP_TIMEOUT_SECONDS = 10
+
+# Домик в плашке-герое писем: картинка едет вложением самого письма, а не
+# ссылкой. `HOUSE_IMAGE_CID` — адрес части внутри письма (`Content-ID`), на
+# который ссылается `<img src="cid:…">` в вёрстке из `mail_templates.body_html`;
+# `HOUSE_IMAGE_PATH` — растр рядом с модулем. SVG в письмо не годится: его
+# почтовики не рисуют, в письме едет только PNG.
+HOUSE_IMAGE_CID = "domovoy-house@domovoy"
+HOUSE_IMAGE_PATH = Path(__file__).parent / "mail_assets" / "house-hero.png"
 
 
 class MailTemplateNotFound(RuntimeError):
@@ -234,6 +243,48 @@ def _open_smtp(host: str, port: int, use_tls: bool) -> smtplib.SMTP:
     return smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT_SECONDS)
 
 
+def _html_part(message: EmailMessage) -> EmailMessage | None:
+    """HTML-часть письма: ищем по типу, а не по индексу в payload.
+
+    Порядок частей зависит от того, что положил `add_alternative`, поэтому
+    `payload[1]` — догадка, а `Content-Type` — факт.
+    """
+    for part in message.iter_parts():
+        if isinstance(part, EmailMessage) and part.get_content_type() == "text/html":
+            return part
+    return None
+
+
+def _attach_house_image(html: str, message: EmailMessage) -> None:
+    """Прикрепить домик к HTML-части, если шаблон ссылается на его `cid`.
+
+    Картинка едет внутри письма (`multipart/related`), поэтому внешних ссылок
+    не появляется, а иллюстрацию рисуют и те почтовики, что блокируют внешние
+    картинки. Файла нет — письмо всё равно уходит, без картинки: письмо важнее
+    иллюстрации, и исключение наружу не поднимается.
+    """
+    if f"cid:{HOUSE_IMAGE_CID}" not in html:
+        return
+    part = _html_part(message)
+    if part is None:
+        return
+    try:
+        image = HOUSE_IMAGE_PATH.read_bytes()
+    except OSError as error:
+        logger.error(
+            "Домик для письма не прочитан (%s): %s", HOUSE_IMAGE_PATH.name, type(error).__name__
+        )
+        return
+    part.add_related(
+        image,
+        maintype="image",
+        subtype="png",
+        cid=f"<{HOUSE_IMAGE_CID}>",
+        filename="domovoy-house.png",
+        disposition="inline",
+    )
+
+
 def _deliver_email(
     *, to: str, subject: str, body: str, log_label: str, html: str | None = None
 ) -> bool:
@@ -241,7 +292,9 @@ def _deliver_email(
 
     `html` — готовая HTML-часть из `mail_templates.body_html`. `None` значит, что
     разметки у шаблона нет: тогда HTML-часть собирается из plain-текста прежней
-    обёрткой. Plain-часть (`body`) уходит байт-в-байт как раньше.
+    обёрткой. Plain-часть (`body`) уходит байт-в-байт как раньше. Если разметка
+    ссылается на домик (`cid:`), к HTML-части прикрепляется PNG из
+    `app/mail_assets/`.
     """
     settings = get_settings()
     message = EmailMessage()
@@ -250,6 +303,8 @@ def _deliver_email(
     message["Subject"] = subject
     message.set_content(body)
     message.add_alternative(html if html is not None else _html_from_text(body), subtype="html")
+    if html is not None:
+        _attach_house_image(html, message)
 
     try:
         with _open_smtp(settings.smtp_host, settings.smtp_port, settings.smtp_use_tls) as smtp:

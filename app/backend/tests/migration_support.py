@@ -30,6 +30,8 @@ PostgreSQL, а не SQLite. Это делается на стенде коман
 """
 
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -40,14 +42,22 @@ import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.script import ScriptDirectory
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.engine import Connection
+from sqlalchemy.pool import StaticPool
 
 from app.models.base import Base
 
 ADD_PATTERN = re.compile(r"ADD COLUMN IF NOT EXISTS (\w+) (.+)$")
 DROP_PATTERN = re.compile(r"DROP COLUMN IF EXISTS (\w+)$")
+IMG_PATTERN = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+SRC_PATTERN = re.compile(r'src="([^"]*)"', re.IGNORECASE)
 
 # Каталог ревизий: `alembic/versions` рядом с каталогом `tests`, где лежит этот файл.
 VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+
+# Ревизия, которая заводит таблицу `mail_templates` вместе с её сиидом.
+MAIL_TEMPLATES_REVISION = "0011_activation_and_mail_templates.py"
 
 
 def load_migration(path: Path) -> ModuleType:
@@ -152,6 +162,136 @@ def assert_nullable_without_default(migration: ModuleType, model: type[Base], pr
 def assert_downgrade_removes_only_added(migration: ModuleType) -> None:
     """Забытая в `downgrade` колонка делает ревизию необратимой."""
     assert sorted(dropped_columns(migration)) == sorted(added_columns(migration))
+
+
+def sqlite_compatible(module: ModuleType) -> ModuleType:
+    """Тот же DDL без `IF [NOT] EXISTS`: такого синтаксиса SQLite не понимает.
+
+    Ревизии пишут `ADD COLUMN IF NOT EXISTS`, чтобы пережить повторный запуск после
+    обрыва; SQLite такого не умеет, поэтому тест прогоняет ровно те же операторы без
+    него. Тип и `nullable` колонки всё равно сверяются с объявлением, а настоящий DDL
+    проверяется на стенде (`alembic upgrade head`, `downgrade -1`, снова `upgrade`).
+
+    Читать и писать эти атрибуты приходится через `getattr`/`setattr`: у
+    `ModuleType` объявленных `ADD_COLUMNS_SQL` и `DROP_COLUMNS_SQL` нет, и прямая
+    запись — это ошибка mypy `attr-defined`. У ревизии без DDL таких констант нет
+    вовсе — для неё замена ничего не меняет.
+    """
+    add_columns = getattr(module, "ADD_COLUMNS_SQL", ())
+    drop_columns = getattr(module, "DROP_COLUMNS_SQL", ())
+    setattr(  # noqa: B010 - см. докстринг: прямая запись ломает mypy
+        module,
+        "ADD_COLUMNS_SQL",
+        tuple(statement.replace(" IF NOT EXISTS", "") for statement in add_columns),
+    )
+    setattr(  # noqa: B010 - см. докстринг: прямая запись ломает mypy
+        module,
+        "DROP_COLUMNS_SQL",
+        tuple(statement.replace(" IF EXISTS", "") for statement in drop_columns),
+    )
+    return module
+
+
+def assert_no_external_resources(html: str) -> None:
+    """В письме нет внешних ресурсов: картинка едет вложением с `cid`.
+
+    Ревизия `0069_mail_hero_house` добавила в письма домик, поэтому прежний запрет
+    на `<img>` целиком заменён более точным: у каждого `<img>` источник начинается с
+    `cid:` (часть внутри самого письма), `alt` на месте, а `http`/`data:`-источников,
+    `<style>`/`<link>` и раскладок `flex`/`grid`/`absolute` по-прежнему нет. Внешняя
+    картинка не отрисуется у получателя с выключенными внешними ресурсами, а
+    `data:`-URI режут часть почтовиков.
+    """
+    assert html.startswith('<html lang="ru">')
+    assert 'src="http' not in html
+    assert 'src="data:' not in html
+    for tag in IMG_PATTERN.findall(html):
+        assert "alt=" in tag, tag
+        source = SRC_PATTERN.search(tag)
+        assert source is not None, tag
+        assert source.group(1).startswith("cid:"), tag
+    assert "<style" not in html
+    assert "<link" not in html
+    assert "display:flex" not in html
+    assert "display:grid" not in html
+    assert "position:absolute" not in html
+
+
+# --- Общий стенд прогона ревизий на SQLite -----------------------------------
+
+
+@contextmanager
+def sqlite_connection() -> Iterator[Connection]:
+    """Пустая база на SQLite: ревизия сама собирает ту схему, что ей нужна.
+
+    `db_engine` из `conftest` здесь не годится: она создаёт схему из моделей, а
+    тесты ревизий проверяют как раз то, что ревизия делает с **прежней** схемой.
+    Фикстуру `engine_connection` поверх этой функции держит `tests/conftest.py`:
+    pytest не видит фикстуру, импортированную в модуль теста, а `pytest_plugins` в
+    не-корневом `conftest` устарел. Стенд при этом один — здесь.
+    """
+    engine: Engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    try:
+        with engine.connect() as connection:
+            yield connection
+    finally:
+        engine.dispose()
+
+
+def operations_for(connection: Connection) -> Operations:
+    return Operations(MigrationContext.configure(connection))
+
+
+def run_upgrade(connection: Connection, path: Path) -> None:
+    """Прогнать `upgrade` ревизии по пути.
+
+    Модуль читается заново на каждый прогон: `sqlite_compatible` правит его
+    константы, и общий модуль на два прогона исказил бы второй.
+    """
+    module = sqlite_compatible(load_migration(path))
+    with_operations(module, operations_for(connection)).upgrade()
+
+
+def run_downgrade(connection: Connection, path: Path) -> None:
+    """Прогнать `downgrade` ревизии по пути — тем же способом, что и `upgrade`."""
+    module = sqlite_compatible(load_migration(path))
+    with_operations(module, operations_for(connection)).downgrade()
+
+
+# --- Письма: таблица `mail_templates` и её строки ----------------------------
+
+
+def build_mail_templates(connection: Connection) -> None:
+    """Схема `mail_templates` из `0011` — с её же сиидом активации.
+
+    Таблица собирается настоящей ревизией, а не руками: строка `activation` и
+    колонки приходят такими, какими они лежат на живой базе.
+    """
+    metadata = sa.MetaData()
+    sa.Table("users", metadata, sa.Column("id", sa.Integer(), primary_key=True))
+    metadata.create_all(connection)
+    run_upgrade(connection, VERSIONS / MAIL_TEMPLATES_REVISION)
+
+
+def insert_template(connection: Connection, *, code: str, subject: str, body: str) -> None:
+    """Строка `mail_templates` с кодом: `body_html` заполнит проверяемая ревизия."""
+    connection.execute(
+        sa.text(
+            "INSERT INTO mail_templates (code, subject, body, is_active) "
+            "VALUES (:code, :subject, :body, 1)"
+        ),
+        {"code": code, "subject": subject, "body": body},
+    )
+
+
+def mail_rows(connection: Connection) -> dict[str, Any]:
+    """Строки `mail_templates` по коду: что ревизия оставила после `upgrade`."""
+    query = sa.text("SELECT code, subject, body, body_html FROM mail_templates")
+    return {str(row.code): row for row in connection.execute(query)}
 
 
 # --- Ревизии данных таблицы `documents` --------------------------------------

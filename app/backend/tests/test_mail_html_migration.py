@@ -11,7 +11,9 @@
   не меняет их `subject` и `body`, не создаёт отсутствующий код и не трогает
   `password_recovery`;
 * вёрстка из ревизии после подстановки значений не оставляет плейсхолдеров и
-  не содержит картинок, `<style>`, внешних ресурсов и `flex`/`grid`/`absolute`.
+  не содержит внешних ресурсов, `<style>`, `flex`/`grid`/`absolute`; картинок в
+  ней нет вовсе (домик появился ревизией `0069_mail_hero_house`, см.
+  `test_mail_hero_migration.py`).
 
 `IF NOT EXISTS` у `ADD COLUMN` понимает PostgreSQL, а не SQLite, поэтому тест
 прогоняет те же операторы без него (`_sqlite_compatible`). Настоящий DDL с
@@ -19,18 +21,12 @@
 `alembic downgrade -1` и снова `alembic upgrade head`.
 """
 
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-import pytest
 import sqlalchemy as sa
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from sqlalchemy import Engine, create_engine
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import StaticPool
 
 from app.config import get_settings
 from app.mail import render_activation_email, render_invitation_email
@@ -39,11 +35,16 @@ from tests.migration_support import (
     added_columns,
     assert_columns_match_model,
     assert_downgrade_removes_only_added,
+    assert_no_external_resources,
     assert_nullable_without_default,
     assert_on_previous_head,
     assert_single_head,
+    build_mail_templates,
+    insert_template,
     load_migration,
-    with_operations,
+    mail_rows,
+    run_downgrade,
+    run_upgrade,
 )
 
 VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
@@ -67,24 +68,6 @@ RECOVERY_BODY = "Здравствуйте, {full_name}!\nПароль: {activati
 ACTIVATION_SUBJECT = "Активация личного кабинета Домовой"
 
 
-@pytest.fixture
-def engine_connection() -> Iterator[Connection]:
-    """Пустая база на SQLite: схему `mail_templates` собирает сама ревизия `0011`.
-
-    Фикстура `db_engine` из conftest не подходит: она создаёт схему из моделей,
-    где `mail_templates` уже с `body_html`, а проверяется как раз добавление
-    колонки к прежней таблице.
-    """
-    engine: Engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    with engine.connect() as connection:
-        yield connection
-    engine.dispose()
-
-
 def migration() -> Any:
     """Модуль ревизии по пути: `alembic/versions` — не пакет, импорта по имени нет.
 
@@ -93,59 +76,6 @@ def migration() -> Any:
     `ruff check` (`B009`/`B010`), а `# type: ignore` на каждую строку — шум.
     """
     return load_migration(MIGRATION_PATH)
-
-
-def sqlite_compatible(module: Any) -> Any:
-    """Те же операторы без `IF NOT EXISTS`: такого DDL SQLite не понимает."""
-    module.ADD_COLUMNS_SQL = tuple(
-        statement.replace(" IF NOT EXISTS", "") for statement in module.ADD_COLUMNS_SQL
-    )
-    module.DROP_COLUMNS_SQL = tuple(
-        statement.replace(" IF EXISTS", "") for statement in module.DROP_COLUMNS_SQL
-    )
-    return module
-
-
-def operations_for(connection: Connection) -> Operations:
-    return Operations(MigrationContext.configure(connection))
-
-
-def build_mail_templates(connection: Connection) -> None:
-    """Схема `mail_templates` из `0011` — с её же сиидом активации.
-
-    Таблица собирается настоящей ревизией, а не руками: строка `activation` и
-    колонки приходят такими, какими они лежат на живой базе.
-    """
-    metadata = sa.MetaData()
-    sa.Table("users", metadata, sa.Column("id", sa.Integer(), primary_key=True))
-    metadata.create_all(connection)
-
-    migration_0011 = load_migration(VERSIONS / "0011_activation_and_mail_templates.py")
-    with_operations(migration_0011, operations_for(connection)).upgrade()
-
-
-def run_upgrade(connection: Connection) -> None:
-    with_operations(sqlite_compatible(migration()), operations_for(connection)).upgrade()
-
-
-def run_downgrade(connection: Connection) -> None:
-    with_operations(sqlite_compatible(migration()), operations_for(connection)).downgrade()
-
-
-def insert_template(connection: Connection, *, code: str, subject: str, body: str) -> None:
-    connection.execute(
-        sa.text(
-            "INSERT INTO mail_templates (code, subject, body, is_active) "
-            "VALUES (:code, :subject, :body, 1)"
-        ),
-        {"code": code, "subject": subject, "body": body},
-    )
-
-
-def mail_rows(connection: Connection) -> dict[str, Any]:
-    """Строки `mail_templates` по коду: что ревизия оставила после `upgrade`."""
-    query = sa.text("SELECT code, subject, body, body_html FROM mail_templates")
-    return {str(row.code): row for row in connection.execute(query)}
 
 
 def table_columns(connection: Connection) -> set[str]:
@@ -187,7 +117,7 @@ def test_upgrade_renders_only_the_two_letters(engine_connection: Connection) -> 
         engine_connection, code=RECOVERY_CODE, subject=RECOVERY_SUBJECT, body=RECOVERY_BODY
     )
 
-    run_upgrade(engine_connection)
+    run_upgrade(engine_connection, MIGRATION_PATH)
 
     rows = mail_rows(engine_connection)
     assert set(rows) == {ACTIVATION_CODE, INVITATION_CODE, RECOVERY_CODE}
@@ -211,7 +141,7 @@ def test_upgrade_does_not_create_a_missing_template(engine_connection: Connectio
     build_mail_templates(engine_connection)
     engine_connection.execute(sa.text("DELETE FROM mail_templates WHERE code = 'invitation'"))
 
-    run_upgrade(engine_connection)
+    run_upgrade(engine_connection, MIGRATION_PATH)
 
     rows = mail_rows(engine_connection)
     assert set(rows) == {ACTIVATION_CODE}
@@ -223,10 +153,10 @@ def test_downgrade_removes_the_column_and_keeps_the_letters(
 ) -> None:
     build_mail_templates(engine_connection)
     insert_template(engine_connection, code=INVITATION_CODE, subject=SUBJECT, body=BODY)
-    run_upgrade(engine_connection)
+    run_upgrade(engine_connection, MIGRATION_PATH)
     assert "body_html" in table_columns(engine_connection)
 
-    run_downgrade(engine_connection)
+    run_downgrade(engine_connection, MIGRATION_PATH)
 
     assert "body_html" not in table_columns(engine_connection)
     rows = engine_connection.execute(
@@ -239,17 +169,6 @@ def test_downgrade_removes_the_column_and_keeps_the_letters(
 
 
 # --- Вёрстка из ревизии после подстановки -----------------------------------
-
-
-def assert_no_external_resources(html: str) -> None:
-    """В письме нет картинок, стилей блоками и раскладок, которые режут почтовики."""
-    assert html.startswith('<html lang="ru">')
-    assert "<img" not in html
-    assert "<style" not in html
-    assert "<link" not in html
-    assert "display:flex" not in html
-    assert "display:grid" not in html
-    assert "position:absolute" not in html
 
 
 def test_invitation_html_keeps_no_placeholders_and_names_the_organization(
