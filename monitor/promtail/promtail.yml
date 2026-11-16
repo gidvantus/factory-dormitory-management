@@ -1,0 +1,81 @@
+# Promtail — сбор stdout/stderr всех контейнеров хоста в Loki
+# (monitor/docker-compose.monitor.yml, сервис promtail).
+#
+# Контейнеры не перечислены: promtail спрашивает docker API (`docker_sd_configs`)
+# и сам заводит цель на каждый контейнер. Поэтому новый сервис в основном
+# стеке начинает логироваться без правки этого файла, а удалённый — перестаёт,
+# а не висит мёртвой целью.
+#
+# ЧТО ЧИТАЕТСЯ. Только json-file логи — тот logging driver, который у compose
+# по умолчанию. Если когда-нибудь в docker-compose.yml появится
+# `logging.driver: journald` или `local`, promtail перестанет видеть логи этого
+# сервиса молча: строка в /var/lib/docker/containers просто не появится.
+# Проверка «Loki получает логи» в .github/workflows/deploy-monitoring.yml ловит
+# это на деплое, а не через неделю.
+#
+# ЧЬИ ЛОГИ. Всех контейнеров хоста, а не только этого compose-проекта: docker API
+# не умеет «только наши». На боевом сервере проект один, и это ровно то, что
+# нужно; на общей машине стеки разделяются меткой project (она приходит из
+# docker-меток compose), и в запросах её указывают явно.
+#
+# ПЕРВЫЙ ЗАПУСК. Позиции начинаются с нуля, поэтому promtail читает json-логи
+# контейнеров с начала файла. Записи старше retention Loki отбрасывает
+# (`reject_old_samples` в monitor/loki/loki.yml) и пишет в свой лог
+# «entry ... has timestamp too old» — это шум первого запуска, а не поломка:
+# после того как позиции сохранены в томе, он не повторяется.
+
+server:
+  # Порт нужен только для /metrics и /ready самого promtail внутри сети.
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  # Прочитанные позиции лежат в томе promtail-positions: при рестарте
+  # контейнера promtail продолжает с того же места, а не перечитывает логи
+  # с начала и не заливает в Loki дубли.
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    # Порядок в очереди важнее скорости: при недоступном Loki promtail копит
+    # записи в памяти (до 4 МиБ), а не теряет их сразу.
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+    batchwait: 1s
+    batchsize: 1048576
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Имя контейнера без ведущего слэша: в Loki оно нужно для фильтров
+      # {container="crm-dormitory-api-1"}.
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+      # stdout или stderr: stderr приложения — первый подозреваемый при разборе.
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: stream
+      # Метка service — имя сервиса compose. Именно по ней фильтруют панели
+      # Grafana ({service="api"}); та же метка есть у метрик контейнеров, так
+      # что графики и логи отвечают про один и тот же объект.
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: service
+      # Метка project отделяет стенд отдела от боевого стека: оба пишут в один
+      # Loki, если запущены на одной машине.
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_project"]
+        target_label: project
+      # Файл логов контейнера: путь собирается из его идентификатора.
+      - source_labels: ["__meta_docker_container_id"]
+        target_label: __path__
+        replacement: /var/lib/docker/containers/$1/$1-json.log
+
+    pipeline_stages:
+      # Разбор json-file: promtail берёт из записи время и сам текст, а не
+      # отдаёт в Loki служебную обёртку {"log":"…","stream":"stdout"}.
+      - docker: {}

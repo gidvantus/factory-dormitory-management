@@ -1,8 +1,12 @@
 name: Деплой мониторинга
 
 # Поднимает на сервере стек monitor/ (Prometheus, Grafana, Alertmanager, notifier,
-# node-exporter, docker-stats-exporter) и открывает Grafana на
-# https://monitor.<SITE_DOMAIN> через Caddy основного стека.
+# node-exporter, docker-stats-exporter, Loki, promtail и Dozzle) и открывает
+# два адреса через Caddy основного стека:
+#   https://monitor.<SITE_DOMAIN> — Grafana (дашборды и алерты);
+#   https://logs.<SITE_DOMAIN>    — Dozzle (живой поток логов контейнеров).
+# Оба закрыты basic auth; Loki наружу не публикуется и доступен только как
+# источник данных Grafana.
 #
 # ЗАЧЕМ ОТДЕЛЬНЫЙ WORKFLOW. Основной деплой (.github/workflows/deploy.yml) —
 # это «выкатить main»: он собирает образ api и применяет миграции. Мониторинг
@@ -66,6 +70,10 @@ jobs:
       # домен, Caddy пойдёт за сертификатом на имя без A-записи и упрётся в
       # лимиты Let's Encrypt. При смене домена правится ровно эта строка.
       MONITOR_HOST_EXPECTED: monitor.dmv-crm.ru
+      # То же для второго адреса — живого просмотра логов. Причина та же:
+      # сертификат выпускается только на имя с A-записью, а имя собирается из
+      # SITE_DOMAIN сервера. При смене домена правится ровно эта строка.
+      LOGS_HOST_EXPECTED: logs.dmv-crm.ru
       # Проверки по HTTPS идут на loopback сервера с реальными SNI и Host.
       LOOPBACK: 127.0.0.1
     steps:
@@ -146,7 +154,7 @@ jobs:
           # shellcheck disable=SC2029
           ssh "$SSH_TARGET" 'echo ===SSH-OK===; hostname; whoami'
 
-      - name: "Сервер: чек-лист .env и адрес мониторинга"
+      - name: "Сервер: чек-лист .env и адреса мониторинга"
         # Домен берётся из .env сервера, а не из репозитория. Здесь же он
         # сверяется с A-записью: сертификат выпускается только на то имя, на
         # которое реально указывает DNS.
@@ -174,7 +182,19 @@ jobs:
           fi
           echo "MONITOR_HOST=$MONITOR_HOST" >> "$GITHUB_ENV"
           echo "SITE_DOMAIN=$SITE_DOMAIN" >> "$GITHUB_ENV"
-          echo "SITE_DOMAIN прошёл проверку: мониторинг будет на $MONITOR_HOST."
+
+          # Второй адрес проверяется так же: он собирается из того же
+          # SITE_DOMAIN, и расхождение с ожидаемым именем означает A-запись на
+          # другое имя — то же упрётся в лимиты Let's Encrypt, только уже на
+          # logs.<домен>.
+          LOGS_HOST="logs.$SITE_DOMAIN"
+          echo "Домен логов: $LOGS_HOST"
+          if [ "$LOGS_HOST" != "$LOGS_HOST_EXPECTED" ]; then
+            echo "::error::Из SITE_DOMAIN=$SITE_DOMAIN получается $LOGS_HOST, а ожидается $LOGS_HOST_EXPECTED. Нужна A-запись logs.<домен> на адрес сервера — docs/ssl.md и docs/monitoring.md."
+            exit 1
+          fi
+          echo "LOGS_HOST=$LOGS_HOST" >> "$GITHUB_ENV"
+          echo "SITE_DOMAIN прошёл проверку: мониторинг будет на $MONITOR_HOST, логи — на $LOGS_HOST."
 
       - name: "Архив: упаковать и передать на сервер"
         run: |
@@ -285,15 +305,36 @@ jobs:
             echo "Пара входа в мониторинг уже есть — значения не менялись."
           fi
 
+          # --- Второй вход: https://logs.<домен> (Dozzle) ---
+          # Логин свой, пароль тот же: хеш копируется из уже готовой пары
+          # мониторинга. Два пароля на два адреса одного сервиса человек всё
+          # равно путает, а разный логин оставляет в логе caddy след, с какого
+          # адреса входили. За Dozzle виден docker-сокет, то есть логи ВСЕХ
+          # контейнеров, поэтому «тот же пароль, но своё имя» — осознанное
+          # решение, а не лень.
+          STUB_LOGS_HASH="$(env_get .env.example LOGS_BASIC_AUTH_HASH)"
+          LOGS_HASH="$(env_get .env LOGS_BASIC_AUTH_HASH)"
+          if [ -z "$LOGS_HASH" ] || [ "$LOGS_HASH" = "$STUB_LOGS_HASH" ]; then
+            env_default .env LOGS_BASIC_AUTH_USER logs
+            env_put .env LOGS_BASIC_AUTH_HASH "$(env_get .env MONITOR_BASIC_AUTH_HASH)"
+            echo "Пара входа на логи создана (логин logs, пароль тот же, что у мониторинга)."
+          else
+            echo "Пара входа на логи уже есть — значения не менялись."
+          fi
+
           # Проверка того, что до caddy доезжает целый bcrypt: compose читает
           # .env и подставляет значения в окружение сам, поэтому длину надо
           # мерить с той стороны, а не в файле. 60 символов — длина bcrypt.
-          SEEN_HASH="$(docker compose --profile tls run --rm --no-deps -T --entrypoint env caddy 2>/dev/null | sed -n 's/^MONITOR_BASIC_AUTH_HASH=//p' | tail -n 1 | tr -d '\r')"
-          if [ "${#SEEN_HASH}" -ne 60 ]; then
-            echo "::error::В контейнер caddy приезжает MONITOR_BASIC_AUTH_HASH длиной ${#SEEN_HASH} вместо 60 — compose съел одиночные \$ в этом значении (или caddy вообще не запускается: docker compose --profile tls run --rm --no-deps --entrypoint env caddy). Уберите строку MONITOR_BASIC_AUTH_HASH из $(pwd)/.env и запустите workflow снова: он сгенерирует пару и запишет хеш с удвоенными \$\$ — docs/monitoring.md."
-            exit 1
-          fi
-          echo "Хеш доезжает до caddy целиком (60 символов)."
+          # Ключей два: у `monitor.` и `logs.` свои блоки в Caddyfile, и
+          # обрезанный `$` в любом из них означает 401 при верном пароле.
+          for KEY in MONITOR_BASIC_AUTH_HASH LOGS_BASIC_AUTH_HASH; do
+            SEEN_HASH="$(docker compose --profile tls run --rm --no-deps -T --entrypoint env caddy 2>/dev/null | sed -n "s/^$KEY=//p" | tail -n 1 | tr -d '\r')"
+            if [ "${#SEEN_HASH}" -ne 60 ]; then
+              echo "::error::В контейнер caddy приезжает $KEY длиной ${#SEEN_HASH} вместо 60 — compose съел одиночные \$ в этом значении (или caddy вообще не запускается: docker compose --profile tls run --rm --no-deps --entrypoint env caddy). Уберите строку $KEY из $(pwd)/.env и запустите workflow снова: он сгенерирует пару и запишет хеш с удвоенными \$\$ — docs/monitoring.md."
+              exit 1
+            fi
+            echo "$KEY доезжает до caddy целиком (60 символов)."
+          done
 
           # Всё остальное в monitor/.env: адрес, сеть основного стека, значения
           # по умолчанию. Существующие значения не перезаписываются.
@@ -303,6 +344,9 @@ jobs:
           env_put monitor/.env APP_NETWORK "${COMPOSE_NAME}_default"
           env_put monitor/.env MONITOR_BASIC_AUTH_USER "$(env_get .env MONITOR_BASIC_AUTH_USER)"
           env_put monitor/.env MONITOR_BASIC_AUTH_HASH "$(env_get .env MONITOR_BASIC_AUTH_HASH)"
+          env_put monitor/.env LOGS_HOST "logs.$SITE_DOMAIN"
+          env_put monitor/.env LOGS_BASIC_AUTH_USER "$(env_get .env LOGS_BASIC_AUTH_USER)"
+          env_put monitor/.env LOGS_BASIC_AUTH_HASH "$(env_get .env LOGS_BASIC_AUTH_HASH)"
           env_default monitor/.env GRAFANA_ADMIN_USER admin
           env_default monitor/.env PROMETHEUS_RETENTION 15d
           env_default monitor/.env PROMETHEUS_RETENTION_SIZE 1GB
@@ -395,6 +439,55 @@ jobs:
           echo "::error::Grafana не ответила 200 на http://grafana:3000/api/health за 60 секунд из контейнера notifier. Проверьте, что стек мониторинга запущен и в сети APP_NETWORK из $MONITOR_DIR/.env (docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env ps, logs grafana) — docs/monitoring.md."
           exit 1
 
+      - name: "Проверка: Loki и Dozzle отвечают внутри сети"
+        # Caddy проксирует logs.<домен> на dozzle:8080, а Grafana читает логи из
+        # loki:3100. Оба адреса проверяются из контейнера notifier: он в той же
+        # сети основного стека, то есть видит ровно то, что увидит Caddy.
+        run: |
+          set -euo pipefail
+          check() {
+            url="$1"
+            label="$2"
+            attempt=1
+            while [ "$attempt" -le 10 ]; do
+              # shellcheck disable=SC2029
+              CODE="$(ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env exec -T notifier python -c \"import urllib.request; print(urllib.request.urlopen('$url', timeout=5).status)\" || true" | tr -d '\r' | tail -n 1)"
+              echo "GET $url -> ${CODE:-нет ответа} (попытка $attempt)"
+              if [ "$CODE" = "200" ]; then
+                return 0
+              fi
+              attempt=$((attempt + 1))
+              sleep 6
+            done
+            echo "::error::$label не ответил 200 на $url за 60 секунд из контейнера notifier. Проверьте логи сервиса (docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env logs $3) и сеть APP_NETWORK из $MONITOR_DIR/.env — docs/monitoring.md."
+            return 1
+          }
+          check http://loki:3100/ready Loki loki
+          check http://dozzle:8080/ Dozzle dozzle
+
+      - name: "Проверка: promtail доставляет логи в Loki"
+        # Самая тихая поломка из возможных: контейнеры живы, метрики идут, а
+        # логи не приходят — потому что у сервиса сменился logging driver или
+        # promtail потерял доступ к /var/lib/docker. Проверка спрашивает у Loki,
+        # какие значения метки service он уже видел: `api` появляется там в
+        # первые секунды после первого запроса к приложению, то есть это
+        # проверка всего шва «логи контейнера → promtail → Loki», а не «контейнер
+        # запущен».
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            # shellcheck disable=SC2029
+            OUT="$(ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env exec -T notifier python -c \"import urllib.request, json; data=json.load(urllib.request.urlopen('http://loki:3100/loki/api/v1/label/service/values', timeout=10)); print(','.join(data.get('data') or []))\" || true" | tr -d '\r' | tail -n 1)"
+            echo "Loki: service=[${OUT:-нет ответа}] (попытка $attempt)"
+            if printf '%s' "$OUT" | tr ',' '\n' | grep -qx 'api'; then
+              echo "Логи api доходят до Loki: promtail читает контейнеры и пишет в Loki."
+              exit 0
+            fi
+            sleep 12
+          done
+          echo "::error::Loki не получил записей с меткой service=api за 120 секунд. Проверьте promtail: docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env logs promtail. Частые причины: logging driver контейнера не json-file, нет доступа к /var/run/docker.sock, Loki не здоров — docs/monitoring.md."
+          exit 1
+
       - name: "Проверка: конфиг caddy с новым окружением (до перезапуска)"
         # validate запускается через `compose run`: он поднимает caddy с тем же
         # .env и теми же томами, что и `up`, то есть ровно с той парой
@@ -485,24 +578,60 @@ jobs:
             *) echo "::error::Неожиданный код $AUTH_CODE при входе в мониторинг — docs/monitoring.md." ; exit 1 ;;
           esac
 
-      - name: "Проверка: сертификат мониторинга"
+          # Второй адрес: тот же пароль, свой логин (logs). Проверка та же —
+          # без пары 401 от Caddy, с парой 200/302 от Dozzle. За Dozzle виден
+          # docker-сокет, то есть логи ВСЕХ контейнеров, поэтому открыться он
+          # не должен ни при каких условиях.
+          LOGS_LOGIN="$(remote "cd $REMOTE_DIR && sed -n 's/^LOGS_BASIC_AUTH_USER=//p' $MONITOR_DIR/.env | tail -n 1")"
+          if [ -z "$LOGS_LOGIN" ]; then
+            echo "::error::В $REMOTE_DIR/$MONITOR_DIR/.env нет LOGS_BASIC_AUTH_USER — проверить вход на адрес логов нельзя."
+            exit 1
+          fi
+
+          LOGS_ANON="$(remote "curl -s -o /dev/null -w '%{http_code}' --resolve $LOGS_HOST:443:$LOOPBACK https://$LOGS_HOST/")"
+          echo "https://$LOGS_HOST/ без пары -> $LOGS_ANON"
+          if [ "$LOGS_ANON" != "401" ]; then
+            echo "::error::Адрес логов отвечает без пары '$LOGS_ANON' вместо 401: логи всех контейнеров хоста открыты всем. Проверьте блок logs. в caddy/Caddyfile и что caddy перезапущен с новым окружением."
+            exit 1
+          fi
+
+          LOGS_AUTH="$(remote "curl -s -o /dev/null -w '%{http_code}' --user '$LOGS_LOGIN:$PASSWORD' --resolve $LOGS_HOST:443:$LOOPBACK https://$LOGS_HOST/")"
+          echo "https://$LOGS_HOST/ с парой -> $LOGS_AUTH"
+          case "$LOGS_AUTH" in
+            200|302) echo "Вход на адрес логов по паре работает." ;;
+            401)
+              echo "::error::Пара не принимается на $LOGS_HOST (401). Пароль общий с мониторингом, поэтому причина в хеше: LOGS_BASIC_AUTH_HASH и MONITOR_BASIC_AUTH_HASH в $REMOTE_DIR/.env должны совпадать. Удалите строку LOGS_BASIC_AUTH_HASH и запустите workflow снова — docs/monitoring.md."
+              exit 1
+              ;;
+            502|503)
+              echo "::error::$LOGS_HOST отвечает $LOGS_AUTH: caddy не может достучаться до dozzle:8080. Проверьте, что dozzle запущен и в сети APP_NETWORK из $MONITOR_DIR/.env — docs/monitoring.md."
+              exit 1
+              ;;
+            *) echo "::error::Неожиданный код $LOGS_AUTH при входе на адрес логов — docs/monitoring.md." ; exit 1 ;;
+          esac
+
+      - name: "Проверка: сертификаты обоих адресов"
         # Не падаем: сразу после выпуска сертификата Let's Encrypt иногда ещё
         # отдаёт промежуточную цепочку, и это лечится повтором. Но молчать
         # нельзя — предупреждение попадёт в сводку workflow.
         run: |
           set -euo pipefail
-          # shellcheck disable=SC2029
-          EXPIRY="$(ssh "$SSH_TARGET" "echo | openssl s_client -connect $LOOPBACK:443 -servername $MONITOR_HOST 2>/dev/null | openssl x509 -noout -issuer -dates 2>/dev/null || true")"
-          if [ -z "$EXPIRY" ]; then
-            echo "::warning::Сертификат для $MONITOR_HOST не прочитан. Проверьте логи caddy (docker compose --profile tls logs caddy) и A-запись домена — docs/monitoring.md."
-          else
-            echo "$EXPIRY"
-            echo "Сертификат для $MONITOR_HOST прочитан."
-          fi
+          for HOST in "$MONITOR_HOST" "$LOGS_HOST"; do
+            # shellcheck disable=SC2029
+            EXPIRY="$(ssh "$SSH_TARGET" "echo | openssl s_client -connect $LOOPBACK:443 -servername $HOST 2>/dev/null | openssl x509 -noout -issuer -dates 2>/dev/null || true")"
+            if [ -z "$EXPIRY" ]; then
+              echo "::warning::Сертификат для $HOST не прочитан. Проверьте логи caddy (docker compose --profile tls logs caddy) и A-запись домена — docs/ssl.md, docs/monitoring.md."
+            else
+              echo "$EXPIRY"
+              echo "Сертификат для $HOST прочитан."
+            fi
+          done
 
       - name: "Итог: мониторинг развёрнут"
         run: |
           set -euo pipefail
           echo "OK: мониторинг развёрнут из main @ $GITHUB_SHA"
           echo "Grafana: https://$MONITOR_HOST/ (логин из monitor/.env)"
+          echo "Логи:    https://$LOGS_HOST/ (логин logs, пароль тот же)"
+          echo "История логов — в Grafana, источник Loki (искать через Explore)."
           echo "Что смотреть и как включить уведомления — docs/monitoring.md."
