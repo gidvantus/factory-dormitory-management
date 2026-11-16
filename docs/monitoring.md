@@ -27,8 +27,10 @@ compose-проектом, а не вместе с приложением: мон
 Два замка подряд, оба на одном пароле:
 
 1. **basic auth Caddy** — логин и bcrypt-хеш пароля из `.env` сервера
-   (`MONITOR_BASIC_AUTH_USER`, `MONITOR_BASIC_AUTH_HASH`). Проверяется до
-   Grafana: без пары запрос получает `401` и до приложения не доходит.
+   (`MONITOR_BASIC_AUTH_USER`, `MONITOR_BASIC_AUTH_HASH`; в файле хеш записан с
+   удвоенными `$` — этого требует compose, см. «Сменить пароль руками»).
+   Проверяется до Grafana: без пары запрос получает `401` и до приложения не
+   доходит.
 2. **Вход в Grafana** — `admin` и тот же пароль (`GRAFANA_ADMIN_PASSWORD`
    в `monitor/.env`).
 
