@@ -1,0 +1,78 @@
+# Loki — хранилище логов стека мониторинга (monitor/docker-compose.monitor.yml).
+#
+# Режим single-binary: все компоненты (distributor, ingester, querier,
+# compactor) в одном процессе. Для одного сервера это не «упрощение на
+# потом» — микросервисный режим Loki нужен от сотен гигабайт в сутки, а не от
+# логов пяти контейнеров.
+#
+# Портов наружу нет: Loki виден только внутри сети основного стека — из
+# promtail (запись) и из Grafana (чтение). Наружу открыт logs.<домен>, и это
+# Dozzle, а не Loki.
+
+auth_enabled: false # один сервер, один арендатор: тенанты не нужны
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  # warn, а не info: логи самого Loki не должны занимать место в его же
+  # хранилище интереснее, чем логи приложения.
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    # tsdb-схема v13 — штатная для 2.9. `from` в прошлом: правило действует с
+    # этого момента, а не с момента запуска, поэтому перезапуск не начинает
+    # новую таблицу индексов каждый раз.
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # Потолок хранения — 14 суток: он же и есть защита диска боевой базы.
+  # Больше двух недель логов в разборе инцидентов не участвуют, а места они
+  # занимают больше метрик.
+  retention_period: 336h
+  # Слишком старые записи не принимаем: после долгого простоя или потери
+  # позиций promtail иначе залил бы всё, что накопилось в json-логах, и всплеск
+  # объёма выглядел бы как всплеск нагрузки. Порог равен хранению: записи,
+  # которые всё равно были бы удалены, не стоит и принимать.
+  reject_old_samples: true
+  reject_old_samples_max_age: 336h
+  # Метки из записей (structured metadata) — этим пользуется promtail, когда
+  # размеченный JSON уже разобран.
+  allow_structured_metadata: true
+  # Ограничение на количество потоков: без него взрыв кардинальности меток
+  # (например, если в метку попал идентификатор запроса) кладёт инстанс.
+  max_streams_per_user: 5000
+  volume_enabled: true
+
+compactor:
+  working_directory: /loki/compactor
+  # retention_enabled — это и есть удаление старых чанков. Без него
+  # retention_period выше остаётся обещанием: Loki не превысит срок, но и не
+  # удалит ничего.
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: filesystem
+  compaction_interval: 10m
+
+# Отчёты об использовании наружу не отправляем: мониторинг не должен сам
+# ходить в интернет.
+analytics:
+  reporting_enabled: false
