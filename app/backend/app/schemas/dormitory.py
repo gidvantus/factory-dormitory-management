@@ -68,4 +68,5 @@ class DormitoryResponse(BaseModel):
     section_states: dict[str, str] = Field(default_factory=dict)
     section_parents: dict[str, str | None] = Field(default_factory=dict)
     exchange_options: dict[str, dict[str, bool]] = Field(default_factory=dict)
+    standard_clear_list: dict[str, bool] = Field(default_factory=dict)
     created_at: datetime

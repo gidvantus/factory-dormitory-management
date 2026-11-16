@@ -23,6 +23,7 @@ from app.schemas.outflow import (
 )
 from app.section_state import require_section_writable
 from app.table_data import ensure_columns, lock_dormitory
+from app.table_pagination import Paging, TablePage, record_page
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/outflow",
@@ -41,29 +42,37 @@ def get_outflow(db: Session, dormitory_id: int, row_id: int) -> PersonnelOutflow
     return row
 
 
-@router.get("", response_model=list[OutflowResponse], summary="Отток персонала за период")
+@router.get(
+    "",
+    response_model=list[OutflowResponse] | TablePage[OutflowResponse],
+    summary="Отток персонала за период",
+)
 def list_outflow(
     dormitory_id: DormitoryId,
     _user: SubscribedUser,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
-    _dormitory: OwnDormitory,
-) -> list[PersonnelOutflow]:
+    dormitory: OwnDormitory,
+    paging: Paging,
+) -> list[PersonnelOutflow] | TablePage[OutflowResponse]:
     if from_date > to_date or (to_date - from_date).days > 365:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Выберите период не длиннее года")
-    return list(
-        db.scalars(
-            select(PersonnelOutflow)
-            .where(
-                PersonnelOutflow.dormitory_id == dormitory_id,
-                or_(
-                    PersonnelOutflow.departure_date.is_(None),
-                    PersonnelOutflow.departure_date.between(from_date, to_date),
-                ),
-            )
-            .order_by(PersonnelOutflow.id.desc())
+    query = (
+        select(PersonnelOutflow)
+        .where(
+            PersonnelOutflow.dormitory_id == dormitory_id,
+            or_(
+                PersonnelOutflow.departure_date.is_(None),
+                PersonnelOutflow.departure_date.between(from_date, to_date),
+            ),
         )
+        .order_by(PersonnelOutflow.id.desc())
+    )
+    if paging.page is None:
+        return list(db.scalars(query))
+    return record_page(db, dormitory, "outflow", query, paging).response(
+        OutflowResponse.model_validate
     )
 
 

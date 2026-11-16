@@ -1,5 +1,8 @@
 """Список проживающих, общий для пользователей общежития."""
 
+import re
+from collections.abc import Iterable
+from dataclasses import replace
 from datetime import date
 from typing import Annotated, Any
 
@@ -18,6 +21,7 @@ from app.models.payment import PaymentEntry
 from app.models.resident import Resident
 from app.outflow_fields import apply_outflow_fields
 from app.personnel import record_changed
+from app.resident_identity import entry_fields
 from app.resident_outflow import prepare_outflow
 from app.resident_payments import copy_payment_values, existing_payment
 from app.resident_transfer import prepare_transfer
@@ -36,7 +40,8 @@ from app.schemas.resident_transfer import (
     TransferResidentRequest,
 )
 from app.section_state import require_section_writable
-from app.table_data import lock_dormitory
+from app.table_data import columns_for, lock_dormitory
+from app.table_pagination import Paging, record_page
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/residents",
@@ -73,19 +78,49 @@ def resident_response(
     )
 
 
-@router.get("", response_model=ResidentsResponse, summary="Проживающие и действующие хостелы")
+class ResidentsPage(ResidentsResponse):
+    total: int
+    page: int
+
+
+@router.get(
+    "",
+    response_model=ResidentsResponse | ResidentsPage,
+    summary="Проживающие и действующие хостелы",
+)
 def list_residents(
     dormitory_id: DormitoryId,
     _user: SubscribedUser,
     db: DbSession,
     month: Annotated[date, Query()],
-    _dormitory: OwnDormitory,
-) -> ResidentsResponse:
+    dormitory: OwnDormitory,
+    paging: Paging,
+) -> ResidentsResponse | ResidentsPage:
     if month.day != 1:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите первый день месяца")
-    residents = db.scalars(
+    query = (
         select(Resident).where(Resident.dormitory_id == dormitory_id).order_by(Resident.id.desc())
-    ).all()
+    )
+    selected = None
+    if paging.page is None:
+        residents = db.scalars(query).all()
+    else:
+        columns = columns_for(db, dormitory_id, "residents") if paging.q.strip() else []
+        mapped = entry_fields(db, dormitory_id, columns) if columns else {}
+        custom = {col.id for col in columns if not col.builtin_key}
+
+        def searchable(row: Resident) -> Iterable[str | None]:
+            name, phone = row.full_name, row.phone
+            if mapped.get("full_name") in custom:
+                name = row.custom_values.get(str(mapped["full_name"]), name)
+            if mapped.get("phone") in custom:
+                phone = row.custom_values.get(str(mapped["phone"]), phone)
+            return name, phone, row.personnel_number, re.sub(r"[^0-9]", "", str(phone or ""))
+
+        if re.fullmatch(r"[+0-9\s()-]+", paging.q) and re.search(r"[0-9]", paging.q):
+            paging = replace(paging, q=re.sub(r"[^0-9]", "", paging.q))
+        selected = record_page(db, dormitory, "residents", query, paging, search=searchable)
+        residents = selected.rows
     hostels = db.scalars(
         select(Hostel)
         .where(
@@ -100,15 +135,17 @@ def list_residents(
         for visit in db.scalars(
             select(ArrivalVisit)
             .options(lazyload(ArrivalVisit.resident))
-            .join(Resident, ArrivalVisit.resident_id == Resident.id)
-            .where(Resident.dormitory_id == dormitory_id)
+            .where(ArrivalVisit.resident_id.in_([resident.id for resident in residents]))
         )
         if visit.resident_id is not None and visit.settlement and "source" in visit.settlement
     }
-    return ResidentsResponse(
+    response = ResidentsResponse(
         residents=[resident_response(db, resident, arrival_sources) for resident in residents],
         hostels=[HostelOption(id=hostel.id, name=hostel.name) for hostel in hostels],
     )
+    if selected:
+        return ResidentsPage(**response.model_dump(), total=selected.total, page=selected.page)
+    return response
 
 
 @router.post(

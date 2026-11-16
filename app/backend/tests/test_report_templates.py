@@ -132,7 +132,10 @@ def test_template_preserves_required_formula_without_duplicate(
     total_id = source_rows[0]["id"]
     client.post(f"{source}/rows", json={"name": "Выход"})
     assert (
-        client.patch(f"{source}/rows/{total_id}", json={"formula": "=[Выход]"}).status_code == 200
+        client.patch(
+            f"{source}/rows/{total_id}", json={"name": "Работают", "formula": "=[Выход]"}
+        ).status_code
+        == 200
     )
     template = client.post(
         "/api/report-templates", json={"name": "С выходом", "dormitory_id": source_id}
@@ -141,6 +144,7 @@ def test_template_preserves_required_formula_without_duplicate(
     rows = client.get(f"/api/dormitories/{target_id}/report?from=2026-10-01&to=2026-10-01").json()[
         "rows"
     ]
-    assert [row["name"] for row in rows].count("Выход Итого") == 1
+    assert [row["metric_key"] for row in rows].count("attendance") == 1
+    assert rows[0]["name"] == "Работают"
     assert rows[0]["formula"] == "=[Выход]"
     assert len(rows) == 4

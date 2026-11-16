@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { mockFetch } from '../../test/mockFetch';
+import { renderWithExchangePermissions as render } from '../../test/renderWithExchangePermissions';
 import { HostelPlaces } from './HostelPlaces';
 
 afterEach(() => vi.unstubAllGlobals());

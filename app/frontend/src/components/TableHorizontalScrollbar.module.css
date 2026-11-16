@@ -1,0 +1,36 @@
+.scrollbar {
+  position: fixed;
+  z-index: 52;
+  appearance: none;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+  cursor: ew-resize;
+  touch-action: pan-y;
+}
+
+.scrollbar::-webkit-slider-thumb {
+  appearance: none;
+  width: min(100%, var(--table-scroll-thumb-width));
+  height: 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-text-muted);
+}
+
+.scrollbar::-moz-range-thumb {
+  width: min(100%, var(--table-scroll-thumb-width));
+  height: 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-text-muted);
+}
+
+.scrollbar:focus-visible {
+  outline: var(--focus-outline-width) solid var(--color-accent);
+  outline-offset: 1px;
+}

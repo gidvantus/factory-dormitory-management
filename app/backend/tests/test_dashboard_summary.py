@@ -86,6 +86,9 @@ def test_summary_same_client_auto_match_aggregates_and_missing(
     assert dashboard.status_code == 200, dashboard.text
     assert len(dashboard.json()["widgets"][0]["summary"]["rows"]) == 1
     assert dashboard.json()["widgets"][0]["summary"]["rows"][0]["value"] == 4
+    row = dashboard.json()["widgets"][0]["summary"]["rows"][0]
+    assert row["row_name"] == "Выход переименован"
+    assert row["label"] == "Общий клиент"
 
 
 def test_summary_no_partial_totals_and_full_31_or_32_dates(

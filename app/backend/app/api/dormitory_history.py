@@ -6,13 +6,14 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.db import get_db
 from app.models.dormitory_history import DormitoryDataEvent
 from app.table_data import get_custom_tab
+from app.table_pagination import PAGE_SIZE, Paging, page_items, page_number
 
 router = APIRouter(tags=["dormitory-history"], responses={**SUBSCRIBED_USER_RESPONSES})
 DbSession = Annotated[Session, Depends(get_db)]
@@ -30,11 +31,19 @@ class HistoryPage(BaseModel):
     next_cursor: str | None = None
 
 
+class NumberedHistoryPage(HistoryPage):
+    page: int
+    total: int
+
+
 def utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
-@router.get("/dormitories/{dormitory_id}/tabs/{tab_id}/history", response_model=HistoryPage)
+@router.get(
+    "/dormitories/{dormitory_id}/tabs/{tab_id}/history",
+    response_model=HistoryPage | NumberedHistoryPage,
+)
 def read_history(
     dormitory_id: int,
     tab_id: int,
@@ -43,9 +52,10 @@ def read_history(
     dormitory: OwnDormitory,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
+    paging: Paging,
     cursor: Annotated[str | None, Query(max_length=100)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
-) -> HistoryPage:
+) -> HistoryPage | NumberedHistoryPage:
     tab = get_custom_tab(db, dormitory_id, tab_id)
     if tab.kind != "archive":
         raise HTTPException(409, "Эта вкладка не является архивом действий")
@@ -65,6 +75,29 @@ def read_history(
         DormitoryDataEvent.created_at >= start,
         DormitoryDataEvent.created_at < end,
     )
+    ordered = statement.order_by(DormitoryDataEvent.created_at.desc(), DormitoryDataEvent.id.desc())
+
+    def item(row: DormitoryDataEvent) -> HistoryItem:
+        return HistoryItem(
+            id=row.id, date=utc(row.created_at), action=row.action, author=row.actor_name
+        )
+
+    if paging.page is not None:
+        if paging.q.strip():
+            found = page_items(
+                db.scalars(ordered),
+                paging,
+                ranks={},
+                row_key=lambda row: str(row.id),
+                search=lambda row: (row.action, row.actor_name),
+            )
+            return NumberedHistoryPage(
+                items=[item(row) for row in found.rows], total=found.total, page=found.page
+            )
+        total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+        number = page_number(paging.page, total)
+        selected = db.scalars(ordered.offset((number - 1) * PAGE_SIZE).limit(PAGE_SIZE))
+        return NumberedHistoryPage(items=[item(row) for row in selected], total=total, page=number)
     if cursor:
         try:
             stamp, identifier = cursor.rsplit("|", 1)
@@ -95,12 +128,7 @@ def read_history(
     )
     page = rows[:limit]
     return HistoryPage(
-        items=[
-            HistoryItem(
-                id=row.id, date=utc(row.created_at), action=row.action, author=row.actor_name
-            )
-            for row in page
-        ],
+        items=[item(row) for row in page],
         next_cursor=f"{utc(page[-1].created_at).isoformat()}|{page[-1].id}"
         if len(rows) > limit
         else None,

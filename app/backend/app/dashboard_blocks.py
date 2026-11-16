@@ -87,6 +87,7 @@ def layout_response(
         revision=layout.revision,
         order=order,
         hidden=[key for key in layout.hidden if key in keys],
+        builtin_settings=layout.builtin_settings,
         blocks=[
             WidgetDefinition(id=block.id, config=WidgetConfig.model_validate(block.config))
             for block in blocks

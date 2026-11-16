@@ -1,0 +1,108 @@
+.page {
+  max-width: 800px;
+}
+
+.description {
+  margin: 0 0 24px;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+.card {
+  overflow: hidden;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e1ddd5);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  table-layout: fixed;
+}
+
+.table th,
+.table td {
+  padding: 14px 16px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--color-border, #e1ddd5);
+}
+
+.table thead {
+  background: var(--n-paper, #f8f6f1);
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.table tbody th {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.table th:not(:first-child),
+.table td {
+  width: 22%;
+  text-align: center;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 36px;
+  cursor: pointer;
+}
+
+.control input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--n-sage-dark);
+  cursor: pointer;
+}
+
+.control input:disabled {
+  cursor: wait;
+}
+
+.control input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 4px;
+}
+
+.note {
+  margin: 0;
+  padding: 18px 24px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.status {
+  min-height: 24px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 520px) {
+  .table th,
+  .table td {
+    padding: 10px 6px;
+  }
+
+  .table th:not(:first-child),
+  .table td {
+    width: 22%;
+  }
+  .table thead {
+    font-size: 11px;
+  }
+  .table tbody th {
+    font-size: 13px;
+  }
+  .control {
+    width: 100%;
+  }
+}

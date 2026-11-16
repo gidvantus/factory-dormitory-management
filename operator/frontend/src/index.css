@@ -212,6 +212,27 @@ body {
   color: var(--n-ink);
 }
 
+/* Семь разделов: на планшете навигация занимает отдельную строку шапки. */
+@media (min-width: 761px) and (max-width: 1180px) {
+  .topbar--nav {
+    flex-wrap: wrap;
+    height: auto;
+  }
+
+  .topbar--nav .brand,
+  .topbar--nav .topbar__right {
+    min-height: 64px;
+  }
+
+  .topbar--nav .nav {
+    order: 3;
+    flex: 1 1 100%;
+    height: 46px;
+    margin-left: 0;
+    margin-right: 0;
+  }
+}
+
 /* ============================================================================
    Вход: карточка, поля, кнопка.
    ========================================================================== */
@@ -2570,4 +2591,13 @@ body {
     align-items: stretch;
     padding: 16px 20px 18px;
   }
+}
+input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }

@@ -1,0 +1,58 @@
+.top {
+  container: dormitory-paging / inline-size;
+  margin-block-end: var(--gap-8);
+}
+
+.bottom {
+  margin-block-start: var(--gap-8);
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--gap-8);
+}
+
+.search form,
+.find,
+.controls nav {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+}
+
+.search form,
+.controls nav {
+  flex-wrap: wrap;
+}
+
+.find {
+  min-width: 0;
+}
+
+.find input {
+  width: 280px;
+  min-width: 0;
+  min-height: var(--control-h-md);
+  padding-inline: var(--control-px-md);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-4xs);
+  background: var(--color-bg-surface);
+}
+
+.controls button {
+  flex-shrink: 0;
+}
+
+.controls nav {
+  justify-self: center;
+  justify-content: center;
+  text-align: center;
+}
+
+@container dormitory-paging (min-width: 46rem) {
+  .controls:has(.search + nav) {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+}

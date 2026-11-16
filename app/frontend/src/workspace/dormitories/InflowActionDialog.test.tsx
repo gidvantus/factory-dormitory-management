@@ -51,7 +51,9 @@ const plan: InflowActionPreview = {
 
 it('заселяет и оставляет строку притока с заблокированными действиями', async () => {
   mockTableFetch((url) =>
-    url.includes('/inflow?') ? { status: 200, body: [row] } : { status: 404 },
+    url.includes('/inflow?')
+      ? { status: 200, body: { rows: [row], total: 1, page: 1 } }
+      : { status: 404 },
   );
   vi.spyOn(api, 'previewInflowAction').mockResolvedValue(plan);
   const process = vi.spyOn(api, 'processInflow').mockResolvedValue({
@@ -141,7 +143,7 @@ it.each([
   async (processed_as, label) => {
     mockTableFetch((url) =>
       url.includes('/inflow?')
-        ? { status: 200, body: [{ ...row, processed_as }] }
+        ? { status: 200, body: { rows: [{ ...row, processed_as }], total: 1, page: 1 } }
         : { status: 404 },
     );
     render(

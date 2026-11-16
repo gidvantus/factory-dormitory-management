@@ -25,7 +25,7 @@ describe('Приток', () => {
     const created: IdentityChoice[] = [];
     const fetchMock = mockFetch((url, init) => {
       if (url.includes('/api/dormitories/7/inflow?') && !init?.method) {
-        return { status: 200, body: row ? [row] : [] };
+        return { status: 200, body: { rows: row ? [row] : [], total: row ? 1 : 0, page: 1 } };
       }
       if (url.endsWith('/api/personnel/check'))
         return { status: 200, body: { candidates: [], check_token: 'a'.repeat(64) } };

@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import type { UserProfile } from '../api/client';
 import { openActivation, subscribeToActivationRequired } from './activation';
+import { ExchangePermissionsContext, NO_EXCHANGE_PERMISSIONS } from './exchangePermissions';
 
 export type SessionStatus = 'loading' | 'authenticated' | 'anonymous';
 
@@ -26,11 +27,10 @@ export function SessionProvider({ children }: { children: ReactNode }): JSX.Elem
   const setAuthenticatedUser = useCallback((profile: UserProfile) => {
     setUser(profile);
     setStatus('authenticated');
-    // Ответ входа (и регистрации, и активации) не содержит роли: её отдаёт
-    // только `GET /api/me`. Без дочитывания профиля пункты меню уровня
-    // владельца появились бы лишь после перезагрузки страницы. Сбой дочитывания
-    // сессию не сбрасывает: вход уже состоялся, а роль можно получить позже.
-    if (profile.role === undefined) {
+    // Роль и права отдаёт GET /api/me, а ответ входа их не содержит.
+    // Дочитываем профиль для меню и действий обмена данными. Сбой дочитывания
+    // сессию не сбрасывает: вход уже состоялся, профиль можно получить позже.
+    if (profile.role === undefined || profile.permissions === undefined) {
       void api.me().then(
         (full) => setUser(full),
         () => undefined,
@@ -64,6 +64,28 @@ export function SessionProvider({ children }: { children: ReactNode }): JSX.Elem
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    // Перечитываем права при возвращении в кабинет без сброса открытых форм.
+    let cancelled = false;
+    const update = (): void => {
+      if (document.visibilityState === 'hidden') return;
+      void api.me().then(
+        (profile) => {
+          if (!cancelled) setUser(profile);
+        },
+        () => undefined,
+      );
+    };
+    window.addEventListener('focus', update);
+    const timer = window.setInterval(update, 30_000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', update);
+      window.clearInterval(timer);
+    };
+  }, [status]);
+
   useEffect(
     // 403 «Активируйте личный кабинет» с рабочей ручки — это не «не удалось
     // загрузить», а повод открыть экран активации.
@@ -76,7 +98,13 @@ export function SessionProvider({ children }: { children: ReactNode }): JSX.Elem
     [status, user, setAuthenticatedUser, refresh, logout],
   );
 
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={value}>
+      <ExchangePermissionsContext.Provider value={user?.permissions ?? NO_EXCHANGE_PERMISSIONS}>
+        {children}
+      </ExchangePermissionsContext.Provider>
+    </SessionContext.Provider>
+  );
 }
 
 // Провайдер и хук живут в одном модуле: это одна публичная точка входа слоя сессии.

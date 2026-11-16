@@ -171,6 +171,8 @@ EXCLUDED_TABLES = frozenset(
         "audit_events",
         "dormitory_data_events",
         "personnel_builders",
+        "table_import_jobs",
+        "table_import_progress",
     }
 )
 
@@ -233,6 +235,7 @@ ACTION_TITLES: dict[str, str] = {
     "post_dormitories_outflow": "Добавить строку оттока",
     "post_dormitories_payments": "Добавить строку выплаты",
     "delete_dormitories_payments": "Очистить весь список аванса или расчёта",
+    "post_dormitories_sections_clear": "Очистить список вкладки общежития",
     "post_dormitories_report_rows": "Добавить строку отчёта",
     "patch_dormitories_report_rows": "Изменить строку отчёта",
     "patch_dormitories_residents": "Сохранить поля проживающего",
@@ -423,7 +426,7 @@ class AuditContext:
             "ip": self.ip,
             "user_agent": self.user_agent,
             "request_body": self.request_body,
-            "path_params": dict(self.scope.get("path_params") or {}) or None,
+            "path_params": _json_safe(dict(self.scope.get("path_params") or {})) or None,
             "request_id": self.request_id,
             "changes": changes,
         }

@@ -60,6 +60,38 @@ def test_view_persists_is_shared_within_table_and_rejects_stale_save(
     assert client.put(view, json=payload).status_code == 404
 
 
+def test_zoom_is_personal_and_separate_from_shared_table_view(
+    client: TestClient, db_session: Session
+) -> None:
+    owner = sign_in(client, db_session)
+    first = create_dormitory(client)
+    second = create_dormitory(client, "Другое")
+    view = f"/api/dormitories/{first}/table-views/report"
+    zoom = view + "/zoom"
+    assert client.get(zoom).json() == {"percent": 100}
+    assert client.put(zoom, json={"percent": 130}).json() == {"percent": 130}
+    assert client.get(view).json() == {"revision": 0, "state": state()}
+    assert client.get(view.replace("report", "residents") + "/zoom").json() == {"percent": 100}
+    assert client.get(f"/api/dormitories/{second}/table-views/report/zoom").json() == {
+        "percent": 100
+    }
+    personnel_zoom = "/api/personnel/table-views/employees/zoom"
+    assert client.put(personnel_zoom, json={"percent": 80}).json() == {"percent": 80}
+    assert client.get(zoom).json() == {"percent": 130}
+    assert client.put(zoom, json={"percent": 201}).status_code == 422
+
+    assert owner.active_organization_id is not None
+    colleague = add_colleague(db_session, owner.active_organization_id)
+    assert login(client, colleague.email).status_code == 200
+    assert client.get(zoom).json() == {"percent": 100}
+    assert client.get(personnel_zoom).json() == {"percent": 100}
+    assert client.put(zoom, json={"percent": 90}).json() == {"percent": 90}
+    assert login(client, owner.email).status_code == 200
+    assert client.get(zoom).json() == {"percent": 130}
+    assert client.put(zoom, json={"percent": 100}).json() == {"percent": 100}
+    assert client.get(zoom).json() == {"percent": 100}
+
+
 def test_view_validates_colors_and_unknown_tables(client: TestClient, db_session: Session) -> None:
     sign_in(client, db_session)
     dorm = create_dormitory(client)

@@ -223,7 +223,7 @@ it('убирает скрытую вкладку из навигации, поз
     if (url.endsWith('/columns')) return { status: 200, body: columns };
     if (url.includes('/personnel/bindings/'))
       return { status: 200, body: { fields: {}, columns: [] } };
-    if (url.endsWith('/tabs/10/rows'))
+    if (url.includes('/tabs/10/rows?'))
       return { status: 200, body: [{ id: 20, custom_values: { '101': 'ready' } }] };
     if (url.includes('/report?')) return { status: 200, body: { rows: [] } };
     return { status: 404 };

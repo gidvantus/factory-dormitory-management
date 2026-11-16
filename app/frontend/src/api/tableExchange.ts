@@ -2,9 +2,14 @@ import { request, requestBlob, waitForDormitoryWrites } from './client';
 import type { DateRange } from '../workspace/dashboard/dates';
 
 export const TABLE_IMPORT_MAX_BYTES = 20 * 1024 * 1024;
-export interface TableImportResult {
+export interface TableImportJob {
+  id: string;
+  status: 'pending' | 'completed' | 'failed' | 'cancelled';
+  detail: string | null;
   rows_added: number;
   cells_added: number;
+  progress?: { rows_processed: number; rows_total: number } | null;
+  cancel_requested?: boolean;
 }
 
 function path(id: string, key: string, action: string, range?: DateRange): string {
@@ -36,10 +41,33 @@ export async function importTableFile(
   id: string,
   key: string,
   file: File,
+  jobId: string,
   range?: DateRange,
-): Promise<TableImportResult> {
+): Promise<TableImportJob> {
   await waitForDormitoryWrites(id);
   const body = new FormData();
   body.append('file', file);
-  return request(path(id, key, 'import', range), { method: 'POST', body });
+  return request(path(id, key, 'import/jobs', range), {
+    method: 'POST',
+    headers: { 'Idempotency-Key': jobId },
+    body,
+  });
+}
+
+export function tableImportStatus(
+  id: string,
+  key: string,
+  jobId: string,
+  signal: AbortSignal,
+): Promise<TableImportJob> {
+  return request(path(id, key, `import/jobs/${encodeURIComponent(jobId)}`), {
+    signal,
+    cache: 'no-store',
+  });
+}
+
+export function cancelTableImport(id: string, key: string, jobId: string): Promise<TableImportJob> {
+  return request(path(id, key, `import/jobs/${encodeURIComponent(jobId)}/cancel`), {
+    method: 'POST',
+  });
 }

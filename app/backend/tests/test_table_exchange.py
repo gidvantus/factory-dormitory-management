@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import date
 from io import BytesIO
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,9 +14,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import table_exchange
+from app.models.audit import AuditEvent
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.hostel import Hostel
 from app.models.report import ReportCell
+from app.models.table_import_job import TableImportJob
+from app.table_import_queue import run_next_import
 from tests.conftest import sign_in
 from tests.test_reports import create_dormitory
 
@@ -80,6 +84,110 @@ def workbook_rows(content: bytes) -> list[list[Any]]:
     result = [list(row) for row in workbook["Данные"].iter_rows(values_only=True)]
     workbook.close()
     return result
+
+
+def test_import_job_reuses_key_before_and_after_commit(
+    client: TestClient, db_session: Session
+) -> None:
+    _dorm, tab, path = setup(client, db_session)
+    content = filled(client, path, [["Первый", "2026-11-03"], ["Второй", None]])
+    job_id = uuid4()
+
+    def enqueue(data: bytes) -> Any:
+        return client.post(
+            path + "/import/jobs",
+            headers={"Idempotency-Key": str(job_id)},
+            files={"file": ("Отпуск.xlsx", data)},
+        )
+
+    queued = enqueue(content)
+    assert queued.status_code == 202, queued.text
+    assert queued.json()["status"] == "pending"
+    assert queued.json()["progress"] is None
+    assert enqueue(content).json() == queued.json()
+    assert enqueue(content + b"other").status_code == 409
+    entries = (
+        select(func.count()).select_from(CustomTabEntry).where(CustomTabEntry.tab_id == tab["id"])
+    )
+    assert db_session.scalar(entries) == 0
+    assert run_next_import()
+    assert not run_next_import()
+    result = client.get(path + f"/import/jobs/{job_id}").json()
+    assert result == {
+        "id": str(job_id),
+        "status": "completed",
+        "rows_added": 2,
+        "cells_added": 0,
+        "detail": None,
+        "progress": {"rows_processed": 2, "rows_total": 2},
+        "cancel_requested": False,
+    }
+    assert enqueue(content).json() == result
+    assert client.post(path + f"/import/jobs/{job_id}/cancel").json() == result
+    assert db_session.scalar(entries) == 2
+    job = db_session.get(TableImportJob, job_id, populate_existing=True)
+    assert job and job.content is None
+
+
+def test_import_job_failure_rolls_back_rows(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _dorm, _tab, path = setup(client, db_session)
+    content = filled(client, path, [["Первый", None], ["Второй", None]])
+    job_id = uuid4()
+    calls = 0
+    original = table_exchange.record_changed
+
+    def fail_second(*args: Any, **kwargs: Any) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("Проверка отката")
+        original(*args, **kwargs)
+
+    monkeypatch.setattr(table_exchange, "record_changed", fail_second)
+    assert (
+        client.post(
+            path + "/import/jobs",
+            headers={"Idempotency-Key": str(job_id)},
+            files={"file": ("Отпуск.xlsx", content)},
+        ).status_code
+        == 202
+    )
+    assert run_next_import()
+    result = client.get(path + f"/import/jobs/{job_id}").json()
+    assert result["status"] == "failed"
+    assert result["progress"] is None
+    assert db_session.scalar(select(func.count()).select_from(CustomTabEntry)) == 0
+
+
+def test_cancel_queued_import_keeps_table_empty(client: TestClient, db_session: Session) -> None:
+    _dorm, _tab, path = setup(client, db_session)
+    content = filled(client, path, [["Первый", None]])
+    job_id = uuid4()
+    assert (
+        client.post(
+            path + "/import/jobs",
+            headers={"Idempotency-Key": str(job_id)},
+            files={"file": ("Отпуск.xlsx", content)},
+        ).status_code
+        == 202
+    )
+    url = path + f"/import/jobs/{job_id}"
+    cancelled = client.post(url + "/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+    event = db_session.scalar(
+        select(AuditEvent).where(AuditEvent.path.endswith("/jobs/{job_id}/cancel"))
+    )
+    assert event is not None and isinstance(event.path_params, dict)
+    assert event.path_params["job_id"] == str(job_id)
+    assert client.post(url + "/cancel").json() == cancelled.json()
+    assert client.get(url).json() == cancelled.json()
+    assert not run_next_import()
+    assert db_session.scalar(select(func.count()).select_from(CustomTabEntry)) == 0
+    job = db_session.get(TableImportJob, job_id, populate_existing=True)
+    assert job and job.content is None
 
 
 def test_import_adds_rows_persists_dates_and_export_contains_all_data(

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { api } from '../../api/client';
-import type { Dormitory } from '../../api/client';
+import type { Dormitory, DormitorySettings, Resident, SettingsInput } from '../../api/client';
 import { defaultTabChoices, mockTableFetch as mockFetch } from '../../test/tableColumns';
 import { renderApp } from '../../test/renderApp';
 import { currentMonth } from '../dashboard/dates';
@@ -56,6 +56,88 @@ async function fillDialog(user: ReturnType<typeof userEvent.setup>): Promise<voi
 }
 
 describe('общежития', () => {
+  it('включает очистку уже созданного списка проживающих отдельно от других вкладок', async () => {
+    const snapshot: DormitorySettings = {
+      revision: 'a'.repeat(64),
+      sections: [
+        {
+          key: 'residents',
+          name: 'Проживающие',
+          parent_key: null,
+          status: 'active',
+          has_data: true,
+          delete_block_reason: 'Есть записи',
+        },
+      ],
+      tabs: [],
+      tables: {},
+      rules: [],
+    };
+    const resident: Resident = {
+      id: 3,
+      full_name: 'Иванов Иван',
+      gender: null,
+      personnel_number: null,
+      hostel_id: null,
+      hostel_name: null,
+      shift_start: null,
+      shift_end: null,
+      shift_count: null,
+      phone: null,
+      medical_book: null,
+      notes: null,
+    };
+    let residents = [resident];
+    const fetchMock = mockFetch((url, init) => {
+      if (url.endsWith('/api/me')) return { status: 200, body: USER };
+      if (url.endsWith('/api/dormitories/7')) return { status: 200, body: DORMITORY };
+      if (url.endsWith('/7/settings')) {
+        if (init?.method === 'PUT') {
+          const input = JSON.parse(String(init.body)) as SettingsInput;
+          expect(input.standard_clear_list).toEqual({ residents: true });
+          return {
+            status: 200,
+            body: { ...snapshot, standard_clear_list: input.standard_clear_list },
+          };
+        }
+        return { status: 200, body: snapshot };
+      }
+      if (url.includes('/7/residents?')) return { status: 200, body: { residents, hostels: [] } };
+      if (url.includes('/7/inflow?')) return { status: 200, body: { rows: [], total: 0, page: 1 } };
+      if (url.endsWith('/7/sections/residents/clear') && init?.method === 'POST') {
+        residents = [];
+        return { status: 204 };
+      }
+      return { status: 404, body: {} };
+    });
+    const user = userEvent.setup();
+    renderApp('/cabinet/dormitories/7/residents');
+    await screen.findByTestId('resident-3');
+    expect(screen.queryByRole('button', { name: 'Очистить список' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Настроить' }));
+    const settings = screen.getByRole('dialog', { name: 'Настройки общежития' });
+    await user.click(await within(settings).findByRole('checkbox', { name: 'Очистить список' }));
+    await user.click(within(settings).getByRole('button', { name: 'Сохранить изменения' }));
+    await within(settings).findByText('Изменения сохранены');
+    await user.click(within(settings).getByRole('button', { name: 'Закрыть' }));
+    const clear = screen.getByRole('button', { name: 'Очистить список' });
+    await user.click(clear);
+    const confirmation = screen.getByRole('dialog', { name: 'Очистить список «Проживающие»?' });
+    await user.click(within(confirmation).getByRole('button', { name: 'Отмена' }));
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/residents/clear'))).toBe(
+      false,
+    );
+    await user.click(clear);
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Удалить строки' }),
+    );
+    await screen.findByText(/Здесь пока нет проживающих/);
+    await user.click(screen.getByTestId('dormitory-tab-movement'));
+    await screen.findByRole('heading', { name: 'Приток' });
+    expect(screen.queryByRole('button', { name: 'Очистить список' })).not.toBeInTheDocument();
+  });
+
   it('создаёт карточку с клиентом перед названием, открывает разделы общежития и возвращает в список', async () => {
     let items: Dormitory[] = [];
     const fetchMock = mockFetch((url, init) => {
@@ -375,6 +457,48 @@ describe('общежития', () => {
     expect(screen.queryByTitle('Сохранено')).not.toBeInTheDocument();
   });
 
+  it('сохраняет вставленный диапазон одним запросом и пропускает формульные строки', async () => {
+    const { from, to } = currentMonth();
+    const second = `${from.slice(0, 7)}-02`;
+    const changes = [
+      { row_id: 1, report_date: from, value: '10' },
+      { row_id: 1, report_date: second, value: '1234,5' },
+      { row_id: 3, report_date: from, value: '30' },
+      { row_id: 3, report_date: second, value: '' },
+    ];
+    let rows = [
+      { id: 1, name: 'Выход', position: 1, formula: null, values: {}, errors: {} },
+      { id: 2, name: 'Удвоено', position: 2, formula: '=[Выход]*2', values: {}, errors: {} },
+      { id: 3, name: 'Отток', position: 3, formula: null, values: { [second]: '7' }, errors: {} },
+    ];
+    const save = vi.fn();
+    mockFetch((url, init) => {
+      if (url.endsWith('/api/me')) return { status: 200, body: USER };
+      if (url.endsWith('/api/dormitories/7')) return { status: 200, body: DORMITORY };
+      if (url.includes('/api/dormitories/7/report?'))
+        return { status: 200, body: { from_date: from, to_date: to, rows } };
+      if (url.endsWith('/api/dormitories/7/report/cells') && init?.method === 'PUT') {
+        save(JSON.parse(String(init.body)));
+        rows = [
+          { ...rows[0], values: { [from]: '10', [second]: '1234,5' } },
+          { ...rows[1], values: { [from]: '20', [second]: '2469' } },
+          { ...rows[2], values: { [from]: '30' } },
+        ];
+        return { status: 204 };
+      }
+      return { status: 404, body: {} };
+    });
+    const user = userEvent.setup();
+    renderApp('/cabinet/dormitories/7/report');
+    await user.click(await screen.findByTestId(`report-cell-1-${from}`));
+    await user.paste('10\t1\u00a0234,5\r\n99\t99\r\n30\t\r\n');
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith({ cells: changes });
+    await waitFor(() => expect(screen.getByTestId(`report-cell-3-${second}`)).toHaveValue(''));
+    expect(screen.getByTestId(`report-cell-3-${from}`)).toHaveValue('30');
+    expect(screen.getByText('Вставлено ячеек: 4. Пропущено: 2.')).toBeInTheDocument();
+  });
+
   it('меняет порядок строк отчёта', async () => {
     let rows = [
       { id: 1, name: 'Первая', position: 1, formula: null, values: {}, errors: {} },
@@ -412,8 +536,9 @@ describe('общежития', () => {
     ).toBe(true);
   });
 
-  it('позволяет менять формулу обязательной строки, но не название или тип', async () => {
+  it('переименовывает основную строку и показывает привязку к её блоку', async () => {
     let formula = '=0';
+    let name = 'Выход Итого';
     const fetchMock = mockFetch((url, init) => {
       if (url.endsWith('/api/me')) return { status: 200, body: USER };
       if (url.endsWith('/api/dormitories/7')) return { status: 200, body: DORMITORY };
@@ -426,7 +551,9 @@ describe('общежития', () => {
             rows: [
               {
                 id: 1,
-                name: 'Выход Итого',
+                name,
+                metric_key: 'attendance',
+                metric_block_name: 'Смены',
                 position: 1,
                 formula,
                 values: { [currentMonth().from]: '0' },
@@ -437,7 +564,8 @@ describe('общежития', () => {
         };
       if (url.endsWith('/api/dormitories/7/report/rows/1') && init?.method === 'PATCH') {
         const data = JSON.parse(String(init.body)) as { name: string; formula: string };
-        expect(data).toEqual({ name: 'Выход Итого', formula: '=2' });
+        expect(data).toEqual({ name: 'Выход на смену', formula: '=2' });
+        name = data.name;
         formula = data.formula;
         return {
           status: 200,
@@ -449,9 +577,12 @@ describe('общежития', () => {
     const user = userEvent.setup();
     renderApp('/cabinet/dormitories/7/report');
     await user.click(await screen.findByTestId('report-edit-row-1'));
-    expect(screen.getByTestId('report-row-name')).toBeDisabled();
+    expect(screen.getByText(/определяет значения блока «Смены»/)).toBeInTheDocument();
+    expect(screen.getByTestId('report-row-name')).toBeEnabled();
     expect(screen.getByRole('radio', { name: 'Вручную по дням' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Удалить строку' })).not.toBeInTheDocument();
+    await user.clear(screen.getByTestId('report-row-name'));
+    await user.type(screen.getByTestId('report-row-name'), 'Выход на смену');
     await user.clear(screen.getByTestId('report-row-formula'));
     await user.type(screen.getByTestId('report-row-formula'), '=2');
     await user.click(screen.getByRole('button', { name: 'Сохранить' }));
@@ -462,6 +593,9 @@ describe('общежития', () => {
         ),
       ).toBe(true),
     );
+    expect(
+      await screen.findByRole('button', { name: 'Настроить строку Выход на смену' }),
+    ).toHaveTextContent('ƒ·');
   });
 
   it('переключает основные и вложенные разделы по прямым ссылкам без повторной загрузки общежития', async () => {

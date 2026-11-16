@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.cell_fill import FillResolver, choose_record
 from app.custom_tab_options import options_for
+from app.dormitory_arrivals import arrival_rows
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.dormitory_history import DormitoryDataEvent
@@ -252,6 +254,21 @@ def export_rows(
     table: ExchangeTable, start: date | None, end: date | None, user: Any
 ) -> list[list[Any]]:
     db, key, dorm = table.db, table.key, table.dormitory
+    if table.tab and options_for(table.tab).data_source == "arrival_plan":
+        options = options_for(table.tab)
+        return [
+            [
+                row["custom_values"].get(str(col.column.id)) if col.column else None
+                for col in table.columns
+            ]
+            for row in arrival_rows(
+                db,
+                dorm.id,
+                options.arrival_columns,
+                start if options.period_mode != "none" else None,
+                end if options.period_mode != "none" else None,
+            )
+        ]
     if table.tab and table.tab.kind == "archive":
         query = select(DormitoryDataEvent).where(
             DormitoryDataEvent.dormitory_id == dorm.id,
@@ -690,8 +707,18 @@ def validate_rows(table: ExchangeTable, rows: list[tuple[int, list[Any]]]) -> li
     return result
 
 
-def append_rows(table: ExchangeTable, parsed: list[ImportedRow], actor_id: int) -> list[int]:
+RowProgress = Callable[[int, int], None]
+
+
+def append_rows(
+    table: ExchangeTable,
+    parsed: list[ImportedRow],
+    actor_id: int,
+    on_progress: RowProgress | None = None,
+) -> list[int]:
     created = []
+    if on_progress and parsed:
+        on_progress(0, len(parsed))
     for item in parsed:
         kwargs: dict[str, Any] = {
             "dormitory_id": table.dormitory.id,
@@ -728,10 +755,16 @@ def append_rows(table: ExchangeTable, parsed: list[ImportedRow], actor_id: int) 
         ):
             record_changed(table.db, row, actor_id)
         created.append(row.id)
+        if on_progress:
+            on_progress(len(created), len(parsed))
     return created
 
 
-def import_grid(table: ExchangeTable, rows: list[tuple[int, list[Any]]]) -> int:
+def import_grid(
+    table: ExchangeTable,
+    rows: list[tuple[int, list[Any]]],
+    on_progress: RowProgress | None = None,
+) -> int:
     assert table.grid is not None
     # Форматирование в конце шаблона не создаёт дополнительные строки данных.
     rows = [
@@ -741,8 +774,12 @@ def import_grid(table: ExchangeTable, rows: list[tuple[int, list[Any]]]) -> int:
     ]
     if len(rows) != len(table.grid):
         raise HTTPException(422, TEMPLATE_ERROR)
+    if on_progress and rows:
+        on_progress(0, len(rows))
     pending: list[Any] = []
-    for (index, values), (target, labels) in zip(rows, table.grid, strict=True):
+    for processed, ((index, values), (target, labels)) in enumerate(
+        zip(rows, table.grid, strict=True), start=1
+    ):
         if values[: len(labels)] != labels:
             raise HTTPException(
                 422, f"{TEMPLATE_ERROR} Строка {index}: изменена подпись показателя."
@@ -794,5 +831,7 @@ def import_grid(table: ExchangeTable, rows: list[tuple[int, list[Any]]]) -> int:
                 raise HTTPException(
                     422, f"{TEMPLATE_ERROR} Строка {index}, столбец «{col.name}»: {exc.detail}"
                 ) from exc
+        if on_progress:
+            on_progress(processed, len(rows))
     table.db.add_all(pending)
     return len(pending)

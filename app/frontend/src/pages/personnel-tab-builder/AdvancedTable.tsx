@@ -362,10 +362,11 @@ export function TableContent({
       )}
       <div className={s.tableScroll}>
         <WorkingTable
+          pasteCells
           revisionKey={`${tab.columns.map((column) => `${column.id}:${column.archived}`).join('|')}:${environment?.structureRevision ?? ''}`}
           columns={[
-            ...columns.map((column) => ({ id: column.id, label: column.name })),
-            ...dates.map((day) => ({ id: day, label: day })),
+            ...columns.map((column) => ({ id: column.id, label: column.name, kind: column.kind })),
+            ...dates.map((day) => ({ id: day, label: day, compact: true })),
             ...(calendar ? [{ id: '$total', label: 'Итого' }] : []),
             { id: '$actions', label: 'Действия' },
           ]}

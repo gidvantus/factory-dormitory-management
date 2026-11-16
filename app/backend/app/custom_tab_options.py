@@ -1,9 +1,12 @@
 """Настройки отображения не изменяют сохранённые строки и дневные значения."""
 
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.custom_tab import CustomTab
+from app.dormitory_arrivals import source_fields
+from app.models.custom_tab import CustomTab, CustomTabEntry
+from app.models.dormitory import Dormitory
 from app.models.table_column import TableColumn
 from app.schemas.custom_tab import TabOptions
 from app.table_data import columns_for
@@ -33,14 +36,51 @@ def validate_options(db: Session, tab: CustomTab, options: TabOptions) -> None:
         if options.model_copy(update={"export_enabled": True}) != ARCHIVE_OPTIONS:
             raise HTTPException(422, "У архива постоянные столбцы: Дата, Действие и Автор")
         return
-    if options.date_column_id is not None:
-        column = db.get(TableColumn, options.date_column_id)
+    if options.data_source == "arrival_plan":
         if (
-            not column
-            or column.dormitory_id != tab.dormitory_id
-            or column.table_key != tab.table_key
-            or column.archived
-            or column.kind != "date"
+            db.scalar(select(CustomTabEntry.id).where(CustomTabEntry.tab_id == tab.id).limit(1))
+            is not None
+        ):
+            raise HTTPException(
+                409,
+                "Для связи с планом заездов используйте пустую вкладку. "
+                "Существующие записи сохраняются.",
+            )
+        dorm = db.get(Dormitory, tab.dormitory_id)
+        assert dorm is not None
+        sources = {field["id"] for field in source_fields(db, dorm.organization_id)}
+        columns = columns_for(db, tab.dormitory_id, tab.table_key)
+        mapping = {}
+        for column in columns:
+            if column.archived or column.kind == "action":
+                continue
+            field = options.arrival_columns.get(
+                str(column.id), options.arrival_columns.get("name:" + column.name)
+            )
+            if field is not None:
+                if field not in sources:
+                    raise HTTPException(
+                        422,
+                        f"Поле плана заездов для столбца «{column.name}» недоступно. "
+                        "Выберите другое поле.",
+                    )
+                if column.fill or column.kind == "formula":
+                    raise HTTPException(
+                        422, "Для полей плана заездов отключите формулы и другие связи столбца"
+                    )
+                mapping[str(column.id)] = field
+        if not mapping and tab.table_created:
+            raise HTTPException(422, "Выберите поля плана заездов для столбцов вкладки")
+        options.arrival_columns = mapping
+        return
+    if options.date_column_id is not None:
+        date_column = db.get(TableColumn, options.date_column_id)
+        if (
+            not date_column
+            or date_column.dormitory_id != tab.dormitory_id
+            or date_column.table_key != tab.table_key
+            or date_column.archived
+            or date_column.kind != "date"
         ):
             raise HTTPException(422, "Выберите действующий столбец типа «Дата» этой вкладки")
     if (
@@ -58,6 +98,27 @@ def initialize_options(db: Session, tab: CustomTab, options: TabOptions) -> None
         tab.options = ARCHIVE_OPTIONS.model_copy(
             update={"export_enabled": options.export_enabled}
         ).model_dump()
+        tab.table_created = True
+        return
+    if options.data_source == "arrival_plan":
+        mapping = {}
+        for position, (name, kind, field) in enumerate(
+            [("ФИО", "text", "full_name"), ("Дата", "date", "date"), ("Статус", "text", "status")]
+        ):
+            column = TableColumn(
+                dormitory_id=tab.dormitory_id,
+                table_key=tab.table_key,
+                name=name,
+                kind=kind,
+                position=position,
+                options=[],
+                archived=False,
+            )
+            db.add(column)
+            db.flush()
+            mapping[str(column.id)] = field
+        options.arrival_columns = mapping
+        tab.options = options.model_dump()
         tab.table_created = True
         return
     if options.date_column_id is not None:
@@ -92,6 +153,11 @@ def mapped_options(tab: CustomTab, mapping: dict[int, int]) -> dict:
     options = options_for(tab).model_dump()
     if options["date_column_id"] is not None:
         options["date_column_id"] = mapping.get(options["date_column_id"])
+    options["arrival_columns"] = {
+        str(mapping[int(key)]): field
+        for key, field in options["arrival_columns"].items()
+        if key.isdecimal() and int(key) in mapping
+    }
     return options
 
 

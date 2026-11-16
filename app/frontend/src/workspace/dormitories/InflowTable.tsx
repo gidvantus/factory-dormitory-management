@@ -11,6 +11,8 @@ import { InflowActionDialog } from './InflowActionDialog';
 import { useTableSaves } from './tableColumnsContext';
 import styles from './InflowTable.module.css';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
+import { useDormitoryPages } from './useDormitoryPages';
+import { ClearStandardListButton } from './ClearStandardListButton';
 import {
   ColumnsControls,
   ConfiguredCells,
@@ -234,12 +236,20 @@ function InflowContent({
   range: DateRange;
 }): JSX.Element {
   const [rows, setRows] = useState<InflowRow[]>([]);
+  const [hasData, setHasData] = useState(false);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<InflowRow | null>(null);
   const [removing, setRemoving] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const pager = useDormitoryPages(
+    dormitoryId,
+    `${range.from}:${range.to}`,
+    () => setAttempt((n) => n + 1),
+    setError,
+  );
+  const { options: pagingOptions, setInfo } = pager;
   const [processing, setProcessing] = useState<{ row: InflowRow; action: InflowAction } | null>(
     null,
   );
@@ -248,10 +258,12 @@ function InflowContent({
     const controller = new AbortController();
     setStatus('loading');
     void api
-      .inflow(dormitoryId, range.from, range.to, controller.signal)
+      .inflow(dormitoryId, range.from, range.to, pagingOptions, controller.signal)
       .then((result) => {
         if (!controller.signal.aborted) {
-          setRows(result);
+          setRows(result.rows);
+          setInfo({ page: result.page, total: result.total });
+          setHasData(true);
           setStatus('ready');
           setError('');
         }
@@ -263,7 +275,7 @@ function InflowContent({
         }
       });
     return () => controller.abort();
-  }, [dormitoryId, range.from, range.to, attempt]);
+  }, [dormitoryId, range.from, range.to, attempt, pagingOptions, setInfo]);
 
   function add(): void {
     setAdding(true);
@@ -276,6 +288,7 @@ function InflowContent({
     try {
       await api.deleteInflowRow(dormitoryId, deleting.id);
       setRows((current) => current.filter((row) => row.id !== deleting.id));
+      setAttempt((value) => value + 1);
       setDeleting(null);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось удалить строку.');
@@ -289,7 +302,22 @@ function InflowContent({
       className={styles.page}
       data-testid="dormitory-inflow"
       heading={<h2>Приток</h2>}
-      secondary={<ColumnsControls />}
+      paging={hasData && { pager, loading: status === 'loading', label: 'ФИО или табельный номер' }}
+      secondary={
+        <>
+          <ColumnsControls />
+          <ClearStandardListButton
+            dormitoryId={dormitoryId}
+            section="inflow"
+            title="Приток"
+            disabled={status !== 'ready' || adding || removing}
+            onCleared={() => {
+              setStatus('loading');
+              setAttempt((value) => value + 1);
+            }}
+          />
+        </>
+      }
       primary={
         <button
           type="button"
@@ -321,6 +349,7 @@ function InflowContent({
           onClose={() => setAdding(false)}
           onSaved={() => {
             setAdding(false);
+            pager.changePage(1);
             setAttempt((n) => n + 1);
           }}
         />
@@ -346,9 +375,9 @@ function InflowContent({
           {error}
         </p>
       )}
-      {status === 'ready' && (
+      {hasData && (
         <div className={styles.tableScroll}>
-          <ConfiguredTable className={styles.table}>
+          <ConfiguredTable className={styles.table} {...pager.tableProps}>
             <thead>
               <tr>
                 <ConfiguredHeaders />

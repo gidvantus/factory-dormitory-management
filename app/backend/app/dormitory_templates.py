@@ -17,11 +17,13 @@ from app.models.dormitory_template import DormitoryTemplate
 from app.models.hostel import Hostel
 from app.models.report import ReportRow
 from app.models.table_column import TableColumn
-from app.report_defaults import DEFAULT_REPORT_FORMULA, REQUIRED_REPORT_ROW_NAMES
+from app.report_defaults import DEFAULT_REPORT_FORMULA, legacy_report_metric, missing_report_metrics
+from app.report_templates import restore_report_colors
 from app.schemas.table_column import report_link_adapter
 from app.section_state import SECTIONS, locked_dormitory, section_parents, section_status
 from app.tab_tree import all_tabs
 from app.table_data import DEFAULT_COLUMNS, columns_for, ensure_columns, validate_link
+from app.table_views import TableColors, restore_table_colors, table_colors
 
 TEMPLATE_NOT_FOUND_DETAIL = "Шаблон не найден"
 
@@ -54,11 +56,22 @@ def take_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
         if section_status(dorm, key) != "deleted":
             ensure_columns(db, dormitory_id, key)
     keys = list(DEFAULT_COLUMNS) + [tab.table_key for tab in tabs]
+    views: dict[str, TableColors] = {}
+    for key in [*keys, "report", "places"]:
+        if key in SECTIONS and section_status(dorm, key) == "deleted":
+            continue
+        colors = table_colors(db, dorm, key)
+        if key not in ("report", "places"):
+            colors.pop("row_colors", None)
+        if any(colors.values()):
+            views[key] = colors
     return {
         "version": 1,
         "sections": {key: section_status(dorm, key) for key in SECTIONS},
         "parents": section_parents(dorm),
         "exchange_options": deepcopy(dorm.exchange_options or {}),
+        "standard_clear_list": dict(dorm.standard_clear_list or {}),
+        "table_colors": views,
         "tabs": [
             {
                 "key": tab.table_key,
@@ -101,9 +114,11 @@ def take_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
         ],
         "rows": [
             {
+                "id": row.id,
                 "name": row.name,
                 "position": row.position,
                 "formula": row.formula,
+                "metric_key": row.metric_key,
                 "link": deepcopy(row.link),
             }
             for row in db.scalars(
@@ -141,10 +156,23 @@ def apply_snapshot(
     if "places" not in chosen:
         data["hostels"] = []
     if "report" not in chosen:
-        data["rows"] = [
-            {"name": name, "position": i, "formula": DEFAULT_REPORT_FORMULA, "link": None}
-            for i, name in enumerate(REQUIRED_REPORT_ROW_NAMES, 1)
-        ]
+        data["rows"] = []
+    for row in data["rows"]:
+        if "metric_key" not in row:
+            row["metric_key"] = legacy_report_metric(row["name"])
+    position = max((row["position"] for row in data["rows"]), default=0)
+    data["rows"].extend(
+        {
+            "name": name,
+            "position": position + index,
+            "formula": DEFAULT_REPORT_FORMULA,
+            "link": None,
+            "metric_key": metric,
+        }
+        for index, (metric, name) in enumerate(
+            missing_report_metrics((row["name"], row["metric_key"]) for row in data["rows"]), 1
+        )
+    )
     for row in data["rows"]:
         if (
             row["link"]
@@ -162,6 +190,9 @@ def apply_snapshot(
     dorm.section_parents = data["parents"]
     dorm.exchange_options = {
         key: value for key, value in data.get("exchange_options", {}).items() if key in chosen
+    }
+    dorm.standard_clear_list = {
+        key: value for key, value in data.get("standard_clear_list", {}).items() if key in chosen
     }
     tables: dict[str, str] = {}
     created: list[tuple[CustomTab, bool]] = []
@@ -216,7 +247,9 @@ def apply_snapshot(
         db.add(hostel)
         db.flush()
         hostels[original_id] = hostel.id
+    report_rows: dict[int, ReportRow] = {}
     for definition in data["rows"]:
+        source_row_id = definition.pop("id", None)
         rule = definition["link"]
         if rule:
             rule["table_key"] = tables.get(rule["table_key"], rule["table_key"])
@@ -224,17 +257,31 @@ def apply_snapshot(
                 if rule.get("hostel_id"):
                     rule["hostel_id"] = hostels[rule["hostel_id"]]
             elif rule["table_key"] != "arrival_plan":
-                original_id = rule["column_id"]
-                if (original_id, rule.get("value")) in options:
-                    rule["value"] = options[(original_id, rule["value"])]
-                rule["column_id"] = columns[original_id]
+                source_column_id = rule["column_id"]
+                if (source_column_id, rule.get("value")) in options:
+                    rule["value"] = options[(source_column_id, rule["value"])]
+                rule["column_id"] = columns[source_column_id]
                 if rule.get("date_column_id"):
                     rule["date_column_id"] = columns[rule["date_column_id"]]
             definition["link"] = validate_link(
                 db, dorm.id, report_link_adapter.validate_python(rule)
             ).model_dump()
-        db.add(ReportRow(dormitory_id=dorm.id, **definition))
+        row = ReportRow(dormitory_id=dorm.id, **definition)
+        db.add(row)
+        if source_row_id is not None:
+            report_rows[source_row_id] = row
     dorm.section_states = data["sections"]
     for tab, active in created:
         tab.is_active = active
+    for key, colors in data.get("table_colors", {}).items():
+        if key not in chosen:
+            continue
+        if key == "report":
+            restore_report_colors(db, dorm, colors, report_rows)
+        elif key == "places":
+            restore_table_colors(db, dorm, key, colors)
+        else:
+            restore_table_colors(
+                db, dorm, tables.get(key, key), colors, row_ids={}, column_ids=columns
+            )
     db.flush()

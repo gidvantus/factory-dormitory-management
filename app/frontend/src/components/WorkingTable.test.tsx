@@ -1,10 +1,227 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { WorkingTable } from './WorkingTable';
 import { emptyTableView } from './workingTableModel';
 
 afterEach(() => vi.unstubAllGlobals());
+
+it('измеряет заголовок и первые 30 строк при открытии и изменении столбца', async () => {
+  const layout = vi
+    .spyOn(HTMLTableElement.prototype, 'getClientRects')
+    .mockReturnValue({ length: 1 } as DOMRectList);
+  const canvas = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+  const measure = vi.spyOn(HTMLTableCellElement.prototype, 'cloneNode');
+  const table = (heading: string, page: number) => (
+    <WorkingTable>
+      <thead>
+        <tr>
+          <th>{heading}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {page > 0 &&
+          Array.from({ length: 35 }, (_, index) => (
+            <tr key={`${page}-${index}`}>
+              <td>
+                <input aria-label={`Имя ${index + 1}`} defaultValue={`Запись ${page}-${index}`} />
+              </td>
+            </tr>
+          ))}
+      </tbody>
+    </WorkingTable>
+  );
+  try {
+    const view = render(table('Имя', 0));
+    expect(measure).toHaveBeenCalledTimes(1);
+    measure.mockClear();
+    view.rerender(table('Имя', 1));
+    expect(measure).toHaveBeenCalledTimes(31);
+    measure.mockClear();
+    fireEvent.input(screen.getByRole('textbox', { name: 'Имя 1' }), {
+      target: { value: 'Длинное имя' },
+    });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    view.rerender(table('Имя', 2));
+    expect(measure).not.toHaveBeenCalled();
+    view.rerender(table('Полное имя', 2));
+    expect(measure).toHaveBeenCalledTimes(31);
+  } finally {
+    measure.mockRestore();
+    canvas.mockRestore();
+    layout.mockRestore();
+  }
+});
+
+it('Ctrl с колёсиком масштабирует выбранную таблицу и восстанавливает её масштаб', async () => {
+  const saved = new Map<string, number>();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (!url.endsWith('/zoom')) return Response.json(emptyTableView());
+      if (init?.method === 'PUT') saved.set(url, JSON.parse(String(init.body)).percent);
+      return Response.json({ percent: saved.get(url) ?? 100 });
+    }),
+  );
+  function Tables(): JSX.Element {
+    return (
+      <>
+        <WorkingTable viewKey="dormitories/7/table-views/report" aria-label="Отчёт">
+          <tbody>
+            <tr>
+              <td>Данные отчёта</td>
+            </tr>
+          </tbody>
+        </WorkingTable>
+        <WorkingTable viewKey="dormitories/7/table-views/residents" aria-label="Жильцы">
+          <tbody>
+            <tr>
+              <td>Данные жильцов</td>
+            </tr>
+          </tbody>
+        </WorkingTable>
+      </>
+    );
+  }
+  const { unmount } = render(<Tables />);
+  const target = screen.getByText('Данные отчёта');
+  const scroll = createEvent.wheel(target, { deltaY: -100, cancelable: true });
+  fireEvent(target, scroll);
+  expect(scroll.defaultPrevented).toBe(false);
+  const zoom = createEvent.wheel(target, { ctrlKey: true, deltaY: -100, cancelable: true });
+  fireEvent(target, zoom);
+  expect(zoom.defaultPrevented).toBe(true);
+  expect(screen.getByRole('table', { name: 'Отчёт' }).style.zoom).toBe('1.1');
+  expect(screen.getByRole('table', { name: 'Жильцы' }).style.zoom).not.toBe('1.1');
+  unmount();
+  render(<Tables />);
+  await waitFor(() => expect(screen.getByRole('table', { name: 'Отчёт' }).style.zoom).toBe('1.1'));
+  expect([...saved.values()]).toEqual([110]);
+});
+
+it('распознаёт даты и списки Excel, сохраняет многострочный текст и пустые ячейки', async () => {
+  const user = userEvent.setup();
+  function Table(): JSX.Element {
+    const [date, setDate] = useState('');
+    const [status, setStatus] = useState('');
+    const [notes, setNotes] = useState('');
+    const [count, setCount] = useState('3');
+    return (
+      <WorkingTable pasteCells>
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Статус</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr key="top">
+            <td>
+              <input
+                type="date"
+                aria-label="Дата"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
+            </td>
+            <td>
+              <select
+                aria-label="Статус"
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                <option value="">—</option>
+                <option value="ready">Готово</option>
+              </select>
+            </td>
+          </tr>
+          <tr key="bottom">
+            <td>
+              <textarea
+                aria-label="Заметка"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </td>
+            <td>
+              <input
+                type="number"
+                aria-label="Число"
+                value={count}
+                onChange={(e) => setCount(e.target.value)}
+              />
+            </td>
+          </tr>
+        </tbody>
+      </WorkingTable>
+    );
+  }
+  render(<Table />);
+  await user.click(screen.getByLabelText('Дата'));
+  await user.paste('11.11.2026\tГотово\r\n"Первая строка\r\nВторая ""строка"""\t\r\n');
+  expect(screen.getByLabelText('Дата')).toHaveValue('2026-11-11');
+  expect(screen.getByLabelText('Статус')).toHaveValue('ready');
+  expect(screen.getByLabelText('Заметка')).toHaveValue('Первая строка\nВторая "строка"');
+  expect(screen.getByLabelText('Число')).toHaveValue(null);
+});
+
+it('сортирует текст по заголовку в обе стороны, не сбрасывая черновики и не вызывая настройку цвета', async () => {
+  const user = userEvent.setup();
+  render(<Example />);
+  const input = screen.getByLabelText('Имя 1');
+  await user.type(input, ' Петров');
+  const heading = screen.getByRole('columnheader', { name: 'Имя' });
+  await user.click(heading);
+  const names = (): (string | null)[] =>
+    within(screen.getByRole('table'))
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.querySelector('input')?.getAttribute('aria-label') ?? null);
+  expect(names()).toEqual(['Имя 2', 'Имя 1']);
+  expect(heading).toHaveAttribute('aria-sort', 'ascending');
+  expect(input).toBe(screen.getByLabelText('Имя 1'));
+  expect(input).toHaveValue('Иван Петров');
+  heading.focus();
+  await user.keyboard('{Enter}');
+  expect(names()).toEqual(['Имя 1', 'Имя 2']);
+  expect(heading).toHaveAttribute('aria-sort', 'descending');
+  await user.click(screen.getByRole('button', { name: 'Столбец: Имя. Цвет и порядок' }));
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  expect(names()).toEqual(['Имя 1', 'Имя 2']);
+});
+
+it('сравнивает числа со знаком и десятичной запятой, оставляет пустые ячейки и итог на месте', async () => {
+  const user = userEvent.setup();
+  render(
+    <WorkingTable columns={[{ id: 'number', label: 'Число', kind: 'number' }]}>
+      <thead>
+        <tr>
+          <th>Число</th>
+        </tr>
+      </thead>
+      <tbody>
+        {['10', '', '-2', '1,5', '1,15'].map((value, index) => (
+          <tr key={index}>
+            <td>{value}</td>
+          </tr>
+        ))}
+        <tr data-fixed-row>
+          <td>Итого</td>
+        </tr>
+      </tbody>
+    </WorkingTable>,
+  );
+  const values = (): string[] =>
+    within(screen.getByRole('table'))
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.textContent ?? '');
+  await user.click(screen.getByRole('columnheader', { name: 'Число' }));
+  expect(values()).toEqual(['-2', '1,15', '1,5', '10', '', 'Итого']);
+  await user.click(screen.getByRole('columnheader', { name: 'Число' }));
+  expect(values()).toEqual(['10', '1,5', '1,15', '-2', '', 'Итого']);
+});
 
 function Example({ viewKey }: { viewKey?: string }): JSX.Element {
   return (

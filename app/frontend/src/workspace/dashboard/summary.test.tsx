@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { api } from '../../api/client';
@@ -56,6 +56,18 @@ it('включает прокрутку только после 31 дня и с�
   rerender(<SummaryReport config={config} result={result(32)} />);
   expect(screen.getByTestId('summary-report')).toHaveAttribute('data-scroll', 'true');
   expect(screen.getByRole('region')).toHaveAttribute('tabindex', '0');
+});
+it('показывает клиента одной ячейкой и названия выбранных строк во втором столбце', () => {
+  const data = result(31);
+  const row = data.summary!.rows[0];
+  data.summary!.rows.push({ ...row, metric: 'Проживает', row_name: 'Живут сегодня' });
+  render(<SummaryReport config={config} result={data} />);
+  const table = within(screen.getByRole('table'));
+  const rows = table.getAllByRole('row');
+  expect(within(rows[1]).getByText(row.label).closest('th')).toHaveAttribute('rowspan', '2');
+  expect(within(rows[1]).getByRole('rowheader', { name: 'Выход' })).toBeInTheDocument();
+  expect(within(rows[2]).getByRole('rowheader', { name: 'Живут сегодня' })).toBeInTheDocument();
+  expect(table.getAllByText(row.label)).toHaveLength(1);
 });
 it('конструктор объединяет названия и сохраняет способ расчёта и выбранные общежития', async () => {
   vi.spyOn(api, 'dashboardSources').mockResolvedValue(

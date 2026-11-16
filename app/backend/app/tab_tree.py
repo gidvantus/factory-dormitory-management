@@ -7,7 +7,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models.custom_tab import CustomTab
+from app.models.dormitory import Dormitory
 from app.models.table_column import TableColumn
+from app.table_views import restore_table_colors, table_colors
 
 
 def all_tabs(db: Session, dormitory_id: int) -> list[CustomTab]:
@@ -73,4 +75,16 @@ def copy_columns(
         db.add(copied)
         db.flush()
         mapping[column.id] = copied.id
+    if mapping:
+        source = db.get(Dormitory, source_dormitory)
+        target = db.get(Dormitory, target_dormitory)
+        assert source is not None and target is not None
+        restore_table_colors(
+            db,
+            target,
+            target_key,
+            table_colors(db, source, source_key),
+            row_ids={},
+            column_ids=mapping,
+        )
     return mapping

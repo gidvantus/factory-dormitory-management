@@ -1,5 +1,7 @@
 import { useContext } from 'react';
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
+import { DormitoryPaging } from './DormitoryPaging';
+import type { DormitoryPagingProps } from './DormitoryPaging';
 import { TableLayoutContext } from './tableLayoutContext';
 import styles from './DormitoryTableFrame.module.css';
 
@@ -8,6 +10,7 @@ type Props = ComponentPropsWithoutRef<'section'> & {
   secondary?: ReactNode;
   primary?: ReactNode;
   filters?: ReactNode;
+  paging?: DormitoryPagingProps | false;
 };
 
 export function DormitoryTableFrame({
@@ -15,6 +18,7 @@ export function DormitoryTableFrame({
   secondary,
   primary,
   filters,
+  paging,
   children,
   ...sectionProps
 }: Props): JSX.Element {
@@ -41,9 +45,11 @@ export function DormitoryTableFrame({
           </div>
         )}
       </div>
+      {paging && <DormitoryPaging {...paging} />}
       <fieldset className={styles.body} disabled={readOnly}>
         {children}
       </fieldset>
+      {paging && <DormitoryPaging {...paging} position="bottom" />}
     </section>
   );
 }

@@ -14,12 +14,14 @@ from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel
 from app.models.report import ReportRow
 from app.models.report_template import ReportTemplateRow
-from app.report_defaults import DEFAULT_REPORT_FORMULA, REQUIRED_REPORT_ROW_NAMES, required_row_name
+from app.report_defaults import DEFAULT_REPORT_FORMULA, missing_report_metrics
+from app.report_templates import restore_report_colors
 from app.schemas.table_column import report_link_adapter
 from app.section_state import SECTIONS, locked_dormitory
 from app.tab_catalog import TabChoice, TabVariant, catalog, normalized_name
 from app.tab_tree import copy_columns
 from app.table_data import columns_for, ensure_columns, get_custom_tab, snapshot_link, validate_link
+from app.table_views import TableColors, restore_table_colors, table_colors
 
 
 def initialize_structure(
@@ -28,6 +30,8 @@ def initialize_structure(
     choices: list[TabChoice],
     template_rows: list[ReportTemplateRow],
     organization_id: int,
+    *,
+    template_colors: TableColors,
 ) -> None:
     """Собрать структуру нового общежития из образцов **своей** организации.
 
@@ -61,11 +65,17 @@ def initialize_structure(
     for key, item in standards.items():
         if item.dormitory_id:
             source_dorm = db.get(Dormitory, item.dormitory_id)
-            if source_dorm and key in (source_dorm.exchange_options or {}):
-                dorm.exchange_options = {
-                    **(dorm.exchange_options or {}),
-                    key: deepcopy(source_dorm.exchange_options[key]),
-                }
+            if source_dorm:
+                if key in (source_dorm.exchange_options or {}):
+                    dorm.exchange_options = {
+                        **(dorm.exchange_options or {}),
+                        key: deepcopy(source_dorm.exchange_options[key]),
+                    }
+                if key in (source_dorm.standard_clear_list or {}):
+                    dorm.standard_clear_list = {
+                        **(dorm.standard_clear_list or {}),
+                        key: source_dorm.standard_clear_list[key],
+                    }
         parent = by_name.get(normalized_name(item.parent_name)) if item.parent_name else None
         dorm.section_parents[key] = (
             parent.section_key if parent and parent.kind == "standard" else None
@@ -123,6 +133,9 @@ def initialize_structure(
     # Hostels define the tables in «Размещение персонала». Their daily values are never copied.
     place_variant = standards.get("places")
     if place_variant and place_variant.dormitory_id:
+        places_source = db.get(Dormitory, place_variant.dormitory_id)
+        assert places_source is not None
+        restore_table_colors(db, dorm, "places", table_colors(db, places_source, "places"))
         for source_hostel in db.scalars(
             select(Hostel).where(Hostel.dormitory_id == place_variant.dormitory_id)
         ):
@@ -236,48 +249,58 @@ def initialize_structure(
     report_variant = standards.get("report")
     if template_rows and not report_variant:
         raise HTTPException(422, "Для применения шаблона выберите «Общий отчёт»")
+    report_colors = template_colors
     definitions: list[dict[str, Any]] = [
-        {"name": row.name, "formula": row.formula, "snapshot": row.link_snapshot}
+        {
+            "color_id": row.position,
+            "name": row.name,
+            "formula": row.formula,
+            "snapshot": row.link_snapshot,
+            "metric_key": row.metric_key,
+        }
         for row in template_rows
     ]
     if report_variant and report_variant.dormitory_id and not template_rows:
+        report_source = db.get(Dormitory, report_variant.dormitory_id)
+        assert report_source is not None
+        report_colors = table_colors(db, report_source, "report")
         definitions = [
-            {"name": row.name, "formula": row.formula, "snapshot": snapshot_link(db, row)}
+            {
+                "color_id": row.id,
+                "name": row.name,
+                "formula": row.formula,
+                "snapshot": snapshot_link(db, row),
+                "metric_key": row.metric_key,
+            }
             for row in db.scalars(
                 select(ReportRow)
                 .where(ReportRow.dormitory_id == report_variant.dormitory_id)
                 .order_by(ReportRow.position, ReportRow.id)
             )
         ]
-    aliases = {
-        row["name"]: canonical
-        for row in definitions
-        if (canonical := required_row_name(row["name"])) and row["name"] != canonical
-    }
     for definition in definitions:
-        canonical = required_row_name(definition["name"])
-        if canonical:
-            definition["name"] = canonical
+        if definition["metric_key"]:
             definition["formula"] = definition["formula"] or DEFAULT_REPORT_FORMULA
             definition["snapshot"] = None
-        if definition["formula"]:
-            for old, new in aliases.items():
-                definition["formula"] = definition["formula"].replace(f"[{old}]", f"[{new}]")
-    names = {row["name"] for row in definitions}
     definitions += [
-        {"name": name, "formula": DEFAULT_REPORT_FORMULA, "snapshot": None}
-        for name in REQUIRED_REPORT_ROW_NAMES
-        if name not in names
-    ]
-    for position, definition in enumerate(definitions, start=1):
-        db.add(
-            ReportRow(
-                dormitory_id=dorm.id,
-                name=definition["name"],
-                position=position,
-                formula=definition["formula"],
-                link=restore_rule(definition["snapshot"], definition["name"])
-                if definition["snapshot"]
-                else None,
-            )
+        {"name": name, "formula": DEFAULT_REPORT_FORMULA, "snapshot": None, "metric_key": metric}
+        for metric, name in missing_report_metrics(
+            (row["name"], row["metric_key"]) for row in definitions
         )
+    ]
+    report_rows: dict[int, ReportRow] = {}
+    for position, definition in enumerate(definitions, start=1):
+        row = ReportRow(
+            dormitory_id=dorm.id,
+            name=definition["name"],
+            metric_key=definition["metric_key"],
+            position=position,
+            formula=definition["formula"],
+            link=restore_rule(definition["snapshot"], definition["name"])
+            if definition["snapshot"]
+            else None,
+        )
+        db.add(row)
+        if "color_id" in definition:
+            report_rows[definition["color_id"]] = row
+    restore_report_colors(db, dorm, report_colors, report_rows)

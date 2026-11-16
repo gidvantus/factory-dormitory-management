@@ -3,6 +3,7 @@ import { WorkingTable } from '../../components/WorkingTable';
 import { useContext, useState } from 'react';
 import { personnelApi } from '../../api/personnel';
 import { downloadBlob } from '../../api/download';
+import { useExchangePermissions } from '../../auth/exchangePermissions';
 import type { Employee, PersonnelData } from '../../api/personnel';
 import { Modal } from '../../components/Modal';
 import type { EmployeeListField, ListCriteria } from './employeeListFilters';
@@ -27,11 +28,12 @@ export function SelectedEmployeesDialog({
   onClose: () => void;
 }): JSX.Element {
   const environment = useContext(BuilderEnvironmentContext);
+  const permissions = useExchangePermissions();
   const [name, setName] = useState('Выбранные сотрудники');
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   async function exportList(): Promise<void> {
-    if (exporting || !people.length) return;
+    if (!permissions.export_enabled || exporting || !people.length) return;
     setExporting(true);
     setError('');
     try {
@@ -62,15 +64,17 @@ export function SelectedEmployeesDialog({
           Название списка
           <input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} />
         </label>
-        <button
-          type="button"
-          className="btn btn--primary btn--compact"
-          disabled={exporting || !people.length}
-          onClick={() => void exportList()}
-          aria-busy={exporting}
-        >
-          {exporting ? 'Выгружаем…' : 'Выгрузить'}
-        </button>
+        {permissions.export_enabled && (
+          <button
+            type="button"
+            className="btn btn--primary btn--compact"
+            disabled={exporting || !people.length}
+            onClick={() => void exportList()}
+            aria-busy={exporting}
+          >
+            {exporting ? 'Выгружаем…' : 'Выгрузить'}
+          </button>
+        )}
       </div>
       {error && <p role="alert">{error}</p>}
       <div className={s.tableScroll}>

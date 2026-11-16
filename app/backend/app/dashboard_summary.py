@@ -1,5 +1,6 @@
 """Сводный отчёт: стабильные строки источников и отдельные значения по общежитиям."""
 
+from collections import Counter
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -64,6 +65,7 @@ def calculate_summary(
         and dorm.id not in config.excluded_dormitory_ids
         and (config.all_dormitories or dorm.id in summary.dormitory_ids)
     ]
+    client_counts = Counter(dorm.client_name for dorm in included)
     for dorm in included:
         report = None
         try:
@@ -74,7 +76,9 @@ def calculate_summary(
             errors.append(f"{dorm.name}: общий отчёт недоступен")
         label = dorm.name
         if summary.label == "client":
-            label = f"{dorm.client_name or 'Без клиента'} ({dorm.name})"
+            label = dorm.client_name or "Без клиента"
+            if client_counts[dorm.client_name] > 1:
+                label = f"{label} ({dorm.name})"
         for metric in summary.metrics:
             explicit = next(
                 (source for source in metric.sources if source.dormitory_id == dorm.id), None
@@ -125,6 +129,7 @@ def calculate_summary(
                     dormitory_id=dorm.id,
                     label=label,
                     metric=metric.name,
+                    row_name=source_row.name if source_row else None,
                     aggregate=metric.aggregate,
                     value=float(total) if total is not None else None,
                     daily=[

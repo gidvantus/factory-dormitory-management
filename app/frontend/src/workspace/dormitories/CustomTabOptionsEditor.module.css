@@ -10,6 +10,7 @@
   padding: 0 6px;
 }
 .selects {
+  margin-bottom: 12px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
   gap: 12px;
@@ -29,12 +30,12 @@
   gap: 10px;
   margin-top: 16px;
 }
-.editor .checks label {
+.checks > label {
   display: flex;
   align-items: start;
   gap: 8px;
 }
-.editor .checks input {
+.checks > label > input[type='checkbox'] {
   width: 16px;
   height: 16px;
   min-height: 16px;

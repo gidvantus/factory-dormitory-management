@@ -95,7 +95,7 @@ describe('Выплаты', () => {
   it('добавляет аванс, принимает сумму с копейками и удаляет после подтверждения', async () => {
     let row: PaymentRow | null = null;
     const fetchMock = mockFetch((url, init) => {
-      if (url.endsWith('/api/dormitories/7/payments/advance') && !init?.method)
+      if (url.includes('/api/dormitories/7/payments/advance?') && !init?.method)
         return { status: 200, body: row ? [row] : [] };
       if (url.endsWith('/api/dormitories/7/payments/advance') && init?.method === 'POST') {
         row = { ...blank };
@@ -128,7 +128,12 @@ describe('Выплаты', () => {
     expect(within(tableRow).getByLabelText('Сумма аванса, строка 6')).toHaveValue('1250,50');
     await user.tab();
     await waitFor(() => expect((row as PaymentRow | null)?.advance_amount).toBe('1250.50'));
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/advance?'))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/advance?page=1'))).toBe(
+      true,
+    );
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/advance?from='))).toBe(
+      false,
+    );
     await user.click(within(tableRow).getByRole('button', { name: 'Удалить' }));
     const dialog = screen.getByRole('dialog', { name: 'Удалить строку выплаты?' });
     await user.click(within(dialog).getByRole('button', { name: 'Отмена' }));

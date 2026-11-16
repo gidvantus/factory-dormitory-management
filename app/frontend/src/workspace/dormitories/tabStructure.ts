@@ -12,6 +12,15 @@ export const standardTabs = [
   { path: 'settlement', label: 'На расчёт' },
   { path: 'archive', label: 'Архив' },
 ];
+
+export const standardClearListDefaults: Partial<Record<string, boolean>> = {
+  residents: false,
+  inflow: false,
+  outflow: false,
+  advance: true,
+  settlement: true,
+};
+
 export function standardParents(dorm: Dormitory | null): Record<string, string | null> {
   return {
     inflow: 'movement',

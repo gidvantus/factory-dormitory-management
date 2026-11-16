@@ -50,7 +50,7 @@ export function PersonnelTableCells({
               {},
               <>
                 {child.props.children}
-                {!hasName && (
+                {!hasName && card.canOpen && (
                   <button
                     type="button"
                     className="btn btn--ghost btn--compact"

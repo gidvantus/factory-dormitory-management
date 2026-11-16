@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { RequireOperator } from './auth/RequireOperator';
+import { AccessRights } from './pages/AccessRights';
 import { CompanyDetails } from './pages/CompanyDetails';
 import { Invoices } from './pages/Invoices';
 import { Login } from './pages/Login';
@@ -72,6 +73,14 @@ export function App(): JSX.Element {
         element={
           <RequireOperator>
             <CompanyDetails />
+          </RequireOperator>
+        }
+      />
+      <Route
+        path="/access-rights"
+        element={
+          <RequireOperator>
+            <AccessRights />
           </RequireOperator>
         }
       />

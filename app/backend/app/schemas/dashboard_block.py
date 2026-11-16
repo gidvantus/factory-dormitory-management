@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.report_defaults import ReportMetric
 from app.schemas.table_column import ColumnResponse, PlaceMetric, TableKey
 
 
@@ -125,10 +126,22 @@ class WidgetMutation(StrictModel):
     config: WidgetConfig
 
 
+class BuiltinBlockConfig(StrictModel):
+    name: str = Field(min_length=1, max_length=120)
+    date_mode: Literal["overview", "date", "range"] = "overview"
+    aggregate: Literal["last", "average", "sum"] = "last"
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        return WidgetConfig.clean_name(value)
+
+
 class LayoutMutation(StrictModel):
     revision: int = Field(ge=0)
     order: list[str] = Field(max_length=1004)
     hidden: list[str] = Field(default_factory=list, max_length=1004)
+    builtin_settings: dict[ReportMetric, BuiltinBlockConfig] | None = None
 
 
 class WidgetDefinition(BaseModel):
@@ -141,6 +154,7 @@ class LayoutResponse(BaseModel):
     order: list[str]
     hidden: list[str]
     blocks: list[WidgetDefinition]
+    builtin_settings: dict[ReportMetric, BuiltinBlockConfig] = Field(default_factory=dict)
 
 
 class WidgetValue(BaseModel):
@@ -175,6 +189,7 @@ class SummaryValue(BaseModel):
     dormitory_id: int
     label: str
     metric: str
+    row_name: str | None = None
     aggregate: Literal["sum", "average", "last"]
     value: float | None
     daily: list[WidgetPoint]

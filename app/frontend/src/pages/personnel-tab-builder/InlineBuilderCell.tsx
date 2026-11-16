@@ -57,7 +57,7 @@ export function InlineBuilderCell({
   const editButton = (
     <button
       type="button"
-      className="btn btn--quiet working-table-grip"
+      className="btn btn--quiet working-table-edit-button"
       data-table-edit-trigger
       aria-label={`Редактировать ${label}`}
       onClick={() => setEditing(true)}

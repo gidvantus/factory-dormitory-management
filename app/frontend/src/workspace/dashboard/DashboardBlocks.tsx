@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api, ApiError } from '../../api/client';
-import type { DashboardLayout, WidgetDefinition } from '../../api/dashboardBlocks';
+import type { BuiltinMetric, DashboardLayout, WidgetDefinition } from '../../api/dashboardBlocks';
 import { DEFAULT_LAYOUT } from '../../api/dashboardBlocks';
 import { Modal } from '../../components/Modal';
 import type { DashboardData } from './data';
@@ -11,12 +11,15 @@ import { formatDate } from './dates';
 import { WidgetDialog } from './WidgetDialog';
 import { WidgetChart } from './WidgetChart';
 import { SummaryReport } from './SummaryReport';
+import { BuiltinBlockDialog } from './BuiltinBlockDialog';
+import { BuiltinMetricCard } from './BuiltinMetricCard';
 import styles from './Dashboard.module.css';
 
 interface BuiltinCard {
   key: string;
   name: string;
-  content: ReactNode;
+  content?: ReactNode;
+  metric?: BuiltinMetric;
 }
 export function DashboardBlocks({
   data,
@@ -37,6 +40,7 @@ export function DashboardBlocks({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<WidgetDefinition | null | undefined>(undefined);
+  const [editingBuiltin, setEditingBuiltin] = useState<BuiltinMetric | null>(null);
   const [deleting, setDeleting] = useState<WidgetDefinition | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   useEffect(() => {
@@ -46,13 +50,19 @@ export function DashboardBlocks({
     }
   }, [data.layout]);
   const visible = layout.order.filter((key) => !layout.hidden.includes(key));
-  const name = (key: string): string =>
-    cards.find((card) => card.key === key)?.name ??
-    layout.blocks.find((block) => 'custom:' + block.id === key)?.config.name ??
-    key;
+  const name = (key: string): string => {
+    const card = cards.find((card) => card.key === key);
+    return (
+      (card?.metric ? layout.builtin_settings?.[card.metric]?.name : undefined) ??
+      card?.name ??
+      layout.blocks.find((block) => 'custom:' + block.id === key)?.config.name ??
+      key
+    );
+  };
   const saved = (next: DashboardLayout): void => {
     setLayout(next);
     setEditing(undefined);
+    setEditingBuiltin(null);
     setDeleting(null);
     setError('');
     onChange();
@@ -163,6 +173,8 @@ export function DashboardBlocks({
           const builtin = cards.find((card) => card.key === key),
             block = layout.blocks.find((item) => 'custom:' + item.id === key),
             result = data.widgets?.find((item) => item.id === block?.id);
+          const metric = builtin?.metric;
+          const builtinConfig = metric ? layout.builtin_settings?.[metric] : undefined;
           return (
             <div
               key={key}
@@ -214,6 +226,16 @@ export function DashboardBlocks({
                       Настроить
                     </button>
                   )}
+                  {metric && (
+                    <button
+                      type="button"
+                      disabled={saving || loading}
+                      aria-label={`Настроить «${name(key)}»`}
+                      onClick={() => setEditingBuiltin(metric)}
+                    >
+                      Настроить
+                    </button>
+                  )}
                   <button
                     type="button"
                     disabled={saving}
@@ -228,7 +250,17 @@ export function DashboardBlocks({
                   )}
                 </div>
               )}
-              {builtin?.content}
+              {metric ? (
+                <BuiltinMetricCard
+                  key={builtinConfig?.date_mode ?? 'overview'}
+                  metric={metric}
+                  config={builtinConfig}
+                  data={data}
+                  range={range}
+                />
+              ) : (
+                builtin?.content
+              )}
               {block && (
                 <section
                   className={`${styles.card} ${styles.widgetCard}`}
@@ -327,6 +359,15 @@ export function DashboardBlocks({
           revision={layout.revision}
           range={range}
           onClose={() => setEditing(undefined)}
+          onSaved={saved}
+          onRefresh={onChange}
+        />
+      )}
+      {editingBuiltin && (
+        <BuiltinBlockDialog
+          metric={editingBuiltin}
+          layout={layout}
+          onClose={() => setEditingBuiltin(null)}
           onSaved={saved}
           onRefresh={onChange}
         />
