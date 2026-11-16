@@ -350,6 +350,13 @@ rebase: иначе следующие слияния сломаются), пос
 
 ## Изменения
 
+- 2026-11-16 — логи: в стек `monitor/` добавлены `promtail`, `Loki` и `Dozzle`,
+  второй поддомен `logs.<SITE_DOMAIN>` с basic auth (`LOGS_BASIC_AUTH_USER` /
+  `LOGS_BASIC_AUTH_HASH` в `.env` сервера, хеш тот же, что у мониторинга),
+  локальный оверрайд `monitor/docker-compose.local.yml` с портами 8095/8096 —
+  в основном файле стека по-прежнему нет ни одного `ports:`. Требуется A-запись
+  `logs` (пять имён вместо четырёх) и повторный деплой мониторинга из `main`.
+  Подробности — `docs/monitoring.md`, `docs/ssl.md`.
 - 2026-11-16 — мониторинг и алерты: стек `monitor/` (Prometheus, Grafana,
   Alertmanager, notifier, node-exporter, docker-stats-exporter) в своём
   compose-проекте, `GET /metrics` у API (`app/backend/app/metrics.py`),
