@@ -1,0 +1,158 @@
+# =====================================================================
+# Мониторинг боевого CRM Dormitory: метрики приложения, ресурсы сервера и
+# контейнеров, алерты в Telegram и вечерняя сводка за сутки.
+#
+#   docker compose -f monitor/docker-compose.monitor.yml \
+#       --env-file monitor/.env up -d --build
+#
+# Запускать ТОЛЬКО так, с явным `--env-file monitor/.env`: у этого стека своё
+# окружение, и без флага compose подхватил бы корневой `.env` основного
+# приложения (пароли базы, JWT_SECRET) — мониторингу они не нужны.
+# Эксплуатация и первый запуск — docs/monitoring.md, деплой —
+# .github/workflows/deploy-monitoring.yml.
+#
+# НАРУЖУ НЕ ПУБЛИКУЕТСЯ НИ ОДИН ПОРТ. У сервисов ниже нет `ports:` вовсе:
+#
+#   * Grafana открывается по https://monitor.<SITE_DOMAIN> через Caddy
+#     основного стека (блок `monitor.` в caddy/Caddyfile): Caddy терминирует
+#     TLS и требует логин/пароль (basic auth), прежде чем пустить в Grafana;
+#   * Prometheus, Alertmanager, notifier, node-exporter и docker-stats-exporter
+#     видны только внутри сети основного стека.
+#
+# Сеть берётся у основного стека, а не своя: Prometheus ходит на `api:8000`
+# за /metrics, а Caddy — на `grafana:3000`. Своей сети у мониторинга нет
+# намеренно: `api` не публикует 8000 на хост (API_PORT на сервере —
+# 127.0.0.1:…), и попасть в него можно только изнутри.
+#
+# Секреты — только из monitor/.env (в git его нет, см. .gitignore и
+# monitor/.env.example).
+# =====================================================================
+
+name: crm-dormitory-monitor
+
+services:
+  # ---------- Сбор метрик и алерт-правила ----------
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Хранение ограничено ДВУМЯ пределами сразу: диск сервера общий с боевой
+      # базой, а графики старше двух недель в разборе инцидентов уже не
+      # участвуют. Одного времени мало: при всплеске числа серий (новая метка,
+      # новый контейнер) гигабайт-в-сутки съедается раньше двух недель, и
+      # Prometheus упёрся бы в диск боевой базы. Размер важнее истории.
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-1GB}
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+
+  # ---------- Дашборды ----------
+  grafana:
+    image: grafana/grafana:11.1.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      # Пароль обязателен: без него Grafana ушла бы в рестарт по кругу.
+      # На бою значение генерирует деплой мониторинга и кладёт в monitor/.env.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD не задан — см. monitor/.env.example}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Анонимный доступ выключен явно: мониторинг открыт наружу пусть и по
+      # basic auth, но второй слой (учётная запись Grafana) снимать нельзя —
+      # один пароль на всё дешевле, чем «почти открытая» Grafana.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Grafana живёт за Caddy по домену: root_url, domain и списки Origin
+      # обязаны совпадать с внешним адресом, иначе браузер получает
+      # «origin not allowed», а вход — пустые дашборды.
+      GF_SERVER_ROOT_URL: https://${MONITOR_HOST:?MONITOR_HOST не задан — см. monitor/.env.example}/
+      GF_SERVER_DOMAIN: ${MONITOR_HOST:?MONITOR_HOST не задан — см. monitor/.env.example}
+      # CSRF-проверки Grafana 11 и Grafana Live (WebSocket) проверяют Origin
+      # отдельными списками.
+      GF_SECURITY_CSRF_TRUSTED_ORIGINS: ${MONITOR_HOST:?MONITOR_HOST не задан — см. monitor/.env.example}
+      GF_LIVE_ALLOWED_ORIGINS: ${MONITOR_HOST:?MONITOR_HOST не задан — см. monitor/.env.example}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+  # ---------- Маршрутизация алертов ----------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+
+  # ---------- Alertmanager → Telegram и вечерняя сводка ----------
+  # Свой мини-сервис, а не сторонний образ: он же собирает сводку за сутки из
+  # Prometheus (monitor/notifier/app.py, docs/monitoring.md).
+  notifier:
+    build: ./notifier
+    restart: unless-stopped
+    environment:
+      # Пустой токен — рабочее состояние: сообщения уходят в лог, процесс живёт.
+      MONITOR_TELEGRAM_BOT_TOKEN: ${MONITOR_TELEGRAM_BOT_TOKEN:-}
+      MONITOR_TELEGRAM_CHAT_ID: ${MONITOR_TELEGRAM_CHAT_ID:-}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://prometheus:9090}
+      DIGEST_HOUR: ${DIGEST_HOUR:-18}
+      DIGEST_TIMEZONE: ${DIGEST_TIMEZONE:-Europe/Moscow}
+      TZ: ${TZ:-Europe/Moscow}
+    depends_on:
+      - prometheus
+    healthcheck:
+      # curl в slim-образе нет: проверяем тем же Python, которым запущен сервис.
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9087/health')"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------- Метрики хоста: CPU/RAM/диск ----------
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+
+  # ---------- Метрики контейнеров через docker API ----------
+  # Работает на любом docker (в отличие от cAdvisor, которому нужен доступ к
+  # слоям хранилища): данные берутся из демона (`docker stats`) вместе с
+  # именами и compose-метками контейнеров. Код перенесён из проекта Vahta без
+  # изменения логики.
+  docker-stats-exporter:
+    build: ./docker-stats-exporter
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  alertmanager-data:
+
+# Сеть основного стека: мониторинг видит `api:8000`, а Caddy видит `grafana:3000`.
+# Имя проекта основного стека задаёт его COMPOSE_PROJECT_NAME; на сервере это
+# crm-dormitory, у стенда отдела — своё, поэтому имя вынесено в APP_NETWORK.
+networks:
+  default:
+    name: ${APP_NETWORK:-crm-dormitory_default}
+    external: true

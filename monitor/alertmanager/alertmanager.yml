@@ -1,0 +1,22 @@
+# Alertmanager — маршрутизация алертов CRM Dormitory.
+#
+# Получатель один: notifier, который переводит webhook в сообщение Telegram.
+# Внешних сервисов нет — Alertmanager тоже не публикует порт на хост
+# (monitor/docker-compose.monitor.yml), поэтому адрес здесь внутренний.
+route:
+  receiver: telegram
+  # Группировка: один инцидент не должен превращаться в десять сообщений.
+  # job различает api, node-exporter и docker-stats, service — контейнеры.
+  group_by: [alertname, job, service]
+  group_wait: 30s
+  group_interval: 5m
+  # Повтор о непотушенном алерте раз в 4 часа: чаще — спам, реже — алерт
+  # теряется, если первое сообщение человек пропустил.
+  repeat_interval: 4h
+
+receivers:
+  - name: telegram
+    webhook_configs:
+      - url: http://notifier:9087/alert
+        # «Восстановлено» тоже уходит: иначе непонятно, чинилось ли.
+        send_resolved: true
