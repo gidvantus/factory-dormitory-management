@@ -173,6 +173,30 @@ ssh crm-monitor "cd /srv/crm-dormitory && sed -i '/^MONITOR_BASIC_AUTH_HASH=/d' 
 `monitor/docker-compose.local.yml`. Без него в интерфейс не попасть — на сервере
 вход один, через Caddy с сертификатом, а локально Caddy нет.
 
+### На клоне владельца — автоматически, вместе со стендом
+
+Стенд из `.github/workflows/stand.yml` обновляет мониторинг сам, каждый раз
+когда обновляется клон после мержа в `develop-m` (`docs/ci.md`, раздел
+«Мониторинг на стенде»). Руками ничего делать не нужно — ни `cp .env.example`,
+ни `up`:
+
+* `monitor/.env` создаётся из шаблона при первом прогоне (файл не в git);
+* каждый прогон пишет в него `MONITORED_PROJECT=<проект стенда>` и
+  `APP_NETWORK=<проект стенда>_default`, а пустые `MONITOR_HOST` и
+  `GRAFANA_ADMIN_PASSWORD` заполняет заглушками с `::warning::`;
+* стек поднимается проектом `crm-dormitory-monitor` командой
+  `docker compose -p crm-dormitory-monitor -f monitor/docker-compose.monitor.yml
+  -f monitor/docker-compose.local.yml --env-file monitor/.env up -d --build
+  --remove-orphans`;
+* после подъёма job проверяет Grafana (`/api/health`), Dozzle (корень), Loki
+  (`/ready`) и что у Loki уже есть метка `service=api`.
+
+Занятый порт — это `::error::` до подъёма стека: чужие контейнеры ради порта не
+останавливаются, порт меняется в `monitor/.env`.
+
+Ручные команды ниже нужны для **своего** стенда у роли отдела разработки
+(проект `crm-dormitory-monitor-local`) и для отладки без GitHub.
+
 ```bash
 cp monitor/.env.example monitor/.env     # один раз
 docker compose -p crm-dormitory-monitor-local \
@@ -592,6 +616,14 @@ docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env ps
 
 ## Изменения
 
+- 2026-11-16 — мониторинг обновляется вместе со стендом: `.github/workflows/stand.yml`
+  получил три шага (`Мониторинг: окружение стенда`, `Мониторинг: пересборка и
+  перезапуск`, `Проверка: мониторинг отвечает`). `.env` мониторинга создаётся из
+  шаблона, `MONITORED_PROJECT` и `APP_NETWORK` подставляются из проекта стенда,
+  стек поднимается проектом `crm-dormitory-monitor` с локальным оверрайдом
+  портов и проверяется по Grafana, Dozzle, Loki и метке `service=api`. Занятый
+  порт мониторинга теперь виден как `::error::` до подъёма стека, а не как
+  сообщение compose про `port is already allocated`.
 - 2026-11-16 — логи и локальный стенд: в стек добавлены `promtail`, `Loki`
   (14 суток истории, метки `service`/`container`/`stream`/`project`) и `Dozzle`,
   второй поддомен `logs.<SITE_DOMAIN>` за своим basic auth, дашборд «Логи и
