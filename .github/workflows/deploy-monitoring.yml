@@ -1,0 +1,508 @@
+name: Деплой мониторинга
+
+# Поднимает на сервере стек monitor/ (Prometheus, Grafana, Alertmanager, notifier,
+# node-exporter, docker-stats-exporter) и открывает Grafana на
+# https://monitor.<SITE_DOMAIN> через Caddy основного стека.
+#
+# ЗАЧЕМ ОТДЕЛЬНЫЙ WORKFLOW. Основной деплой (.github/workflows/deploy.yml) —
+# это «выкатить main»: он собирает образ api и применяет миграции. Мониторинг
+# живёт в своей сети и своём compose-проекте, а нужен ещё и тогда, когда код не
+# менялся. Поэтому у него свой запуск, свои проверки и своё окружение
+# (monitor/.env), а общими остаются только SSH-секреты CRM_SSH_*.
+#
+# ЧТО ДЕЛАЕТСЯ ИДЕМПОТЕНТНО (повторный запуск не ломает вход):
+#   * пара «логин/пароль» на вход в мониторинг создаётся, только если её нет
+#     или она равна заглушке из .env.example; пароль не печатается в лог;
+#   * monitor/.env создаётся из monitor/.env.example один раз и дальше НЕ
+#     перезаписывается: ручные правки (например, свой бот для алертов) живут;
+#   * .env сервера деплоем не перезаписывается никогда — в него добавляются
+#     ровно две строки MONITOR_BASIC_AUTH_*.
+#
+# ПОЧЕМУ ПАРОЛЬ ЕДИНЫЙ. Basic auth Caddy и учётная запись Grafana — два разных
+# слоя на одном адресе, и два разных пароля человек всё равно путает. Пара
+# генерируется один раз: пароль уходит в monitor/.env (GRAFANA_ADMIN_PASSWORD),
+# его bcrypt-хеш — в .env сервера (MONITOR_BASIC_AUTH_HASH). Пароль — только в
+# файле, в репозитории и в отчётах его нет.
+#
+# ВНИМАНИЕ: workflow запускаемый только из ветки по умолчанию (`main`) — GitHub
+# показывает кнопку «Run workflow» лишь для файла из `main`, и шаг 2 всё равно
+# не пропустит деплой из другой ветки. Эксплуатация — docs/monitoring.md.
+
+on:
+  # Ручной запуск: Actions → «Деплой мониторинга» → «Run workflow».
+  workflow_dispatch:
+
+# Один деплой мониторинга за раз: два параллельных прогона генерировали бы
+# пару входа по очереди и перезапускали caddy друг за другом.
+concurrency:
+  group: crm-monitor-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Мониторинг → сервер
+    timeout-minutes: 60
+    env:
+      # Секреты те же, что у основного деплоя и бэкапа: новый набор не нужен.
+      SSH_HOST: ${{ secrets.CRM_SSH_HOST }}
+      SSH_USER: ${{ secrets.CRM_SSH_USER }}
+      SSH_PORT: ${{ secrets.CRM_SSH_PORT || '22' }}
+      REMOTE_DIR: /srv/crm-dormitory
+      # Псевдоним хоста из ~/.ssh/config: ключ, порт и опции в одном месте.
+      # Отдельный от деплойного (`crm-deploy`), чтобы правка одного workflow не
+      # меняла подключение другого.
+      SSH_TARGET: crm-monitor
+      # Откуда скачивать собранное: каталог стека мониторинга в репозитории.
+      MONITOR_DIR: monitor
+      # Имя compose-проекта мониторинга: задаётся ключом `name:` в
+      # monitor/docker-compose.monitor.yml. По нему проверяются контейнеры.
+      MONITOR_PROJECT: crm-dormitory-monitor
+      # Адрес, на который указывает A-запись мониторинга. Проверка ниже
+      # сравнивает его с SITE_DOMAIN сервера: если в .env сервера стоит другой
+      # домен, Caddy пойдёт за сертификатом на имя без A-записи и упрётся в
+      # лимиты Let's Encrypt. При смене домена правится ровно эта строка.
+      MONITOR_HOST_EXPECTED: monitor.dmv-crm.ru
+      # Проверки по HTTPS идут на loopback сервера с реальными SNI и Host.
+      LOOPBACK: 127.0.0.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: "Проверка: деплой только из main"
+        # Тот же гвард, что у основного деплоя: то, что на сервере, обязано
+        # совпадать с головой main, иначе мониторинг «с сервера» описывает не
+        # тот код. Значение GITHUB_REF берётся из окружения раннера, в скрипт
+        # не подставляется вычисленным выражением.
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+            echo "::error::Мониторинг деплоится только из ветки main (получено '${GITHUB_REF:-пусто}'). Слейте develop-m в main и запустите workflow из main — docs/monitoring.md."
+            exit 1
+          fi
+          echo "Ветка: $GITHUB_REF_NAME (ok)"
+
+      - name: "Проверка: секреты SSH заданы"
+        # Падение обязано происходить здесь, до подключения к серверу: иначе шаг
+        # SSH висел бы на подключении, а причина была бы не видна.
+        env:
+          SSH_KEY: ${{ secrets.CRM_SSH_KEY }}
+          SSH_HOST_SECRET: ${{ secrets.CRM_SSH_HOST }}
+          SSH_USER_SECRET: ${{ secrets.CRM_SSH_USER }}
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -n "${SSH_KEY:-}" ] || missing="$missing CRM_SSH_KEY"
+          [ -n "${SSH_HOST_SECRET:-}" ] || missing="$missing CRM_SSH_HOST"
+          [ -n "${SSH_USER_SECRET:-}" ] || missing="$missing CRM_SSH_USER"
+          if [ -n "$missing" ]; then
+            echo "::error::Не заданы секреты SSH:$missing. Деплой остановлен до подключения к серверу. Мониторинг использует те же CRM_SSH_*, что деплой и бэкап — docs/monitoring.md."
+            exit 1
+          fi
+          echo "Секреты SSH заданы (те же, что у деплоя)."
+
+      - name: "Ревизия: какой коммит поедет на сервер"
+        run: |
+          set -euo pipefail
+          echo "Ветка:  $GITHUB_REF_NAME"
+          echo "Коммит: $GITHUB_SHA"
+          git log -1 --oneline
+
+      - name: "SSH: настроить ключ доступа"
+        env:
+          SSH_KEY: ${{ secrets.CRM_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          : "${SSH_KEY:?Нужен секрет CRM_SSH_KEY}"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # Приватный ключ, скопированный с Windows-машины, приходит с CRLF и
+          # ломает разбор — убираем \r.
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          if ! ssh-keygen -y -f ~/.ssh/id_ed25519 >/dev/null 2>&1; then
+            echo "::error::ssh не может прочитать приватный ключ CRM_SSH_KEY. Скопируйте ключ целиком, без CRLF, — см. docs/deploy.md."
+            exit 1
+          fi
+          {
+            echo "Host $SSH_TARGET"
+            echo "  HostName $SSH_HOST"
+            echo "  User $SSH_USER"
+            echo "  Port $SSH_PORT"
+            echo "  IdentityFile $HOME/.ssh/id_ed25519"
+            echo "  IdentitiesOnly yes"
+            echo "  BatchMode yes"
+            echo "  StrictHostKeyChecking accept-new"
+            echo "  ConnectTimeout 20"
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          echo "Приватный ключ прочитан, параметры подключения записаны."
+
+      - name: "SSH: проверка подключения"
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" 'echo ===SSH-OK===; hostname; whoami'
+
+      - name: "Сервер: чек-лист .env и адрес мониторинга"
+        # Домен берётся из .env сервера, а не из репозитория. Здесь же он
+        # сверяется с A-записью: сертификат выпускается только на то имя, на
+        # которое реально указывает DNS.
+        run: |
+          set -euo pipefail
+          remote() {
+            # shellcheck disable=SC2029
+            ssh "$SSH_TARGET" "$@"
+          }
+          SITE_DOMAIN="$(remote "cd $REMOTE_DIR && sed -n 's/^SITE_DOMAIN=//p' .env | tail -n 1")"
+          ACME_EMAIL="$(remote "cd $REMOTE_DIR && sed -n 's/^ACME_EMAIL=//p' .env | tail -n 1")"
+          if [ -z "$SITE_DOMAIN" ]; then
+            echo "::error::SITE_DOMAIN в $REMOTE_DIR/.env пуст. Без домена Caddy не соберётся и мониторинг не откроется — docs/ssl.md."
+            exit 1
+          fi
+          if [ -z "$ACME_EMAIL" ]; then
+            echo "::error::ACME_EMAIL в $REMOTE_DIR/.env пуст: Let's Encrypt не примет запрос на сертификат без почты — docs/ssl.md."
+            exit 1
+          fi
+          MONITOR_HOST="monitor.$SITE_DOMAIN"
+          echo "Домен мониторинга: $MONITOR_HOST"
+          if [ "$MONITOR_HOST" != "$MONITOR_HOST_EXPECTED" ]; then
+            echo "::error::Из SITE_DOMAIN=$SITE_DOMAIN получается $MONITOR_HOST, а ожидается $MONITOR_HOST_EXPECTED. Значит A-запись и сертификат указывают на другое имя: ACME пойдёт за сертификатом на имя без DNS и упрётся в лимиты Let's Encrypt. Приведите SITE_DOMAIN и MONITOR_HOST_EXPECTED к одному домену — docs/monitoring.md."
+            exit 1
+          fi
+          echo "MONITOR_HOST=$MONITOR_HOST" >> "$GITHUB_ENV"
+          echo "SITE_DOMAIN=$SITE_DOMAIN" >> "$GITHUB_ENV"
+          echo "SITE_DOMAIN прошёл проверку: мониторинг будет на $MONITOR_HOST."
+
+      - name: "Архив: упаковать и передать на сервер"
+        run: |
+          set -euo pipefail
+          # core.autocrlf=false: в архив должны попасть ровно файлы из git, без
+          # автоконвертации переводов строк (shell-скрипты внутри образа).
+          git -c core.autocrlf=false archive --format=tar -o /tmp/monitor.tar HEAD
+          ls -lh /tmp/monitor.tar
+          scp /tmp/monitor.tar "$SSH_TARGET:/tmp/monitor.tar"
+
+      - name: "Сервер: распаковка monitor/, caddy/ и .env.example"
+        # Распаковываются ТОЛЬКО три объекта: каталог стека мониторинга, конфиг
+        # Caddy (в нём появился блок `monitor.`) и корневой .env.example (из него
+        # берётся заглушка хеша, чтобы отличить её от настоящей пары). Код
+        # приложения, база и основной .env не трогаются: это дело deploy.yml.
+        run: |
+          set -euo pipefail
+          # --delete в monitor/ убирает файлы, удалённые из репозитория, и
+          # СОХРАНЯЕТ monitor/.env: в git его нет, а внутри лежат пароли.
+          ssh "$SSH_TARGET" bash -s -- "$REMOTE_DIR" <<'REMOTE'
+          set -euo pipefail
+          ROOT="$1"
+          rm -rf /tmp/crm-monitor-stage && mkdir -p /tmp/crm-monitor-stage
+          tar -xf /tmp/monitor.tar -C /tmp/crm-monitor-stage
+          mkdir -p "$ROOT/monitor"
+          rsync -a --delete --exclude='.env' /tmp/crm-monitor-stage/monitor/ "$ROOT/monitor/"
+          rsync -a --delete /tmp/crm-monitor-stage/caddy/ "$ROOT/caddy/"
+          cp /tmp/crm-monitor-stage/.env.example "$ROOT/.env.example"
+          rm -rf /tmp/crm-monitor-stage
+          echo extract-ok
+          REMOTE
+
+      - name: "Сервер: пара входа в мониторинг (идемпотентно)"
+        # Генерирует пароль и bcrypt-хеш, только если пары ещё нет или она равна
+        # заглушке из .env.example. Пароль не печатается: он попадает только в
+        # monitor/.env (chmod 600) и в проверку ниже через ::add-mask.
+        run: |
+          set -euo pipefail
+          ssh "$SSH_TARGET" bash -s -- "$REMOTE_DIR" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+
+          env_get() {
+            # Последнее значение KEY из файла (в .env бывают повторы).
+            # Файл на сервере правят руками, в том числе на Windows: снимаем
+            # BOM в начале файла и CR в конце строк. Иначе bcrypt-хеш приезжает
+            # с невидимым \r, а `monitor.<домен>` склеивается из пустого
+            # SITE_DOMAIN — и вход в мониторинг перестаёт работать без единой
+            # ошибки в логе.
+            [ -f "$1" ] || return 0
+            {
+              if [ "$(head -c 3 "$1" | od -An -tx1 | tr -d ' \n')" = "efbbbf" ]; then
+                tail -c +4 "$1"
+              else
+                cat "$1"
+              fi
+            } | tr -d '\r' | sed -n "s/^$2=//p" | tail -n 1
+          }
+
+          env_put() {
+            # KEY=VALUE без разбора значений: printf, а не sed — в bcrypt-хеше
+            # есть `/`, `$` и `.`, и подставлять их в регулярное выражение нельзя.
+            file="$1"; key="$2"; value="$3"
+            tmp="$(mktemp)"
+            if [ -f "$file" ]; then tr -d '\r' < "$file" | grep -v "^$key=" > "$tmp" || true; fi
+            printf '%s=%s\n' "$key" "$value" >> "$tmp"
+            cat "$tmp" > "$file"
+            rm -f "$tmp"
+          }
+
+          env_default() {
+            # Записать только если ключа нет или он пуст: ручные правки живут.
+            [ -n "$(env_get "$1" "$2")" ] || env_put "$1" "$2" "$3"
+          }
+
+          SITE_DOMAIN="$(env_get .env SITE_DOMAIN)"
+          COMPOSE_NAME="$(env_get .env COMPOSE_PROJECT_NAME)"
+          [ -n "$COMPOSE_NAME" ] || COMPOSE_NAME="crm-dormitory"
+          STUB_HASH="$(env_get .env.example MONITOR_BASIC_AUTH_HASH)"
+
+          if [ ! -f monitor/.env ]; then
+            cp monitor/.env.example monitor/.env
+            chmod 600 monitor/.env
+            echo "monitor/.env создан из monitor/.env.example."
+          fi
+
+          HASH="$(env_get .env MONITOR_BASIC_AUTH_HASH)"
+          PW="$(env_get monitor/.env GRAFANA_ADMIN_PASSWORD)"
+          STUB_PW="$(env_get monitor/.env.example GRAFANA_ADMIN_PASSWORD)"
+
+          if [ -z "$HASH" ] || [ "$HASH" = "$STUB_HASH" ] || [ -z "$PW" ] || [ "$PW" = "$STUB_PW" ]; then
+            # Пароль: 32 символа из /dev/urandom без спецсимволов — его вводят
+            # руками и передают в curl --user.
+            PW="$(head -c 48 /dev/urandom | base64 | tr -d '\n=+/' | cut -c1-32)"
+            # Хеш читается из stdin: пароль не попадает ни в ps, ни в лог.
+            HASH="$(printf '%s\n' "$PW" | docker run --rm -i caddy:2-alpine caddy hash-password)"
+            # Логин не переписываем, если человек его уже поменял: хеш от этого
+            # не зависит.
+            env_default .env MONITOR_BASIC_AUTH_USER monitor
+            # Compose интерполирует `$` в значениях .env, а bcrypt-хеш из него
+            # состоит: без удвоения в контейнер приезжает обрезанный
+            # `$2a$14.…`, caddy стартует, но верный пароль не подходит.
+            # Удвоенные `$$` возвращают в контейнер исходные 60 символов.
+            env_put .env MONITOR_BASIC_AUTH_HASH "$(printf '%s' "$HASH" | sed 's/\$/$$/g')"
+            env_put monitor/.env GRAFANA_ADMIN_PASSWORD "$PW"
+            echo "Пара входа в мониторинг создана (пароль не печатается)."
+          else
+            echo "Пара входа в мониторинг уже есть — значения не менялись."
+          fi
+
+          # Проверка того, что до caddy доезжает целый bcrypt: compose читает
+          # .env и подставляет значения в окружение сам, поэтому длину надо
+          # мерить с той стороны, а не в файле. 60 символов — длина bcrypt.
+          SEEN_HASH="$(docker compose --profile tls run --rm --no-deps -T --entrypoint env caddy 2>/dev/null | sed -n 's/^MONITOR_BASIC_AUTH_HASH=//p' | tail -n 1 | tr -d '\r')"
+          if [ "${#SEEN_HASH}" -ne 60 ]; then
+            echo "::error::В контейнер caddy приезжает MONITOR_BASIC_AUTH_HASH длиной ${#SEEN_HASH} вместо 60 — compose съел одиночные \$ в этом значении (или caddy вообще не запускается: docker compose --profile tls run --rm --no-deps --entrypoint env caddy). Уберите строку MONITOR_BASIC_AUTH_HASH из $(pwd)/.env и запустите workflow снова: он сгенерирует пару и запишет хеш с удвоенными \$\$ — docs/monitoring.md."
+            exit 1
+          fi
+          echo "Хеш доезжает до caddy целиком (60 символов)."
+
+          # Всё остальное в monitor/.env: адрес, сеть основного стека, значения
+          # по умолчанию. Существующие значения не перезаписываются.
+          # Логин и хеш зеркалятся из .env: их читает Caddy, а .env — источник
+          # правды, иначе проверка входа ниже сравнивала бы разные вещи.
+          env_put monitor/.env MONITOR_HOST "monitor.$SITE_DOMAIN"
+          env_put monitor/.env APP_NETWORK "${COMPOSE_NAME}_default"
+          env_put monitor/.env MONITOR_BASIC_AUTH_USER "$(env_get .env MONITOR_BASIC_AUTH_USER)"
+          env_put monitor/.env MONITOR_BASIC_AUTH_HASH "$(env_get .env MONITOR_BASIC_AUTH_HASH)"
+          env_default monitor/.env GRAFANA_ADMIN_USER admin
+          env_default monitor/.env PROMETHEUS_RETENTION 15d
+          env_default monitor/.env PROMETHEUS_RETENTION_SIZE 1GB
+          env_default monitor/.env PROMETHEUS_URL http://prometheus:9090
+          env_default monitor/.env DIGEST_HOUR 18
+          env_default monitor/.env DIGEST_TIMEZONE Europe/Moscow
+          env_default monitor/.env TZ Europe/Moscow
+          env_default monitor/.env TELEGRAM_API_BASE_URL https://api.telegram.org
+          chmod 600 monitor/.env
+
+          # Секреты в лог не попадают: печатаются только имена и признак «задан».
+          if [ -n "$(env_get monitor/.env MONITOR_TELEGRAM_BOT_TOKEN)" ] && [ -n "$(env_get monitor/.env MONITOR_TELEGRAM_CHAT_ID)" ]; then
+            echo "Уведомления в Telegram: настроены."
+          else
+            echo "::warning::MONITOR_TELEGRAM_BOT_TOKEN/MONITOR_TELEGRAM_CHAT_ID в monitor/.env пусты — алерты и сводка будут писаться только в лог notifier. Как включить Telegram — docs/monitoring.md."
+          fi
+          echo "monitor/.env готов (адрес: $(env_get monitor/.env MONITOR_HOST))."
+          REMOTE
+
+      - name: "Сервер: сборка образов мониторинга"
+        run: |
+          set -euo pipefail
+          # Свой compose-проект и своё окружение: --env-file обязателен, иначе
+          # compose подхватил бы корневой .env и упал бы на его переменных.
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" \
+              "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env build"
+
+      - name: "Сервер: запуск стека мониторинга"
+        run: |
+          set -euo pipefail
+          # --wait ждёт healthy у notifier (у него есть healthcheck) и старта
+          # остальных. Первый запуск тянет образы — отсюда запас в 300 с.
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" \
+              "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env up -d --wait --wait-timeout 300"
+
+      - name: "Проверка: ни один порт мониторинга не опубликован"
+        # Главное требование безопасности: в интернет смотрит только Caddy,
+        # а Prometheus/Grafana/Alertmanager наружу не выглядывают вовсе.
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2029
+          PUBLISHED="$(ssh "$SSH_TARGET" "docker ps --filter label=com.docker.compose.project=$MONITOR_PROJECT --format '{{.Names}} {{.Ports}}' | grep -F -- '->' || true")"
+          if [ -n "$PUBLISHED" ]; then
+            echo "::error::У проекта $MONITOR_PROJECT есть опубликованные на хост порты:"
+            echo "$PUBLISHED"
+            echo "Уберите ports: из monitor/docker-compose.monitor.yml: мониторинг доступен только через Caddy по https://$MONITOR_HOST — docs/monitoring.md."
+            exit 1
+          fi
+          echo "Опубликованных портов нет: мониторинг виден только из сети основного стека."
+
+      - name: "Проверка: Prometheus видит api"
+        # Не только «контейнеры запущены»: проверяется весь шов
+        # «Prometheus → api:8000/metrics». Один скрейп занимает до 15 с, поэтому
+        # запрос повторяется.
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            # shellcheck disable=SC2029
+            OUT="$(ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env exec -T prometheus promtool query instant http://127.0.0.1:9090 'up{job=\"api\"}' || true")"
+            echo "$OUT"
+            if printf '%s' "$OUT" | grep -q '=> 1'; then
+              echo "up{job=\"api\"} == 1 (попытка $attempt)"
+              exit 0
+            fi
+            sleep 6
+          done
+          echo "::error::Prometheus не видит job=api: up{job=\"api\"} не равен 1 за 60 секунд. Проверьте, что api запущен и отдаёт /metrics, а мониторинг в сети основного стека (APP_NETWORK в monitor/.env) — docs/monitoring.md."
+          exit 1
+
+      - name: "Проверка: Grafana отвечает внутри сети"
+        # Второй конец шва: Prometheus видит api (шаг выше), а Caddy должен
+        # видеть grafana:3000 — иначе поддомен отдаст 502 при верном пароле.
+        # Запрос идёт из контейнера notifier: он в той же сети, и это тот же
+        # клиент, которым Grafana проверяется на бою (`/api/health` без
+        # авторизации отвечает 200, пока процесс жив).
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            # shellcheck disable=SC2029
+            CODE="$(ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env exec -T notifier python -c \"import urllib.request; print(urllib.request.urlopen('http://grafana:3000/api/health', timeout=5).status)\" || true" | tr -d '\r' | tail -n 1)"
+            echo "GET http://grafana:3000/api/health -> ${CODE:-нет ответа} (попытка $attempt)"
+            if [ "$CODE" = "200" ]; then
+              echo "Grafana отвечает 200 изнутри сети."
+              exit 0
+            fi
+            sleep 6
+          done
+          echo "::error::Grafana не ответила 200 на http://grafana:3000/api/health за 60 секунд из контейнера notifier. Проверьте, что стек мониторинга запущен и в сети APP_NETWORK из $MONITOR_DIR/.env (docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env ps, logs grafana) — docs/monitoring.md."
+          exit 1
+
+      - name: "Проверка: конфиг caddy с новым окружением (до перезапуска)"
+        # validate запускается через `compose run`: он поднимает caddy с тем же
+        # .env и теми же томами, что и `up`, то есть ровно с той парой
+        # логин/хеш, которую увидит боевой контейнер. Падение здесь означает
+        # «конфиг не принят», и боевой caddy не перезапускается — основной
+        # кабинет продолжает работать на старом конфиге.
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2029
+          if ! ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose --profile tls run --rm --no-deps caddy validate --config /etc/caddy/Caddyfile"; then
+            echo "::error::Новый caddy/Caddyfile не прошёл validate (частая причина — пустой MONITOR_BASIC_AUTH_HASH в $REMOTE_DIR/.env). Перезапуск caddy НЕ выполнялся: основной кабинет работает на старом конфиге. Исправьте .env и запустите workflow снова — docs/monitoring.md."
+            exit 1
+          fi
+          echo "Конфиг caddy принят."
+
+      - name: "Сервер: перезапуск caddy с новым окружением"
+        # Именно перезапуск, а не reload: блок `monitor.` читает пароль из
+        # окружения контейнера, а `caddy reload` перечитывает только файл —
+        # новый хеш в .env остался бы невидимым, и вход на поддомен отдавал бы
+        # 401 при верном пароле. Сертификаты и аккаунт ACME лежат в томе
+        # caddy_data и переживают пересоздание.
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" \
+              "cd $REMOTE_DIR && docker compose --profile tls up -d --no-deps caddy"
+
+      - name: "Проверка: основной кабинет не пострадал"
+        # Первое, что могло сломаться при перезапуске caddy, — сам кабинет.
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2029
+          CODE="$(ssh "$SSH_TARGET" "curl -s -o /dev/null -w '%{http_code}' http://$LOOPBACK/healthz")"
+          echo "http://$LOOPBACK/healthz -> $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::/healthz по HTTP отвечает $CODE вместо 200 — caddy не поднялся после перезапуска. Логи: docker compose --profile tls logs caddy — docs/monitoring.md."
+            exit 1
+          fi
+          # shellcheck disable=SC2029
+          MAIN_CODE="$(ssh "$SSH_TARGET" "curl -s -o /dev/null -w '%{http_code}' --resolve $SITE_DOMAIN:443:$LOOPBACK https://$SITE_DOMAIN/")"
+          echo "https://$SITE_DOMAIN/ -> $MAIN_CODE"
+          case "$MAIN_CODE" in
+            200|302) echo "Основной кабинет отвечает." ;;
+            *)
+              echo "::error::Основной домен отвечает $MAIN_CODE вместо 200/302 — проверьте логи caddy и api."
+              exit 1
+              ;;
+          esac
+
+      - name: "Проверка: вход в мониторинг только по паре логин/пароль"
+        # Две проверки на одном адресе: без пары — 401 от Caddy (до Grafana
+        # запрос не доходит), с парой из monitor/.env — 200/302 от Grafana.
+        run: |
+          set -euo pipefail
+          remote() {
+            # shellcheck disable=SC2029
+            ssh "$SSH_TARGET" "$@"
+          }
+          # Пароль читается на сервере и маскируется в логе. Значение не
+          # печатается ни в одной ветке.
+          PASSWORD="$(remote "cd $REMOTE_DIR && sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' $MONITOR_DIR/.env | tail -n 1")"
+          LOGIN="$(remote "cd $REMOTE_DIR && sed -n 's/^MONITOR_BASIC_AUTH_USER=//p' $MONITOR_DIR/.env | tail -n 1")"
+          if [ -z "$PASSWORD" ] || [ -z "$LOGIN" ]; then
+            echo "::error::В $REMOTE_DIR/$MONITOR_DIR/.env нет MONITOR_BASIC_AUTH_USER или GRAFANA_ADMIN_PASSWORD — проверить вход нельзя."
+            exit 1
+          fi
+          echo "::add-mask::$PASSWORD"
+
+          ANON_CODE="$(remote "curl -s -o /dev/null -w '%{http_code}' --resolve $MONITOR_HOST:443:$LOOPBACK https://$MONITOR_HOST/")"
+          echo "https://$MONITOR_HOST/ без пары -> $ANON_CODE"
+          if [ "$ANON_CODE" != "401" ]; then
+            echo "::error::Поддомен мониторинга отвечает без пары '$ANON_CODE' вместо 401: basic_auth в блоке monitor. caddy/Caddyfile не действует — мониторинг открыт всем. Останавливаться на этом нельзя: проверьте конфиг и логи caddy."
+            exit 1
+          fi
+
+          AUTH_CODE="$(remote "curl -s -o /dev/null -w '%{http_code}' --user '$LOGIN:$PASSWORD' --resolve $MONITOR_HOST:443:$LOOPBACK https://$MONITOR_HOST/")"
+          echo "https://$MONITOR_HOST/ с парой -> $AUTH_CODE"
+          case "$AUTH_CODE" in
+            200|302) echo "Вход по паре работает." ;;
+            401)
+              echo "::error::Пара логин/пароль из $MONITOR_DIR/.env не принимается (401). Частая причина — caddy перезапущен без нового .env: docker compose --profile tls up -d --no-deps caddy — docs/monitoring.md."
+              exit 1
+              ;;
+            502|503)
+              echo "::error::Поддомен мониторинга отвечает $AUTH_CODE: caddy не может достучаться до grafana:3000. Проверьте, что стек мониторинга запущен и в сети APP_NETWORK из $MONITOR_DIR/.env — docs/monitoring.md."
+              exit 1
+              ;;
+            *) echo "::error::Неожиданный код $AUTH_CODE при входе в мониторинг — docs/monitoring.md." ; exit 1 ;;
+          esac
+
+      - name: "Проверка: сертификат мониторинга"
+        # Не падаем: сразу после выпуска сертификата Let's Encrypt иногда ещё
+        # отдаёт промежуточную цепочку, и это лечится повтором. Но молчать
+        # нельзя — предупреждение попадёт в сводку workflow.
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2029
+          EXPIRY="$(ssh "$SSH_TARGET" "echo | openssl s_client -connect $LOOPBACK:443 -servername $MONITOR_HOST 2>/dev/null | openssl x509 -noout -issuer -dates 2>/dev/null || true")"
+          if [ -z "$EXPIRY" ]; then
+            echo "::warning::Сертификат для $MONITOR_HOST не прочитан. Проверьте логи caddy (docker compose --profile tls logs caddy) и A-запись домена — docs/monitoring.md."
+          else
+            echo "$EXPIRY"
+            echo "Сертификат для $MONITOR_HOST прочитан."
+          fi
+
+      - name: "Итог: мониторинг развёрнут"
+        run: |
+          set -euo pipefail
+          echo "OK: мониторинг развёрнут из main @ $GITHUB_SHA"
+          echo "Grafana: https://$MONITOR_HOST/ (логин из monitor/.env)"
+          echo "Что смотреть и как включить уведомления — docs/monitoring.md."

@@ -1,0 +1,16 @@
+# Grafana — автоимпорт дашбордов из каталога monitor/grafana/dashboards.
+#
+# Дашборды лежат в git как JSON: их правят через pull request, а не в
+# интерфейсе. disableDeletion=false — удалённый из git дашборд исчезает и в
+# Grafana, поэтому «потерявшийся» график восстанавливается из репозитория.
+apiVersion: 1
+
+providers:
+  - name: crm-dormitory
+    orgId: 1
+    folder: "CRM Dormitory"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
