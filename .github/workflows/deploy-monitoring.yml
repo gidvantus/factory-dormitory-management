@@ -342,6 +342,12 @@ jobs:
           # правды, иначе проверка входа ниже сравнивала бы разные вещи.
           env_put monitor/.env MONITOR_HOST "monitor.$SITE_DOMAIN"
           env_put monitor/.env APP_NETWORK "${COMPOSE_NAME}_default"
+          # Чьи контейнеры мониторить: то же имя проекта, что у основного стека.
+          # Не «по угадыванию»: promtail, dozzle и docker-stats-exporter
+          # фильтруют по этой метке, и ошибка здесь даёт пустые логи, пустой
+          # список контейнеров и молчащие алерты — поэтому имя берётся из
+          # COMPOSE_PROJECT_NAME корневого .env, а не из константы.
+          env_put monitor/.env MONITORED_PROJECT "$COMPOSE_NAME"
           env_put monitor/.env MONITOR_BASIC_AUTH_USER "$(env_get .env MONITOR_BASIC_AUTH_USER)"
           env_put monitor/.env MONITOR_BASIC_AUTH_HASH "$(env_get .env MONITOR_BASIC_AUTH_HASH)"
           env_put monitor/.env LOGS_HOST "logs.$SITE_DOMAIN"
@@ -467,8 +473,10 @@ jobs:
 
       - name: "Проверка: promtail доставляет логи в Loki"
         # Самая тихая поломка из возможных: контейнеры живы, метрики идут, а
-        # логи не приходят — потому что у сервиса сменился logging driver или
-        # promtail потерял доступ к /var/lib/docker. Проверка спрашивает у Loki,
+        # логи не приходят — потому что у сервиса сменился logging driver,
+        # promtail потерял доступ к /var/lib/docker или MONITORED_PROJECT в
+        # monitor/.env не совпал с именем проекта основного стека (тогда фильтр
+        # docker API не находит ни одного контейнера). Проверка спрашивает у Loki,
         # какие значения метки service он уже видел: `api` появляется там в
         # первые секунды после первого запроса к приложению, то есть это
         # проверка всего шва «логи контейнера → promtail → Loki», а не «контейнер
@@ -485,7 +493,7 @@ jobs:
             fi
             sleep 12
           done
-          echo "::error::Loki не получил записей с меткой service=api за 120 секунд. Проверьте promtail: docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env logs promtail. Частые причины: logging driver контейнера не json-file, нет доступа к /var/run/docker.sock, Loki не здоров — docs/monitoring.md."
+          echo "::error::Loki не получил записей с меткой service=api за 120 секунд. Проверьте promtail: docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env logs promtail. Частые причины: MONITORED_PROJECT в $MONITOR_DIR/.env не равен COMPOSE_PROJECT_NAME основного стека (promtail тогда не видит ни одного контейнера), logging driver контейнера не json-file, нет доступа к /var/run/docker.sock, Loki не здоров — docs/monitoring.md."
           exit 1
 
       - name: "Проверка: конфиг caddy с новым окружением (до перезапуска)"

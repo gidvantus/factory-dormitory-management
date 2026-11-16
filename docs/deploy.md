@@ -356,6 +356,9 @@ rebase: иначе следующие слияния сломаются), пос
   локальный оверрайд `monitor/docker-compose.local.yml` с портами 8095/8096 —
   в основном файле стека по-прежнему нет ни одного `ports:`. Требуется A-запись
   `logs` (пять имён вместо четырёх) и повторный деплой мониторинга из `main`.
+  Сборщики (`promtail`, `dozzle`, `docker-stats-exporter`) ограничены проектом
+  `MONITORED_PROJECT` — деплой пишет туда `COMPOSE_PROJECT_NAME` сервера, так
+  что чужие контейнеры в логи и алерты не попадают.
   Подробности — `docs/monitoring.md`, `docs/ssl.md`.
 - 2026-11-16 — мониторинг и алерты: стек `monitor/` (Prometheus, Grafana,
   Alertmanager, notifier, node-exporter, docker-stats-exporter) в своём

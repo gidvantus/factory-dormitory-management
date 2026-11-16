@@ -16,9 +16,11 @@
 """
 
 import json
+import os
 import socket
 import threading
 import time
+import urllib.parse
 from http.client import HTTPConnection
 
 from fastapi import FastAPI, Response
@@ -34,6 +36,10 @@ app = FastAPI(title="Docker stats exporter", docs_url=None, redoc_url=None)
 
 SOCKET_PATH = "/var/run/docker.sock"
 REFRESH_SECONDS = 15
+# Пусто — снимаем метрики со всех контейнеров хоста (так вёл себя экспортёр до
+# появления фильтра). Задан — только этот compose-проект: без него в алерты
+# ContainerStopped и HighCpu попадали бы чужие стеки на общей машине.
+MONITORED_PROJECT = os.environ.get("MONITORED_PROJECT", "").strip()
 
 CPU = Gauge("container_cpu_percent", "CPU % контейнера", ["name", "service", "project"])
 MEM_USAGE = Gauge(
@@ -88,10 +94,25 @@ def _cpu_percent(stats: dict) -> float:
     return round(cpu_delta / sys_delta * online * 100.0, 2)
 
 
+def containers_path() -> str:
+    """Путь списка контейнеров с фильтром по проекту (если проект задан).
+
+    Фильтр — docker-шный, `label=ключ=значение`: имя compose-проекта лежит в
+    метке контейнера, а не в его имени, поэтому переименование контейнера на
+    фильтр не влияет.
+    """
+    if not MONITORED_PROJECT:
+        return "/containers/json"
+    filters = json.dumps(
+        {"label": [f"com.docker.compose.project={MONITORED_PROJECT}"]}, separators=(",", ":")
+    )
+    return "/containers/json?filters=" + urllib.parse.quote(filters, safe="")
+
+
 def _refresh() -> None:
     while True:
         try:
-            containers = docker_get("/containers/json") or []
+            containers = docker_get(containers_path()) or []
             for c in containers:
                 cid = c.get("Id", "")
                 labels = c.get("Labels", {}) or {}

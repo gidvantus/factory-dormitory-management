@@ -24,13 +24,21 @@
 # намеренно: `api` не публикует 8000 на хост (API_PORT на сервере —
 # 127.0.0.1:…), и попасть в него можно только изнутри.
 #
-# Логи контейнеров тоже здесь: promtail забирает stdout всех контейнеров хоста
-# (docker_sd_configs, список руками не пишется) и складывает в Loki, а Dozzle
+# Логи контейнеров тоже здесь: promtail забирает stdout контейнеров (их находит
+# сам через docker API, список руками не пишется) и складывает в Loki, а Dozzle
 # показывает тот же поток живьём — без индексации и поиска по истории. Два
 # инструмента, потому что вопросы разные: «что происходит прямо сейчас» и «что
 # было вчера в 3:40». Оба открываются на https://logs.<SITE_DOMAIN> через
 # Caddy (блок `logs.`), там же basic auth; Loki доступен ещё и как источник
 # данных Grafana.
+#
+# ЧЬИ КОНТЕЙНЕРЫ. Только одного compose-проекта — MONITORED_PROJECT (по
+# умолчанию crm-dormitory). Docker API отдаёт все контейнеры машины, и без
+# фильтра в мониторинг попадали бы чужие стеки: их логи в Loki, их контейнеры в
+# Dozzle, их CPU в алертах. Фильтр стоит на трёх сборщиках сразу (promtail,
+# dozzle, docker-stats-exporter), поэтому метрики, логи и алерты говорят про
+# один и тот же набор контейнеров. Стенду отдела нужно своё имя проекта:
+# `MONITORED_PROJECT=crm-dormitory-agent` в monitor/.env.
 #
 # Секреты — только из monitor/.env (в git его нет, см. .gitignore и
 # monitor/.env.example).
@@ -149,6 +157,11 @@ services:
   docker-stats-exporter:
     build: ./docker-stats-exporter
     restart: unless-stopped
+    environment:
+      # Пустое значение — «все контейнеры хоста»; на сервере оно не пустое.
+      # Без фильтра чужие контейнеры попадали бы в алерты ContainerStopped и
+      # HighCpu: на общей машине это ложные срабатывания не про наш продукт.
+      MONITORED_PROJECT: ${MONITORED_PROJECT:-crm-dormitory}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
@@ -185,8 +198,17 @@ services:
   promtail:
     image: grafana/promtail:2.9.8
     restart: unless-stopped
+    environment:
+      # Подставляется в promtail.yml: собираем логи только этого проекта.
+      # `-config.expand-env=true` в command обязателен — без него promtail
+      # прочитает ${MONITORED_PROJECT} буквально и не найдёт ни одного
+      # контейнера (тихая пустота вместо ошибки).
+      MONITORED_PROJECT: ${MONITORED_PROJECT:-crm-dormitory}
+      # TZ нужен, чтобы время в /metrics promtail совпадало с остальным стеком.
+      TZ: ${TZ:-Europe/Moscow}
     command:
       - -config.file=/etc/promtail/promtail.yml
+      - -config.expand-env=true
     volumes:
       - ./promtail/promtail.yml:/etc/promtail/promtail.yml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
@@ -199,16 +221,20 @@ services:
         condition: service_healthy
 
   # ---------- Живой просмотр логов ----------
-  # Dozzle читает docker API и показывает поток логов всех контейнеров хоста.
+  # Dozzle читает docker API и показывает поток логов контейнеров проекта
+  # MONITORED_PROJECT (DOZZLE_FILTER ниже) — не всей машины.
   # Своего входа у него нет намеренно: логин и пароль спрашивает Caddy на
   # https://logs.<домен> ДО того, как запрос дойдёт до Dozzle. Открывать порт
-  # наружу нельзя вдвойне — за Dozzle виден не один сервис, а вся машина.
+  # наружу нельзя вдвойне — за Dozzle виден docker-сокет целиком.
   dozzle:
     image: amir20/dozzle:v8.5.3
     restart: unless-stopped
     environment:
       # Аналитика выключена: мониторинг не должен стучаться наружу сам.
       DOZZLE_NO_ANALYTICS: "true"
+      # Тот же проект, что у promtail и экспортёра: список контейнеров в
+      # интерфейсе совпадает с тем, чьи логи есть в Loki.
+      DOZZLE_FILTER: label=com.docker.compose.project=${MONITORED_PROJECT:-crm-dormitory}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 

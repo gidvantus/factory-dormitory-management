@@ -217,6 +217,11 @@ Loki у них разные. `127.0.0.1` в оверрайде — тоже не
 * `MONITOR_HOST` — адрес для Grafana на бою. Локально его перекрывает оверрайд
   (`GF_SERVER_ROOT_URL: http://localhost:8095/`): с боевым адресом Grafana 11
   ответила бы `origin not allowed` и не пустила в интерфейс.
+* `MONITORED_PROJECT` — имя проекта основного стека, чьи контейнеры собираются.
+  На сервере его пишет деплой из `COMPOSE_PROJECT_NAME`; на стенде это имя
+  проекта стенда (`docker compose -p … ps` покажет первое слово в имени
+  контейнера). Неверное значение = пустые логи и пустой Dozzle при живом
+  мониторинге.
 * Порты на стенде публикует **только** `docker-compose.local.yml`. В основном
   файле `ports:` нет ни у одного сервиса, и деплой это проверяет.
 
@@ -245,6 +250,11 @@ docker compose -p crm-dormitory-monitor-local \
   остался `crm-dormitory_default` (значение из шаблона), Prometheus со стенда
   пойдёт искать `api` в чужой сети и получит `up == 0` — это не поломка
   мониторинга, а неверный `APP_NETWORK`.
+* `MONITORED_PROJECT` — имя проекта **своего** стека
+  (`crm-dormitory-agent`), иначе фильтр не найдёт контейнеров и Grafana с
+  Dozzle останутся пустыми, хотя сам мониторинг работает. Смотреть надо не на
+  имя проекта мониторинга, а на имя проекта приложения: сборщики ищут именно
+  его контейнеры.
 
 Проще всего: взять имя сети из `docker compose -p crm-dormitory-agent ps` и
 подставить в `APP_NETWORK` перед первым запуском.
@@ -304,12 +314,31 @@ docker compose -p crm-dormitory exec -T api \
 Наружу открыт только `https://logs.<SITE_DOMAIN>` (Dozzle) и `monitor.<домен>`
 (Grafana); `loki` и `promtail` портов не публикуют — как и весь остальной стек.
 
-**Контейнеры не перечисляются руками.** promtail находит их через
+**Чьи контейнеры.** Только одного compose-проекта — `MONITORED_PROJECT` в
+`monitor/.env` (по умолчанию `crm-dormitory`, на сервере деплой ставит туда
+`COMPOSE_PROJECT_NAME` основного стека). Docker API отдаёт все контейнеры
+машины, поэтому фильтр стоит на трёх сборщиках сразу:
+
+| Что | Метка фильтра | Что будет без него |
+| --- | --- | --- |
+| `promtail` | `filters: label=com.docker.compose.project` | в Loki попадают логи чужих стеков |
+| `dozzle` | `DOZZLE_FILTER` | на `logs.<домен>` видно все контейнеры машины |
+| `docker-stats-exporter` | тот же `MONITORED_PROJECT` | алерты `ContainerStopped`/`HighCpu` срабатывают на чужие контейнеры |
+
+Значение должно совпадать с именем проекта основного стека. Ошибка здесь не
+даёт ошибки: панели и Dozzle просто пусты, алерты молчат. Ловится это на
+деплое проверкой `service=api` в Loki, а локально — тем, что в Dozzle видно
+ноль контейнеров. Пустое значение = все контейнеры хоста (так было до фильтра).
+
+**Контейнеры внутри проекта не перечисляются руками.** promtail находит их через
 `docker_sd_configs`, поэтому новый сервис в основном стеке начинает логироваться
 сам, а удалённый перестаёт быть целью. Обратная сторона: логи читаются из
 `json-file` (штатный logging driver compose). Если у сервиса появится
 `logging.driver: journald` или `local`, promtail перестанет видеть его логи
 **молча** — на это есть проверка «promtail доставляет логи в Loki» в деплое.
+
+Контейнер, запущенный руками (`docker run`, без compose-меток), не относится ни
+к одному проекту и в мониторинг не попадает — ни в логи, ни в алерты.
 
 **Сколько хранится.** 14 суток (`limits_config.retention_period` в
 `monitor/loki/loki.yml`), удаляет компактор. Диск сервера общий с боевой базой,
@@ -339,7 +368,10 @@ sum by (service) (count_over_time({service=~".+"} |~ "(?i)error" [1m]))
 ```
 
 Метка `project` отделяет стенд отдела от боевого стека, если оба Loki живут на
-одной машине: `{project="crm-dormitory", service="api"}`.
+одной машине: `{project="crm-dormitory", service="api"}`. В Loki она остаётся,
+хотя фильтр `MONITORED_PROJECT` уже ограничил набор контейнеров: у стенда и боя
+одинаковые имена сервисов (`api`, `web`, `db`), и по одной метке `service` их не
+различить.
 
 ### Проверить шов руками
 
@@ -353,8 +385,16 @@ docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env \
   exec -T notifier python -c "import urllib.request,json; print(json.load(urllib.request.urlopen('http://loki:3100/loki/api/v1/query_range?query=%7Bservice%3D%22api%22%7D&limit=5'))['data']['result'])"
 ```
 
-Пустой список значений `service` — не «логи не нужны», а «promtail не доехал»:
-смотрите `logs promtail`.
+Пустой список значений `service` — не «логи не нужны», а «promtail не доехал»
+или «не тот проект». Проверять в этом порядке:
+
+1. `MONITORED_PROJECT` в `monitor/.env` равен имени проекта основного стека?
+   Сравнить с `docker inspect` любого его контейнера —
+   `com.docker.compose.project`;
+2. `docker compose ... logs promtail` — стартовал ли он вообще: опечатка в
+   `${...}` внутри конфига валит promtail с «Unable to parse variable name», и
+   он уходит в рестарт по кругу;
+3. logging driver контейнеров — `json-file`, а не `journald`/`local`.
 
 ## Алерты
 
@@ -477,6 +517,8 @@ monitor/grafana/provisioning/datasources/prometheus.yml  источник uid=pr
 | Сводка только в логе | Не заданы `MONITOR_TELEGRAM_BOT_TOKEN`/`MONITOR_TELEGRAM_CHAT_ID`. |
 | Алерты не приходят, хотя сбой есть | `docker compose ... logs alertmanager`: webhook не доставлен, если notifier не запущен. Правила проверяются `promtool check rules`. |
 | Histogram пустой | Приложение не отдало ни одного запроса с момента старта: гистограмма появляется на первом запросе. |
+| Пусто в Dozzle, «Логи и ошибки» и «Сервер и контейнеры», а метрики API идут | `MONITORED_PROJECT` не совпадает с именем проекта основного стека: все три сборщика фильтруют контейнеры по этой метке. Сверьте с `com.docker.compose.project` на контейнере: `docker inspect crm-dormitory-api-1 --format '{{index .Config.Labels "com.docker.compose.project"}}'`. |
+| promtail в рестарте по кругу, в логе `Unable to parse variable name` | В `monitor/promtail/promtail.yml` в комментарии осталась последовательность `$` с фигурными скобками: promtail разворачивает переменные по всему файлу до разбора YAML, и комментарии тоже. |
 
 Логи:
 
@@ -490,7 +532,7 @@ docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env log
 репозитория (они же — то, чем эти файлы проверялись):
 
 ```bash
-# compose-файл: 6 сервисов, 3 тома, своё имя проекта, НИ ОДНОГО ports:
+# compose-файл: 9 сервисов, 5 томов, своё имя проекта, НИ ОДНОГО ports:
 docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env config
 
 # правила Prometheus и маршрут Alertmanager
@@ -525,10 +567,11 @@ docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env ps
 
 Живость notifier проверяется его же обработчиками (`/health`), а формат
 сообщений — `POST /digest` (см. выше). `docker-stats-exporter` работает и на
-стенде отдела (Docker Desktop пробрасывает `/var/run/docker.sock`), но видит
-контейнеры **всех** проектов хоста, поэтому в его сериях и в сводке рядом с
-`crm-dormitory-*` появляются чужие имена, а остановленные чужие контейнеры
-попадают в «не в строю». На сервере проект один, и шума нет.
+стенде отдела (Docker Desktop пробрасывает `/var/run/docker.sock`), но с
+`MONITORED_PROJECT` в его сериях только контейнеры выбранного проекта — на
+сервере это `crm-dormitory`, на стенде имя проекта стенда. Без фильтра
+(пустое значение) он видит контейнеры **всех** проектов хоста, и тогда чужие
+имена попадают и в дашборд, и в алерты `ContainerStopped`.
 
 ## Чего здесь нет
 
@@ -557,6 +600,10 @@ docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env ps
   основном файле по-прежнему нет ни одного `ports:`. Деплой
   `deploy-monitoring.yml` получил пару входа для `logs.`, проверки Loki/Dozzle
   изнутри сети и проверку того, что логи `api` реально доехали в Loki.
+  Сборщики ограничены одним compose-проектом (`MONITORED_PROJECT`): `promtail`,
+  `dozzle` и `docker-stats-exporter` берут только контейнеры основного стека,
+  поэтому чужие стеки на рабочей машине больше не попадают ни в логи, ни в
+  алерты.
 - 2026-11-16 — мониторинг появился: `monitor/` (Prometheus, Grafana,
   Alertmanager, notifier, node-exporter, docker-stats-exporter), метрики API
   (`app/backend/app/metrics.py`, `GET /metrics`), поддомен
