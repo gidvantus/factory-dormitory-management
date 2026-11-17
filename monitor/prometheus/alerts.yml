@@ -1,0 +1,117 @@
+# Алерт-правила CRM Dormitory → Alertmanager → notifier → Telegram.
+#
+# severity: critical — сломан боевой кабинет или сервер; warning — деградация,
+# которую видно в дашбордах. Notifier пересылает severity без разбора: канал
+# один (личный Telegram владельца), поэтому severity полезна как метка в
+# сообщении, а не как отдельный маршрут.
+#
+# Названия алертов не меняются без правки docs/monitoring.md: на них ссылаются
+# разбор инцидента и вечерняя сводка.
+groups:
+  - name: availability
+    rules:
+      # Хоть одна цель скрейпа недоступна: api отвечает не 200, exporter упал.
+      # Это самый дешёвый способ узнать, что контейнер лёг.
+      - alert: TargetDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Цель скрейпа недоступна: {{ $labels.job }}"
+          description: "Prometheus не может опросить {{ $labels.job }} ({{ $labels.instance }}) больше минуты."
+
+      # Контейнер остановлен. docker-stats-exporter обновляет
+      # container_last_seen, пока контейнер работает; после остановки метрика
+      # перестаёт обновляться, и (time() - container_last_seen) растёт.
+      - alert: ContainerStopped
+        expr: time() - container_last_seen{service!=""} > 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Контейнер остановлен: {{ $labels.service }}"
+          description: "Контейнер {{ $labels.service }} ({{ $labels.name }}) не обновляет данные больше минуты — упал или остановлен."
+
+  - name: resources
+    rules:
+      # CPU контейнера > 80 %. container_cpu_percent уже в процентах (тот же
+      # расчёт, что у `docker stats`), поэтому никаких rate() не нужно.
+      - alert: ContainerHighCPU
+        expr: container_cpu_percent{service!=""} > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокий CPU: {{ $labels.service }}"
+          description: "Контейнер {{ $labels.service }} держит {{ printf \"%.1f\" $value }} % CPU больше 5 минут."
+
+      # Память контейнера > 90 % лимита. Лимит проверяется отдельно: у
+      # контейнера без лимита деление дало бы +Inf и ложный алерт.
+      - alert: ContainerHighMemory
+        expr: |
+          container_memory_limit_bytes{service!=""} > 0
+          and
+          (container_memory_usage_bytes{service!=""}
+           / container_memory_limit_bytes{service!=""}) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая память: {{ $labels.service }}"
+          description: "Контейнер {{ $labels.service }} занял {{ $value | humanizePercentage }} лимита памяти."
+
+      # Свободное место на корневом разделе < 15 %: при заполнении диска
+      # первым падает PostgreSQL, а не мониторинг.
+      - alert: DiskLow
+        expr: |
+          100 * node_filesystem_avail_bytes{job="node-exporter",mountpoint="/",fstype!~"tmpfs|devtmpfs|overlay|squashfs"}
+          / node_filesystem_size_bytes{job="node-exporter",mountpoint="/",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} < 15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Мало места на /: {{ printf \"%.1f\" $value }} %"
+          description: "На корневом разделе сервера осталось меньше 15 % места."
+
+  - name: application
+    rules:
+      # Доля 5xx больше 5 % за 5 минут. clamp_min в знаменателе нужен на
+      # ночном трафике: без него деление на ноль даёт +Inf или NaN, и алерт
+      # либо молчит, либо срабатывает на одном-единственном запросе.
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="api",status=~"5.."}[5m]))
+          / clamp_min(sum(rate(http_requests_total{job="api"}[5m])), 0.001) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Доля ошибок 5xx: {{ $value | humanizePercentage }}"
+          description: "API отвечает 5xx чаще, чем в 5 % запросов, уже 5 минут."
+
+      # Приложение не отдаёт метрики: scrape /metrics падает, значит api лежит
+      # или не поднялся после деплоя.
+      - alert: ApiMetricsDown
+        expr: up{job="api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API не отдаёт /metrics"
+          description: "Scrape /metrics недоступен больше 2 минут — приложение может лежать."
+
+      # Медленные ответы: p95 выше 2 с за 10 минут. Признак деградации базы или
+      # тяжёлого отчёта, когда ошибок ещё нет.
+      - alert: SlowRequests
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{job="api"}[10m]))
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Медленные ответы API: p95 {{ printf \"%.2f\" $value }} с"
+          description: "95-й процентиль времени ответа выше 2 секунд уже 10 минут."

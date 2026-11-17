@@ -307,14 +307,16 @@ jobs:
         run: |
           set -euo pipefail
           # rsync --delete убирает с сервера файлы, удалённые из репозитория:
-          # иначе устаревшие модули ломают сборку. Сохраняются ровно два
-          # серверных объекта — .env (секреты боевой базы и настройки TLS) и
-          # backups/ (дампы). Исключения .env* быть НЕ должно: .env.example
-          # отслеживается git, compose подключает его как env_file с
-          # required: true, и без него стек не соберётся.
+          # иначе устаревшие модули ломают сборку. Сохраняются ровно три
+          # серверных объекта — .env (секреты боевой базы и настройки TLS),
+          # backups/ (дампы) и monitor/.env (пароль входа в мониторинг и бот для
+          # алертов: файла нет в git, и без исключения --delete снёс бы его,
+          # оставив мониторинг без доступа). Исключения .env* быть НЕ должно:
+          # .env.example отслеживается git, compose подключает его как env_file
+          # с required: true, и без него стек не соберётся.
           # shellcheck disable=SC2029
           ssh "$SSH_TARGET" \
-              "rm -rf /tmp/crm-deploy-stage && mkdir -p /tmp/crm-deploy-stage && tar -xf /tmp/deploy.tar -C /tmp/crm-deploy-stage && rsync -a --delete --exclude='.env' --exclude='backups/' /tmp/crm-deploy-stage/ $REMOTE_DIR/ && rm -rf /tmp/crm-deploy-stage && echo extract-ok"
+              "rm -rf /tmp/crm-deploy-stage && mkdir -p /tmp/crm-deploy-stage && tar -xf /tmp/deploy.tar -C /tmp/crm-deploy-stage && rsync -a --delete --exclude='.env' --exclude='backups/' --exclude='monitor/.env' /tmp/crm-deploy-stage/ $REMOTE_DIR/ && rm -rf /tmp/crm-deploy-stage && echo extract-ok"
 
       - name: "Сервер: сборка образов"
         run: |

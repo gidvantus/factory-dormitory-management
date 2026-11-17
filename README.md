@@ -697,6 +697,13 @@ docker compose up -d --build
 docker compose -p <имя-стенда> up -d --build
 ```
 
+Мониторинг стенда — отдельный стек в `monitor/`, поднимается своим проектом
+(`docker compose -p crm-dormitory-monitor -f monitor/docker-compose.monitor.yml
+-f monitor/docker-compose.local.yml --env-file monitor/.env up -d --build`),
+Grafana на 8095 и логи на 8096. Стенд в клоне владельца обновляет его
+автоматически вместе с кодом (`.github/workflows/stand.yml`); подробности —
+`docs/monitoring.md`, `docs/ci.md`.
+
 ### HTTPS на сервере
 
 Локально профиль `tls` не нужен: `docker compose up -d` не поднимает `caddy`,
