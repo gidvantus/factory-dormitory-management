@@ -409,8 +409,13 @@ jobs:
           }
 
           # Ports are published by monitor/docker-compose.local.yml on
-          # 127.0.0.1 only. A busy port is not waited out: it belongs to
-          # another stack, and stopping that stack is not this job's business.
+          # 127.0.0.1 only. A busy port is not waited out: it usually belongs
+          # to another stack, and stopping that stack is not this job's
+          # business. The exception is our own monitoring project: from the
+          # second run on, its grafana and dozzle still publish these ports
+          # from the previous run, and `compose up -d` recreates exactly those
+          # containers. Treating them as a foreign program made every run after
+          # the first one fail on a port it holds itself.
           foreach ($pair in @(@('MONITOR_GRAFANA_PORT', '8095'), @('MONITOR_LOGS_PORT', '8096'))) {
             $key = $pair[0]
             $fallback = $pair[1]
@@ -437,7 +442,17 @@ jobs:
               $client.Dispose()
             }
             if (-not $free) {
-              Write-Host "::error::Port 127.0.0.1:$number ($key in monitor/.env) is already taken by another program. Monitoring is not started: free the port or set another one in monitor/.env and re-run the job."
+              # @() keeps the result an array: an empty docker ps gives $null,
+              # and $null.Count throws on Windows PowerShell 5.1.
+              $own = @(docker ps --filter "publish=$number" --filter "label=com.docker.compose.project=$env:STAND_MONITOR_PROJECT" --format '{{.Names}}')
+              if ($own.Count -gt 0) {
+                Write-Host "monitor port ${number}: held by our own stack $($own -join ', ') — compose will recreate it ($key)"
+                continue
+              }
+              $holders = @(docker ps --filter "publish=$number" --format '{{.Names}}')
+              $who = ' (not a docker container)'
+              if ($holders.Count -gt 0) { $who = " ($($holders -join ', '))" }
+              Write-Host "::error::Port 127.0.0.1:$number ($key in monitor/.env) is already taken by another program$who. Monitoring is not started: free the port or set another one in monitor/.env and re-run the job."
               exit 1
             }
             Write-Host "monitor port ${number}: free ($key)"
