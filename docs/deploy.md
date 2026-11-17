@@ -369,6 +369,10 @@ rebase: иначе следующие слияния сломаются), пос
 
 ## Изменения
 
+- 2026-11-16 — `deploy-monitoring.yml` прогоняет `caddy validate` через
+  `docker compose run --entrypoint caddy`: у образа `caddy:2-alpine` нет
+  `ENTRYPOINT`, и без него шаг проверки конфига падал с `exec: "validate":
+  executable file not found in $PATH` (`docs/monitoring.md`).
 - 2026-11-16 — `deploy-monitoring.yml` проверяет права на серверный `.env` в
   начале шага «Сервер: чек-лист `.env` и адреса мониторинга»: домен читается из
   этого файла, а пара `MONITOR_BASIC_AUTH_*` в него дописывается, поэтому

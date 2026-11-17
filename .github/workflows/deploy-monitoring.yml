@@ -531,9 +531,16 @@ jobs:
         # кабинет продолжает работать на старом конфиге.
         run: |
           set -euo pipefail
+          # `--entrypoint caddy` обязателен: у образа caddy:2-alpine нет
+          # ENTRYPOINT, только CMD `caddy run …`, и аргументы `run` заменяют
+          # его целиком. Без entrypoint docker пытается выполнить `validate`
+          # как программу и падает с `exec: "validate": executable file not
+          # found in $PATH` — сообщение про отсутствующий бинарник, а не про
+          # конфиг. `--adapter caddyfile` — как в CMD самого образа: файл
+          # называется Caddyfile, но полагаться на угадывание адаптера незачем.
           # shellcheck disable=SC2029
-          if ! ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose --profile tls run --rm --no-deps caddy validate --config /etc/caddy/Caddyfile"; then
-            echo "::error::Новый caddy/Caddyfile не прошёл validate (частая причина — пустой MONITOR_BASIC_AUTH_HASH в $REMOTE_DIR/.env). Перезапуск caddy НЕ выполнялся: основной кабинет работает на старом конфиге. Исправьте .env и запустите workflow снова — docs/monitoring.md."
+          if ! ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose --profile tls run --rm --no-deps -T --entrypoint caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile"; then
+            echo "::error::Новый caddy/Caddyfile не прошёл validate. В логе выше `exec: … executable file not found` значит, что сломан сам вызов (у образа caddy нет ENTRYPOINT); ошибка про парсинг или про незаданную переменную — чаще всего пустой MONITOR_BASIC_AUTH_HASH в $REMOTE_DIR/.env. Перезапуск caddy НЕ выполнялся: основной кабинет работает на старом конфиге. Исправьте причину и запустите workflow снова — docs/monitoring.md."
             exit 1
           fi
           echo "Конфиг caddy принят."
