@@ -160,6 +160,33 @@ jobs:
         # которое реально указывает DNS.
         run: |
           set -euo pipefail
+          # Права на .env проверяются ДО чтения: из нечитаемого файла `sed`
+          # молчит и отдаёт пустую строку, поэтому настоящая причина (владелец
+          # файла) вылезала как «SITE_DOMAIN пуст», а в логе оставалось голое
+          # `sed: can't read .env: Permission denied`. Запись тоже нужна: шаг
+          # «пара входа» дописывает в этот же файл MONITOR_BASIC_AUTH_*.
+          # Основной кабинет при неверном владельце продолжает работать —
+          # приложению и деплою кода хватает чтения.
+          ssh "$SSH_TARGET" bash -s -- "$REMOTE_DIR" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          if [ ! -f .env ]; then
+            echo "::error::В $(pwd) нет .env. Деплой мониторинга его не создаёт: соберите файл по чек-листу docs/ssl.md и запустите снова."
+            exit 1
+          fi
+          OWNER="$(stat -c '%U:%G' .env 2>/dev/null || echo '?')"
+          MODE="$(stat -c '%a' .env 2>/dev/null || echo '?')"
+          FIX="sudo chown --reference=$(pwd) $(pwd)/.env && sudo chmod 640 $(pwd)/.env"
+          if [ ! -r .env ]; then
+            echo "::error::$(pwd)/.env не читается пользователю $(whoami) (владелец $OWNER, режим $MODE), поэтому SITE_DOMAIN и ACME_EMAIL взять неоткуда. Каталог проекта принадлежит пользователю деплоя — им же лечится и файл: $FIX, затем запустить workflow снова — docs/deploy.md."
+            exit 1
+          fi
+          if [ ! -w .env ]; then
+            echo "::error::В $(pwd)/.env нельзя дописать пару входа MONITOR_BASIC_AUTH_*: файл не доступен на запись пользователю $(whoami) (владелец $OWNER, режим $MODE). Чтения хватает приложению и деплою кода, поэтому основной кабинет работает и здесь ни при чём. На сервере: $FIX, затем запустить workflow снова — docs/monitoring.md."
+            exit 1
+          fi
+          echo ".env: владелец $OWNER, режим $MODE, чтение и запись есть."
+          REMOTE
           remote() {
             # shellcheck disable=SC2029
             ssh "$SSH_TARGET" "$@"
@@ -504,9 +531,16 @@ jobs:
         # кабинет продолжает работать на старом конфиге.
         run: |
           set -euo pipefail
+          # `--entrypoint caddy` обязателен: у образа caddy:2-alpine нет
+          # ENTRYPOINT, только CMD `caddy run …`, и аргументы `run` заменяют
+          # его целиком. Без entrypoint docker пытается выполнить `validate`
+          # как программу и падает с `exec: "validate": executable file not
+          # found in $PATH` — сообщение про отсутствующий бинарник, а не про
+          # конфиг. `--adapter caddyfile` — как в CMD самого образа: файл
+          # называется Caddyfile, но полагаться на угадывание адаптера незачем.
           # shellcheck disable=SC2029
-          if ! ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose --profile tls run --rm --no-deps caddy validate --config /etc/caddy/Caddyfile"; then
-            echo "::error::Новый caddy/Caddyfile не прошёл validate (частая причина — пустой MONITOR_BASIC_AUTH_HASH в $REMOTE_DIR/.env). Перезапуск caddy НЕ выполнялся: основной кабинет работает на старом конфиге. Исправьте .env и запустите workflow снова — docs/monitoring.md."
+          if ! ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose --profile tls run --rm --no-deps -T --entrypoint caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile"; then
+            echo "::error::Новый caddy/Caddyfile не прошёл validate. В логе выше `exec: … executable file not found` значит, что сломан сам вызов (у образа caddy нет ENTRYPOINT); ошибка про парсинг или про незаданную переменную — чаще всего пустой MONITOR_BASIC_AUTH_HASH в $REMOTE_DIR/.env. Перезапуск caddy НЕ выполнялся: основной кабинет работает на старом конфиге. Исправьте причину и запустите workflow снова — docs/monitoring.md."
             exit 1
           fi
           echo "Конфиг caddy принят."

@@ -167,6 +167,20 @@ ssh crm-monitor "cd /srv/crm-dormitory && sed -i '/^MONITOR_BASIC_AUTH_HASH=/d' 
 Порядок первого раза: сначала обычный деплой (`deploy.yml`) — он обновляет
 `caddy/Caddyfile` и `.env` основного стека, — потом деплой мониторинга.
 
+**`.env` сервера должен принадлежать пользователю деплоя.** Деплой мониторинга и
+читает из него `SITE_DOMAIN` с `ACME_EMAIL`, и дописывает в него пару
+`MONITOR_BASIC_AUTH_*`. Файл, оставшийся `root:root` (обычное следствие правки
+через `sudo nano .env`), ломает это с двух сторон: без чтения деплой падал с
+«SITE_DOMAIN пуст» и `sed: can't read .env: Permission denied`, без записи — с
+`Permission denied` посреди генерации пары. Проверка прав стоит в начале шага
+«Сервер: чек-лист `.env` и адреса мониторинга» и называет исправление; владелец
+берётся у каталога проекта, он всегда принадлежит пользователю деплоя:
+
+```bash
+sudo chown --reference=/srv/crm-dormitory /srv/crm-dormitory/.env
+sudo chmod 640 /srv/crm-dormitory/.env
+```
+
 ## Стенд отдела разработки
 
 Локально мониторинг поднимается теми же файлами, но с **оверрайдом портов**:
@@ -534,6 +548,8 @@ monitor/grafana/provisioning/datasources/prometheus.yml  источник uid=pr
 
 | Симптом | Причина и что делать |
 | --- | --- |
+| Деплой падает на `Permission denied` для `.env` или на «`SITE_DOMAIN` в `.env` пуст» с `sed: can't read .env` | `.env` сервера не принадлежит пользователю деплоя (остался `root:root` после `sudo nano`): читать и писать его может только root, поэтому домен «пуст», а пару `MONITOR_BASIC_AUTH_*` некуда дописать. `sudo chown --reference=/srv/crm-dormitory /srv/crm-dormitory/.env && sudo chmod 640 /srv/crm-dormitory/.env`, затем запустить workflow снова — он идемпотентен. Проверка прав стоит в начале шага «Сервер: чек-лист `.env` и адреса мониторинга». |
+| `exec: "validate": executable file not found in $PATH` при проверке конфига | У образа `caddy:2-alpine` нет `ENTRYPOINT`, только `CMD caddy run …`: аргументы `compose run` заменяют CMD целиком, и `validate` пытаются выполнить как программу. Нужен явный entrypoint: `docker compose --profile tls run --rm --no-deps --entrypoint caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile`. В текущем workflow вызов исправлен, в более старых его версиях — нет. |
 | `502` на поддомене | Стек мониторинга не запущен или в другой сети: `docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env ps`, затем сверьте `APP_NETWORK` с `docker network ls`. |
 | `401` при верном пароле | Caddy работает со старым окружением: `caddy reload` файл перечитывает, а переменные — нет. Лечится `docker compose --profile tls up -d --no-deps caddy`. |
 | `401` всем сразу после ручной смены пароля | В `MONITOR_BASIC_AUTH_HASH` одиночные `$`: compose интерполирует их и обрезает хеш до `$2a$14.…`. Длина значения в контейнере (`docker compose --profile tls run --rm --no-deps --entrypoint env caddy`) должна быть 60 — если меньше, перепишите строку с удвоенными `$$` (см. «Сменить пароль руками»). |
@@ -616,6 +632,18 @@ docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env ps
 
 ## Изменения
 
+- 2026-11-16 — проверка конфига caddy перед перезапуском работает: в вызове
+  `docker compose run` появился `--entrypoint caddy`. У образа `caddy:2-alpine`
+  нет `ENTRYPOINT`, только `CMD caddy run …`, поэтому старый вызов выполнял
+  `validate` как программу и падал с `exec: "validate": executable file not
+  found in $PATH` — сообщением про бинарник, а не про конфиг. Добавлен
+  `--adapter caddyfile`, как в CMD образа.
+- 2026-11-16 — деплой мониторинга проверяет права на серверный `.env` в начале
+  шага «Сервер: чек-лист `.env` и адреса мониторинга»: файл, оставшийся
+  `root:root` после `sudo nano`, валил запуск с двух сторон — без чтения домен
+  выглядел пустым (`sed: can't read .env`), без записи падала генерация пары
+  (`Permission denied`). Теперь ошибка называет владельца, режим и готовую
+  команду `chown --reference`/`chmod`.
 - 2026-11-16 — мониторинг обновляется вместе со стендом: `.github/workflows/stand.yml`
   получил три шага (`Мониторинг: окружение стенда`, `Мониторинг: пересборка и
   перезапуск`, `Проверка: мониторинг отвечает`). `.env` мониторинга создаётся из
