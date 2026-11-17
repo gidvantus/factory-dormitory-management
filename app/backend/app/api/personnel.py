@@ -84,6 +84,7 @@ from app.table_data import (
     normalize_value,
     read_columns,
     require_writable_table,
+    validate_resident_gender,
 )
 
 router = APIRouter(prefix="/personnel", tags=["personnel"], responses=EXCHANGE_USER_RESPONSES)
@@ -166,6 +167,8 @@ def create_record(
             fields = schema.model_validate(values).model_dump(exclude_unset=True)
         except ValidationError as exc:
             raise HTTPException(422, "Проверьте данные сотрудника и формат телефона") from exc
+        if payload.table_key == "residents" and fields.get("gender") is not None:
+            validate_resident_gender(db, payload.dormitory_id, fields["gender"])
         if (
             fields.get("shift_start")
             and fields.get("shift_end")

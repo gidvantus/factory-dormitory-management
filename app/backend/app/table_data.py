@@ -11,14 +11,13 @@ from sqlalchemy.orm import Session, object_session
 
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
-from app.models.hostel import Hostel, HostelCell
+from app.models.hostel import Hostel
 from app.models.inflow import PersonnelInflow
 from app.models.outflow import PersonnelOutflow
 from app.models.payment import PaymentEntry
 from app.models.report import ReportRow
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
-from app.place_values import active_in_month, place_day_values
 from app.schemas.table_column import (
     ArrivalPlanReportLink,
     PlaceReportLink,
@@ -407,6 +406,18 @@ def record_value(row: Record, column: TableColumn, fill_resolver: Any = None) ->
     return value
 
 
+def validate_resident_gender(
+    db: Session, dormitory_id: int, value: str | None, *, previous: str | None = None
+) -> None:
+    if value is None or value == previous:
+        return
+    columns = ensure_columns(db, dormitory_id, "residents")
+    column = next((item for item in columns if item.builtin_key == "gender"), None)
+    if column is None or column.archived:
+        raise HTTPException(422, "Для выбора пола восстановите столбец «Пол»")
+    normalize_value(column, value)
+
+
 def validate_link(db: Session, dormitory_id: int, link: ReportSourceLink) -> ReportSourceLink:
     if isinstance(link, ArrivalPlanReportLink):
         return link
@@ -439,7 +450,14 @@ def validate_link(db: Session, dormitory_id: int, link: ReportSourceLink) -> Rep
 
 
 def linked_counts(
-    db: Session, dormitory_id: int, link: ReportLink, records: list[Record], start: date, end: date
+    db: Session,
+    dormitory_id: int,
+    link: ReportLink,
+    records: list[Record],
+    start: date,
+    end: date,
+    *,
+    hostel_id: int | None = None,
 ) -> dict[date, int]:
     validated = validate_link(db, dormitory_id, link)
     assert isinstance(validated, ReportLink)
@@ -459,6 +477,8 @@ def linked_counts(
         else None
     )
     for row in records:
+        if hostel_id is not None and (not isinstance(row, Resident) or row.hostel_id != hostel_id):
+            continue
         source_value = record_value(row, column, resolver)
         if link.operator == "not_empty":
             if source_value is None or (isinstance(source_value, str) and not source_value.strip()):
@@ -482,27 +502,21 @@ def linked_counts(
 
 def linked_place_values(
     db: Session, dormitory_id: int, link: PlaceReportLink, start: date, end: date
-) -> dict[date, int]:
+) -> tuple[dict[date, Decimal], dict[date, str]]:
+    from app.hostel_rows import read_place_days
+
     validate_link(db, dormitory_id, link)
     query = select(Hostel).where(Hostel.dormitory_id == dormitory_id)
     if link.hostel_id is not None:
         query = query.where(Hostel.id == link.hostel_id)
-    hostels = {hostel.id: hostel for hostel in db.scalars(query)}
-    cells = db.scalars(
-        select(HostelCell).where(
-            HostelCell.hostel_id.in_(hostels),
-            HostelCell.report_date >= start,
-            HostelCell.report_date <= end,
-        )
-    )
-    raw: dict[tuple[int, date], dict[str, int]] = {}
-    for cell in cells:
-        if active_in_month(hostels[cell.hostel_id], cell.report_date.replace(day=1)):
-            raw.setdefault((cell.hostel_id, cell.report_date), {})[cell.field] = cell.value
-    result: dict[date, int] = {}
-    for (_, day), values in raw.items():
-        result[day] = result.get(day, 0) + place_day_values(values).get(link.metric, 0)
-    return result
+    result: dict[date, Decimal] = {}
+    errors: dict[date, str] = {}
+    for (_, day), entry in read_place_days(db, db.scalars(query), start, end).items():
+        if error := entry.errors.get(link.metric):
+            errors[day] = error
+        if link.metric in entry.values:
+            result[day] = result.get(day, Decimal(0)) + entry.values[link.metric]
+    return result, errors
 
 
 def column_dependencies(
@@ -511,8 +525,19 @@ def column_dependencies(
     from app.cell_fill import fill_dependencies
     from app.personnel_builder_dependencies import builder_dependencies
 
+    hostel_dependencies = {
+        f"Размещение персонала · {hostel.name} · {row['name']}"
+        for hostel in db.scalars(select(Hostel).where(Hostel.dormitory_id == column.dormitory_id))
+        for rows in hostel.layouts.values()
+        for row in rows
+        if not row.get("archived")
+        and (rule := row.get("link"))
+        and column.id in (rule.get("column_id"), rule.get("date_column_id"))
+    }
+
     return (
-        builder_dependencies(
+        sorted(hostel_dependencies)
+        + builder_dependencies(
             db,
             column.dormitory_id,
             {f"dorm:{column.dormitory_id}:{column.table_key}"},

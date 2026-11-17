@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.api.custom_tabs import RESERVED_NAMES, tab_responses
 from app.api.sections import metadata, section_keys
-from app.api.table_columns import prepare_options
+from app.api.table_columns import prepare_options, update_column_options
 from app.cell_fill import assign_fill, refresh_copies, validate_fills
 from app.custom_tab_options import (
     initialize_options,
@@ -204,11 +204,7 @@ def save_table(
                 raise HTTPException(
                     409, f"Столбец «{column.name}» используется в отчёте: {', '.join(used)}"
                 )
-            if column.builtin_key:
-                if [option.model_dump() for option in item.options] != column.options:
-                    raise HTTPException(409, "Варианты стандартного столбца изменять нельзя")
-            else:
-                column.options = prepare_options(item, column if item.kind == column.kind else None)
+            update_column_options(item, column)
         else:
             if item.kind in ("action", "hostel"):
                 raise HTTPException(422, "Выберите тип данных нового столбца")

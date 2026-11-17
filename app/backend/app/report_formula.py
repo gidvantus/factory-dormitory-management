@@ -90,3 +90,29 @@ def format_number(value: Decimal) -> str:
         raise FormulaError("Результат вне допустимого диапазона")
     text = format(value, "f")
     return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def validate_row_formulas(formulas: dict[str, str | None]) -> None:
+    references = {
+        name: compile_formula(formula)[1] if formula else set()
+        for name, formula in formulas.items()
+    }
+    for targets in references.values():
+        if missing := targets - formulas.keys():
+            raise FormulaError(f"Строка не найдена: {sorted(missing)[0]}")
+    visited: set[str] = set()
+    active: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in active:
+            raise FormulaError("Формулы не могут ссылаться друг на друга по кругу")
+        if name in visited:
+            return
+        active.add(name)
+        for target in references[name]:
+            visit(target)
+        active.remove(name)
+        visited.add(name)
+
+    for name in formulas:
+        visit(name)

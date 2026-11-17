@@ -5,13 +5,15 @@ import type { FormEvent } from 'react';
 
 import { api, ApiError } from '../../api/client';
 import { useExchangePermissions } from '../../auth/exchangePermissions';
-import type { HostelPlaces, PlaceField } from '../../api/client';
+import type { HostelPlaces } from '../../api/client';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { formatDate } from '../dashboard/dates';
 import { ImportPlacesDialog } from './ImportPlacesDialog';
 import { DormitoryTableFrame } from './DormitoryTableFrame';
 import { useDormitoryPages } from './useDormitoryPages';
 import styles from './HostelPlaces.module.css';
+import { HostelRuleMark } from './HostelSettings';
+import { useSettingsNavigation } from './settingsContext';
 
 interface Props {
   dormitoryId: string;
@@ -326,6 +328,8 @@ export function HostelPlaces({
   legacyImport = true,
 }: Props): JSX.Element {
   const permissions = useExchangePermissions();
+  const settings = useSettingsNavigation();
+  const revision = settings?.revision ?? 0;
   const [data, setData] = useState<HostelPlaces>({ months: [] });
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
@@ -383,7 +387,7 @@ export function HostelPlaces({
         if (!controller.signal.aborted) setLoadingPage(false);
       });
     return () => controller.abort();
-  }, [dormitoryId, range.from, range.to, rangeKey, attempt, pagingOptions, setInfo]);
+  }, [dormitoryId, range.from, range.to, rangeKey, attempt, pagingOptions, setInfo, revision]);
 
   return (
     <DormitoryTableFrame
@@ -401,15 +405,17 @@ export function HostelPlaces({
         <div>
           <h2>Размещение персонала</h2>
           <p data-testid="places-month-applied">Все дни месяца · {monthTitle(month)}</p>
-          <p>Свободных мест = оплачено мест − проживает. Расчёт автоматический.</p>
         </div>
       }
       primary={
         <button
           type="button"
           className="btn btn--primary btn--compact"
-          disabled={status !== 'ready' || loadedRange.current !== rangeKey}
-          onClick={() => setAddingMonth(range.from)}
+          disabled={status !== 'ready' || loadedRange.current !== rangeKey || settings?.readOnly}
+          onClick={() => {
+            if (settings) settings.open('places', 'structure', true);
+            else setAddingMonth(range.from);
+          }}
         >
           + Добавить хостел
         </button>
@@ -501,6 +507,7 @@ export function HostelPlaces({
                     <button
                       type="button"
                       className="btn btn--ghost btn--compact"
+                      disabled={settings?.readOnly}
                       onClick={() => setRemoving({ hostel, month: month.month })}
                       aria-label={`Убрать хостел ${hostel.name} с ${monthTitle(month.month)}`}
                     >
@@ -542,38 +549,61 @@ export function HostelPlaces({
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((row) => (
+                      {(hostel.rows
+                        ? hostel.rows
+                            .filter((row) => !row.archived)
+                            .map((row) => ({
+                              field: row.key,
+                              label: row.name,
+                              editable: !row.formula && !row.link,
+                              formula: row.formula,
+                              link: row.link,
+                            }))
+                        : rows.map((row) => ({ ...row, formula: row.formula ?? null, link: null }))
+                      ).map((row) => (
                         <tr key={row.field} className={row.editable ? undefined : styles.totalRow}>
-                          <th scope="row" title={row.formula}>
+                          <th scope="row">
                             {row.label}
+                            <HostelRuleMark row={row} />
                           </th>
-                          {month.days.map((day) => (
-                            <td key={day}>
-                              {row.editable ? (
-                                <PlaceCell
-                                  key={`${hostel.id}-${row.field}-${day}`}
-                                  label={`${hostel.name}, ${row.label}`}
-                                  date={day}
-                                  value={hostel.values[row.field]?.[day]}
-                                  onSave={async (value) => {
-                                    await api.saveHostelCell(
-                                      dormitoryId,
-                                      hostel.id,
-                                      day,
-                                      row.field as PlaceField,
-                                      value,
-                                    );
-                                    setSaveError('');
-                                    refresh();
-                                  }}
-                                />
-                              ) : (
-                                <output title={row.formula ?? 'Сумма двух строк выше'}>
-                                  {hostel.values[row.field]?.[day] ?? '—'}
-                                </output>
-                              )}
-                            </td>
-                          ))}
+                          {month.days.map((day) => {
+                            const value = hostel.values[row.field]?.[day];
+                            const error = hostel.errors?.[row.field]?.[day];
+                            return (
+                              <td key={day}>
+                                {row.editable && !settings?.readOnly ? (
+                                  <PlaceCell
+                                    key={`${hostel.id}-${row.field}-${day}`}
+                                    label={`${hostel.name}, ${row.label}`}
+                                    date={day}
+                                    value={value == null ? undefined : Number(value)}
+                                    onSave={async (value) => {
+                                      await api.saveHostelCell(
+                                        dormitoryId,
+                                        hostel.id,
+                                        day,
+                                        row.field,
+                                        value,
+                                      );
+                                      setSaveError('');
+                                      refresh();
+                                    }}
+                                  />
+                                ) : (
+                                  <output
+                                    className={error ? styles.error : undefined}
+                                    title={
+                                      error ??
+                                      row.formula ??
+                                      (row.link ? 'Значение из другой таблицы' : undefined)
+                                    }
+                                  >
+                                    {error ? 'Ошибка' : (value ?? '—')}
+                                  </output>
+                                )}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>

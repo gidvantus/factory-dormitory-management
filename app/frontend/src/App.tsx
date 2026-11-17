@@ -103,6 +103,9 @@ const CellFillPreview = lazy(() =>
     default: module.CellFillPreview,
   })),
 );
+const HostelBuilderPreview = lazy(
+  () => import('./pages/hostel-builder-preview/HostelBuilderPreview'),
+);
 const ConstructorProjectPreview = lazy(() =>
   import('./pages/constructor-sandbox/ConstructorSandbox').then((module) => ({
     default: module.ConstructorSandbox,
@@ -172,6 +175,14 @@ export function App(): JSX.Element {
           element={
             <Suspense fallback={<p role="status">Загрузка настроек заполнения…</p>}>
               <CellFillPreview />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/preview/hostel-builder"
+          element={
+            <Suspense fallback={<p role="status">Загрузка конструктора хостелов…</p>}>
+              <HostelBuilderPreview />
             </Suspense>
           }
         />

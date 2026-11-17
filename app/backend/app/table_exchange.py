@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.cell_fill import FillResolver, choose_record
 from app.custom_tab_options import options_for
 from app.dormitory_arrivals import arrival_rows
+from app.hostel_rows import DEFAULT_ROWS, display_number, read_place_days, rows_for
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.dormitory_history import DormitoryDataEvent
@@ -34,7 +35,7 @@ from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
 from app.outflow_fields import sync_outflow_cell
 from app.personnel import record_changed
-from app.place_values import active_in_month, place_day_values
+from app.place_values import active_in_month
 from app.places_import import FIELD_LABELS
 from app.resident_identity import ENTRY_ROLES, compatible, entry_fields
 from app.schemas.inflow import UpdateInflowRequest
@@ -171,12 +172,25 @@ def prepare_table(
             if active_in_month(hostel, start.replace(day=1))
         ]
         table.columns = [ExchangeColumn("Хостел"), ExchangeColumn("Показатель")]
+        layouts = {hostel.id: rows_for(hostel, start) for hostel in hostels}
         table.grid = [
             ((hostel, metric), [hostel.name, label])
             for hostel in hostels
-            for metric, label in FIELD_LABELS.items()
+            for metric, label in (
+                FIELD_LABELS.items()
+                if layouts[hostel.id] == list(DEFAULT_ROWS)
+                else [
+                    (row.key, row.name)
+                    for row in layouts[hostel.id]
+                    if not (row.archived or row.formula or row.link)
+                ]
+            )
         ]
         table.schema["hostels"] = [{"id": hostel.id, "name": hostel.name} for hostel in hostels]
+        if any(rows != list(DEFAULT_ROWS) for rows in layouts.values()):
+            table.schema["layouts"] = {
+                key: [row.model_dump() for row in rows] for key, rows in layouts.items()
+            }
     else:
         columns = [
             col
@@ -312,32 +326,28 @@ def export_rows(
             for row in report.rows
         ]
     if key == "places":
-        assert table.grid is not None
-        hostels = {item[0][0].id: item[0][0] for item in table.grid}
-        raw: dict[tuple[int, date], dict[str, int]] = {}
-        for cell in db.scalars(
-            select(HostelCell).where(
-                HostelCell.hostel_id.in_(hostels), HostelCell.report_date.in_(days)
+        assert start and end
+        hostels = [
+            hostel
+            for hostel in db.scalars(
+                select(Hostel).where(Hostel.dormitory_id == dorm.id).order_by(Hostel.id)
             )
-        ):
-            raw.setdefault((cell.hostel_id, cell.report_date), {})[cell.field] = cell.value
-        # Расчётные показатели тоже попадают в экспорт, как на экране.
-        labels: dict[str, str] = {
-            **{str(metric): label for metric, label in FIELD_LABELS.items()},
-            "residents_total": "Итого проживает М+Ж",
-            "paid_total": "Итого оплачено М+Ж",
-            "free_m": "Свободных мест М",
-            "free_f": "Свободных мест Ж",
-            "free_total": "Свободных мест М+Ж",
-        }
+            if active_in_month(hostel, start.replace(day=1))
+        ]
+        calculated = read_place_days(db, hostels, start, end)
+
+        def cell(hostel_id: int, day: date, key: str) -> int | float | str | None:
+            entry = calculated[hostel_id, day]
+            if key in entry.values:
+                value = display_number(entry.values[key])
+                return float(value) if isinstance(value, str) else value
+            return entry.errors.get(key)
+
         return [
-            [
-                hostel.name,
-                label,
-                *[place_day_values(raw.get((hostel.id, day), {})).get(metric) for day in days],
-            ]
-            for hostel in hostels.values()
-            for metric, label in labels.items()
+            [hostel.name, row.name, *[cell(hostel.id, day, row.key) for day in days]]
+            for hostel in hostels
+            for row in rows_for(hostel, start)
+            if not row.archived
         ]
     rows = records_for(db, dorm.id, key)
     result = []

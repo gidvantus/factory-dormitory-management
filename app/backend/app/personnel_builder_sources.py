@@ -12,13 +12,13 @@ from app.access import scoped_dormitories
 from app.api.reports import read_report
 from app.arrival_plans import active_arrivals
 from app.cell_fill import FillResolver
+from app.hostel_rows import display_number, read_place_days
 from app.models.custom_tab import CustomTab
-from app.models.hostel import Hostel, HostelCell
+from app.models.hostel import Hostel
 from app.models.report import ReportRow
 from app.models.table_column import TableColumn
 from app.models.user import User
 from app.personnel import workspace
-from app.place_values import active_in_month, place_day_values
 from app.table_data import record_value, records_for
 
 METRICS = {
@@ -356,34 +356,22 @@ class Sources:
                         )
             elif parts[0] == "places":
                 hostels = [h for h in self.hostels if h.dormitory_id == dorm_id]
-                cells = list(
-                    self.db.scalars(
-                        select(HostelCell).where(
-                            HostelCell.hostel_id.in_([h.id for h in hostels]),
-                            HostelCell.report_date >= start,
-                            HostelCell.report_date <= end,
-                        )
+                by_id = {hostel.id: hostel for hostel in hostels}
+                for (hostel_id, day), entry in read_place_days(
+                    self.db, hostels, start, end
+                ).items():
+                    result.append(
+                        {
+                            "$date": [day.isoformat()],
+                            "$hostel": [by_id[hostel_id].name],
+                            **{
+                                key: [
+                                    display_number(entry.values[key]) if key in entry.values else 0
+                                ]
+                                for key in METRICS
+                            },
+                        }
                     )
-                )
-                for offset in range((end - start).days + 1):
-                    day = start + timedelta(days=offset)
-                    for hostel in hostels:
-                        if not active_in_month(hostel, day.replace(day=1)):
-                            continue
-                        metrics = place_day_values(
-                            {
-                                c.field: c.value
-                                for c in cells
-                                if c.hostel_id == hostel.id and c.report_date == day
-                            }
-                        )
-                        result.append(
-                            {
-                                "$date": [day.isoformat()],
-                                "$hostel": [hostel.name],
-                                **{key: [metrics.get(key, 0)] for key in METRICS},
-                            }
-                        )
         self._records[cache_key] = result
         return result
 

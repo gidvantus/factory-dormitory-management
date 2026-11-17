@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../../api/client';
 import type {
   CellValue,
   ReportLink,
+  HostelLink,
+  HostelTableLink,
+  ReportRow,
   TableColumn,
   TableKey,
   CustomTab,
@@ -45,31 +48,84 @@ const builtInSources: Source[] = [
 
 export function ReportLinkEditor({
   dormitoryId,
-  initial,
-  onChange,
   disabled,
+  ...props
 }: {
   dormitoryId: string;
-  initial: ReportLink | null;
-  onChange: (link: ReportLink | null) => void;
   disabled: boolean;
-}): JSX.Element {
-  const initialTable =
-    initial && initial.table_key !== 'places' && initial.table_key !== 'arrival_plan'
-      ? initial
-      : null;
+} & (
+  | { hostel: true; initial: HostelLink | null; onChange: (link: HostelLink | null) => void }
+  | { hostel?: false; initial: ReportLink | null; onChange: (link: ReportLink | null) => void }
+)): JSX.Element {
+  const initial = useRef(props.initial).current;
+  const change = useRef(props.onChange);
+  change.current = props.onChange;
+  const sourceChanged = useRef(false);
+  const hostel = props.hostel === true;
+  const legacy = initial?.table_key === 'resident_occupancy' ? initial : null;
+  const initialTable = initial && 'column_id' in initial ? initial : null;
+  const initialHostel = initialTable as HostelTableLink | null;
   const [section, setSection] = useState(() =>
-    initial?.table_key === 'arrival_plan'
-      ? 'arrival_plan'
-      : initial?.table_key === 'places'
-        ? 'places'
+    legacy
+      ? 'residents'
+      : initial && !initialTable
+        ? initial.table_key
         : initialTable?.table_key.startsWith('custom_')
           ? initialTable.table_key
           : (builtInSources.find((source) =>
               source.tables.some((table) => table.key === initialTable?.table_key),
             )?.key ?? ''),
   );
-  const [table, setTable] = useState<TableKey | ''>(initialTable?.table_key ?? '');
+  const [table, setTable] = useState<TableKey | ''>(
+    legacy ? 'residents' : (initialTable?.table_key ?? ''),
+  );
+  const [countMode, setCountMode] = useState(
+    legacy ? 'snapshot' : (initialHostel?.count_mode ?? 'daily'),
+  );
+  const [scope, setScope] = useState<'dormitory' | 'hostel'>(
+    legacy ? 'hostel' : (initialHostel?.scope ?? 'dormitory'),
+  );
+  const [reportRows, setReportRows] = useState<Pick<ReportRow, 'id' | 'name'>[]>([]);
+  const [reportRowId, setReportRowId] = useState(
+    initial?.table_key === 'report' ? initial.row_id : 0,
+  );
+  const [reportError, setReportError] = useState('');
+  const [reportAttempt, setReportAttempt] = useState(0);
+  const snapshot = hostel && table === 'residents' && countMode === 'snapshot';
+  const [legacyFilter, setLegacyFilter] = useState(legacy?.gender ?? null);
+
+  const onChange = useCallback(
+    (next: ReportLink | HostelLink | null): void => {
+      const handle = change.current;
+      if (hostel) {
+        (handle as (link: HostelLink | null) => void)(next?.table_key === 'places' ? null : next);
+      } else if (next?.table_key !== 'report' && next?.table_key !== 'resident_occupancy') {
+        (handle as (link: ReportLink | null) => void)(next);
+      }
+    },
+    [hostel],
+  );
+
+  useEffect(() => {
+    if (!hostel || section !== 'report') return;
+    const controller = new AbortController();
+    setReportError('');
+    void api
+      .hostelReportSources(dormitoryId, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setReportRows(result);
+      })
+      .catch((caught: unknown) => {
+        if (!controller.signal.aborted) {
+          setReportError(
+            caught instanceof ApiError
+              ? caught.message
+              : 'Не удалось загрузить строки общего отчёта.',
+          );
+        }
+      });
+    return () => controller.abort();
+  }, [section, hostel, dormitoryId, reportAttempt]);
   const [tabs, setTabs] = useState<CustomTab[]>([]);
   const [tabsLoading, setTabsLoading] = useState(true);
   const [tabsError, setTabsError] = useState('');
@@ -99,11 +155,14 @@ export function ReportLinkEditor({
         .map((item) => ({ key: item.key, name: item.name, tables: [item] })),
     ),
   ];
-  const uniqueStandards = standards.filter(
-    (source, index) => standards.findIndex((entry) => entry.key === source.key) === index,
-  );
+  const uniqueStandards = [
+    ...standards,
+    ...(hostel ? [{ key: 'report', name: 'Общий отчёт', tables: [] }] : []),
+  ].filter((source, index) => standards.findIndex((entry) => entry.key === source.key) === index);
   const sources: Source[] = uniqueStandards
-    .filter((source) => sectionStates[source.key] !== 'deleted')
+    .filter(
+      (source) => sectionStates[source.key] !== 'deleted' && (!hostel || source.key !== 'places'),
+    )
     .map((source) => ({
       ...source,
       name: sectionStates[source.key] === 'hidden' ? source.name + ' (скрыта)' : source.name,
@@ -149,7 +208,7 @@ export function ReportLinkEditor({
       ? standardChain(initialTable.table_key, sourceParents)[0]
       : null;
   useEffect(() => {
-    if (initialSourceKey) setSection(initialSourceKey);
+    if (initialSourceKey && !sourceChanged.current) setSection(initialSourceKey);
   }, [initialSourceKey]);
   const [columns, setColumns] = useState<TableColumn[]>([]);
   const [outflowFields, setOutflowFields] = useState<OutflowFields | null>(null);
@@ -157,7 +216,9 @@ export function ReportLinkEditor({
   const [operator, setOperator] = useState<'equals' | 'not_empty'>(
     initialTable?.operator ?? 'equals',
   );
-  const [value, setValue] = useState<CellValue>(initialTable?.value ?? '');
+  const [value, setValue] = useState<CellValue>(
+    initialTable?.value ?? (legacy?.gender !== 'all' ? (legacy?.gender ?? '') : ''),
+  );
   const [dateId, setDateId] = useState<number | null>(initialTable?.date_column_id ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -223,20 +284,25 @@ export function ReportLinkEditor({
         if (!controller.signal.aborted) {
           setError(caught instanceof ApiError ? caught.message : 'Не удалось загрузить столбцы.');
           setLoading(false);
-          onChange(null);
+          change.current(null);
         }
       });
     return () => controller.abort();
-    // onChange is a React state setter; source changes explicitly reset the draft below.
-  }, [dormitoryId, table, attempt, onChange]);
+  }, [dormitoryId, table, attempt]);
   const source = sources.find((item) => item.key === section);
-  const column = columns.find((item) => item.id === columnId);
+  const selectedColumnId =
+    legacyFilter && legacyFilter !== 'all'
+      ? (columns.find((item) => item.builtin_key === 'gender')?.id ?? 0)
+      : columnId;
+  const column = columns.find((item) => item.id === selectedColumnId);
   const dateColumn = columns.find((item) => item.id === dateId);
   function emit(
     nextColumn: number,
     nextValue: CellValue,
     nextDate: number | null,
     nextOperator: 'equals' | 'not_empty' = operator,
+    nextMode = countMode,
+    nextScope = scope,
   ): void {
     onChange(
       table &&
@@ -247,13 +313,20 @@ export function ReportLinkEditor({
             column_id: nextColumn,
             operator: nextOperator,
             value: nextOperator === 'not_empty' ? null : nextValue,
-            date_column_id: nextDate,
+            date_column_id: nextMode === 'snapshot' ? null : nextDate,
+            ...(hostel
+              ? { count_mode: nextMode, scope: nextMode === 'snapshot' ? 'hostel' : nextScope }
+              : {}),
           }
         : null,
     );
   }
   function selectTable(next: TableKey | ''): void {
+    sourceChanged.current = true;
     setTable(next);
+    setLegacyFilter(null);
+    setCountMode(hostel && next === 'residents' ? 'snapshot' : 'daily');
+    setScope(hostel && next === 'residents' ? 'hostel' : 'dormitory');
     setColumnId(0);
     setOperator('equals');
     setValue('');
@@ -276,20 +349,29 @@ export function ReportLinkEditor({
         description="Раздел и, при необходимости, конкретная подвкладка."
       >
         <label className={styles.field}>
-          Раздел
+          {hostel ? 'Таблица-источник' : 'Раздел'}
           <select
             value={section}
             onChange={(event) => {
               const next = sources.find((item) => item.key === event.target.value);
               setSection(next?.key ?? '');
-              selectTable(next?.tables.length === 1 ? next.tables[0].key : '');
+              selectTable(
+                next?.tables.length === 1
+                  ? next.tables[0].key
+                  : hostel && next?.tables.some((item) => item.key === next.key)
+                    ? (next.key as TableKey)
+                    : '',
+              );
+              setReportRowId(0);
               if (next?.key === 'arrival_plan') onChange({ table_key: 'arrival_plan' });
             }}
           >
             <option value="">Выберите раздел</option>
-            <option value="report" disabled>
-              Общий отчёт — связь через формулу
-            </option>
+            {!hostel && (
+              <option value="report" disabled>
+                Общий отчёт — связь через формулу
+              </option>
+            )}
             {sources.map((item) => (
               <option key={item.key} value={item.key}>
                 {item.name}
@@ -316,6 +398,38 @@ export function ReportLinkEditor({
           <p className={styles.linkSummary}>
             Брать количество приезжающих из «Плана заездов» этого общежития за каждую дату отчёта.
             ФИО на расчёт не влияют.
+          </p>
+        )}
+        {hostel && section === 'report' && (
+          <label className={styles.field}>
+            Строка общего отчёта
+            <select
+              value={reportRowId || ''}
+              onChange={(event) => {
+                const rowId = Number(event.target.value);
+                setReportRowId(rowId);
+                onChange(rowId ? { table_key: 'report', row_id: rowId } : null);
+              }}
+            >
+              <option value="">Выберите строку</option>
+              {reportRows.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {hostel && section === 'report' && reportError && (
+          <p role="alert" className={styles.formError}>
+            {reportError}{' '}
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setReportAttempt((n) => n + 1)}
+            >
+              Повторить
+            </button>
           </p>
         )}
         {section === 'places' && (
@@ -353,6 +467,46 @@ export function ReportLinkEditor({
       </EditorSection>
       {table && !loading && !error && (
         <>
+          {hostel && table === 'residents' && (
+            <>
+              <label className={styles.field}>
+                Что считать за день
+                <select
+                  value={countMode}
+                  onChange={(event) => {
+                    const next = event.target.value as 'snapshot' | 'daily';
+                    setCountMode(next);
+                    setLegacyFilter(null);
+                    setColumnId(selectedColumnId);
+                    emit(selectedColumnId, value, dateId, operator, next);
+                  }}
+                >
+                  <option value="snapshot">Состав на дату</option>
+                  <option value="daily">Записи за день</option>
+                </select>
+              </label>
+              {snapshot ? (
+                <p className={styles.formulaHelp}>
+                  Текущий хостел. Сегодня — текущий состав, за прошедшие дни — состав на конец дня.
+                </p>
+              ) : (
+                <label className={styles.field}>
+                  Где считать
+                  <select
+                    value={scope}
+                    onChange={(event) => {
+                      const next = event.target.value as 'dormitory' | 'hostel';
+                      setScope(next);
+                      emit(selectedColumnId, value, dateId, operator, countMode, next);
+                    }}
+                  >
+                    <option value="hostel">Текущий хостел</option>
+                    <option value="dormitory">Всё общежитие</option>
+                  </select>
+                </label>
+              )}
+            </>
+          )}
           <EditorSection
             title="Какие записи учитывать"
             description="Выберите столбец и условие. Подходящая запись добавляет 1 к результату."
@@ -360,8 +514,14 @@ export function ReportLinkEditor({
             <label className={styles.field}>
               Столбец
               <select
-                value={columnId || ''}
+                value={legacyFilter === 'all' ? 'all' : selectedColumnId || ''}
                 onChange={(event) => {
+                  if (event.target.value === 'all') {
+                    setLegacyFilter('all');
+                    onChange({ table_key: 'resident_occupancy', gender: 'all' });
+                    return;
+                  }
+                  setLegacyFilter(null);
                   const next = Number(event.target.value);
                   const isDate = columns.find((item) => item.id === next)?.kind === 'date';
                   const nextOperator = isDate ? 'not_empty' : 'equals';
@@ -374,6 +534,7 @@ export function ReportLinkEditor({
                 }}
               >
                 <option value="">Выберите столбец</option>
+                {snapshot && <option value="all">Все проживающие в хостеле</option>}
                 {columns
                   .filter((col) => !['action', 'hostel'].includes(col.kind))
                   .map((col) => (
@@ -392,10 +553,10 @@ export function ReportLinkEditor({
                     onChange={(event) => {
                       const next = event.target.value as 'equals' | 'not_empty';
                       const nextDate =
-                        next === 'not_empty' && column.kind === 'date' ? columnId : dateId;
+                        next === 'not_empty' && column.kind === 'date' ? selectedColumnId : dateId;
                       setOperator(next);
                       setDateId(nextDate);
-                      emit(columnId, value, nextDate, next);
+                      emit(selectedColumnId, value, nextDate, next);
                     }}
                   >
                     <option value="equals">Равно выбранному значению</option>
@@ -413,7 +574,7 @@ export function ReportLinkEditor({
                         allowCustom
                         onChange={(next) => {
                           setValue(next);
-                          emit(columnId, next, dateId);
+                          emit(selectedColumnId, next, dateId);
                         }}
                       />
                     ) : column.kind === 'select' || column.kind === 'checkbox' ? (
@@ -425,7 +586,7 @@ export function ReportLinkEditor({
                               ? event.target.value === 'true'
                               : event.target.value;
                           setValue(next);
-                          emit(columnId, next, dateId);
+                          emit(selectedColumnId, next, dateId);
                         }}
                       >
                         <option value="">Выберите значение</option>
@@ -435,12 +596,14 @@ export function ReportLinkEditor({
                             <option value="false">Нет — снято</option>
                           </>
                         ) : (
-                          column.options.map((option) => (
-                            <option key={option.id} value={option.id ?? ''}>
-                              {option.label}
-                              {option.archived ? ' (в архиве)' : ''}
-                            </option>
-                          ))
+                          column.options
+                            .filter((option) => !hostel || !option.archived || option.id === value)
+                            .map((option) => (
+                              <option key={option.id} value={option.id ?? ''}>
+                                {option.label}
+                                {option.archived ? ' (в архиве)' : ''}
+                              </option>
+                            ))
                         )}
                       </select>
                     ) : (
@@ -457,7 +620,7 @@ export function ReportLinkEditor({
                         maxLength={5000}
                         onChange={(event) => {
                           setValue(event.target.value);
-                          emit(columnId, event.target.value, dateId);
+                          emit(selectedColumnId, event.target.value, dateId);
                         }}
                       />
                     )}
@@ -466,7 +629,7 @@ export function ReportLinkEditor({
               </>
             )}
           </EditorSection>
-          {column && (
+          {column && !snapshot && (
             <EditorSection
               title="По какой дате считать"
               description="Выберите дату события или используйте дату создания записи."
@@ -478,7 +641,7 @@ export function ReportLinkEditor({
                   onChange={(event) => {
                     const next = event.target.value ? Number(event.target.value) : null;
                     setDateId(next);
-                    emit(columnId, value, next);
+                    emit(selectedColumnId, value, next);
                   }}
                 >
                   <option value="">Дата создания записи (Москва)</option>

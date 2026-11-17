@@ -567,6 +567,31 @@ export interface DormitoryReport {
 
 export type PlaceField = 'residents_m' | 'residents_f' | 'paid_m' | 'paid_f';
 
+export interface HostelTableLink extends ReportTableLink {
+  count_mode?: 'daily' | 'snapshot';
+  scope?: 'dormitory' | 'hostel';
+}
+
+export type HostelLink =
+  | HostelTableLink
+  | ArrivalPlanReportLink
+  | { table_key: 'resident_occupancy'; gender: 'М' | 'Ж' | 'all' }
+  | { table_key: 'report'; row_id: number };
+
+export interface HostelRow {
+  key: string;
+  name: string;
+  formula: string | null;
+  link: HostelLink | null;
+  archived: boolean;
+}
+
+export interface HostelSettings {
+  defaults: HostelRow[];
+  hostels: { id: number; name: string; version: number; rows: HostelRow[]; until: string | null }[];
+  templates: { id: number; name: string }[];
+}
+
 export interface HostelPlaces {
   months: {
     month: string;
@@ -574,7 +599,9 @@ export interface HostelPlaces {
     hostels: {
       id: number;
       name: string;
-      values: Record<string, Record<string, number>>;
+      values: Record<string, Record<string, number | string>>;
+      rows?: HostelRow[];
+      errors?: Record<string, Record<string, string>>;
     }[];
   }[];
 }
@@ -636,7 +663,7 @@ export interface Resident {
   employee_id?: string | null;
   custom_values?: Record<string, CellValue>;
   id: number;
-  gender: 'М' | 'Ж' | null;
+  gender: string | null;
   personnel_number: string | null;
   full_name: string | null;
   hostel_id: number | null;
@@ -2261,10 +2288,57 @@ export const api = {
     });
   },
 
-  createHostel(id: string, name: string, month: string): Promise<{ id: number; name: string }> {
+  createHostel(
+    id: string,
+    name: string,
+    month: string,
+    rows?: HostelRow[],
+  ): Promise<{ id: number; name: string }> {
     return request<{ id: number; name: string }>(`/dormitories/${encodeURIComponent(id)}/hostels`, {
       method: 'POST',
-      body: JSON.stringify({ name, month }),
+      body: JSON.stringify({ name, month, rows }),
+    });
+  },
+
+  hostelSettings(id: string, month: string, signal?: AbortSignal): Promise<HostelSettings> {
+    return request(`/dormitories/${encodeURIComponent(id)}/hostels/settings?month=${month}`, {
+      signal,
+    });
+  },
+
+  hostelReportSources(id: string, signal?: AbortSignal): Promise<Pick<ReportRow, 'id' | 'name'>[]> {
+    return request(`/dormitories/${encodeURIComponent(id)}/hostels/report-sources`, { signal });
+  },
+
+  updateHostelSettings(
+    id: string,
+    hostelId: number,
+    month: string,
+    name: string,
+    rows: HostelRow[],
+    version: number,
+  ): Promise<void> {
+    return request(`/dormitories/${encodeURIComponent(id)}/hostels/${hostelId}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, month, rows, version }),
+    });
+  },
+
+  hostelTemplate(
+    id: string,
+    templateId: number,
+  ): Promise<{ rows: HostelRow[]; warnings: Record<string, string> }> {
+    return request(`/dormitories/${encodeURIComponent(id)}/hostels/templates/${templateId}`);
+  },
+
+  saveHostelTemplate(
+    id: string,
+    name: string,
+    rows: HostelRow[],
+  ): Promise<{ id: number; name: string }> {
+    return request(`/dormitories/${encodeURIComponent(id)}/hostels/templates`, {
+      method: 'POST',
+      body: JSON.stringify({ name, rows }),
     });
   },
 
@@ -2279,7 +2353,7 @@ export const api = {
     id: string,
     hostelId: number,
     date: string,
-    field: PlaceField,
+    field: string,
     value: number | null,
   ): Promise<void> {
     return request<void>(
