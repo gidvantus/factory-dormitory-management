@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { api, ApiError, waitForDormitoryWrites } from '../../api/client';
-import type { PaymentKind, Resident, ResidentField, ResidentsResponse } from '../../api/client';
+import type {
+  PaymentKind,
+  Resident,
+  ResidentField,
+  ResidentsResponse,
+  TableColumn,
+} from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { currentMonth } from '../dashboard/dates';
 import styles from './ResidentsTable.module.css';
@@ -42,6 +48,7 @@ function ResidentRow({
   resident,
   index,
   hostels,
+  genderColumn,
   dormitoryId,
   month,
   onDelete,
@@ -53,6 +60,7 @@ function ResidentRow({
   resident: Resident;
   index: number;
   hostels: ResidentsResponse['hostels'];
+  genderColumn?: TableColumn;
   dormitoryId: string;
   month: string;
   onDelete: (resident: Resident) => void;
@@ -279,8 +287,19 @@ function ResidentRow({
             }}
           >
             <option value="">—</option>
-            <option value="М">М</option>
-            <option value="Ж">Ж</option>
+            {(genderColumn?.kind === 'select'
+              ? genderColumn.options
+              : [
+                  { id: 'М', label: 'М', archived: false },
+                  { id: 'Ж', label: 'Ж', archived: false },
+                ]
+            )
+              .filter((option) => !option.archived || option.id === draft.gender)
+              .map((option) => (
+                <option key={option.id} value={option.id ?? ''}>
+                  {option.label}
+                </option>
+              ))}
           </select>
         </td>
         <td>{textField('personnel_number', 'Т/н')}</td>
@@ -665,6 +684,7 @@ function ResidentsContent({ dormitoryId }: { dormitoryId: string }): JSX.Element
                   index={index + (pager.info.page - 1) * 100}
                   hidden={!visibleIds.has(resident.id)}
                   hostels={data.hostels}
+                  genderColumn={columns.find((column) => column.builtin_key === 'gender')}
                   dormitoryId={dormitoryId}
                   month={month}
                   onDelete={setDeleting}

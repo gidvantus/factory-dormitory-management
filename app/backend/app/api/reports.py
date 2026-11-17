@@ -1,5 +1,6 @@
 """Конструктор отчёта: строки, формулы и автоматически сохраняемые ячейки."""
 
+from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Annotated
@@ -15,7 +16,13 @@ from app.db import get_db
 from app.models.dashboard_block import DashboardLayout
 from app.models.report import ReportCell, ReportRow
 from app.report_defaults import REPORT_METRIC_BLOCK_NAMES
-from app.report_formula import FormulaError, calculate_formula, compile_formula, format_number
+from app.report_formula import (
+    FormulaError,
+    calculate_formula,
+    compile_formula,
+    format_number,
+    validate_row_formulas,
+)
 from app.schemas.report import (
     CreateReportRowRequest,
     MoveReportRowRequest,
@@ -70,28 +77,8 @@ def get_row(db: Session, dormitory_id: int, row_id: int) -> ReportRow:
 
 
 def check_names_and_formulas(formulas: dict[str, str | None]) -> None:
-    references: dict[str, set[str]] = {}
     try:
-        for name, formula in formulas.items():
-            references[name] = compile_formula(formula)[1] if formula else set()
-            if missing := references[name] - formulas.keys():
-                raise FormulaError(f"Строка не найдена: {sorted(missing)[0]}")
-        visited: set[str] = set()
-        active: set[str] = set()
-
-        def visit(name: str) -> None:
-            if name in active:
-                raise FormulaError("Формулы не могут ссылаться друг на друга по кругу")
-            if name in visited:
-                return
-            active.add(name)
-            for target in references[name]:
-                visit(target)
-            active.remove(name)
-            visited.add(name)
-
-        for name in formulas:
-            visit(name)
+        validate_row_formulas(formulas)
     except (FormulaError, RecursionError) as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
@@ -168,11 +155,13 @@ def report_with_block_names(
 
 def read_report(
     dormitory_id: DormitoryId,
-    _user: SubscribedUser,
+    _user: SubscribedUser | None,
     db: DbSession,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
     _dormitory: OwnDormitory,
+    *,
+    exclude_places: bool = False,
 ) -> ReportResponse:
     if from_date > to_date or (to_date - from_date).days > 365:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Выберите период не длиннее года")
@@ -190,8 +179,9 @@ def read_report(
     raw = {(cell.row_id, cell.report_date): cell.value for cell in cells}
     names = {row.name: row for row in rows}
     compiled = {row.id: compile_formula(row.formula)[0] for row in rows if row.formula}
-    linked_values: dict[int, dict[date, int]] = {}
+    linked_values: dict[int, Mapping[date, int | Decimal]] = {}
     link_errors: dict[int, str] = {}
+    daily_link_errors: dict[int, dict[date, str]] = {}
     source_records: dict[str, list[Record]] = {}
     for row in rows:
         if row.link:
@@ -201,7 +191,9 @@ def read_report(
                     linked_values[row.id] = report_arrivals(db, dormitory_id, from_date, to_date)
                     continue
                 if isinstance(link, PlaceReportLink):
-                    linked_values[row.id] = linked_place_values(
+                    if exclude_places:
+                        raise FormulaError("Строка отчёта зависит от размещения персонала")
+                    linked_values[row.id], daily_link_errors[row.id] = linked_place_values(
                         db, dormitory_id, link, from_date, to_date
                     )
                     continue
@@ -230,8 +222,8 @@ def read_report(
             if row is None:
                 raise FormulaError(f"Строка не найдена: {name}")
             if row.link:
-                if row.id in link_errors:
-                    raise FormulaError(link_errors[row.id])
+                if error := link_errors.get(row.id) or daily_link_errors.get(row.id, {}).get(day):
+                    raise FormulaError(error)
                 value = Decimal(linked_values[row.id].get(day, 0))
             elif row.formula:
                 value = calculate_formula(compiled[row.id], value_for)
@@ -403,11 +395,25 @@ def delete_row(
     row = get_row(db, dormitory_id, row_id)
     if row.metric_key:
         raise HTTPException(status.HTTP_409_CONFLICT, "Обязательную строку нельзя удалить")
+    from app.models.hostel import Hostel
     from app.personnel_builder_dependencies import builder_dependencies
 
-    if users := builder_dependencies(
-        db, dormitory_id, {f"report:{dormitory_id}"}, row_id=str(row_id)
-    ):
+    users = builder_dependencies(db, dormitory_id, {f"report:{dormitory_id}"}, row_id=str(row_id))
+    users.extend(
+        sorted(
+            {
+                f"Размещение персонала · {hostel.name} · {item['name']}"
+                for hostel in db.scalars(select(Hostel).where(Hostel.dormitory_id == dormitory_id))
+                for rows in hostel.layouts.values()
+                for item in rows
+                if not item.get("archived")
+                and (link := item.get("link"))
+                and link.get("table_key") == "report"
+                and link.get("row_id") == row_id
+            }
+        )
+    )
+    if users:
         raise HTTPException(409, "Строка используется в связях: " + ", ".join(users))
     for item in get_rows(db, dormitory_id):
         if item.id != row_id and item.formula and row.name in compile_formula(item.formula)[1]:

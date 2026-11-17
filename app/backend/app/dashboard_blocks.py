@@ -11,14 +11,14 @@ from sqlalchemy.orm import Session
 from app.api.reports import read_report
 from app.arrival_plans import report_arrivals
 from app.dashboard_summary import calculate_summary, validate_summary
+from app.hostel_rows import read_place_days
 from app.models.custom_tab import CustomTab
 from app.models.dashboard_block import DEFAULT_DASHBOARD_ORDER, DashboardBlock, DashboardLayout
 from app.models.dormitory import Dormitory
-from app.models.hostel import Hostel, HostelCell
+from app.models.hostel import Hostel
 from app.models.report import ReportRow
 from app.models.table_column import TableColumn
 from app.models.user import User
-from app.place_values import active_in_month, place_day_values
 from app.schemas.dashboard_block import (
     ArrivalPlanWidgetSource,
     CatalogDormitory,
@@ -391,28 +391,16 @@ def place_daily_values(
     hostels = list(db.scalars(select(Hostel).where(Hostel.dormitory_id == source.dormitory_id)))
     if source.hostel_id is not None:
         hostels = [hostel for hostel in hostels if hostel.id == source.hostel_id]
-    cells = db.scalars(
-        select(HostelCell).where(
-            HostelCell.hostel_id.in_([item.id for item in hostels]),
-            HostelCell.report_date >= days[0],
-            HostelCell.report_date <= days[-1],
-        )
-    )
-    raw: dict[tuple[int, date], dict[str, int]] = {}
-    for cell in cells:
-        raw.setdefault((cell.hostel_id, cell.report_date), {})[cell.field] = cell.value
-    daily: dict[date, Decimal] = {}
+    calculated = read_place_days(db, hostels, days[0], days[-1])
+    daily: dict[date, Decimal] = dict.fromkeys(days, Decimal(0))
     errors: dict[date, str] = {}
-    for day in days:
-        daily[day] = Decimal(0)
-        for hostel in hostels:
-            if not active_in_month(hostel, day.replace(day=1)):
-                continue
-            values = place_day_values(raw.get((hostel.id, day), {}))
-            if source.metric not in values:
-                errors[day] = "Нет показателя «Размещение персонала»"
-            else:
-                daily[day] += values[source.metric]
+    for (_, day), entry in calculated.items():
+        if day not in daily:
+            continue
+        if source.metric in entry.values:
+            daily[day] += entry.values[source.metric]
+        else:
+            errors[day] = entry.errors.get(source.metric, "Нет показателя «Размещение персонала»")
     return daily, errors
 
 

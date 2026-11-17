@@ -19,6 +19,7 @@ import { standardClearListDefaults } from './tabStructure';
 import { Modal } from '../../components/Modal';
 import { columnKinds } from './columnKinds';
 import { RowDialog } from './ReportTable';
+import { HostelSettings } from './HostelSettings';
 import { CreateCustomTabDialog } from './CreateCustomTabDialog';
 import { RuleSummary } from './RuleSummary';
 import { BindingDialog } from '../personnel/BindingDialog';
@@ -52,6 +53,9 @@ export function DormitorySettingsDialog({
   dormitoryId,
   initialKey,
   initialPage = 'structure',
+  placesMonth,
+  createHostel = false,
+  onHostelsChanged,
   onClose,
   onChanged,
   onOpen,
@@ -59,6 +63,9 @@ export function DormitorySettingsDialog({
   dormitoryId: string;
   initialKey?: string;
   initialPage?: Page;
+  placesMonth?: string;
+  createHostel?: boolean;
+  onHostelsChanged?: () => void;
   onClose: () => void;
   onChanged: (settings: DormitorySettings) => void;
   onOpen: (key: string) => void;
@@ -75,6 +82,8 @@ export function DormitorySettingsDialog({
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [hostelDirty, setHostelDirty] = useState(false);
+  const [hostelBusy, setHostelBusy] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -220,7 +229,13 @@ export function DormitorySettingsDialog({
     next.splice(to, 0, next.splice(from, 1)[0]);
     updateColumns(next);
   }
+  function leaveHostel(): boolean {
+    return (
+      !hostelBusy && (!hostelDirty || window.confirm('Закрыть настройки хостела без сохранения?'))
+    );
+  }
   function updateNode(patch: Partial<Node>): void {
+    if (!leaveHostel()) return;
     setNodes((current) =>
       current.map((item) => (item.key === selected ? { ...item, ...patch } : item)),
     );
@@ -229,6 +244,7 @@ export function DormitorySettingsDialog({
     setConfirmDelete(false);
   }
   function close(): void {
+    if (!leaveHostel()) return;
     if (dirty) setConfirmClose(true);
     else onClose();
   }
@@ -430,6 +446,7 @@ export function DormitorySettingsDialog({
                   style={{ paddingLeft: 12 + (path.length - 1) * 18 }}
                   aria-pressed={selected === item.key}
                   onClick={() => {
+                    if (selected !== item.key && !leaveHostel()) return;
                     setSelected(item.key);
                     setConfirmDelete(false);
                   }}
@@ -456,7 +473,7 @@ export function DormitorySettingsDialog({
       onClose={close}
       dirty={dirty}
       guardClose={false}
-      closeDisabled={busy}
+      closeDisabled={busy || hostelBusy}
       panelClassName={styles.panel}
       containerClassName={styles.overlay}
       testId="dormitory-settings-modal"
@@ -513,6 +530,7 @@ export function DormitorySettingsDialog({
                 key={key}
                 type="button"
                 onClick={() => {
+                  if (page !== key && !leaveHostel()) return;
                   setPage(key);
                   setEditingRule(null);
                 }}
@@ -536,7 +554,7 @@ export function DormitorySettingsDialog({
                 <button
                   className={`btn btn--ghost btn--compact ${styles.add}`}
                   type="button"
-                  disabled={busy || dirty}
+                  disabled={busy || dirty || hostelBusy || hostelDirty}
                   onClick={() => setCreating({ parent: null })}
                 >
                   + Добавить вкладку
@@ -554,19 +572,24 @@ export function DormitorySettingsDialog({
                     <div className={styles.editorHeading}>
                       <div>
                         <h3>{node.name}</h3>
-                        <p>
-                          {
-                            columns.filter((column) => !column.archived && column.kind !== 'action')
-                              .length
-                          }{' '}
-                          столбцов данных · {node.custom ? 'Своя вкладка' : 'Стандартная вкладка'}
-                        </p>
+                        {selected !== 'places' && (
+                          <p>
+                            {
+                              columns.filter(
+                                (column) => !column.archived && column.kind !== 'action',
+                              ).length
+                            }{' '}
+                            столбцов данных · {node.custom ? 'Своя вкладка' : 'Стандартная вкладка'}
+                          </p>
+                        )}
                       </div>
                       <button
                         className="btn btn--ghost btn--compact"
                         type="button"
                         disabled={dirty || busy || node.status === 'deleted'}
-                        onClick={() => onOpen(selected)}
+                        onClick={() => {
+                          if (leaveHostel()) onOpen(selected);
+                        }}
                       >
                         Открыть таблицу ↗
                       </button>
@@ -703,6 +726,16 @@ export function DormitorySettingsDialog({
                         }
                       />
                     )}
+                    {selected === 'places' && placesMonth && !blocked && !dirty && (
+                      <HostelSettings
+                        dormitoryId={dormitoryId}
+                        month={placesMonth + '-01'}
+                        creating={createHostel}
+                        onChanged={onHostelsChanged ?? (() => undefined)}
+                        onDirty={setHostelDirty}
+                        onBusy={setHostelBusy}
+                      />
+                    )}
                     {node.kind === 'archive' ? (
                       <EditorSection
                         title="Архив действий"
@@ -714,7 +747,7 @@ export function DormitorySettingsDialog({
                           до и после изменения.
                         </p>
                       </EditorSection>
-                    ) : selected in tables ? (
+                    ) : selected !== 'places' && selected in tables ? (
                       <EditorSection
                         title="Столбцы и порядок"
                         description="Настройте данные таблицы. Убранные столбцы можно восстановить вместе со значениями."
@@ -875,7 +908,9 @@ export function DormitorySettingsDialog({
                                   )}
                                 {column.kind === 'select' && !column.archived && (
                                   <fieldset
-                                    disabled={!!column.builtin_key}
+                                    disabled={
+                                      !!column.builtin_key && column.builtin_key !== 'gender'
+                                    }
                                     className={styles.options}
                                   >
                                     <legend>Варианты списка</legend>
@@ -953,12 +988,12 @@ export function DormitorySettingsDialog({
                           </p>
                         </fieldset>
                       </EditorSection>
-                    ) : (
+                    ) : selected !== 'places' ? (
                       <p className={styles.empty}>
                         В этом разделе таблица настраивается в самом разделе. Подвкладки можно
                         добавлять здесь.
                       </p>
-                    )}
+                    ) : null}
                   </>
                 ) : (
                   <p>Выберите вкладку слева.</p>

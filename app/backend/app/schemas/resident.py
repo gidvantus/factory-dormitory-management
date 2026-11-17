@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class UpdateResidentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    gender: Literal["М", "Ж"] | None = None
+    gender: str | None = Field(default=None, max_length=64, pattern=r"^[^\x00\r\n]+$")
     personnel_number: str | None = Field(default=None, max_length=40)
     full_name: str | None = Field(default=None, max_length=255)
     hostel_id: int | None = Field(default=None, ge=1)

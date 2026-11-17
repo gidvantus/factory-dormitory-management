@@ -40,7 +40,7 @@ from app.schemas.resident_transfer import (
     TransferResidentRequest,
 )
 from app.section_state import require_section_writable
-from app.table_data import columns_for, lock_dormitory
+from app.table_data import columns_for, lock_dormitory, validate_resident_gender
 from app.table_pagination import Paging, record_page
 
 router = APIRouter(
@@ -381,6 +381,8 @@ def update_resident(
     if month.day != 1:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите первый день месяца")
     changes = payload.model_dump(exclude_unset=True)
+    if "gender" in changes:
+        validate_resident_gender(db, dormitory_id, payload.gender, previous=resident.gender)
     if "hostel_id" in changes and changes["hostel_id"] is not None:
         hostel = db.get(Hostel, changes["hostel_id"])
         if (

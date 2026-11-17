@@ -17,11 +17,11 @@ class Resident(CustomValuesMixin, Base):
     dormitory_id: Mapped[int] = mapped_column(
         ForeignKey("dormitories.id", ondelete="CASCADE"), index=True
     )
-    gender: Mapped[str | None] = mapped_column(String(1))
+    gender: Mapped[str | None] = mapped_column(String(64), active_history=True)
     personnel_number: Mapped[str | None] = mapped_column(String(40))
     full_name: Mapped[str | None] = mapped_column(String(255))
     hostel_id: Mapped[int | None] = mapped_column(
-        ForeignKey("hostels.id", ondelete="SET NULL"), index=True
+        ForeignKey("hostels.id", ondelete="SET NULL"), index=True, active_history=True
     )
     shift_start: Mapped[date | None] = mapped_column(Date)
     shift_count: Mapped[int | None] = mapped_column(Integer)
