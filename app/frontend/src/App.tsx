@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
+import { MetrikaGate } from './analytics/MetrikaGate';
 import { RequireAuth } from './auth/RequireAuth';
 import { CookieConsent } from './components/CookieConsent';
 import { Activate } from './pages/Activate';
@@ -152,6 +153,9 @@ export function App(): JSX.Element {
   return (
     <>
       <CookieConsent />
+      {/* Гейт Метрики стоит рядом с плашкой и по той же причине: согласие живёт
+          вне маршрутов, поэтому счётчик не перезапускается при переходах в кабинете. */}
+      <MetrikaGate />
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route
