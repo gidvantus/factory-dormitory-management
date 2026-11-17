@@ -118,10 +118,10 @@ jobs:
           $target = "$env:STAND_BRANCH".Trim()
           if (-not $target) { $target = $branch }
 
-          # Ручная сборка другой ветки: fetch и merge не нужны, в дело идёт
-          # ровно то дерево, что открыто в клоне. Неотслеживаемые файлы при
-          # этом не мешают (.artifacts и прочий мусор), а вот правки в
-          # отслеживаемых файлах означают полусохранённое дерево — их не берём.
+          # Manual build of another branch: no fetch and no merge, the tree that
+          # is open in the clone is exactly what gets built. Untracked files do
+          # not interfere (.artifacts and other junk), but edits in tracked
+          # files mean a half-saved tree, so such a build is refused.
           if ($target -ne $branch) {
             $dirty = "$(git -C $clone status --porcelain -uno)".Trim()
             if ($dirty) {
@@ -221,8 +221,8 @@ jobs:
           $dir = $env:LOCAL_CLONE
           $script = Join-Path $dir '_tools\alembic-heads.py'
           if (-not (Test-Path $script)) {
-            # Клон обновляется fast-forward до develop-m, файл появится в нём
-            # после слияния инструмента. До этого проверять нечего.
+            # The clone is fast-forwarded to develop-m, so the file shows up
+            # there once the tool is merged. Until then there is nothing to check.
             Write-Host "::warning::No _tools\alembic-heads.py in ${dir}: alembic head check skipped."
             exit 0
           }
@@ -446,7 +446,7 @@ jobs:
               # and $null.Count throws on Windows PowerShell 5.1.
               $own = @(docker ps --filter "publish=$number" --filter "label=com.docker.compose.project=$env:STAND_MONITOR_PROJECT" --format '{{.Names}}')
               if ($own.Count -gt 0) {
-                Write-Host "monitor port ${number}: held by our own stack $($own -join ', ') — compose will recreate it ($key)"
+                Write-Host "monitor port ${number}: held by our own stack $($own -join ', ') - compose will recreate it ($key)"
                 continue
               }
               $holders = @(docker ps --filter "publish=$number" --format '{{.Names}}')
@@ -497,10 +497,10 @@ jobs:
 
           $grafanaUrl = "http://127.0.0.1:$($env:STAND_MONITOR_GRAFANA_PORT)/api/health"
           $grafanaOk = $false
-          # Пять минут, а не две: на первом запуске Grafana прогоняет миграции
-          # своей базы внутри тома grafana-data, и на холодной машине это
-          # занимает около трёх минут. Пустой ответ здесь означал бы просто
-          # «ещё не поднялась», а не поломку.
+          # Five minutes, not two: on the first run Grafana migrates its own
+          # database inside the grafana-data volume, and on a cold machine that
+          # takes about three minutes. An empty answer here would mean "not up
+          # yet" rather than a broken stack.
           for ($i = 1; $i -le 60; $i++) {
             try {
               $response = Invoke-WebRequest -Uri $grafanaUrl -UseBasicParsing -TimeoutSec 10
@@ -544,8 +544,8 @@ jobs:
           }
           Write-Host "$logsUrl -> 200"
 
-          # Loki наружу не публикуется, поэтому его живость спрашиваем изнутри
-          # сети - через notifier, который в ней стоит.
+          # Loki publishes nothing to the host, so its liveness is asked from
+          # inside the network - through notifier, which lives there.
           $probe = "import urllib.request;print(urllib.request.urlopen('http://loki:3100/ready', timeout=5).read().decode().strip())"
           $ready = ''
           for ($i = 1; $i -le 15; $i++) {
@@ -559,9 +559,9 @@ jobs:
           }
           Write-Host "loki: $ready"
 
-          # Шов 'контейнер -> promtail -> Loki'. Метка service появляется только
-          # тогда, когда promtail действительно читает контейнеры своего
-          # проекта: пустой ответ означает неверный MONITORED_PROJECT.
+          # The 'container -> promtail -> Loki' seam. The service label shows up
+          # only when promtail really reads the containers of its own project:
+          # an empty answer means a wrong MONITORED_PROJECT.
           $valuesProbe = "import urllib.request;print(urllib.request.urlopen('http://loki:3100/loki/api/v1/label/service/values', timeout=5).read().decode().strip())"
           $services = ''
           for ($i = 1; $i -le 10; $i++) {
