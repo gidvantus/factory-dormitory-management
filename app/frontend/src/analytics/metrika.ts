@@ -37,6 +37,24 @@ declare global {
 /** Запущен ли счётчик в этом документе. Переживает повторные рендеры и эффекты. */
 let started = false;
 
+/** Последний отправленный просмотр: глушит двойной `hit` из `StrictMode` в dev. */
+let lastTrackedPath: string | null = null;
+
+/**
+ * Одноразовые секреты живут прямо в адресе страницы: `/activate/<token>` — по
+ * нему задают пароль аккаунта, `/su/<token>` — готовая ссылка входа под чужим
+ * пользователем. В Метрику такие адреса уходить не должны: у отчёта есть
+ * читатели, а попавший туда токен уже не отозвать. Поэтому сегмент после
+ * `/activate` или `/su` заменяется на `***` — и в `hit`, и в `url` из `init`,
+ * иначе полный адрес уходит вторым каналом.
+ */
+const SECRET_PATH = /^\/(activate|su)\/[^/?#]*/;
+
+/** Адрес страницы без одноразовых секретов: `/activate/<token>` → `/activate/***`. */
+function safePath(path: string): string {
+  return path.replace(SECRET_PATH, '/$1/***');
+}
+
 /**
  * Заглушка `ym`. Без неё вызов `ym(…, 'init', …)` в браузере, где `tag.js`
  * ещё не догрузился, падает: сам счётчик заменяет заглушку на настоящую
@@ -81,13 +99,17 @@ export function startMetrika(): boolean {
   /*
    * `ssr: true` — просмотры отправляются вручную (`trackPageView`), сам счётчик
    * первый `hit` не шлёт: иначе на каждой навигации их было бы два.
+   *
+   * `url` — второй канал того же адреса, поэтому он собирается тем же
+   * `safePath`: иначе токен активации утёк бы в обход `hit`.
    */
+  const initialPath = window.location.pathname + window.location.search;
   ym(METRIKA_COUNTER_ID, 'init', {
     ssr: true,
     clickmap: true,
     ecommerce: 'dataLayer',
     referrer: document.referrer,
-    url: window.location.href,
+    url: window.location.origin + safePath(initialPath),
     accurateTrackBounce: true,
     trackLinks: true,
   });
@@ -96,17 +118,25 @@ export function startMetrika(): boolean {
 
 /**
  * Отправляет просмотр страницы. До согласия (и до запуска счётчика) молчит:
- * вызывающая сторона не обязана знать про согласие.
+ * вызывающая сторона не обязана знать про согласие. Из адреса вырезаются
+ * одноразовые секреты (`/activate/<token>`, `/su/<token>`), а повторный вызов
+ * с тем же адресом не шлёт второй `hit` — так двойной эффект `StrictMode`
+ * в dev-сборке не портит отчёт.
  */
 export function trackPageView(path: string): void {
   if (!started) {
+    return;
+  }
+  const safe = safePath(path);
+  if (safe === lastTrackedPath) {
     return;
   }
   const ym = window.ym;
   if (typeof ym !== 'function') {
     return;
   }
-  ym(METRIKA_COUNTER_ID, 'hit', window.location.origin + path);
+  lastTrackedPath = safe;
+  ym(METRIKA_COUNTER_ID, 'hit', window.location.origin + safe);
 }
 
 /** Запущен ли счётчик — нужно тестам, чтобы различать «не начали» и «уже был». */

@@ -35,6 +35,9 @@ beforeEach(() => {
 
 afterEach(() => {
   clearMetrika();
+  // Тест с секретным адресом двигает `window.location`; вернуть его на место,
+  // иначе следующий тест соберёт `hit` от чужого пути.
+  window.history.replaceState({}, '', '/');
   vi.unstubAllGlobals();
 });
 
@@ -124,6 +127,56 @@ describe('просмотры страниц отправляются тольк�
     expect(queue.at(-1)).toEqual([
       metrika.METRIKA_COUNTER_ID,
       'hit',
+      `${window.location.origin}/pricing?tab=year`,
+    ]);
+  });
+
+  it('вырезает одноразовые секреты активации и входа из адреса просмотра', async () => {
+    document.cookie = `${CONSENT_COOKIE}=v2; path=/`;
+    const metrika = await loadMetrika();
+    metrika.startMetrika();
+
+    // `/activate/<token>` задаёт пароль аккаунта, `/su/<token>` — готовая
+    // ссылка входа под пользователем; ни то, ни другое в отчёт попасть не должно.
+    metrika.trackPageView('/activate/secret-token-activate');
+    metrika.trackPageView('/su/secret-token-login?next=%2Fcabinet');
+    metrika.trackPageView('/pricing?tab=year');
+
+    const hits = (window.ym?.a ?? []).filter((call) => call[1] === 'hit').map((call) => call[2]);
+    expect(hits).toEqual([
+      `${window.location.origin}/activate/***`,
+      `${window.location.origin}/su/***?next=%2Fcabinet`,
+      `${window.location.origin}/pricing?tab=year`,
+    ]);
+    expect(JSON.stringify(hits)).not.toContain('secret-token');
+  });
+
+  it('не отправляет адрес со секретом и в init через url', async () => {
+    window.history.pushState({}, '', '/activate/secret-token-activate');
+    document.cookie = `${CONSENT_COOKIE}=v2; path=/`;
+    const metrika = await loadMetrika();
+
+    expect(metrika.startMetrika()).toBe(true);
+
+    const [init] = (window.ym?.a ?? []).filter((call) => call[1] === 'init');
+    expect((init?.[2] as { url?: string } | undefined)?.url).toBe(
+      `${window.location.origin}/activate/***`,
+    );
+  });
+
+  it('повторный просмотр того же адреса не шлёт второй hit', async () => {
+    document.cookie = `${CONSENT_COOKIE}=v2; path=/`;
+    const metrika = await loadMetrika();
+    metrika.startMetrika();
+
+    // Двойной эффект `StrictMode` в dev-сборке вызывает просмотр дважды.
+    metrika.trackPageView('/pricing');
+    metrika.trackPageView('/pricing');
+    metrika.trackPageView('/pricing?tab=year');
+
+    const hits = (window.ym?.a ?? []).filter((call) => call[1] === 'hit').map((call) => call[2]);
+    expect(hits).toEqual([
+      `${window.location.origin}/pricing`,
       `${window.location.origin}/pricing?tab=year`,
     ]);
   });
