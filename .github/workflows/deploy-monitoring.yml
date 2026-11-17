@@ -160,6 +160,33 @@ jobs:
         # которое реально указывает DNS.
         run: |
           set -euo pipefail
+          # Права на .env проверяются ДО чтения: из нечитаемого файла `sed`
+          # молчит и отдаёт пустую строку, поэтому настоящая причина (владелец
+          # файла) вылезала как «SITE_DOMAIN пуст», а в логе оставалось голое
+          # `sed: can't read .env: Permission denied`. Запись тоже нужна: шаг
+          # «пара входа» дописывает в этот же файл MONITOR_BASIC_AUTH_*.
+          # Основной кабинет при неверном владельце продолжает работать —
+          # приложению и деплою кода хватает чтения.
+          ssh "$SSH_TARGET" bash -s -- "$REMOTE_DIR" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          if [ ! -f .env ]; then
+            echo "::error::В $(pwd) нет .env. Деплой мониторинга его не создаёт: соберите файл по чек-листу docs/ssl.md и запустите снова."
+            exit 1
+          fi
+          OWNER="$(stat -c '%U:%G' .env 2>/dev/null || echo '?')"
+          MODE="$(stat -c '%a' .env 2>/dev/null || echo '?')"
+          FIX="sudo chown --reference=$(pwd) $(pwd)/.env && sudo chmod 640 $(pwd)/.env"
+          if [ ! -r .env ]; then
+            echo "::error::$(pwd)/.env не читается пользователю $(whoami) (владелец $OWNER, режим $MODE), поэтому SITE_DOMAIN и ACME_EMAIL взять неоткуда. Каталог проекта принадлежит пользователю деплоя — им же лечится и файл: $FIX, затем запустить workflow снова — docs/deploy.md."
+            exit 1
+          fi
+          if [ ! -w .env ]; then
+            echo "::error::В $(pwd)/.env нельзя дописать пару входа MONITOR_BASIC_AUTH_*: файл не доступен на запись пользователю $(whoami) (владелец $OWNER, режим $MODE). Чтения хватает приложению и деплою кода, поэтому основной кабинет работает и здесь ни при чём. На сервере: $FIX, затем запустить workflow снова — docs/monitoring.md."
+            exit 1
+          fi
+          echo ".env: владелец $OWNER, режим $MODE, чтение и запись есть."
+          REMOTE
           remote() {
             # shellcheck disable=SC2029
             ssh "$SSH_TARGET" "$@"
@@ -195,36 +222,6 @@ jobs:
           fi
           echo "LOGS_HOST=$LOGS_HOST" >> "$GITHUB_ENV"
           echo "SITE_DOMAIN прошёл проверку: мониторинг будет на $MONITOR_HOST, логи — на $LOGS_HOST."
-
-      - name: "Сервер: права на .env"
-        # Шаг «пара входа» дописывает в серверный .env пару MONITOR_BASIC_AUTH_*.
-        # Обычная причина отказа — файл остался root:root после правки через
-        # `sudo nano`: чтение работает (сайт жив, деплой кода проходит),
-        # а запись — нет, и это вылезало невнятным `Permission denied` посреди
-        # генерации пары. Проверяем заранее и называем команду для сервера;
-        # основной кабинет здесь ни при чём и не затрагивается.
-        run: |
-          set -euo pipefail
-          ssh "$SSH_TARGET" bash -s -- "$REMOTE_DIR" <<'REMOTE'
-          set -euo pipefail
-          cd "$1"
-          if [ ! -f .env ]; then
-            echo "::error::В $(pwd) нет .env. Деплой мониторинга его не создаёт: соберите файл по чек-листу docs/ssl.md и запустите снова."
-            exit 1
-          fi
-          OWNER="$(stat -c '%U:%G' .env 2>/dev/null || echo '?')"
-          MODE="$(stat -c '%a' .env 2>/dev/null || echo '?')"
-          FIX="sudo chown $(whoami):$(id -gn) $(pwd)/.env && sudo chmod 640 $(pwd)/.env"
-          if [ ! -r .env ]; then
-            echo "::error::$(pwd)/.env не читается пользователю $(whoami) (владелец $OWNER, режим $MODE). Из него берутся SITE_DOMAIN и COMPOSE_PROJECT_NAME. На сервере: $FIX, затем запустить workflow снова — docs/monitoring.md."
-            exit 1
-          fi
-          if [ ! -w .env ]; then
-            echo "::error::В $(pwd)/.env нельзя дописать пару входа MONITOR_BASIC_AUTH_*: файл не доступен на запись пользователю $(whoami) (владелец $OWNER, режим $MODE). Чтения хватает приложению и деплою кода, поэтому основной кабинет работает и здесь ни при чём. На сервере: $FIX, затем запустить workflow снова — docs/monitoring.md."
-            exit 1
-          fi
-          echo ".env: владелец $OWNER, режим $MODE, запись есть."
-          REMOTE
 
       - name: "Архив: упаковать и передать на сервер"
         run: |
