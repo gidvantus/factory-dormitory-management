@@ -365,11 +365,23 @@ def poll_once(
 
 
 def run_forever(*, settings: Settings | None = None) -> None:
-    """Цикл бота: опрос, отправка, пауза. Работает до остановки контейнера."""
+    """Цикл бота: опрос, отправка, пауза. Работает до остановки контейнера.
+
+    Клиент Bot API собирается через `telegram_client.client_options`: там же
+    оказывается прокси, если он задан (`TELEGRAM_PROXY_URL`). Клиент CRM
+    создаётся прежним, без прокси всегда: `api:8000` живёт во внутренней сети
+    compose, и прокси для Telegram туда ходить не должен.
+    """
     resolved = settings or get_settings()
     timeout = resolved.telegram_request_timeout_seconds
+    # Прокси, если он задан, приходит только в этих аргументах: у CRM-клиента
+    # ниже прокси нет никогда.
+    bot_options = telegram_client.client_options(resolved)
     offset: int | None = None
-    with httpx.Client(timeout=timeout) as bot_client, httpx.Client(timeout=timeout) as crm_client:
+    with (
+        httpx.Client(**bot_options) as bot_client,  # type: ignore[arg-type]
+        httpx.Client(timeout=timeout) as crm_client,
+    ):
         while True:
             try:
                 offset = poll_once(
@@ -405,6 +417,14 @@ def main() -> None:
         # Выход до первого сетевого вызова: без токенов бот всё равно ничего не
         # сможет, а внятная запись в лог объясняет, что именно не задано.
         logger.error("Бот не запущен: не заданы %s", ", ".join(missing))
+        return
+    # Прокси проверяется той же ранней проверкой: httpx отверг бы адрес без
+    # схемы уже на первом запросе, и в логе это выглядело бы как «Telegram
+    # недоступен», а не как опечатка в переменной. Само значение в лог не идёт:
+    # в нём бывают логин и пароль.
+    proxy = settings.telegram_proxy_url.strip()
+    if proxy and not proxy.startswith(("http://", "https://")):
+        logger.error("Бот не запущен: TELEGRAM_PROXY_URL должен начинаться с http:// или https://")
         return
     logger.info("Бот запущен: опрос Bot API каждые %s с", settings.telegram_poll_interval_seconds)
     run_forever(settings=settings)

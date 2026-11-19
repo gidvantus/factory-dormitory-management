@@ -27,6 +27,7 @@ def make_settings(
     bot_token: str = BOT_TOKEN,
     service_token: str = SERVICE_TOKEN,
     crm_url: str = CRM_URL,
+    proxy: str = "",
 ) -> Settings:
     """Настройки с явными значениями: окружение машины в тестах не участвует."""
     return Settings(
@@ -38,6 +39,7 @@ def make_settings(
         telegram_api_base_url="https://api.telegram.test",
         telegram_crm_api_url=crm_url,
         telegram_request_timeout_seconds=1.0,
+        telegram_proxy_url=proxy,
     )
 
 
@@ -539,4 +541,64 @@ def test_main_hides_http_library_urls_with_bot_token(
     assert len(called) == 1
     logged = "\n".join(record.getMessage() for record in caplog.records)
     assert "Бот запущен" in logged
+    assert BOT_TOKEN not in logged and SERVICE_TOKEN not in logged
+
+
+# --- Прокси для Bot API (issue #232) ---
+
+
+def test_run_forever_gives_the_proxy_to_the_bot_client_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Прокси достаётся только клиенту Bot API: клиент CRM создаётся прежним."""
+    built: list[dict[str, object]] = []
+
+    class RecordingClient:
+        def __init__(self, **kwargs: object) -> None:
+            built.append(kwargs)
+
+        def __enter__(self) -> "RecordingClient":
+            return self
+
+        def __exit__(self, *exc_info: object) -> bool:
+            return False
+
+    monkeypatch.setattr(bot.httpx, "Client", RecordingClient)
+
+    def stop(**kwargs: object) -> None:
+        # Выход из бесконечного цикла: шаг бота прерывает `with` и его клиенты.
+        raise SystemExit
+
+    monkeypatch.setattr(bot, "poll_once", stop)
+
+    proxy = "http://proxy.test:3128"
+    with pytest.raises(SystemExit):
+        bot.run_forever(settings=make_settings(proxy=proxy))
+
+    assert built == [{"timeout": 1.0, "proxy": proxy}, {"timeout": 1.0}]
+
+
+def test_main_rejects_a_proxy_without_a_scheme_before_the_network(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Опечатка в схеме прокси видна сразу, а не как «Telegram недоступен»."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", BOT_TOKEN)
+    monkeypatch.setenv("TELEGRAM_SERVICE_TOKEN", SERVICE_TOKEN)
+    monkeypatch.setenv("TELEGRAM_PROXY_URL", "proxy-user:proxy-password@proxy.test:3128")
+    get_settings.cache_clear()
+    started: list[dict[str, object]] = []
+    monkeypatch.setattr(bot, "run_forever", lambda **kwargs: started.append(kwargs))
+
+    try:
+        with caplog.at_level(logging.ERROR, logger="app.bot"):
+            bot.main()
+    finally:
+        get_settings.cache_clear()
+
+    assert started == []
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "TELEGRAM_PROXY_URL" in logged
+    # Значение прокси — это логин и пароль: в лог оно не попадает.
+    assert "proxy-user" not in logged
+    assert "proxy-password" not in logged
     assert BOT_TOKEN not in logged and SERVICE_TOKEN not in logged
