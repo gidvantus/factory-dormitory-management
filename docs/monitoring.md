@@ -636,6 +636,23 @@ docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env \
 Ошибки отправки notifier логирует типом исключения, а не адресом: адрес Bot
 API содержит токен, и печатать его в логи нельзя.
 
+**Если у сервера нет прямого выхода в Telegram** (симптомы и общая картина —
+`docs/deploy.md`, раздел «Сервер без прямого доступа к Telegram»), notifier
+получает свой прокси третьей переменной в `monitor/.env`:
+
+```env
+MONITOR_TELEGRAM_PROXY_URL=http://proxy.example:3128
+```
+
+Заданное значение уводит в прокси **только** запрос `sendMessage`: notifier
+собирает для него отдельный `urllib.request.build_opener(ProxyHandler(...))`, а
+запросы к Prometheus (`PROMETHEUS_URL`) идут напрямую, как раньше. Пустое
+значение — прямое соединение, оно же умолчание. Это НЕ `HTTPS_PROXY`: та
+переменная общая для процесса и увела бы в прокси и сводку из Prometheus. После
+правки — `docker compose -f monitor/docker-compose.monitor.yml --env-file
+monitor/.env up -d notifier` (пересоздание, а не `restart`: окружение
+перечитывается только при создании контейнера).
+
 ## Вечерняя сводка
 
 Раз в сутки в `DIGEST_HOUR` (по умолчанию 18:00) по `DIGEST_TIMEZONE`
@@ -765,6 +782,12 @@ docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env ps
 
 ## Изменения
 
+- 2026-11-19 — notifier ходит в Telegram через прокси: `MONITOR_TELEGRAM_PROXY_URL`
+  в `monitor/.env` собирает для `sendMessage` отдельный
+  `urllib.request.build_opener(ProxyHandler(...))`, а запросы к Prometheus
+  остаются прямыми. Нужно серверам без прямого выхода в Telegram
+  (`docs/deploy.md`, раздел «Сервер без прямого доступа к Telegram»). Пустое
+  значение — прежнее прямое соединение.
 - 2026-11-19 — диагностика медленных SQL-запросов: API отдаёт
   `http_request_sql_duration_seconds` и `http_sql_statements_total` по меткам
   `method`/`route` (`app/backend/app/sql_diagnostics.py`), а запрос дольше
