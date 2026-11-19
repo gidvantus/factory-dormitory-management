@@ -17,10 +17,26 @@ from types import ModuleType
 
 import pytest
 
-# Каталог стека мониторинга в репозитории. В образе `api` его нет (образ
-# собирается из `app/backend`), поэтому там тест пропускается; в CI и в рабочей
-# копии он идёт.
-NOTIFIER_PATH = Path(__file__).resolve().parents[3] / "monitor" / "notifier" / "app.py"
+
+def find_repo_root() -> Path | None:
+    """Корень рабочей копии — ближайший предок, где лежит notifier мониторинга.
+
+    Фиксированная глубина тут не годится: в образе `api` файл лежит в
+    `/app/tests/`, и `parents[3]` бросает `IndexError` ещё при импорте — до
+    `skipif`, который должен был пропустить тест. Индексная адресация ломает
+    `docker compose exec api pytest` (сбор тестов падает целиком, включая
+    `dbtest`), поэтому корень ищется перебором предков.
+    """
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "monitor" / "notifier" / "app.py").is_file():
+            return parent
+    return None
+
+
+REPO_ROOT = find_repo_root()
+# В образе `api` каталога `monitor/` нет (образ собирается из `app/backend`),
+# поэтому там тест пропускается; в CI и в рабочей копии он идёт.
+NOTIFIER_PATH = REPO_ROOT / "monitor" / "notifier" / "app.py" if REPO_ROOT else None
 
 BOT_TOKEN = "111111:notifier-unit-test-token"
 CHAT_ID = "123456789"
@@ -56,17 +72,19 @@ class RecordingOpener:
 
 def load_notifier(monkeypatch: pytest.MonkeyPatch, *, proxy: str) -> ModuleType:
     """Загрузить notifier с заданным окружением: настройки читаются при импорте."""
+    path = NOTIFIER_PATH
+    assert path is not None, "notifier мониторинга есть только в полной рабочей копии"
     monkeypatch.setenv("MONITOR_TELEGRAM_BOT_TOKEN", BOT_TOKEN)
     monkeypatch.setenv("MONITOR_TELEGRAM_CHAT_ID", CHAT_ID)
     monkeypatch.setenv("MONITOR_TELEGRAM_PROXY_URL", proxy)
-    spec = importlib.util.spec_from_file_location("notifier_for_tests", NOTIFIER_PATH)
+    spec = importlib.util.spec_from_file_location("notifier_for_tests", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-@pytest.mark.skipif(not NOTIFIER_PATH.exists(), reason="в образе api нет каталога monitor/")
+@pytest.mark.skipif(NOTIFIER_PATH is None, reason="в образе api нет каталога monitor/")
 def test_telegram_goes_through_the_proxy_and_prometheus_stays_direct(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -104,7 +122,7 @@ def test_telegram_goes_through_the_proxy_and_prometheus_stays_direct(
     assert direct[0].startswith("http://prometheus:9090/api/v1/query")
 
 
-@pytest.mark.skipif(not NOTIFIER_PATH.exists(), reason="в образе api нет каталога monitor/")
+@pytest.mark.skipif(NOTIFIER_PATH is None, reason="в образе api нет каталога monitor/")
 def test_without_a_proxy_the_notifier_keeps_the_direct_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

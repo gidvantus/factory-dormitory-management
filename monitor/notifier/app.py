@@ -139,13 +139,13 @@ def _request(
     """GET (или POST с телом) и разбор JSON. Исключения — наружу.
 
     ``opener`` передаётся только для Bot API: так один и тот же разбор ответа
-    работает и через прокси, и напрямую.
+    работает и через прокси, и напрямую. Прямое соединение — прежний
+    ``urllib.request.urlopen``, у него и у ``OpenerDirector.open`` одинаковый
+    вызов, поэтому разбор ответа ниже один.
     """
     request = urllib.request.Request(url, data=data)
-    if opener is None:
-        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
-            return json.loads(response.read().decode("utf-8"))
-    with opener.open(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+    open_request = urllib.request.urlopen if opener is None else opener.open
+    with open_request(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

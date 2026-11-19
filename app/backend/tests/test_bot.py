@@ -602,3 +602,23 @@ def test_main_rejects_a_proxy_without_a_scheme_before_the_network(
     assert "proxy-user" not in logged
     assert "proxy-password" not in logged
     assert BOT_TOKEN not in logged and SERVICE_TOKEN not in logged
+
+
+def test_main_accepts_a_proxy_scheme_in_any_case(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`HTTPS://` httpx принимает сам: проверка схемы не должна глушить бота."""
+    upper = "HTTPS://proxy-user:proxy-password@proxy.corp:3128"
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", BOT_TOKEN)
+    monkeypatch.setenv("TELEGRAM_SERVICE_TOKEN", SERVICE_TOKEN)
+    # Пробелы по краям — тоже обычное дело в `.env`.
+    monkeypatch.setenv("TELEGRAM_PROXY_URL", f"  {upper}  ")
+    get_settings.cache_clear()
+    started: list[Settings] = []
+    monkeypatch.setattr(bot, "run_forever", lambda *, settings: started.append(settings))
+
+    try:
+        bot.main()
+    finally:
+        get_settings.cache_clear()
+
+    assert len(started) == 1
+    assert started[0].telegram_proxy_url.strip() == upper

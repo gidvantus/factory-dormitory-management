@@ -422,8 +422,11 @@ def main() -> None:
     # схемы уже на первом запросе, и в логе это выглядело бы как «Telegram
     # недоступен», а не как опечатка в переменной. Само значение в лог не идёт:
     # в нём бывают логин и пароль.
+    # Схема сравнивается без учёта регистра: `HTTPS://` httpx принимает (он сам
+    # приводит схему к нижнему регистру), а отвергать его значило бы глушить
+    # верную настройку с сообщением о несуществующей опечатке.
     proxy = settings.telegram_proxy_url.strip()
-    if proxy and not proxy.startswith(("http://", "https://")):
+    if proxy and not proxy.lower().startswith(("http://", "https://")):
         logger.error("Бот не запущен: TELEGRAM_PROXY_URL должен начинаться с http:// или https://")
         return
     logger.info("Бот запущен: опрос Bot API каждые %s с", settings.telegram_poll_interval_seconds)
