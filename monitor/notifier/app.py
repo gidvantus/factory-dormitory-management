@@ -15,7 +15,9 @@ notifier ничего не хранит и приложение не опраш�
 
 Сеть наружу — только Bot API. Пустой ``MONITOR_TELEGRAM_BOT_TOKEN`` —
 рабочее состояние: сообщение попадает в лог (в том числе строка со словом
-``АЛЕРТ``), процесс не падает.
+``АЛЕРТ``), процесс не падает. Если у сервера нет прямого выхода в Telegram,
+``MONITOR_TELEGRAM_PROXY_URL`` уводит в прокси только отправку в Bot API:
+запросы к Prometheus остаются прямыми (issue #232).
 
 ``parse_mode`` не используется: в тексте алертов и сводки встречаются ``<``,
 ``_`` и ``*``, а экранировать их в каждом сообщении — источник ошибок.
@@ -52,6 +54,10 @@ logging.basicConfig(
 TELEGRAM_API_BASE_URL = os.environ.get("TELEGRAM_API_BASE_URL", "https://api.telegram.org")
 BOT_TOKEN = os.environ.get("MONITOR_TELEGRAM_BOT_TOKEN", "")
 CHAT_ID = os.environ.get("MONITOR_TELEGRAM_CHAT_ID", "")
+# Прокси только для Bot API. Пустое значение — прямое соединение. Через прокси
+# не ходят запросы к Prometheus: они идут по внутренней сети compose, и прокси
+# там только мешал бы. Значение содержит логин и пароль — в лог оно не попадает.
+TELEGRAM_PROXY_URL = os.environ.get("MONITOR_TELEGRAM_PROXY_URL", "").strip()
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
 
 # Час вечерней сводки и её часовой пояс. Часовой пояс — отдельной переменной:
@@ -110,10 +116,36 @@ def _timezone() -> tzinfo:
         return timezone(timedelta(hours=FALLBACK_TZ_OFFSET_HOURS))
 
 
-def _request(url: str, data: bytes | None = None) -> Any:
-    """GET (или POST с телом) и разбор JSON. Исключения — наружу."""
+def telegram_opener() -> urllib.request.OpenerDirector | None:
+    """Opener для Bot API: свой прокси, если он задан, иначе ``None``.
+
+    ``None`` — прямое соединение прежним ``urllib.request.urlopen``. Отдельный
+    opener, а не глобальный ``urllib.request.install_opener``: через прокси идёт
+    только разговор с Telegram, а сводка ходит в Prometheus по внутренней сети
+    compose, где прокси не нужен (issue #232).
+    """
+    if not TELEGRAM_PROXY_URL:
+        return None
+    proxy = urllib.request.ProxyHandler({"http": TELEGRAM_PROXY_URL, "https": TELEGRAM_PROXY_URL})
+    return urllib.request.build_opener(proxy)
+
+
+def _request(
+    url: str,
+    data: bytes | None = None,
+    *,
+    opener: urllib.request.OpenerDirector | None = None,
+) -> Any:
+    """GET (или POST с телом) и разбор JSON. Исключения — наружу.
+
+    ``opener`` передаётся только для Bot API: так один и тот же разбор ответа
+    работает и через прокси, и напрямую.
+    """
     request = urllib.request.Request(url, data=data)
-    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+    if opener is None:
+        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+            return json.loads(response.read().decode("utf-8"))
+    with opener.open(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -276,7 +308,7 @@ def send(text: str, kind: str) -> bool:
     ).encode("utf-8")
     url = f"{TELEGRAM_API_BASE_URL.rstrip('/')}/bot{BOT_TOKEN}/sendMessage"
     try:
-        _request(url, data=data)
+        _request(url, data=data, opener=telegram_opener())
     except Exception as error:  # связь с Telegram не должна ронять процесс
         logger.warning("Telegram не принял сообщение (%s): %s", kind, type(error).__name__)
         return False
