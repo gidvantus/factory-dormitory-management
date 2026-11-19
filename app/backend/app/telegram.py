@@ -50,6 +50,21 @@ def _bot_token(settings: Settings) -> str:
     return settings.telegram_bot_token.strip()
 
 
+def client_options(settings: Settings) -> dict[str, object]:
+    """Аргументы `httpx.Client` для разговора с Bot API: таймаут и, если задан, прокси.
+
+    Чистая функция, без сети: и клиент бота, и одиночный вызов из `_post`
+    собираются из одного места, иначе «с прокси» и «без прокси» разъехались бы
+    между ними. Пустой `telegram_proxy_url` — прямое соединение, поэтому ключа
+    `proxy` в словаре нет вовсе: клиент создаётся ровно таким, как раньше.
+    """
+    options: dict[str, object] = {"timeout": settings.telegram_request_timeout_seconds}
+    proxy = settings.telegram_proxy_url.strip()
+    if proxy:
+        options["proxy"] = proxy
+    return options
+
+
 def _post(
     method: str,
     payload: dict[str, object],
@@ -69,11 +84,9 @@ def _post(
         return None
 
     owned_client = client is None
-    http = (
-        client
-        if client is not None
-        else httpx.Client(timeout=resolved.telegram_request_timeout_seconds)
-    )
+    # Ключ `proxy` появляется в словаре по условию, поэтому mypy не может сверить
+    # аргументы `httpx.Client` — сам словарь собирает `client_options`.
+    http = client if client is not None else httpx.Client(**client_options(resolved))  # type: ignore[arg-type]
     try:
         try:
             response = http.post(_method_url(resolved, method), json=payload)

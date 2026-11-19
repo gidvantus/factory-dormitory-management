@@ -44,6 +44,7 @@ def make_settings(
     bot_token: str = BOT_TOKEN,
     service_token: str = SERVICE_TOKEN,
     bot_username: str = BOT_USERNAME,
+    proxy: str = "",
 ) -> Settings:
     """Настройки с явными значениями: окружение машины в тестах не участвует.
 
@@ -58,6 +59,7 @@ def make_settings(
         telegram_service_token=service_token,
         telegram_api_base_url="https://api.telegram.test",
         telegram_request_timeout_seconds=1.0,
+        telegram_proxy_url=proxy,
     )
 
 
@@ -207,6 +209,78 @@ def test_get_updates_returns_parsed_items_and_skips_missing_result() -> None:
 
     with client_with(lambda request: httpx.Response(500, text="boom")) as client:
         assert telegram.get_updates(offset=None, client=client, settings=make_settings()) == []
+
+
+# --- Прокси для Bot API (issue #232) ---
+
+PROXY_URL = "http://proxy.test:3128"
+
+
+def test_client_options_ask_for_the_proxy_only_when_it_is_set() -> None:
+    """Пустая настройка — прямое соединение: ключа `proxy` в аргументах нет вовсе."""
+    assert telegram.client_options(make_settings()) == {"timeout": 1.0}
+    # Пробелы по краям значения обрезаются: их легко оставить в .env.
+    assert telegram.client_options(make_settings(proxy=f"  {PROXY_URL}  ")) == {
+        "timeout": 1.0,
+        "proxy": PROXY_URL,
+    }
+
+
+def test_post_builds_its_own_client_with_the_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Без переданного клиента `_post` создаёт его сам — с прокси, если он задан."""
+    built: list[dict[str, object]] = []
+
+    class RecordingClient:
+        def __init__(self, **kwargs: object) -> None:
+            built.append(kwargs)
+
+        def post(self, url: str, json: object) -> httpx.Response:
+            return ok_response({})
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(telegram.httpx, "Client", RecordingClient)
+
+    assert telegram.send_message(chat_id=CHAT_ID, text="привет", settings=make_settings())
+    assert telegram.send_message(
+        chat_id=CHAT_ID, text="привет", settings=make_settings(proxy=PROXY_URL)
+    )
+
+    assert built == [{"timeout": 1.0}, {"timeout": 1.0, "proxy": PROXY_URL}]
+
+
+def test_proxy_failure_is_swallowed_and_keeps_the_proxy_out_of_the_log(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сбой прокси — `False`, а в логе тип ошибки: логин и пароль прокси не печатаются."""
+    secret_proxy = "http://proxy-user:proxy-password@proxy.test:3128"
+    built: list[dict[str, object]] = []
+
+    class FailingClient:
+        def __init__(self, **kwargs: object) -> None:
+            built.append(kwargs)
+
+        def post(self, url: str, json: object) -> httpx.Response:
+            raise httpx.ProxyError("proxy authentication required")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(telegram.httpx, "Client", FailingClient)
+
+    with caplog.at_level(logging.ERROR, logger="app.telegram"):
+        sent = telegram.send_message(
+            chat_id=CHAT_ID, text="привет", settings=make_settings(proxy=secret_proxy)
+        )
+
+    assert sent is False
+    assert built == [{"timeout": 1.0, "proxy": secret_proxy}]
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "proxy-user" not in logged
+    assert "proxy-password" not in logged
+    assert BOT_TOKEN not in logged
+    assert CHAT_ID not in logged
 
 
 def test_render_message_joins_title_and_body_without_markup() -> None:

@@ -117,6 +117,10 @@ services:
       # Пустой токен — рабочее состояние: сообщения уходят в лог, процесс живёт.
       MONITOR_TELEGRAM_BOT_TOKEN: ${MONITOR_TELEGRAM_BOT_TOKEN:-}
       MONITOR_TELEGRAM_CHAT_ID: ${MONITOR_TELEGRAM_CHAT_ID:-}
+      # Прокси только для Bot API: серверу без прямого выхода в Telegram. Пустое
+      # значение — прямое соединение, оно же умолчание. Через прокси не идут
+      # запросы к Prometheus (issue #232, docs/monitoring.md).
+      MONITOR_TELEGRAM_PROXY_URL: ${MONITOR_TELEGRAM_PROXY_URL:-}
       TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
       PROMETHEUS_URL: ${PROMETHEUS_URL:-http://prometheus:9090}
       DIGEST_HOUR: ${DIGEST_HOUR:-18}
