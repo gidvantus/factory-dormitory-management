@@ -124,26 +124,57 @@ def group_identities(
     return result
 
 
-def source_key(row: Row) -> str:
-    if isinstance(row, Resident):
-        return "residents"
-    if isinstance(row, PersonnelInflow):
-        return "inflow"
-    if isinstance(row, PersonnelOutflow):
-        return "outflow"
-    if isinstance(row, CustomTabEntry):
-        return f"custom_{row.tab_id}"
-    return "archive"
-
-
 # Справочник «какая модель — какой ключ таблицы». Ключ у модели постоянный; своё
 # имя только у пользовательской вкладки, и оно зависит от строки, а не от модели.
+# Это единственное место, где описан ключ модели: `source_key`, `all_sources` и
+# `source_spec` берут его отсюда.
 SOURCE_KEYS: dict[type[Row], str] = {
     Resident: "residents",
     PersonnelInflow: "inflow",
     PersonnelOutflow: "outflow",
     ArchiveEntry: "archive",
 }
+# Модели-источники вне справочника: их таблица зовётся `custom_<id>`, и имя
+# зависит от строки. Инвариант проверяется при импорте модуля, а не в проде:
+# шестая модель, забытая в `SOURCE_KEYS`, иначе отдала бы 500 на
+# `GET /api/personnel` и на экспорте — на первом же запросе, а не на импорте.
+CUSTOM_KEYED: tuple[type[Row], ...] = (CustomTabEntry,)
+
+
+def check_source_keys(
+    registry: dict[type[Row], str] | None = None,
+    models: tuple[type[Row], ...] = SOURCE_MODELS,
+    custom: tuple[type[Row], ...] = CUSTOM_KEYED,
+) -> None:
+    """Проверить, что справочник ключей описывает все модели-источники.
+
+    Вне справочника может быть только модель с ключом `custom_<id>` (строки
+    пользовательской вкладки). Если шестую модель добавят в `SOURCE_MODELS` и
+    забудут в `SOURCE_KEYS`, `all_sources` упала бы на первом же запросе, и
+    `GET /api/personnel` с экспортом отдали бы 500. Поэтому проверка вызывается
+    при импорте модуля: ломается импорт, а не прод.
+    """
+    missing = set(models) - set(SOURCE_KEYS if registry is None else registry) - set(custom)
+    if missing:
+        raise RuntimeError(
+            "SOURCE_KEYS не описывает модели-источники: "
+            + ", ".join(sorted(model.__name__ for model in missing))
+            + "; добавьте ключ в SOURCE_KEYS или модель в CUSTOM_KEYED"
+        )
+
+
+check_source_keys()
+
+
+def source_key(row: Row) -> str:
+    """Ключ таблицы-источника строки: постоянный или `custom_<id>` вкладки."""
+    key = SOURCE_KEYS.get(type(row))
+    if key is not None:
+        return key
+    # Вне справочника остаётся только строка пользовательской вкладки — это
+    # обеспечивает проверка инварианта выше.
+    assert isinstance(row, CustomTabEntry)
+    return f"custom_{row.tab_id}"
 
 
 @dataclass(frozen=True)
@@ -175,9 +206,7 @@ def source_spec(model: type[Row]) -> SourceSpec:
         spec = SourceSpec(
             keys=tuple(column.key for column in columns),
             temporal=tuple(
-                column.key
-                for column in columns
-                if isinstance(column.type, (Date, DateTime)) and column.key != "employee_id"
+                column.key for column in columns if isinstance(column.type, (Date, DateTime))
             ),
             employee_at=next(
                 index for index, column in enumerate(columns) if column.key == "employee_id"
@@ -204,6 +233,53 @@ def stringify_temporal(values: dict[str, Any], spec: SourceSpec) -> None:
             values[key] = value.isoformat()
 
 
+def annotate(
+    db: Session,
+    values: dict[str, Any],
+    key: str,
+    lookup: dict[str, Any] | None = None,
+) -> None:
+    """Дописать к значениям строки то, чего нет в её колонках.
+
+    Один помощник на два пути: ответ ручки (`all_sources`) и снимок истории,
+    который пишет `record_changed` через `row_values`. Наложения обязаны совпадать
+    у обоих — иначе одна и та же строка придёт в разных формах, а сравнение
+    `previous.snapshot == values` начнёт сравнивать их впустую (#237).
+
+    `lookup` — уже загруженные справочники области; с ним помощник не делает ни
+    одного запроса, без него недостающие значения читаются из базы.
+    """
+    dormitory_id = values["dormitory_id"]
+    dormitory = (
+        lookup["dormitories"].get(dormitory_id)
+        if lookup is not None
+        else db.get(Dormitory, dormitory_id)
+    )
+    values["dormitory_name"] = dormitory.name if dormitory else "Удалённое общежитие"
+    values["client_name"] = dormitory.client_name if dormitory else ""
+    hostel_id = values.get("hostel_id")
+    if hostel_id:
+        hostel = (
+            lookup["hostels"].get(hostel_id) if lookup is not None else db.get(Hostel, hostel_id)
+        )
+        values["hostel_name"] = hostel.name if hostel else None
+    binding = (
+        lookup["bindings"].get((dormitory_id, key))
+        if lookup is not None
+        else db.scalar(
+            select(PersonnelBinding).where(
+                PersonnelBinding.dormitory_id == dormitory_id, PersonnelBinding.table_key == key
+            )
+        )
+    )
+    if binding:
+        custom = values.get("custom_values") or {}
+        for field, column_id in binding.fields.items():
+            value = custom.get(str(column_id))
+            if value is not None:
+                values[field] = str(value)
+
+
 def row_values(db: Session, row: Row, lookup: dict[str, Any] | None = None) -> dict[str, Any]:
     """Значения строки-источника для ответа и для снимка истории.
 
@@ -217,35 +293,7 @@ def row_values(db: Session, row: Row, lookup: dict[str, Any] | None = None) -> d
     values: dict[str, Any] = {key: getattr(row, key) for key in spec.keys}
     del values["employee_id"]
     stringify_temporal(values, spec)
-    dormitory = (
-        lookup["dormitories"].get(row.dormitory_id)
-        if lookup is not None
-        else db.get(Dormitory, row.dormitory_id)
-    )
-    values["dormitory_name"] = dormitory.name if dormitory else "Удалённое общежитие"
-    values["client_name"] = dormitory.client_name if dormitory else ""
-    if isinstance(row, Resident) and row.hostel_id:
-        hostel = (
-            lookup["hostels"].get(row.hostel_id)
-            if lookup is not None
-            else db.get(Hostel, row.hostel_id)
-        )
-        values["hostel_name"] = hostel.name if hostel else None
-    key = source_key(row)
-    binding = (
-        lookup["bindings"].get((row.dormitory_id, key))
-        if lookup is not None
-        else db.scalar(
-            select(PersonnelBinding).where(
-                PersonnelBinding.dormitory_id == row.dormitory_id, PersonnelBinding.table_key == key
-            )
-        )
-    )
-    if binding:
-        for field, column_id in binding.fields.items():
-            value = (row.custom_values or {}).get(str(column_id))
-            if value is not None:
-                values[field] = str(value)
+    annotate(db, values, source_key(row), lookup)
     return values
 
 
@@ -508,20 +556,8 @@ def all_sources(
             values: dict[str, Any] = dict(zip(spec.keys, row, strict=False))
             del values["employee_id"]
             stringify_temporal(values, spec)
-            dormitory = lookup["dormitories"].get(values["dormitory_id"])
-            values["dormitory_name"] = dormitory.name if dormitory else "Удалённое общежитие"
-            values["client_name"] = dormitory.client_name if dormitory else ""
-            if model is Resident and values.get("hostel_id"):
-                hostel = lookup["hostels"].get(values["hostel_id"])
-                values["hostel_name"] = hostel.name if hostel else None
-            key = f"custom_{values['tab_id']}" if spec.table_key is None else spec.table_key
-            binding = lookup["bindings"].get((values["dormitory_id"], key))
-            if binding:
-                custom = values.get("custom_values") or {}
-                for field, column_id in binding.fields.items():
-                    value = custom.get(str(column_id))
-                    if value is not None:
-                        values[field] = str(value)
+            key = spec.table_key or f"custom_{values['tab_id']}"
+            annotate(db, values, key, lookup)
             result.append(
                 SourceRecord(
                     table_key=key,

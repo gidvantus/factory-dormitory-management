@@ -23,6 +23,7 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any, cast
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
@@ -39,7 +40,16 @@ from app.models.outflow import PersonnelOutflow
 from app.models.personnel import Employee, PersonnelBinding
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry
-from app.personnel import SOURCE_MODELS, Row, all_sources, row_values, source_key, workspace
+from app.personnel import (
+    SOURCE_KEYS,
+    SOURCE_MODELS,
+    Row,
+    all_sources,
+    check_source_keys,
+    row_values,
+    source_key,
+    workspace,
+)
 from tests.conftest import create_user, organizations_for, sign_in
 from tests.test_reports import create_dormitory
 
@@ -343,3 +353,45 @@ def test_workspace_route_marks_the_settings_stage(client: TestClient, db_session
     assert request_sql is not None
     assert {"settings", "sources", "assemble"} <= set(request_sql.stages_ms)
     assert payload["arrival_settings"] is not None
+
+
+def test_source_keys_is_the_only_registry_of_table_keys() -> None:
+    """Ключ модели описан один раз, и его инвариант ловится при импорте, а не в проде.
+
+    До ревью ключ был описан дважды — в `SOURCE_KEYS` и в цепочке `isinstance`
+    внутри `source_key`, — причём запасные пути расходились: неизвестную модель
+    `source_key` называла `archive`, а `all_sources` падала. Теперь оба берут
+    ключ из `SOURCE_KEYS`, а вне справочника разрешена ровно одна модель — вкладка.
+    """
+    check_source_keys()
+    with pytest.raises(RuntimeError, match="SOURCE_KEYS"):
+        check_source_keys(
+            {Resident: "residents", PersonnelInflow: "inflow", PersonnelOutflow: "outflow"}
+        )
+    assert SOURCE_KEYS[ArchiveEntry] == "archive"
+    assert source_key(cast(Row, CustomTabEntry(dormitory_id=1, tab_id=7))) == "custom_7"
+
+
+def test_row_values_and_all_sources_annotate_the_row_the_same_way(
+    db_session: Session,
+) -> None:
+    """Наложения общежития, хостела и привязки считает один помощник на оба пути.
+
+    `all_sources` отдаёт строку в ответ ручки, `row_values` пишет её снимок в
+    историю через `record_changed`, а тот сравнивает прежний снимок с новыми
+    значениями. Разойдись эти пути — сравнение начнёт сравнивать разные формы.
+    """
+    resident, lookup = resident_with_history(db_session)
+    employee = Employee(full_name="Семёнов Иван Иванович", identity_status="confirmed")
+    db_session.add(employee)
+    db_session.flush()
+    resident.employee_id = employee.id
+    db_session.flush()
+
+    [record] = all_sources(
+        db_session, [resident.dormitory_id], list(lookup["dormitories"].values())
+    )
+
+    assert record.values == row_values(db_session, resident, lookup)
+    assert record.values == row_values(db_session, resident)
+    assert (record.table_key, record.row_id) == ("residents", resident.id)
