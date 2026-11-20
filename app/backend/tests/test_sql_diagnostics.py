@@ -16,6 +16,7 @@ SQLAlchemy, зарегистрированные на классе `Engine`.
 """
 
 import json
+import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -137,6 +138,17 @@ def stand(engine: Engine) -> TestClient:
     def empty() -> dict[str, str]:
         return {"status": "ok"}
 
+    @application.get("/api/staged")
+    def staged() -> dict[str, str]:
+        """Ручка с размеченными этапами: `assemble` размечен дважды, время копится."""
+        with sql_diagnostics.stage("sources"):
+            time.sleep(0.03)
+        with sql_diagnostics.stage("assemble"):
+            time.sleep(0.004)
+        with sql_diagnostics.stage("assemble"):
+            time.sleep(0.004)
+        return {"status": "ok"}
+
     @application.get("/api/boom")
     def boom() -> dict[str, str]:
         raise RuntimeError("ручка падает")
@@ -170,6 +182,7 @@ def test_event_fields_are_the_documented_contract(
         "sql_ms",
         "sql_count",
         "sql_share",
+        "stages_ms",
         "thresholds",
         "slow_sql",
     }
@@ -500,3 +513,65 @@ def test_generate_latest_keeps_previous_metric_contract() -> None:
     text_body = generate_latest().decode()
     for name in ("http_requests_total", "http_request_duration_seconds", "db_size_bytes"):
         assert name in text_body
+
+
+# --- Разметка этапов обработчика (#237) -------------------------------------
+#
+# SQL-слой отвечает «сколько времени в базе», но не отвечает «куда ушло
+# остальное». Этапы размечает сам обработчик, а их время копится в том же
+# `RequestSql` и уходит в событие полем `stages_ms`.
+
+
+def test_stage_is_a_noop_outside_a_request() -> None:
+    """Разметка стоит в доменном коде: вне запроса она молча ничего не делает."""
+    assert sql_diagnostics.current() is None
+    with sql_diagnostics.stage("sources"):
+        pass
+    assert sql_diagnostics.current() is None
+
+
+def test_stage_records_the_time_even_when_the_step_fails() -> None:
+    """`finally` внутри разметки: исключение не съедает уже измеренное время."""
+    token = sql_diagnostics.start_request("probe")
+    try:
+        with pytest.raises(RuntimeError), sql_diagnostics.stage("sources"):
+            raise RuntimeError("этап падает")
+        request = sql_diagnostics.current()
+        assert request is not None
+        assert set(request.stages_ms) == {"sources"}
+    finally:
+        sql_diagnostics.finish_request(token)
+
+
+def test_stage_time_of_the_request_lands_in_the_event(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Время размеченных этапов попадает в событие, повторный заход суммируется."""
+    always_slow(monkeypatch)
+
+    with stand(engine) as client:
+        assert client.get("/api/staged").status_code == 200
+
+    [event] = events(capsys)
+    stages = event["stages_ms"]
+    assert set(stages) == {"sources", "assemble"}
+    # `sources` — один заход на 30 мс, `assemble` — два по 4 мс: копится сумма.
+    assert stages["sources"] >= 30
+    assert stages["assemble"] >= 8
+    # В событие время уходит с одним знаком после запятой.
+    for value in stages.values():
+        assert value == round(value, 1)
+
+
+def test_stages_breakdown_keeps_the_eight_slowest_in_descending_order() -> None:
+    """В событие идут самые долгие этапы: потолок — восемь, порядок — по времени."""
+    request = sql_diagnostics.RequestSql(request_id="probe", started=0.0)
+    assert sql_diagnostics.stages_breakdown(request) == {}
+
+    for index in range(10):
+        request.add_stage(f"stage{index}", float(index))
+    breakdown = sql_diagnostics.stages_breakdown(request)
+
+    assert list(breakdown) == [f"stage{index}" for index in range(9, 1, -1)]
+    timed = list(breakdown.values())
+    assert timed == sorted(timed, reverse=True)

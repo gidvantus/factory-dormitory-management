@@ -19,6 +19,12 @@
   и планировщик остаются вне учёта.
 * **Запись события в stdout** — одна строка JSON, только для запросов дольше
   порога. Её собирает promtail и разбирает Loki.
+* **Разметка этапов** (`stage(name)` в обработчике). SQL-слой отвечает «сколько
+  времени в базе», но не отвечает «куда ушло остальное»: загрузка строк,
+  сборка ответа, планы, настройки. Этапы размечает сам обработчик — только он
+  знает, где кончается один шаг и начинается другой, — а время копится в тот же
+  `RequestSql` и попадает в событие полем `stages_ms`. Если обработчик ничего
+  не разметил, поле остаётся пустым объектом.
 
 Почему stdout-строка, а не `logging` с его форматом `%(asctime)s …`: Loki-запрос
 `| json` разбирает строку целиком, а префикс `2026-11-19 12:00:00,000 INFO
@@ -53,6 +59,8 @@ import logging
 import re
 import sys
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -85,6 +93,11 @@ UNHANDLED_STATUS: Final = 500
 # Сколько SQL-шаблонов перечисляется в событии. Медленных шаблонов в одном
 # запросе бывает много, а разбирают обычно верхушку.
 REPORTED_TEMPLATES: Final = 5
+# Сколько размеченных этапов обработчика попадает в событие. Этапы, которых
+# коснулся обработчик, называет код (`stage(...)`), поэтому их число задаёт код, а
+# не клиент; потолок нужен, чтобы событие не превращалось в профиль на сотню
+# ключей. В событие идут самые долгие этапы — отбор по убыванию времени.
+STAGES_LIMIT: Final = 8
 # Потолок числа шаблонов в одном запросе. Достижим только на сгенерированном
 # SQL: суммарные счётчик и время при этом считаются по-прежнему точно.
 TEMPLATES_LIMIT: Final = 200
@@ -271,6 +284,10 @@ class RequestSql:
     count: int = 0
     total_ms: float = 0.0
     templates: dict[str, TemplateStats] = field(default_factory=dict)
+    # Размеченные этапы обработчика: имя этапа задаёт код, время копится по имени.
+    # Имена этапов — идентификаторы из кода, а не значения из базы, поэтому они
+    # безопасны для события.
+    stages_ms: dict[str, float] = field(default_factory=dict)
 
     def add(self, statement: str, duration_ms: float, offset_ms: float) -> None:
         """Учесть одно выполнение. Счётчик и время суммируются всегда."""
@@ -293,6 +310,10 @@ class RequestSql:
             stats.max_ms = duration_ms
             stats.slowest_at_ms = offset_ms
 
+    def add_stage(self, name: str, duration_ms: float) -> None:
+        """Учесть время этапа: повторный заход в тот же этап суммируется."""
+        self.stages_ms[name] = self.stages_ms.get(name, 0.0) + duration_ms
+
 
 # Контекст текущего запроса. Задача запроса его наследует, threadpool
 # синхронных ручек — тоже (anyio копирует контекст на момент вызова).
@@ -312,6 +333,29 @@ def start_request(request_id: str) -> Token[RequestSql | None]:
 def finish_request(token: Token[RequestSql | None]) -> None:
     """Закрыть учёт: контекст не течёт в следующий запрос."""
     _current.reset(token)
+
+
+@contextmanager
+def stage(name: str) -> Iterator[None]:
+    """Разметить этап обработчика: его время попадёт в `stages_ms` события.
+
+    Вызов из кода, а не из middleware: только обработчик знает, где кончается
+    загрузка строк-источников и начинается сборка ответа. Вне запроса (бот,
+    воркер импорта, тест без middleware) это no-op — исключений не бросает и
+    ничего не копит, поэтому разметку можно ставить в доменном коде.
+
+    `finally` обязателен: исключение внутри этапа не должно оставлять этап
+    открытым и не должно съедать уже измеренное время.
+    """
+    request_sql = _current.get()
+    if request_sql is None:
+        yield
+        return
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        request_sql.add_stage(name, (time.perf_counter() - started) * 1000)
 
 
 # --- Слушатели SQLAlchemy ---------------------------------------------------
@@ -389,6 +433,17 @@ def slow_sql_threshold_ms() -> int:
     return get_settings().slow_sql_ms
 
 
+def stages_breakdown(request_sql: RequestSql) -> dict[str, float]:
+    """Разбивка по этапам для события: самые долгие, не больше `STAGES_LIMIT`.
+
+    Порядок — по убыванию времени: отбор идёт по нему же, поэтому в событие
+    попадают именно те этапы, из-за которых запрос медленный, а быстрые
+    отбрасываются. Имена этапов задаёт код, значений из базы здесь нет.
+    """
+    order = sorted(request_sql.stages_ms.items(), key=lambda item: item[1], reverse=True)
+    return {name: round(duration_ms, 1) for name, duration_ms in order[:STAGES_LIMIT]}
+
+
 def build_event(
     request_sql: RequestSql,
     *,
@@ -421,6 +476,11 @@ def build_event(
         # Доля SQL во времени запроса: если она мала, причина медленности не в
         # базе, и это видно прямо в событии, без сверки двух графиков.
         "sql_share": round(request_sql.total_ms / duration_ms, 3) if duration_ms > 0 else 0.0,
+        # Время этапов обработчика: остаток «duration_ms минус sql_ms минус этапы»
+        # — это то, чего не видит ни SQL-слой, ни разметка (пул соединений,
+        # flush/commit, сериализация ответа). Этапы, которые обработчик не
+        # размечал, в событие не попадают вовсе.
+        "stages_ms": stages_breakdown(request_sql),
         "thresholds": {"request_ms": request_threshold, "sql_ms": sql_threshold},
         "slow_sql": [
             {
