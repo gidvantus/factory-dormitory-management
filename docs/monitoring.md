@@ -380,13 +380,16 @@ Loki и не нёс бы информации.
 Пример строки (значения сокращены):
 
 ```json
-{"event":"slow_sql_request","ts":"2026-11-19T12:34:56.789+00:00","request_id":"…","method":"GET","route":"/api/personnel","status":200,"failed":false,"duration_ms":812.4,"sql_ms":640.2,"sql_count":37,"sql_share":0.788,"stages_ms":{"sources":420.5,"assemble":38.1,"events":22.4},"thresholds":{"request_ms":300,"sql_ms":50},"slow_sql":[{"fingerprint":"1a2b3c4d5e6f","operation":"SELECT","tables":["employees","residents"],"count":3,"total_ms":410.1,"max_ms":220.4,"slowest_at_ms":118.2}]}
+{"duration_ms":812.4,"event":"slow_sql_request","failed":false,"method":"GET","request_id":"…","route":"/api/personnel","slow_sql":[{"count":3,"fingerprint":"1a2b3c4d5e6f","max_ms":220.4,"operation":"SELECT","slowest_at_ms":118.2,"tables":["employees","residents"],"total_ms":410.1}],"sql_count":37,"sql_ms":640.2,"sql_share":0.788,"stages_ms":{"assemble":38.1,"events":22.4,"sources":420.5},"status":200,"thresholds":{"request_ms":300,"sql_ms":50},"ts":"2026-11-19T12:34:56.789+00:00"}
 ```
 
-В самой строке ключи идут в алфавитном порядке (`sort_keys=True` в
-`write_event`): так одинаковый набор полей всегда даёт одинаковые байты, и
-сравнение строк в Loki не зависит от порядка, в котором их собрал код. Пример
-выше расположен по смыслу, а не по байтам.
+Ключи в строке идут в алфавитном порядке (`sort_keys=True` в `write_event`):
+так одинаковый набор полей всегда даёт одинаковые байты, и сравнение строк в Loki
+не зависит от порядка, в котором их собрал код. Поэтому пример выше записан так
+же, как выглядит живая строка, — по алфавиту, а не по смыслу. Порядок по смыслу
+живёт в самой полезной нагрузке: `stages_ms` — самые долгие этапы (не больше
+восьми, по убыванию времени), `slow_sql[]` — до пяти шаблонов по суммарному
+времени; текст строки при этом остаётся алфавитным.
 
 | Поле | Смысл |
 | --- | --- |

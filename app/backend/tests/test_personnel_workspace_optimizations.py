@@ -48,6 +48,7 @@ from app.personnel import (
     check_source_keys,
     row_values,
     source_key,
+    source_spec,
     workspace,
 )
 from tests.conftest import create_user, organizations_for, sign_in
@@ -57,6 +58,17 @@ from tests.test_reports import create_dormitory
 # от часов, а не от кода.
 CREATED_AT = datetime(2026, 1, 1, 9, 30, tzinfo=UTC)
 
+# Ключи эталона заморожены строками, а не взяты из `SOURCE_KEYS`: сверка должна
+# поймать смену ключа у модели, а не повторить её за кодом. Что эти строки
+# совпадают со справочником на момент #237, проверяет соседний
+# `test_source_keys_is_the_only_registry_of_table_keys`.
+PREVIOUS_KEYS: dict[type[Row], str] = {
+    Resident: "residents",
+    PersonnelInflow: "inflow",
+    PersonnelOutflow: "outflow",
+    ArchiveEntry: "archive",
+}
+
 
 def previous_row_values(row: Row, lookup: dict[str, Any]) -> dict[str, Any]:
     """Эталон — точная копия `row_values` до #237, со проходом через `json`.
@@ -64,7 +76,9 @@ def previous_row_values(row: Row, lookup: dict[str, Any]) -> dict[str, Any]:
     Копия намеренная: тест должен сверять новое поведение с прежним, а не с
     пересказом прежнего поведения. Наложенные поля (`dormitory_name`,
     `client_name`, `hostel_name`, поля `PersonnelBinding`) копируются вместе с
-    логикой, потому что они тоже участвуют в сравнении.
+    логикой, потому что они тоже участвуют в сравнении. Ключ таблицы берётся из
+    `PREVIOUS_KEYS`, а не из живого `source_key`: иначе смена ключа меняла бы и
+    эталон, и сверку разом.
     """
     values = {
         column.key: getattr(row, column.key)
@@ -78,7 +92,7 @@ def previous_row_values(row: Row, lookup: dict[str, Any]) -> dict[str, Any]:
     if isinstance(row, Resident) and row.hostel_id:
         hostel = lookup["hostels"].get(row.hostel_id)
         values["hostel_name"] = hostel.name if hostel else None
-    key = source_key(row)
+    key = PREVIOUS_KEYS.get(type(row)) or f"custom_{row.tab_id}"
     binding = lookup["bindings"].get((row.dormitory_id, key))
     if binding:
         for field, column_id in binding.fields.items():
@@ -370,6 +384,10 @@ def test_source_keys_is_the_only_registry_of_table_keys() -> None:
         )
     assert SOURCE_KEYS[ArchiveEntry] == "archive"
     assert source_key(cast(Row, CustomTabEntry(dormitory_id=1, tab_id=7))) == "custom_7"
+    # Замороженный эталон сверки (`PREVIOUS_KEYS`) обязан совпадать со справочником:
+    # смена ключа модели должна падать здесь, а не проходить незамеченной в диффе
+    # сверки поведения.
+    assert {model: SOURCE_KEYS[model] for model in PREVIOUS_KEYS} == PREVIOUS_KEYS
 
 
 def test_row_values_and_all_sources_annotate_the_row_the_same_way(
@@ -395,3 +413,20 @@ def test_row_values_and_all_sources_annotate_the_row_the_same_way(
     assert record.values == row_values(db_session, resident, lookup)
     assert record.values == row_values(db_session, resident)
     assert (record.table_key, record.row_id) == ("residents", resident.id)
+
+
+def test_hostel_name_belongs_to_the_only_source_with_hostel_id() -> None:
+    """`annotate` узнаёт хостел по значению `hostel_id`, а не по типу строки.
+
+    Условие `values.get("hostel_id")` заменило прежнее `isinstance(row, Resident)
+    and row.hostel_id` и работает там же лишь потому, что колонка `hostel_id` есть
+    только у `Resident` (`app/models/resident.py:23`). Если у следующего
+    источника появится хостел, форма его строки изменится у обоих путей сразу, и
+    это должно быть решением, а не побочным эффектом помощника, — поэтому
+    проверка стоит здесь, а не держится на комментарии.
+    """
+    with_hostel = [
+        model.__name__ for model in SOURCE_MODELS if "hostel_id" in source_spec(model).keys
+    ]
+
+    assert with_hostel == ["Resident"]

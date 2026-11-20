@@ -257,6 +257,8 @@ def annotate(
     )
     values["dormitory_name"] = dormitory.name if dormitory else "Удалённое общежитие"
     values["client_name"] = dormitory.client_name if dormitory else ""
+    # Хостел узнаётся по значению, а не по типу строки: `hostel_id` есть только у
+    # `Resident`, и это закреплено тестом, а не комментарием.
     hostel_id = values.get("hostel_id")
     if hostel_id:
         hostel = (
