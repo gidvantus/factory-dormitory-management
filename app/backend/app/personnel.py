@@ -5,13 +5,14 @@ import json
 import re
 from collections import defaultdict
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import date, datetime
 from difflib import SequenceMatcher
-from typing import Any, cast
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, text
+from sqlalchemy import Date, DateTime, func, select, text
 from sqlalchemy.orm import Session
 
 from app.arrival_plans import active_arrivals
@@ -135,6 +136,74 @@ def source_key(row: Row) -> str:
     return "archive"
 
 
+# Справочник «какая модель — какой ключ таблицы». Ключ у модели постоянный; своё
+# имя только у пользовательской вкладки, и оно зависит от строки, а не от модели.
+SOURCE_KEYS: dict[type[Row], str] = {
+    Resident: "residents",
+    PersonnelInflow: "inflow",
+    PersonnelOutflow: "outflow",
+    ArchiveEntry: "archive",
+}
+
+
+@dataclass(frozen=True)
+class SourceSpec:
+    """Разбор колонок модели-источника — один раз на модель, а не на каждую строку.
+
+    `keys` — ключи колонок в порядке объявления таблицы (ровно тот порядок, в
+    котором прежний код обходил `row.__table__.columns`); `temporal` — какие из
+    них приводятся к ISO-строке; `employee_at` — позиция `employee_id` в строке
+    выборки: она исключается из значений ответа. `table_key` — ключ таблицы, у
+    пользовательской вкладки его нет (`custom_<id>`, см. `source_key`).
+    """
+
+    keys: tuple[str, ...]
+    temporal: tuple[str, ...]
+    employee_at: int
+    table_key: str | None
+    columns: tuple[Any, ...]
+
+
+_SPECS: dict[type[Row], SourceSpec] = {}
+
+
+def source_spec(model: type[Row]) -> SourceSpec:
+    """Спецификация колонок модели. Стоимость — один раз на модель за процесс."""
+    spec = _SPECS.get(model)
+    if spec is None:
+        columns = tuple(model.__table__.columns)
+        spec = SourceSpec(
+            keys=tuple(column.key for column in columns),
+            temporal=tuple(
+                column.key
+                for column in columns
+                if isinstance(column.type, (Date, DateTime)) and column.key != "employee_id"
+            ),
+            employee_at=next(
+                index for index, column in enumerate(columns) if column.key == "employee_id"
+            ),
+            table_key=SOURCE_KEYS.get(model),
+            columns=columns,
+        )
+        _SPECS[model] = spec
+    return spec
+
+
+def stringify_temporal(values: dict[str, Any], spec: SourceSpec) -> None:
+    """Привести `date`/`datetime` к строке на месте — по спецификации модели.
+
+    Раньше каждую строку-источник прогонял `json.loads(json.dumps(...))` только
+    затем, чтобы превратить даты в строки. Это стоило прохода сериализации и
+    разбора на каждую строку (`#237`); признак «колонка — дата или время» теперь
+    известен из типа колонки и считается один раз на модель. Значения остальных
+    колонок не трогаются, ответ остаётся побайтово тем же.
+    """
+    for key in spec.temporal:
+        value = values[key]
+        if value is not None:
+            values[key] = value.isoformat()
+
+
 def row_values(db: Session, row: Row, lookup: dict[str, Any] | None = None) -> dict[str, Any]:
     """Значения строки-источника для ответа и для снимка истории.
 
@@ -144,12 +213,10 @@ def row_values(db: Session, row: Row, lookup: dict[str, Any] | None = None) -> d
     ответа `GET /api/personnel` (#237). Остальные значения не трогаются — ответ
     остаётся побайтово тем же.
     """
-    values: dict[str, Any] = {}
-    for column in row.__table__.columns:
-        if column.key == "employee_id":
-            continue
-        value = getattr(row, column.key)
-        values[column.key] = value.isoformat() if isinstance(value, (date, datetime)) else value
+    spec = source_spec(type(row))
+    values: dict[str, Any] = {key: getattr(row, key) for key in spec.keys}
+    del values["employee_id"]
+    stringify_temporal(values, spec)
     dormitory = (
         lookup["dormitories"].get(row.dormitory_id)
         if lookup is not None
@@ -376,11 +443,29 @@ def fulfill_arrival(db: Session, resident: Resident, actor_id: int) -> None:
         db.delete(plan)
 
 
+@dataclass(frozen=True)
+class SourceRecord:
+    """Строка-источник, уже превращённая в значения ответа.
+
+    Раньше `all_sources` отдавал пару «ORM-объект + его значения». Объект нужен
+    был только чтобы прочитать три поля (`employee_id`, `id`, `dormitory_id`) и
+    тип строки, а стоил материализации 20 000 ORM-объектов и `getattr` по каждой
+    колонке. Здесь эти три поля вынесены рядом со значениями: строки-источники
+    читаются запросом по колонкам (issue #237).
+    """
+
+    table_key: str
+    row_id: Any
+    dormitory_id: int
+    employee_id: str | None
+    values: dict[str, Any]
+
+
 def all_sources(
     db: Session,
     dormitory_ids: list[int],
     dormitories: list[Dormitory] | None = None,
-) -> list[tuple[Row, dict[str, Any]]]:
+) -> list[SourceRecord]:
     """Строки-источники только по перечисленным общежитиям.
 
     Область (`dormitory_ids`) разрешает вызывающий слой: принадлежность данных
@@ -389,10 +474,13 @@ def all_sources(
     `dormitories` — уже загруженный справочник общежитий области: `workspace`
     читает его сам (он отдаёт его в ответ), и второй `SELECT` по той же таблице
     был лишним выполнением в каждом запросе. Не передан — читается здесь же.
+
+    Читаются колонки, а не ORM-объекты: на объёме стенда (20 000 строк) одно
+    создание объектов стоило дольше, чем весь остальной запрос (`#237`).
     """
     if dormitories is None:
         dormitories = list(db.scalars(select(Dormitory).where(Dormitory.id.in_(dormitory_ids))))
-    lookup = {
+    lookup: dict[str, Any] = {
         "dormitories": {item.id: item for item in dormitories},
         "hostels": {
             item.id: item
@@ -405,15 +493,45 @@ def all_sources(
             )
         },
     }
-    return [
-        (cast(Row, row), row_values(db, cast(Row, row), lookup))
-        for model in SOURCE_MODELS
-        for row in db.scalars(
-            select(model).where(
+    result: list[SourceRecord] = []
+    for model in SOURCE_MODELS:
+        spec = source_spec(model)
+        rows = db.execute(
+            select(*spec.columns).where(
                 model.employee_id.is_not(None), model.dormitory_id.in_(dormitory_ids)
             )
         )
-    ]
+        for row in rows:
+            employee_id = row[spec.employee_at]
+            # Порядок ключей — порядок колонок таблицы, как и раньше: он виден в
+            # JSON ответа, поэтому собирается тот же самый dict.
+            values: dict[str, Any] = dict(zip(spec.keys, row, strict=False))
+            del values["employee_id"]
+            stringify_temporal(values, spec)
+            dormitory = lookup["dormitories"].get(values["dormitory_id"])
+            values["dormitory_name"] = dormitory.name if dormitory else "Удалённое общежитие"
+            values["client_name"] = dormitory.client_name if dormitory else ""
+            if model is Resident and values.get("hostel_id"):
+                hostel = lookup["hostels"].get(values["hostel_id"])
+                values["hostel_name"] = hostel.name if hostel else None
+            key = f"custom_{values['tab_id']}" if spec.table_key is None else spec.table_key
+            binding = lookup["bindings"].get((values["dormitory_id"], key))
+            if binding:
+                custom = values.get("custom_values") or {}
+                for field, column_id in binding.fields.items():
+                    value = custom.get(str(column_id))
+                    if value is not None:
+                        values[field] = str(value)
+            result.append(
+                SourceRecord(
+                    table_key=key,
+                    row_id=values["id"],
+                    dormitory_id=values["dormitory_id"],
+                    employee_id=employee_id,
+                    values=values,
+                )
+            )
+    return result
 
 
 def employee_in_scope(db: Session, employee_id: str, dormitory_ids: list[int]) -> Employee:
@@ -531,9 +649,9 @@ def check_identity(db: Session, fields: IdentityFields, dormitory_ids: list[int]
         employee = employees[employee_id]
         locations = sorted(
             {
-                values["dormitory_name"]
-                for row, values in sources
-                if roots.get(row.employee_id or "") == employee_id
+                source.values["dormitory_name"]
+                for source in sources
+                if roots.get(source.employee_id or "") == employee_id
             }
         )
         candidates.append(
@@ -604,15 +722,16 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
     sources: dict[str, list[dict[str, Any]]] = defaultdict(list)
     tabs = {f"custom_{tab.id}": tab.name for tab in db.scalars(select(CustomTab))}
     with stage("sources"):
-        for row, values in all_sources(db, dormitory_ids, dormitories):
-            key = source_key(row)
-            sources[roots[row.employee_id or ""]].append(
+        for source in all_sources(db, dormitory_ids, dormitories):
+            sources[roots[source.employee_id or ""]].append(
                 {
-                    "table_key": key,
-                    "row_id": row.id,
-                    "dormitory_id": row.dormitory_id,
-                    "source_name": tabs.get(key, SOURCE_NAMES.get(key, key)),
-                    "values": values,
+                    "table_key": source.table_key,
+                    "row_id": source.row_id,
+                    "dormitory_id": source.dormitory_id,
+                    "source_name": tabs.get(
+                        source.table_key, SOURCE_NAMES.get(source.table_key, source.table_key)
+                    ),
+                    "values": source.values,
                 }
             )
     history_dorms: dict[str, set[int]] = defaultdict(set)

@@ -11,7 +11,9 @@
   O(карточек × карточек)), но `member_ids` остаётся тем же списком в том же
   порядке;
 * `all_sources` не читает справочник общежитий второй раз: `workspace` уже
-  загрузил его и отдаёт в ответ.
+  загрузил его и отдаёт в ответ;
+* `all_sources` читает строки-источники запросом по колонкам, а не ORM-объектами:
+  значения и их порядок в ответе остаются прежними.
 
 Замер стоимости — отдельный `dbtest` (`tests/test_personnel_workspace_perf.py`):
 на SQLite он ничего не показывает.
@@ -28,16 +30,19 @@ from sqlalchemy.orm import Session
 
 from app import sql_diagnostics
 from app.api.personnel import get_workspace
+from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel
+from app.models.inflow import PersonnelInflow
 from app.models.organization import OrganizationMember
+from app.models.outflow import PersonnelOutflow
 from app.models.personnel import Employee, PersonnelBinding
 from app.models.resident import Resident
-from app.personnel import Row, row_values, source_key, workspace
+from app.models.table_column import ArchiveEntry
+from app.personnel import SOURCE_MODELS, Row, all_sources, row_values, source_key, workspace
 from tests.conftest import create_user, organizations_for, sign_in
 from tests.test_reports import create_dormitory
 
-API = "/api/personnel"
 # Момент создания строки фиксирован: иначе сверка с прежним поведением зависела бы
 # от часов, а не от кода.
 CREATED_AT = datetime(2026, 1, 1, 9, 30, tzinfo=UTC)
@@ -130,6 +135,127 @@ def test_row_values_without_lookup_keeps_the_previous_serialization(
     resident, lookup = resident_with_history(db_session)
 
     assert row_values(db_session, resident) == previous_row_values(resident, lookup)
+
+
+def test_all_sources_keeps_the_previous_values_and_order(db_session: Session) -> None:
+    """Выборка колонок вместо ORM-объектов не меняет ни значения, ни их порядок.
+
+    Сверка идёт с прежней реализацией (`previous_row_values`), а не с пересказом:
+    строки-источники всех пяти моделей читаются запросом по колонкам, и ответ
+    обязан остаться прежним — включая порядок ключей, который виден в JSON.
+    """
+    user = create_user(db_session)
+    organization, _membership = organizations_for(db_session, user)
+    dormitory = Dormitory(
+        name="Северное", client_name="Стройкомплект", organization_id=organization.id
+    )
+    db_session.add(dormitory)
+    db_session.flush()
+    hostel = Hostel(
+        dormitory_id=dormitory.id,
+        name="Хостел 1",
+        active_from_month=date(2026, 1, 1),
+        occupancy_since=date(2026, 1, 1),
+        resident_fields_since=date(2026, 1, 1),
+    )
+    db_session.add(hostel)
+    employees = [Employee(full_name=f"Сотрудник {index}") for index in range(4)]
+    db_session.add_all(employees)
+    db_session.flush()
+    tab = CustomTab(dormitory_id=dormitory.id, name="Своя", table_created=True)
+    db_session.add(tab)
+    db_session.flush()
+    db_session.add_all(
+        [
+            Resident(
+                dormitory_id=dormitory.id,
+                employee_id=employees[0].id,
+                full_name="Проживающий",
+                hostel_id=hostel.id,
+                shift_start=date(2026, 1, 10),
+                shift_count=3,
+                phone="+7 912 000 00 01",
+                created_at=CREATED_AT,
+                custom_values={"7": "Повар"},
+            ),
+            PersonnelInflow(
+                dormitory_id=dormitory.id,
+                employee_id=employees[1].id,
+                settlement_date=date(2026, 1, 11),
+                full_name="Приток",
+                resident_values={"gender": "male"},
+                created_at=CREATED_AT,
+            ),
+            PersonnelOutflow(
+                dormitory_id=dormitory.id,
+                employee_id=employees[2].id,
+                departure_date=date(2026, 1, 12),
+                full_name="Отток",
+                evicted_at=CREATED_AT,
+                created_at=CREATED_AT,
+            ),
+            ArchiveEntry(
+                dormitory_id=dormitory.id,
+                employee_id=employees[3].id,
+                custom_values={"9": "архив"},
+                created_at=CREATED_AT,
+            ),
+            CustomTabEntry(
+                dormitory_id=dormitory.id,
+                employee_id=employees[0].id,
+                tab_id=tab.id,
+                custom_values={"5": "значение"},
+                created_at=CREATED_AT,
+            ),
+        ]
+    )
+    db_session.add_all(
+        [
+            PersonnelBinding(
+                dormitory_id=dormitory.id, table_key="residents", fields={"position": 7}
+            ),
+            PersonnelBinding(
+                dormitory_id=dormitory.id, table_key=f"custom_{tab.id}", fields={"mark": 5}
+            ),
+        ]
+    )
+    db_session.commit()
+    db_session.refresh(dormitory)
+
+    sources = all_sources(db_session, [dormitory.id], [dormitory])
+
+    lookup = {
+        "dormitories": {dormitory.id: dormitory},
+        "hostels": {hostel.id: hostel},
+        "bindings": {
+            (binding.dormitory_id, binding.table_key): binding
+            for binding in db_session.scalars(
+                select(PersonnelBinding).where(PersonnelBinding.dormitory_id == dormitory.id)
+            )
+        },
+    }
+    expected: dict[tuple[str, Any], dict[str, Any]] = {}
+    for model in SOURCE_MODELS:
+        for row in db_session.scalars(
+            select(model).where(
+                model.employee_id.is_not(None), model.dormitory_id.in_([dormitory.id])
+            )
+        ):
+            expected[(source_key(cast(Row, row)), row.id)] = previous_row_values(
+                cast(Row, row), lookup
+            )
+
+    actual = {(item.table_key, item.row_id): item.values for item in sources}
+    assert actual.keys() == expected.keys()
+    for key, values in expected.items():
+        # Порядок ключей — часть ответа: JSON отдаёт их в том же порядке.
+        assert list(actual[key]) == list(values)
+        assert actual[key] == values
+    # Поля, которые прежняя пара «объект + значения» отдавала рядом со значениями.
+    resident_record = next(item for item in sources if item.table_key == "residents")
+    assert resident_record.dormitory_id == dormitory.id
+    assert resident_record.employee_id == employees[0].id
+    assert resident_record.row_id == db_session.scalars(select(Resident)).one().id
 
 
 def test_workspace_member_ids_lists_every_card_of_the_group(
