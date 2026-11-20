@@ -76,6 +76,7 @@ from app.schemas.personnel import (
 )
 from app.schemas.resident import UpdateResidentRequest
 from app.schemas.table_column import TableKey
+from app.sql_diagnostics import stage
 from app.table_data import (
     column_type_change_reason,
     ensure_columns,
@@ -103,7 +104,10 @@ def dormitory_scope(db: Session, membership: Membership) -> list[int]:
 @router.get("")
 def get_workspace(user: SubscribedUser, membership: Membership, db: DbSession) -> dict[str, Any]:
     result = workspace(db, user, dormitory_scope(db, membership))
-    result["arrival_settings"] = settings_response(db, membership.organization_id)
+    # Настройки заездов — отдельный этап (#237): он читает свои таблицы, но
+    # ответ отдаётся одной ручкой, и в событии это разные строки разбивки.
+    with stage("settings"):
+        result["arrival_settings"] = settings_response(db, membership.organization_id)
     return result
 
 
