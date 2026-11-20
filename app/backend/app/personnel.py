@@ -34,6 +34,7 @@ from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
 from app.models.user import User
 from app.schemas.personnel import IdentityChoice, IdentityFields
+from app.sql_diagnostics import stage
 
 Row = Resident | PersonnelInflow | PersonnelOutflow | CustomTabEntry | ArchiveEntry
 SOURCE_MODELS: tuple[type[Row], ...] = (
@@ -135,12 +136,20 @@ def source_key(row: Row) -> str:
 
 
 def row_values(db: Session, row: Row, lookup: dict[str, Any] | None = None) -> dict[str, Any]:
-    values = {
-        column.key: getattr(row, column.key)
-        for column in row.__table__.columns
-        if column.key != "employee_id"
-    }
-    values = json.loads(json.dumps(values, default=lambda value: value.isoformat()))
+    """Значения строки-источника для ответа и для снимка истории.
+
+    Дата и время приводятся к строке явно, а не проходом `json.dumps`/`json.loads`
+    по всей строке: проход сериализовал и заново разбирал каждое значение ради
+    `date`/`datetime`-колонок, и на 20 000 строк это была измеримая доля времени
+    ответа `GET /api/personnel` (#237). Остальные значения не трогаются — ответ
+    остаётся побайтово тем же.
+    """
+    values: dict[str, Any] = {}
+    for column in row.__table__.columns:
+        if column.key == "employee_id":
+            continue
+        value = getattr(row, column.key)
+        values[column.key] = value.isoformat() if isinstance(value, (date, datetime)) else value
     dormitory = (
         lookup["dormitories"].get(row.dormitory_id)
         if lookup is not None
@@ -367,17 +376,24 @@ def fulfill_arrival(db: Session, resident: Resident, actor_id: int) -> None:
         db.delete(plan)
 
 
-def all_sources(db: Session, dormitory_ids: list[int]) -> list[tuple[Row, dict[str, Any]]]:
+def all_sources(
+    db: Session,
+    dormitory_ids: list[int],
+    dormitories: list[Dormitory] | None = None,
+) -> list[tuple[Row, dict[str, Any]]]:
     """Строки-источники только по перечисленным общежитиям.
 
     Область (`dormitory_ids`) разрешает вызывающий слой: принадлежность данных
     организации считается по корню — общежитию, — а не по каждой дочерней строке.
+
+    `dormitories` — уже загруженный справочник общежитий области: `workspace`
+    читает его сам (он отдаёт его в ответ), и второй `SELECT` по той же таблице
+    был лишним выполнением в каждом запросе. Не передан — читается здесь же.
     """
+    if dormitories is None:
+        dormitories = list(db.scalars(select(Dormitory).where(Dormitory.id.in_(dormitory_ids))))
     lookup = {
-        "dormitories": {
-            item.id: item
-            for item in db.scalars(select(Dormitory).where(Dormitory.id.in_(dormitory_ids)))
-        },
+        "dormitories": {item.id: item for item in dormitories},
         "hostels": {
             item.id: item
             for item in db.scalars(select(Hostel).where(Hostel.dormitory_id.in_(dormitory_ids)))
@@ -565,7 +581,12 @@ def choose_identity(db: Session, choice: IdentityChoice, dormitory_ids: list[int
 
 
 def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, Any]:
-    """Рабочая поверхность персонала в пределах области — общежитий организации."""
+    """Рабочая поверхность персонала в пределах области — общежитий организации.
+
+    Этапы размечены для события `slow_sql_request` (#237): по ним видно, сколько
+    времени уходит на загрузку строк-источников, журнал, сборку карточек, планы и
+    заезды. Разметка ничего не меняет в вычислениях — только измеряет.
+    """
     employees, roots = root_map(db)
     identities = group_identities(employees, roots)
     dormitories = list(
@@ -575,57 +596,85 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
             .order_by(Dormitory.name, Dormitory.id)
         )
     )
+    # Корневые карточки и их состав — одним проходом по `roots`. Прежний вариант
+    # перебирал `roots` целиком внутри цикла по карточкам: O(карточек × карточек).
+    members: dict[str, list[str]] = defaultdict(list)
+    for member, root in roots.items():
+        members[root].append(member)
     sources: dict[str, list[dict[str, Any]]] = defaultdict(list)
     tabs = {f"custom_{tab.id}": tab.name for tab in db.scalars(select(CustomTab))}
-    for row, values in all_sources(db, dormitory_ids):
-        key = source_key(row)
-        sources[roots[row.employee_id or ""]].append(
-            {
-                "table_key": key,
-                "row_id": row.id,
-                "dormitory_id": row.dormitory_id,
-                "source_name": tabs.get(key, SOURCE_NAMES.get(key, key)),
-                "values": values,
-            }
-        )
+    with stage("sources"):
+        for row, values in all_sources(db, dormitory_ids, dormitories):
+            key = source_key(row)
+            sources[roots[row.employee_id or ""]].append(
+                {
+                    "table_key": key,
+                    "row_id": row.id,
+                    "dormitory_id": row.dormitory_id,
+                    "source_name": tabs.get(key, SOURCE_NAMES.get(key, key)),
+                    "values": values,
+                }
+            )
     history_dorms: dict[str, set[int]] = defaultdict(set)
     history_ids: set[str] = set()
-    for entry in db.scalars(
-        select(EmployeeEvent)
-        .where(EmployeeEvent.dormitory_id.in_(dormitory_ids))
-        .order_by(EmployeeEvent.id)
-    ):
-        root = roots[entry.employee_id]
-        history_ids.add(root)
-        if entry.dormitory_id:
-            history_dorms[root].add(entry.dormitory_id)
+    with stage("events"):
+        for entry in db.scalars(
+            select(EmployeeEvent)
+            .where(EmployeeEvent.dormitory_id.in_(dormitory_ids))
+            .order_by(EmployeeEvent.id)
+        ):
+            root = roots[entry.employee_id]
+            history_ids.add(root)
+            if entry.dormitory_id:
+                history_dorms[root].add(entry.dormitory_id)
     variants: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for alias in db.scalars(select(EmployeeAlias)):
         variants[roots[alias.employee_id]][alias.field].add(alias.raw_value)
     result = []
-    for id in sorted(set(roots.values())):
-        item = employees[id]
-        rows = sources[id]
-        if not rows and id not in history_ids:
-            continue
-        current = [source for source in rows if source["table_key"] == "residents"]
-        result.append(
-            {
-                "id": id,
-                **identities[id],
-                "identity_status": item.identity_status,
-                "member_ids": sorted(member for member, root in roots.items() if root == id),
-                "sources": rows,
-                "current": current,
-                "history_dormitory_ids": sorted(history_dorms[id]),
-                "variants": {field: sorted(values) for field, values in variants[id].items()},
-            }
-        )
+    with stage("assemble"):
+        for id in sorted(set(roots.values())):
+            item = employees[id]
+            rows = sources[id]
+            if not rows and id not in history_ids:
+                continue
+            current = [source for source in rows if source["table_key"] == "residents"]
+            result.append(
+                {
+                    "id": id,
+                    **identities[id],
+                    "identity_status": item.identity_status,
+                    "member_ids": sorted(members[id]),
+                    "sources": rows,
+                    "current": current,
+                    "history_dormitory_ids": sorted(history_dorms[id]),
+                    "variants": {field: sorted(values) for field, values in variants[id].items()},
+                }
+            )
 
     def person(id: str) -> str:
         return roots[id]
 
     preferences = db.get(PersonnelPreferences, user.id)
+    with stage("plans"):
+        plans = [
+            {
+                "id": p.id,
+                "employee_id": person(p.employee_id),
+                "kind": p.kind,
+                "date": p.date,
+                "end": p.end,
+                "dormitory_id": p.dormitory_id,
+                "confirmed": p.confirmed,
+                "comment": p.comment,
+            }
+            for p in db.scalars(
+                select(EmployeePlan)
+                .where(EmployeePlan.dormitory_id.in_(dormitory_ids))
+                .order_by(EmployeePlan.date, EmployeePlan.id)
+            )
+        ]
+    with stage("arrivals"):
+        arrivals = active_arrivals(db, dormitory_ids)
     return {
         "today": today(),
         "dormitories": [
@@ -655,24 +704,8 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
             )
             if column.table_key in SOURCE_NAMES or column.table_key in tabs
         ],
-        "arrival_plans": active_arrivals(db, dormitory_ids),
-        "plans": [
-            {
-                "id": p.id,
-                "employee_id": person(p.employee_id),
-                "kind": p.kind,
-                "date": p.date,
-                "end": p.end,
-                "dormitory_id": p.dormitory_id,
-                "confirmed": p.confirmed,
-                "comment": p.comment,
-            }
-            for p in db.scalars(
-                select(EmployeePlan)
-                .where(EmployeePlan.dormitory_id.in_(dormitory_ids))
-                .order_by(EmployeePlan.date, EmployeePlan.id)
-            )
-        ],
+        "arrival_plans": arrivals,
+        "plans": plans,
         "preferences": {"revision": preferences.revision, **preferences.settings}
         if preferences
         else {"revision": 0, "blocks": None, "lists": []},

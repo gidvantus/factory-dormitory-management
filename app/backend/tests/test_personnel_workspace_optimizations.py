@@ -1,0 +1,219 @@
+"""Точечные правки стоимости `GET /api/personnel` (issue #237).
+
+Ответ этой ручки не меняется — меняется только то, сколько работы Python делает
+по дороге. Поэтому каждый тест здесь сверяет поведение с прежним, а не
+придумывает новое:
+
+* `row_values` приводит дату и время к строке явно, а не проходом
+  `json.dumps`/`json.loads` по всей строке: результат обязан совпасть с прежним
+  побайтово, включая наложенные поля `PersonnelBinding`;
+* `workspace` собирает состав группы одним проходом по `roots` (было
+  O(карточек × карточек)), но `member_ids` остаётся тем же списком в том же
+  порядке;
+* `all_sources` не читает справочник общежитий второй раз: `workspace` уже
+  загрузил его и отдаёт в ответ.
+
+Замер стоимости — отдельный `dbtest` (`tests/test_personnel_workspace_perf.py`):
+на SQLite он ничего не показывает.
+"""
+
+import json
+from datetime import UTC, date, datetime
+from typing import Any, cast
+
+from fastapi.testclient import TestClient
+from sqlalchemy import event, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
+
+from app import sql_diagnostics
+from app.api.personnel import get_workspace
+from app.models.dormitory import Dormitory
+from app.models.hostel import Hostel
+from app.models.organization import OrganizationMember
+from app.models.personnel import Employee, PersonnelBinding
+from app.models.resident import Resident
+from app.personnel import Row, row_values, source_key, workspace
+from tests.conftest import create_user, organizations_for, sign_in
+from tests.test_reports import create_dormitory
+
+API = "/api/personnel"
+# Момент создания строки фиксирован: иначе сверка с прежним поведением зависела бы
+# от часов, а не от кода.
+CREATED_AT = datetime(2026, 1, 1, 9, 30, tzinfo=UTC)
+
+
+def previous_row_values(row: Row, lookup: dict[str, Any]) -> dict[str, Any]:
+    """Эталон — точная копия `row_values` до #237, со проходом через `json`.
+
+    Копия намеренная: тест должен сверять новое поведение с прежним, а не с
+    пересказом прежнего поведения. Наложенные поля (`dormitory_name`,
+    `client_name`, `hostel_name`, поля `PersonnelBinding`) копируются вместе с
+    логикой, потому что они тоже участвуют в сравнении.
+    """
+    values = {
+        column.key: getattr(row, column.key)
+        for column in row.__table__.columns
+        if column.key != "employee_id"
+    }
+    values = json.loads(json.dumps(values, default=lambda value: value.isoformat()))
+    dormitory = lookup["dormitories"].get(row.dormitory_id)
+    values["dormitory_name"] = dormitory.name if dormitory else "Удалённое общежитие"
+    values["client_name"] = dormitory.client_name if dormitory else ""
+    if isinstance(row, Resident) and row.hostel_id:
+        hostel = lookup["hostels"].get(row.hostel_id)
+        values["hostel_name"] = hostel.name if hostel else None
+    key = source_key(row)
+    binding = lookup["bindings"].get((row.dormitory_id, key))
+    if binding:
+        for field, column_id in binding.fields.items():
+            value = (row.custom_values or {}).get(str(column_id))
+            if value is not None:
+                values[field] = str(value)
+    return values
+
+
+def resident_with_history(db_session: Session) -> tuple[Resident, dict[str, Any]]:
+    """Строка проживающего со всеми видами значений: даты, JSON, связанные поля."""
+    user = create_user(db_session)
+    organization, _membership = organizations_for(db_session, user)
+    dormitory = Dormitory(
+        name="Северное", client_name="Стройкомплект", organization_id=organization.id
+    )
+    db_session.add(dormitory)
+    db_session.flush()
+    hostel = Hostel(
+        dormitory_id=dormitory.id,
+        name="Корпус 1",
+        active_from_month=date(2026, 1, 1),
+    )
+    db_session.add(hostel)
+    db_session.flush()
+    resident = Resident(
+        dormitory_id=dormitory.id,
+        hostel_id=hostel.id,
+        full_name="Семёнов Иван Иванович",
+        personnel_number="Т-10",
+        phone="+7 912 000 00 01",
+        shift_start=date(2026, 1, 10),
+        shift_end=date(2026, 2, 10),
+        shift_count=30,
+        created_at=CREATED_AT,
+        custom_values={"7": "Повар"},
+    )
+    db_session.add(resident)
+    binding = PersonnelBinding(
+        dormitory_id=dormitory.id, table_key="residents", fields={"position": 7}
+    )
+    db_session.add(binding)
+    db_session.commit()
+    db_session.refresh(resident)
+    lookup = {
+        "dormitories": {dormitory.id: dormitory},
+        "hostels": {hostel.id: hostel},
+        "bindings": {(dormitory.id, "residents"): binding},
+    }
+    return resident, lookup
+
+
+def test_row_values_keeps_the_previous_serialization(db_session: Session) -> None:
+    """Дата и время — строка, остальное не тронуто, наложения на месте."""
+    resident, lookup = resident_with_history(db_session)
+
+    assert row_values(db_session, resident, lookup) == previous_row_values(resident, lookup)
+
+
+def test_row_values_without_lookup_keeps_the_previous_serialization(
+    db_session: Session,
+) -> None:
+    """Путь без справочника (`record_changed`, `all_sources` без `lookup`) — тот же."""
+    resident, lookup = resident_with_history(db_session)
+
+    assert row_values(db_session, resident) == previous_row_values(resident, lookup)
+
+
+def test_workspace_member_ids_lists_every_card_of_the_group(
+    client: TestClient, db_session: Session
+) -> None:
+    """Состав группы — те же `id` в том же порядке, но собран одним проходом."""
+    user = sign_in(client, db_session)
+    dormitory_id = create_dormitory(client)
+    target = Employee(full_name="Семёнов Иван Иванович", identity_status="confirmed")
+    source = Employee(full_name="Семёнов И. И.", identity_status="pending")
+    db_session.add_all([target, source])
+    db_session.flush()
+    source.merged_into_id = target.id
+    db_session.add_all(
+        [
+            Resident(dormitory_id=dormitory_id, employee_id=target.id, full_name="Семёнов И."),
+            Resident(dormitory_id=dormitory_id, employee_id=source.id, full_name="Семёнов И. И."),
+        ]
+    )
+    db_session.commit()
+
+    data = workspace(db_session, user, [dormitory_id])
+
+    [card] = [item for item in data["employees"] if item["id"] == target.id]
+    assert card["member_ids"] == sorted([target.id, source.id])
+    assert {source["row_id"] for source in card["sources"]} == {
+        resident.id for resident in db_session.query(Resident).all()
+    }
+    # Карточка источника в ответ не попадает: группа отдаётся одной записью.
+    assert [item["id"] for item in data["employees"]] == [target.id]
+
+
+def test_workspace_reads_the_dormitory_directory_once(
+    client: TestClient, db_session: Session
+) -> None:
+    """Справочник общежитий читается один раз: второй `SELECT` был лишним."""
+    user = sign_in(client, db_session)
+    dormitory_id = create_dormitory(client)
+    db_session.add(Resident(dormitory_id=dormitory_id, employee_id=None, full_name="Без карточки"))
+    db_session.commit()
+
+    statements: list[str] = []
+
+    def collect(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    engine = cast(Engine, db_session.get_bind())
+    event.listen(engine, "before_cursor_execute", collect)
+    try:
+        workspace(db_session, user, [dormitory_id])
+    finally:
+        event.remove(engine, "before_cursor_execute", collect)
+
+    loads = [statement for statement in statements if "FROM dormitories" in statement]
+    assert len(loads) == 1, loads
+
+
+def test_workspace_route_marks_the_settings_stage(client: TestClient, db_session: Session) -> None:
+    """Настройки заездов — отдельный этап рядом с этапами сборки карточек.
+
+    Ручка отдаёт их тем же ответом, но читают они свои таблицы: без разметки
+    это время приписано сборке карточек, и по событию не видно, чей это вклад.
+    """
+    user = sign_in(client, db_session)
+    create_dormitory(client)
+    membership = db_session.scalars(
+        select(OrganizationMember).where(OrganizationMember.user_id == user.id)
+    ).first()
+    assert membership is not None
+
+    token = sql_diagnostics.start_request("probe")
+    try:
+        payload = get_workspace(user, membership, db_session)
+    finally:
+        request_sql = sql_diagnostics.current()
+        sql_diagnostics.finish_request(token)
+
+    assert request_sql is not None
+    assert {"settings", "sources", "assemble"} <= set(request_sql.stages_ms)
+    assert payload["arrival_settings"] is not None
