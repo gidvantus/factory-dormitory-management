@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from starlette.middleware.base import RequestResponseEndpoint
 
-from app import audit, dormitory_history, metrics
+from app import audit, dormitory_history, metrics, sql_diagnostics
 from app.api import (
     activation,
     arrival_plans,
@@ -356,6 +356,13 @@ def create_app() -> FastAPI:
             return await call_next(request)
         finally:
             dormitory_history.request_context.reset(token)
+
+    # Диагностика SQL (#231): сколько времени запроса ушло в базу. Контекст
+    # ставится до `call_next`, поэтому его наследует threadpool синхронных ручек,
+    # а слушатели SQLAlchemy (`app.sql_diagnostics`) дописывают счётчик и время в
+    # общий изменяемый объект. Ставится до метрик, то есть оказывается внутри
+    # них: скрейп `/metrics` исключён в самом middleware диагностики.
+    application.middleware("http")(sql_diagnostics.middleware)
 
     # Метрики Prometheus — самый внешний middleware: в Starlette последний
     # добавленный оказывается внешним, поэтому он видит ответ таким, каким его
