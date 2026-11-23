@@ -514,7 +514,7 @@ class SourceRecord:
 def all_sources(
     db: Session,
     dormitory_ids: list[int],
-    dormitories: list[Dormitory] | None = None,
+    dormitories: list[Any] | None = None,
 ) -> list[SourceRecord]:
     """Строки-источники только по перечисленным общежитиям.
 
@@ -534,7 +534,9 @@ def all_sources(
         "dormitories": {item.id: item for item in dormitories},
         "hostels": {
             item.id: item
-            for item in db.scalars(select(Hostel).where(Hostel.dormitory_id.in_(dormitory_ids)))
+            for item in db.execute(
+                select(Hostel.id, Hostel.name).where(Hostel.dormitory_id.in_(dormitory_ids))
+            )
         },
         "bindings": {
             (item.dormitory_id, item.table_key): item
@@ -746,8 +748,8 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
     employees, roots = root_map(db)
     identities = group_identities(employees, roots)
     dormitories = list(
-        db.scalars(
-            select(Dormitory)
+        db.execute(
+            select(Dormitory.id, Dormitory.name, Dormitory.client_name, Dormitory.is_archived)
             .where(Dormitory.id.in_(dormitory_ids))
             .order_by(Dormitory.name, Dormitory.id)
         )
@@ -775,8 +777,8 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
     history_dorms: dict[str, set[int]] = defaultdict(set)
     history_ids: set[str] = set()
     with stage("events"):
-        for entry in db.scalars(
-            select(EmployeeEvent)
+        for entry in db.execute(
+            select(EmployeeEvent.employee_id, EmployeeEvent.dormitory_id)
             .where(EmployeeEvent.dormitory_id.in_(dormitory_ids))
             .order_by(EmployeeEvent.id)
         ):
