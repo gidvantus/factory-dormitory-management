@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api import personnel as personnel_api
 from app.api.personnel import json_response
 from app.personnel import today
 from tests.conftest import sign_in
@@ -59,6 +60,32 @@ def test_json_response_writes_compact_json_and_refuses_other_types() -> None:
         json_response({"total": Decimal("1.5")})
     with pytest.raises(ValueError):
         json_response({"ratio": float("nan")})
+
+
+def test_workspace_route_serialises_the_body_itself(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Главный выигрыш тикета держится тестом, а не честным словом.
+
+    `return result` вместо `return json_response(result)` даёт байт в байт то же
+    тело (Starlette сериализует так же), поэтому проверки содержимого этого не
+    заметят, а `jsonable_encoder` вернётся незамеченным. Здесь считаются вызовы:
+    поверхность обязана собрать тело через `json_response`, страница — нет.
+    """
+    sign_in(client, db_session)
+    create_dormitory(client)
+    calls: list[Any] = []
+
+    def counted(payload: Any) -> Any:
+        calls.append(payload)
+        return json_response(payload)
+
+    monkeypatch.setattr(personnel_api, "json_response", counted)
+    assert client.get(API).status_code == 200
+    assert len(calls) == 1, "поверхность должна собирать тело через json_response"
+    calls.clear()
+    assert client.get(PAGE).status_code == 200
+    assert calls == [], "страница отдаёт словарь и не должна сериализовать тело дважды"
 
 
 def test_workspace_and_page_contain_only_json_types(

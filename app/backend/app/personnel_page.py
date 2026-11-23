@@ -517,9 +517,14 @@ def block_previews(
                 }
             )
             continue
-        people = [] if missing else filtered(cards, criteria, today, dormitories, source_columns)
-        if criteria.filter == "ending":
-            people.sort(key=lambda person: shift_end(block_source(person, criteria, today)))
+        # Порядок тот же, что у страницы: `ordered` сортирует по ФИО, а для
+        # `ending` — по дате конца. Раньше превью шло в порядке карточек
+        # (по `id`), и блок показывал не тех людей, чем список под ним.
+        people = (
+            []
+            if missing
+            else ordered(filtered(cards, criteria, today, dormitories, source_columns), criteria)
+        )
         events = (
             [
                 {"date": end, "count": 1}

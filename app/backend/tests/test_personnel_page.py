@@ -231,3 +231,23 @@ def test_workspace_frame_without_employees_keeps_blocks(
     ] == [(dorm, "Северное", "Стройкомплект", False, 1)]
     # Превью ограничено `limit` блока, а не размером страницы.
     assert all(len(item.items) <= 4 for item in previews)
+
+
+def test_block_previews_keep_the_page_order(client: TestClient, db_session: Session) -> None:
+    """Блоки отдают людей в том же порядке, что страница, а не в порядке `id`.
+
+    До правки `block_previews` брал отфильтрованные карточки как есть — то есть
+    в порядке `id` — и блок «Проживающий персонал» показывал не тех людей, чем
+    список под ним. Клиент брал эти карточки из `filterPeople`, а тот сортирует
+    по ФИО (`helpers.ts:123-135`).
+    """
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    # Яблоков заведён первым, поэтому порядок `id` и порядок по ФИО расходятся.
+    create(client, dorm, fields=person("Яблоков Пётр", "Т-1"))
+    create(client, dorm, fields=person("Абрамов Иван", "Т-2"))
+    frame = client.get(API, params={"employees": "none"}).json()
+    previews = [BlockPreview.model_validate(item) for item in frame["block_previews"]]
+    residents = next(item for item in previews if item.kind == "residents")
+    assert [item.full_name for item in residents.items] == ["Абрамов Иван", "Яблоков Пётр"]
+    assert [item.id for item in residents.items] == [item["id"] for item in page(client)["items"]]
