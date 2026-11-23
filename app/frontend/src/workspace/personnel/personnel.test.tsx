@@ -349,6 +349,48 @@ const pageRequests = (): { page: number; per_page: number; query: string }[] =>
     .mock.calls.map(([query]) => query)
     .filter((query) => query.per_page === PAGE_SIZE);
 
+/** Запросы счётчиков: страница из одной записи, только ради `total`. */
+const counterFilters = (): (string | undefined)[] =>
+  vi
+    .mocked(personnelApi.employees)
+    .mock.calls.map(([query]) => query)
+    .filter((query) => query.per_page === 1)
+    .map((query) => query.filter);
+
+it('не запрашивает счётчик активного фильтра: его число приходит со страницей (#247)', async () => {
+  const user = userEvent.setup();
+  const payload = data([
+    { ...person('a', [source(1)]), full_name: 'Иванов Иван' },
+    { ...person('b', [source(1)]), full_name: 'Петров Пётр' },
+    { ...person('c'), full_name: 'Сидоров Сергей' },
+  ]);
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  mockPersonnelServer(payload);
+  render(
+    <MemoryRouter>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+  await screen.findByRole('table');
+  await user.click(screen.getByRole('button', { name: 'Проживают' }));
+  await waitFor(() =>
+    expect(screen.getByRole('heading', { name: /^Проживают · 2$/ })).toBeInTheDocument(),
+  );
+  const before = counterFilters().length;
+  await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Петров');
+  await waitFor(() => expect(screen.getByText('1–1 из 1')).toBeInTheDocument());
+  // Второй статус спрашивается счётчиком, активный — нет: его total пришёл страницей.
+  expect(counterFilters().slice(before)).toEqual(['ending']);
+  expect(screen.getByRole('heading', { name: /^Проживают · 1$/ })).toBeInTheDocument();
+});
+
 it('ищет одной страницей после паузы в наборе, а не по запросу на букву (#247)', async () => {
   const user = userEvent.setup();
   const payload = data(people(3));

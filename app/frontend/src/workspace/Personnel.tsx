@@ -171,9 +171,14 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
   const summary = (id: Filter): number | null => data?.counts?.[id] ?? null;
   /** Счётчики списка при пустых поиске и фильтрах совпадают со сводкой — второй раз их не считаем. */
   const sameAsSummary = !debouncedQuery.trim() && !scope.length && !debouncedColumnFilters.length;
+  /**
+   * У активного фильтра число уже пришло с показанной страницей (`total`), поэтому
+   * отдельный запрос нужен только второму статусу (#247).
+   */
+  const otherFilters = (['current', 'ending'] as Filter[]).filter((id) => id !== filter);
   const listCounts = useEmployeeCounts(
     criteria,
-    ['current', 'ending'],
+    otherFilters,
     view === 'list' && !sameAsSummary,
     revision,
   );
@@ -312,8 +317,15 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     setColumnFilters(list.column_filters ?? []);
     setView('list');
   };
-  const listSummary = (id: Filter): number | null =>
-    sameAsSummary ? summary(id) : (listCounts[id] ?? null);
+  /**
+   * Число под фильтром: при пустых условиях — сводка поверхности, у активного
+   * фильтра — `total` показанной страницы, у второго статуса — его счётчик (#247).
+   */
+  const listSummary = (id: Filter): number | null => {
+    if (sameAsSummary) return summary(id);
+    if (id === filter && list.result) return list.result.total;
+    return listCounts[id] ?? null;
+  };
   return (
     <section
       className={view === 'workspace' ? w.surface : `${s.page} ${w.surface} ${f.surface}`}
