@@ -224,7 +224,12 @@ def employees_page(
     # дороге проходят через `jsonable_encoder` — ровно та работа, которую убирает
     # тикет. Схему по-прежнему проверяет модель из `response_model`, поэтому
     # договор не меняется, а `test_personnel_contract.py` держит оба маршрута.
-    return json_response(result.model_dump(mode="json"))
+    #
+    # Дамп в режиме `python`, а не `json`: `json_response` не принимает дату,
+    # `Decimal` и `NaN`, и страница ведёт себя так же, как поверхность. В режиме
+    # `json` Pydantic молча превратил бы их в строки, и правило «не JSON-тип в
+    # теле — ошибка данных» действовало бы только на одном маршруте из двух.
+    return json_response(result.model_dump())
 
 
 @router.post("/export")

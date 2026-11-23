@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models.table_column import TableColumn
 from app.personnel import today
+from app.personnel_page import block_previews
 from app.schemas.personnel import BlockPreview
 from tests.conftest import sign_in
 from tests.test_personnel import API, create, workspace
@@ -234,16 +235,15 @@ def test_workspace_frame_without_employees_keeps_blocks(
 
 
 def test_block_previews_keep_the_page_order(client: TestClient, db_session: Session) -> None:
-    """Блоки отдают людей в том же порядке, что страница, а не в порядке `id`.
+    """Превью блоков и страница отдают людей в одном порядке.
 
-    До правки `block_previews` брал отфильтрованные карточки как есть — то есть
-    в порядке `id` — и блок «Проживающий персонал» показывал не тех людей, чем
-    список под ним. Клиент брал эти карточки из `filterPeople`, а тот сортирует
-    по ФИО (`helpers.ts:123-135`).
+    Это сверка двух маршрутов на живых данных, а не страж регрессии: `Employee.id`
+    — `uuid4()` (`app/models/personnel.py:25-26`), поэтому порядок карточек по `id`
+    с порядком по ФИО совпадает случайно. Детерминированный страж — ниже,
+    `test_block_previews_order_by_name_not_by_id`.
     """
     sign_in(client, db_session)
     dorm = create_dormitory(client)
-    # Яблоков заведён первым, поэтому порядок `id` и порядок по ФИО расходятся.
     create(client, dorm, fields=person("Яблоков Пётр", "Т-1"))
     create(client, dorm, fields=person("Абрамов Иван", "Т-2"))
     frame = client.get(API, params={"employees": "none"}).json()
@@ -251,3 +251,64 @@ def test_block_previews_keep_the_page_order(client: TestClient, db_session: Sess
     residents = next(item for item in previews if item.kind == "residents")
     assert [item.full_name for item in residents.items] == ["Абрамов Иван", "Яблоков Пётр"]
     assert [item.id for item in residents.items] == [item["id"] for item in page(client)["items"]]
+
+
+def card(id: str, name: str) -> dict[str, Any]:
+    """Карточка в той форме, в которой её видит `personnel_page` (без ORM)."""
+    source = {
+        "table_key": "residents",
+        "row_id": 1,
+        "dormitory_id": 1,
+        "source_name": "Проживающие",
+        "values": {"full_name": name, "shift_end": ""},
+    }
+    return {
+        "id": id,
+        "full_name": name,
+        "personnel_number": None,
+        "phone": None,
+        "sources": [source],
+        "current": [source],
+        "history_dormitory_ids": [1],
+        "variants": {},
+    }
+
+
+def test_block_previews_order_by_name_not_by_id() -> None:
+    """Страж Б1: порядок превью задан ФИО и не зависит от `id` — детерминированно.
+
+    `id` в контракте — `uuid4()`, поэтому интеграционный тест на двух людях ловит
+    возврат к `filtered(cards, ...)` только в половине прогонов. Здесь карточки
+    синтетические и `id` заданы явно: первый по `id` — «Яблоков», первый по ФИО —
+    «Абрамов», так что старая реализация падает при каждом запуске.
+    """
+    cards = [
+        card("aaa00000-0000-0000-0000-000000000000", "Яблоков Пётр"),
+        card("zzz", "Абрамов Иван"),
+    ]
+    block = {
+        "id": "block-residents",
+        "kind": "residents",
+        "title": "Проживающий персонал",
+        "limit": 4,
+        "scope": [],
+        "days": 5,
+        "saved_list_id": None,
+    }
+    previews = block_previews(
+        cards=cards,
+        lists=[],
+        blocks=[block],
+        today=str(today()),
+        dormitory=None,
+        dormitories=[
+            {"id": 1, "name": "Северное", "client_name": "Стройкомплект", "is_archived": False}
+        ],
+        source_columns=[],
+        arrivals=[],
+    )
+    assert [item["full_name"] for item in previews[0]["items"]] == ["Абрамов Иван", "Яблоков Пётр"]
+    assert [item["id"] for item in previews[0]["items"]] == [
+        "zzz",
+        "aaa00000-0000-0000-0000-000000000000",
+    ]

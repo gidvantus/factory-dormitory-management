@@ -129,3 +129,28 @@ def test_workspace_and_page_contain_only_json_types(
     assert data["today"] == str(today())
     assert data["plans"][0]["date"] == str(today() + timedelta(days=5))
     assert data["arrival_plans"][0]["date"] == str(today() + timedelta(days=2))
+
+
+def test_page_refuses_a_date_inside_a_card(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Правило «не JSON-тип в теле — ошибка данных» одно для обоих маршрутов.
+
+    Страница валидирует ответ моделью, и дамп в режиме `json` молча превратил бы
+    дату в строку — тогда `date` в карточке ронял бы поверхность и не ронял
+    страницу. Проверяем, что страница падает так же.
+    """
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    create(client, dorm, values={"shift_end": str(today() + timedelta(days=3))})
+
+    original = personnel_api.employee_cards
+
+    def cards_with_date(db: Session, context: Any) -> list[dict[str, Any]]:
+        cards = original(db, context)
+        cards[0]["sources"][0]["values"]["shift_end"] = today()
+        return cards
+
+    monkeypatch.setattr(personnel_api, "employee_cards", cards_with_date)
+    with pytest.raises(TypeError):
+        client.get(PAGE)
