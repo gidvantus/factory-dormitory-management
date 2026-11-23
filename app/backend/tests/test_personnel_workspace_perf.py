@@ -330,6 +330,7 @@ def test_page_cost_and_body_size_on_the_same_volume() -> None:
                 "plans",
                 "arrivals",
                 "block_previews",
+                "counts",
             }
         finally:
             clean_stand(db, dormitory_id, organization_id, marker)

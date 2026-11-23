@@ -34,7 +34,7 @@ from app.models.personnel import (
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
 from app.models.user import User
-from app.personnel_page import block_previews
+from app.personnel_page import ListCriteria, block_previews, counts_by_filter
 from app.schemas.personnel import IdentityChoice, IdentityFields
 from app.sql_diagnostics import stage
 
@@ -874,13 +874,15 @@ def workspace(
     include_employees: bool = True,
     include_previews: bool = False,
     preview_dormitory: int | None = None,
+    days: int = 5,
 ) -> dict[str, Any]:
     """Рабочая поверхность персонала в пределах области — общежитий организации.
 
     `include_employees=False` (`?employees=none`) отдаёт ту же рамку без карточек:
     ответ больше не растёт вместе с числом сотрудников, а страницу людей приносит
-    `GET /api/personnel/employees`. Превью блоков (`include_previews`) считаются
-    здесь же — их источники те же карточки, поэтому второй сборки не нужно.
+    `GET /api/personnel/employees`. Превью блоков (`include_previews`) и сводка
+    (`counts`) считаются здесь же — их источники те же карточки, поэтому второй
+    сборки не нужно. `days` задаёт срок вахты для счётчика «Завершают вахту».
 
     В ответе только типы JSON: даты идут строками `YYYY-MM-DD`, чтобы не гонять
     тело через `jsonable_encoder` (см. `app.api.personnel.json_response`).
@@ -943,6 +945,18 @@ def workspace(
                 dormitories=dormitories,
                 source_columns=columns,
                 arrivals=arrivals,
+            )
+        # Сводка поверхности: раньше эти три числа считались в браузере по всему
+        # массиву карточек, а при `employees=none` массива нет. Отдельный запрос на
+        # каждое число стоил бы трёх полных сборок карточек, поэтому считаем здесь,
+        # где карточки уже собраны.
+        with stage("counts"):
+            response["counts"] = counts_by_filter(
+                cards,
+                ListCriteria(dormitory=preview_dormitory, days=days),
+                response["today"],
+                dormitories,
+                columns,
             )
     return response
 

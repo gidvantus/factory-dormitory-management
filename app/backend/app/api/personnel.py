@@ -146,12 +146,15 @@ def get_workspace(
     db: DbSession,
     employees: Annotated[Literal["full", "none"], Query()] = "full",
     dormitory: Annotated[int | None, Query(ge=1)] = None,
+    days: Annotated[int, Query(ge=0, le=365)] = 5,
 ) -> Response:
     """Рабочая поверхность персонала.
 
     `employees=none` отдаёт рамку поверхности без карточек: страница людей приходит
-    из `GET /api/personnel/employees`, а блоки — из `block_previews` (#247).
-    Умолчание `full` оставлено прежним, чтобы переход был пошаговым.
+    из `GET /api/personnel/employees`, а блоки — из `block_previews`, сводка — из
+    `counts` (#247). `days` — тот же срок вахты, что у страницы: от него зависит
+    число «Завершают вахту». Умолчание `full` оставлено прежним, чтобы переход был
+    пошаговым.
     """
     result = workspace(
         db,
@@ -160,6 +163,7 @@ def get_workspace(
         include_employees=employees == "full",
         include_previews=employees == "none",
         preview_dormitory=dormitory,
+        days=days,
     )
     # Настройки заездов — отдельный этап (#237): он читает свои таблицы, но
     # ответ отдаётся одной ручкой, и в событии это разные строки разбивки.

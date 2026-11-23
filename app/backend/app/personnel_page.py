@@ -14,7 +14,7 @@
 import math
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from typing import Any
 
@@ -420,6 +420,37 @@ def page(
     people = ordered(filtered(cards, criteria, today, dormitories, source_columns), criteria)
     start = (number - 1) * per_page
     return people[start : start + per_page], len(people)
+
+
+def counts_by_filter(
+    cards: list[dict[str, Any]],
+    criteria: ListCriteria,
+    today: str,
+    dormitories: list[dict[str, Any]],
+    source_columns: list[dict[str, Any]],
+    filters: tuple[str, ...] = ("all", "current", "ending"),
+) -> dict[str, int]:
+    """Сколько человек в каждом фильтре — сводка рабочей поверхности (#247).
+
+    Числа «Персонал N», «Проживают сейчас» и «Завершают вахту» раньше считались
+    в браузере по всему массиву карточек. При `?employees=none` массива нет, а
+    три отдельных запроса страницы стоили бы по полной сборке карточек каждый,
+    поэтому сводка считается здесь — теми же `filtered`, по тем же карточкам.
+    Область, срок вахты, поиск и условия столбцов приходят в `criteria`; меняется
+    только сам фильтр. Значение совпадает с `total` одноимённой страницы.
+    """
+    return {
+        filter: len(
+            filtered(
+                cards,
+                replace(criteria, filter=filter),
+                today,
+                dormitories,
+                source_columns,
+            )
+        )
+        for filter in filters
+    }
 
 
 def block_source(

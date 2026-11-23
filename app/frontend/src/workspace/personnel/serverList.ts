@@ -7,8 +7,27 @@ import { message } from './helpers';
 /** Размер страницы сотрудников: столько же, сколько запрашивает сервер по умолчанию. */
 export const PAGE_SIZE = 20;
 
+/**
+ * Отложенное значение: пока пользователь печатает, запрос уходит не на каждую букву.
+ *
+ * Это не только про сеть: каждый запрос страницы сервер собирает карточки всей
+ * организации заново, поэтому десять букв в поиске — десять полных сборок (#247).
+ */
+export function useDebounced<T>(value: T, delay = 300): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return settled;
+}
+
 /** Условия страницы в том виде, в каком их понимает `GET /api/personnel/employees`. */
-export const employeePageQuery = (criteria: ListCriteria, page: number): EmployeeListQuery => ({
+export const employeePageQuery = (
+  criteria: ListCriteria,
+  page: number,
+  perPage = PAGE_SIZE,
+): EmployeeListQuery => ({
   filter: criteria.filter,
   dormitory: criteria.dormitory,
   scope: criteria.scope,
@@ -16,7 +35,7 @@ export const employeePageQuery = (criteria: ListCriteria, page: number): Employe
   query: criteria.query.trim(),
   ...(criteria.column_filters?.length ? { column_filters: criteria.column_filters } : {}),
   page: page + 1,
-  per_page: PAGE_SIZE,
+  per_page: perPage,
 });
 
 const criteriaKey = (criteria: ListCriteria): string =>
@@ -30,6 +49,11 @@ const criteriaKey = (criteria: ListCriteria): string =>
   ]);
 
 export type EmployeeListState = {
+  /**
+   * Ответ сервера на текущие условия. Номер показанной страницы — `result.page`,
+   * а не запрошенный: пока ответа нет, строки не подменяются, а подвал и стрелки
+   * не должны опережать таблицу (#247).
+   */
   result: EmployeePage | null;
   loading: boolean;
   error: string;
@@ -41,7 +65,9 @@ export type EmployeeListState = {
  *
  * `result` относится только к текущим условиям: пока новая страница не пришла,
  * прежние строки не показываются — иначе под новым фильтром мелькал бы старый
- * список. `revision` перезапрашивает страницу по кнопке и при обновлении данных.
+ * список. Внутри текущих условий показанная страница берётся из ответа, а не из
+ * состояния компонента. `revision` перезапрашивает страницу по кнопке и при
+ * обновлении данных.
  */
 export function useEmployeeList(
   criteria: ListCriteria,
@@ -92,7 +118,9 @@ export type EmployeeCounts = Partial<Record<Filter, number>>;
  * Счётчики списка по тем же условиям (#247).
  *
  * Раньше числа считались по всему массиву карточек в браузере; теперь за каждым
- * числом стоит страница из одной записи — сервер сам отдаёт `total`.
+ * числом стоит страница из одной записи — сервер сам отдаёт `total`. Сводка
+ * поверхности (`all`/`current`/`ending` без поиска) приходит в рамке полем
+ * `counts`, поэтому запросы здесь нужны только для активного поиска.
  */
 export function useEmployeeCounts(
   criteria: ListCriteria,
@@ -109,7 +137,7 @@ export function useEmployeeCounts(
     void Promise.all(
       filters.map((filter) =>
         personnelApi
-          .employees(employeePageQuery({ ...criteria, filter }, 0), controller.signal)
+          .employees(employeePageQuery({ ...criteria, filter }, 0, 1), controller.signal)
           .then((page) => [filter, page.total] as const)
           .catch(() => null),
       ),
@@ -144,7 +172,7 @@ export function useEmployeeCount(
     const controller = new AbortController();
     const timer = setTimeout(() => {
       void personnelApi
-        .employees(employeePageQuery(latest.current, 0), controller.signal)
+        .employees(employeePageQuery(latest.current, 0, 1), controller.signal)
         .then((page) => {
           if (!controller.signal.aborted) setCount(page.total);
         })

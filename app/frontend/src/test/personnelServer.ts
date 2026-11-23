@@ -1,6 +1,12 @@
 import { vi } from 'vitest';
 import { personnelApi } from '../api/personnel';
-import type { Block, BlockPreview, EmployeeListQuery, PersonnelData } from '../api/personnel';
+import type {
+  Block,
+  BlockPreview,
+  EmployeeListQuery,
+  Filter,
+  PersonnelData,
+} from '../api/personnel';
 import { defaultBlocks, filterPeople, value } from '../workspace/personnel/helpers';
 import {
   blockCriteria,
@@ -47,12 +53,17 @@ function previewOf(block: Block, data: PersonnelData, dormitory: number | null):
 export function mockPersonnelServer(payload: PersonnelData): void {
   vi.spyOn(personnelApi, 'workspace').mockImplementation(async (_signal, options) => {
     const dormitory = options?.dormitory ?? null;
+    const days = options?.days ?? 5;
     const frame = structuredClone(payload);
     if (options?.employees !== 'none') return frame;
     const blocks = frame.preferences.blocks ?? defaultBlocks;
+    const count = (filter: Filter): number =>
+      filterPeople(frame, { filter, dormitory, days, query: '', scope: [] }).length;
     return {
       ...frame,
       employees: [],
+      // Сводка поверхности считается сервером по своим карточкам (#247).
+      counts: { all: count('all'), current: count('current'), ending: count('ending') },
       block_previews: blocks.map((block) => previewOf(block, frame, dormitory)),
     };
   });
@@ -65,7 +76,7 @@ export function mockPersonnelServer(payload: PersonnelData): void {
       total: people.length,
       page: query.page,
       per_page: per,
-      pages: Math.max(1, Math.ceil(people.length / per)),
+      pages: Math.ceil(people.length / per),
     };
   });
 }

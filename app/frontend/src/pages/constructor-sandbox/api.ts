@@ -891,7 +891,21 @@ export function installSandboxApis(store: Sandbox): () => void {
       store.changed();
       return store.dorm(String(id)).binding[String(table)];
     },
-    workspace: () => store.personnel,
+    /**
+     * Рамка поверхности. В стенде карточки уже в браузере, поэтому сводку `counts`
+     * (#247) считаем здесь же — так же, как это делает сервер по своим карточкам.
+     */
+    workspace: ([, options]) => {
+      const settings = options as { dormitory?: number | null; days?: number } | undefined;
+      const dormitory = settings?.dormitory ?? null;
+      const days = settings?.days ?? 5;
+      const count = (filter: 'all' | 'current' | 'ending'): number =>
+        filterPeople(store.personnel, { filter, dormitory, days, query: '', scope: [] }).length;
+      return {
+        ...store.personnel,
+        counts: { all: count('all'), current: count('current'), ending: count('ending') },
+      };
+    },
     /** Страница сотрудников (#247): в стенде весь список уже лежит в браузере. */
     employees: ([query]) => {
       const list = query as {

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -12,6 +12,7 @@ import { filterPeople } from './helpers';
 import { defaultColumns } from '../../test/tableColumns';
 import { renderWithExchangePermissions as render } from '../../test/renderWithExchangePermissions';
 import { mockPersonnelServer } from '../../test/personnelServer';
+import { PAGE_SIZE } from './serverList';
 
 const source = (
   dorm: number,
@@ -111,7 +112,8 @@ it('оставляет три фильтра, поиск и карточку б�
   expect(within(table).getAllByRole('row')).toHaveLength(2);
   await user.click(screen.getByRole('button', { name: 'Все сотрудники' }));
   await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Иванов');
-  expect(within(table).getAllByRole('row')).toHaveLength(2);
+  // Поиск применяется после паузы в наборе: запрос уходит не на каждую букву (#247).
+  await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(2));
   await user.click(within(table).getByRole('button', { name: /^Иванов Иван/ }));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(screen.getByRole('complementary', { name: 'Выбранный сотрудник' })).toHaveTextContent(
@@ -199,7 +201,8 @@ it('фильтрует по двум статусам, собирает выбр
   );
   await user.click(screen.getByRole('button', { name: '+ Добавить фильтр' }));
   await user.selectOptions(screen.getByLabelText('Значение фильтра 1'), 'Проживает');
-  expect(within(table).getAllByRole('row')).toHaveLength(3);
+  // Условия столбцов применяются после паузы в наборе (#247).
+  await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(3));
   expect(screen.getByText('Выбрано: 1')).toBeInTheDocument();
   await user.click(within(table).getByRole('checkbox', { name: 'Выбрать сотрудника Иванов Иван' }));
   await user.click(screen.getByRole('button', { name: '+ Добавить фильтр' }));
@@ -210,7 +213,7 @@ it('фильтрует по двум статусам, собирает выбр
     }),
   );
   await user.selectOptions(screen.getByLabelText('Значение фильтра 2'), 'Допущен');
-  expect(within(table).getAllByRole('row')).toHaveLength(2);
+  await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(2));
   expect(
     within(table).getByRole('columnheader', { name: 'Проживающие · Статус' }),
   ).toBeInTheDocument();
@@ -234,9 +237,9 @@ it('фильтрует по двум статусам, собирает выбр
   await waitFor(() => expect(screen.queryByTestId('personnel-save-list')).not.toBeInTheDocument());
   expect(save.mock.calls[0][0].lists[0].column_filters).toHaveLength(2);
   await user.click(screen.getByRole('button', { name: 'Сбросить условия' }));
-  expect(within(table).getAllByRole('row')).toHaveLength(4);
+  await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(4));
   await user.click(screen.getByRole('button', { name: /^Допущенные/ }));
-  expect(within(table).getAllByRole('row')).toHaveLength(2);
+  await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(2));
   expect(screen.getByLabelText('Значение фильтра 2')).toHaveValue('Допущен');
 });
 
@@ -314,6 +317,7 @@ it('загружает список страницами с сервера и н
   expect(personnelApi.workspace).toHaveBeenCalledWith(expect.any(AbortSignal), {
     employees: 'none',
     dormitory: null,
+    days: 5,
   });
   expect(await screen.findByText('1–20 из 25')).toBeInTheDocument();
   expect(within(table).getAllByRole('row')).toHaveLength(21);
@@ -325,10 +329,155 @@ it('загружает список страницами с сервера и н
   expect(await screen.findByText('1–20 из 25')).toBeInTheDocument();
   await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Сотрудник 2');
   await waitFor(() => expect(screen.getByText('1–6 из 6')).toBeInTheDocument());
-  expect(personnelApi.employees).toHaveBeenLastCalledWith(
+  // Страница списка запрашивается после паузы в наборе; счётчики — отдельные запросы.
+  expect(personnelApi.employees).toHaveBeenCalledWith(
     expect.objectContaining({ query: 'Сотрудник 2', page: 1, per_page: 20 }),
     expect.any(AbortSignal),
   );
+});
+
+const people = (count: number): Employee[] =>
+  Array.from({ length: count }, (_, index) => ({
+    ...person(`id-${index}`),
+    full_name: `Сотрудник ${String(index + 1).padStart(2, '0')}`,
+  }));
+
+/** Запросы страницы: только они, без счётчиков из одной записи. */
+const pageRequests = (): { page: number; per_page: number; query: string }[] =>
+  vi
+    .mocked(personnelApi.employees)
+    .mock.calls.map(([query]) => query)
+    .filter((query) => query.per_page === PAGE_SIZE);
+
+it('ищет одной страницей после паузы в наборе, а не по запросу на букву (#247)', async () => {
+  const user = userEvent.setup();
+  const payload = data(people(3));
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  mockPersonnelServer(payload);
+  render(
+    <MemoryRouter>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+  await screen.findByRole('table');
+  const before = pageRequests().length;
+  await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Сотрудник 02');
+  await waitFor(() => expect(screen.getByText('1–1 из 1')).toBeInTheDocument());
+  // Одиннадцать букв — один запрос с целым словом: поиск применяется после паузы.
+  expect(
+    pageRequests()
+      .slice(before)
+      .map((query) => query.query),
+  ).toEqual(['Сотрудник 02']);
+});
+
+it('берёт сводку поверхности из рамки и не запрашивает счётчики отдельно (#247)', async () => {
+  const user = userEvent.setup();
+  const payload = data(people(4));
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  mockPersonnelServer(payload);
+  render(
+    <MemoryRouter>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+  await screen.findByRole('table');
+  await waitFor(() => expect(pageRequests()).toHaveLength(1));
+  // Ни одного запроса из одной записи: числа в шапке пришли полем `counts`.
+  expect(vi.mocked(personnelApi.employees).mock.calls.map(([query]) => query.per_page)).toEqual([
+    PAGE_SIZE,
+  ]);
+  expect(screen.getByRole('heading', { name: /Персонал/ })).toHaveTextContent('4');
+  expect(screen.getByRole('tab', { name: /Сотрудники\s*4/ })).toBeInTheDocument();
+});
+
+it('после сохранения перезапрашивает рамку один раз и не объявляет успех ошибкой (#247)', async () => {
+  const user = userEvent.setup();
+  const payload = data(people(2));
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  mockPersonnelServer(payload);
+  vi.spyOn(personnelApi, 'preferences').mockImplementation(async (preferences) => {
+    payload.preferences = { ...preferences, revision: preferences.revision + 1 };
+    return payload.preferences;
+  });
+  render(
+    <MemoryRouter>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+  await screen.findByRole('table');
+  const frames = vi.mocked(personnelApi.workspace).mock.calls.length;
+  await user.click(screen.getByRole('button', { name: '+ Сохранить текущий список' }));
+  await user.click(
+    within(screen.getByTestId('personnel-save-list')).getByRole('button', {
+      name: 'Сохранить список',
+    }),
+  );
+  await waitFor(() => expect(vi.mocked(personnelApi.workspace).mock.calls.length).toBe(frames + 1));
+  expect(screen.queryByText(/Не удалось обновить данные/)).not.toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: /Персонал/ })).toHaveTextContent('2');
+  expect(
+    screen.getByRole('button', { name: 'Убрать сохранённый список «Все сотрудники»' }),
+  ).toBeInTheDocument();
+});
+
+it('после исчезновения последней страницы показывает пустой список, а не пустой лист (#247)', async () => {
+  const user = userEvent.setup();
+  const payload = data(people(25));
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  mockPersonnelServer(payload);
+  render(
+    <MemoryRouter>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+  const table = await screen.findByRole('table');
+  await user.click(screen.getByRole('button', { name: 'Далее' }));
+  expect(await screen.findByText('21–25 из 25')).toBeInTheDocument();
+  expect(within(table).getAllByRole('row')).toHaveLength(6);
+  const before = pageRequests().length;
+  // Пока вторая страница была открыта, людей убрали: обновление при возвращении на вкладку.
+  payload.employees.length = 0;
+  await act(async () => {
+    window.dispatchEvent(new Event('focus'));
+  });
+  await waitFor(() => expect(screen.getByTestId('personnel-list-empty')).toBeInTheDocument());
+  // Один запрос за второй страницей и один — за последней существующей, без цикла.
+  expect(
+    pageRequests()
+      .slice(before)
+      .map((query) => query.page),
+  ).toEqual([2, 1]);
+  expect(screen.getByText('0–0 из 0')).toBeInTheDocument();
+  expect(within(table).getAllByRole('row')).toHaveLength(1);
 });
 
 describe('Персонал без задач', () => {

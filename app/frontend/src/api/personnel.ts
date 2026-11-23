@@ -188,6 +188,12 @@ export type PersonnelData = {
   preferences: Preferences;
   /** Есть только при `employees=none`: так `Personnel.tsx` рисует блоки без полного списка. */
   block_previews?: BlockPreview[];
+  /**
+   * Сводка поверхности при `employees=none` (#247): числа «Персонал N»,
+   * «Проживают сейчас» и «Завершают вахту» считает сервер, а не браузер по
+   * всему массиву карточек. Срок вахты задаётся `days` того же запроса.
+   */
+  counts?: Partial<Record<Filter, number>>;
 };
 export type ArrivalPlanningData = Pick<
   PersonnelData,
@@ -254,15 +260,17 @@ export const personnelApi = {
   /**
    * Рабочая поверхность. `employees: 'none'` — рамка без карточек: люди приходят
    * страницами из `employees()`, а блоки — из `block_previews` (#247).
+   * `days` — срок вахты для сводки `counts`; страница запрашивает его же.
    * Умолчание `full` осталось ради остальных экранов, которым нужен весь список.
    */
   workspace: (
     signal?: AbortSignal,
-    options?: { employees?: 'full' | 'none'; dormitory?: number | null },
+    options?: { employees?: 'full' | 'none'; dormitory?: number | null; days?: number },
   ): Promise<PersonnelData> => {
     const params = new URLSearchParams();
     if (options?.employees === 'none') params.set('employees', 'none');
     if (options?.dormitory) params.set('dormitory', String(options.dormitory));
+    if (options?.days != null) params.set('days', String(options.days));
     const search = params.toString();
     return request(`/personnel${search ? `?${search}` : ''}`, { signal });
   },

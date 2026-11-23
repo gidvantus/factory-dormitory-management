@@ -220,6 +220,9 @@ def test_workspace_frame_without_employees_keeps_blocks(
         assert frame[key] == full[key], key
     assert frame["arrival_settings"] == full["arrival_settings"]
     assert "block_previews" not in full
+    # Сводка нужна только рамке: полный ответ сохраняет прежнюю форму.
+    assert "counts" not in full
+    assert set(frame["counts"]) == {"all", "current", "ending"}
     previews = [BlockPreview.model_validate(item) for item in frame["block_previews"]]
     assert [item.kind for item in previews] == ["plans", "residents", "ending", "contacts"]
     residents, ending = previews[1], previews[2]
@@ -232,6 +235,46 @@ def test_workspace_frame_without_employees_keeps_blocks(
     ] == [(dorm, "Северное", "Стройкомплект", False, 1)]
     # Превью ограничено `limit` блока, а не размером страницы.
     assert all(len(item.items) <= 4 for item in previews)
+
+
+def test_workspace_frame_counts_match_the_page(client: TestClient, db_session: Session) -> None:
+    """Сводка в рамке совпадает с `total` одноимённых страниц (#247).
+
+    Числа «Персонал N», «Проживают сейчас» и «Завершают вахту» считались в браузере
+    по всему массиву карточек; при `employees=none` массива нет, поэтому их отдаёт
+    рамка. Считаются они теми же правилами, что и страница, — значит обязаны давать
+    те же числа, что `total` соответствующего фильтра.
+    """
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    create(
+        client,
+        dorm,
+        fields=person("Петров Пётр", "Т-1"),
+        values={"shift_end": str(today() + timedelta(days=3))},
+    )
+    create(
+        client,
+        dorm,
+        fields=person("Сидоров Иван", "Т-2"),
+        values={"shift_end": str(today() + timedelta(days=30))},
+    )
+    # Строка оттока: карточка есть, текущего проживания нет.
+    create(client, dorm, fields=person("Ушедший Олег", "Т-3"), table="outflow")
+    frame = client.get(API, params={"employees": "none"}).json()
+    assert frame["counts"] == {
+        "all": page(client)["total"],
+        "current": page(client, filter="current")["total"],
+        "ending": page(client, filter="ending")["total"],
+    }
+    assert frame["counts"] == {"all": 3, "current": 2, "ending": 1}
+    # Срок вахты — тот же параметр, что у страницы: от него зависит «Завершают вахту».
+    longer = client.get(API, params={"employees": "none", "days": 30}).json()
+    assert longer["counts"]["ending"] == page(client, filter="ending", days=30)["total"] == 2
+    assert client.get(API, params={"employees": "none", "days": 0}).json()["counts"]["ending"] == 0
+    # Общежитие сужает сводку так же, как страницу.
+    narrowed = client.get(API, params={"employees": "none", "dormitory": dorm}).json()
+    assert narrowed["counts"] == frame["counts"]
 
 
 def test_block_previews_keep_the_page_order(client: TestClient, db_session: Session) -> None:
