@@ -359,14 +359,16 @@ def test_workspace_route_marks_the_settings_stage(client: TestClient, db_session
 
     token = sql_diagnostics.start_request("probe")
     try:
-        payload = get_workspace(user, membership, db_session)
+        response = get_workspace(user, membership, db_session)
     finally:
         request_sql = sql_diagnostics.current()
         sql_diagnostics.finish_request(token)
 
     assert request_sql is not None
     assert {"settings", "sources", "assemble"} <= set(request_sql.stages_ms)
-    assert payload["arrival_settings"] is not None
+    # Ручка собирает тело сама (`json.dumps` вместо `jsonable_encoder`), поэтому
+    # ответ разбирается как JSON: набор ключей у него прежний.
+    assert json.loads(response.body)["arrival_settings"] is not None
 
 
 def test_source_keys_is_the_only_registry_of_table_keys() -> None:

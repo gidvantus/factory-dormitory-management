@@ -17,7 +17,7 @@ def plan_response(plan: ArrivalPlan) -> dict[str, Any]:
     return {
         "id": plan.id,
         "dormitory_id": plan.dormitory_id,
-        "date": plan.date,
+        "date": plan.date.isoformat(),
         "count": len(people),
         "names": [person["full_name"] for person in people if person["full_name"]],
         "people": people,
@@ -27,7 +27,7 @@ def plan_response(plan: ArrivalPlan) -> dict[str, Any]:
             visit.person_id: {
                 # Прежние отметки заселения показываем как прибытие; история и связи сохраняются.
                 "status": "arrived" if visit.status == "settled" else visit.status,
-                "arrived_on": visit.arrived_on,
+                "arrived_on": visit.arrived_on.isoformat() if visit.arrived_on else None,
                 "origin": visit.origin,
                 "destination": visit.destination,
                 "history": visit.history,

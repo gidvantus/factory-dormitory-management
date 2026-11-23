@@ -15,6 +15,7 @@
 прогон можно было повторить на меньшем объёме.
 """
 
+import json
 import os
 import time
 from datetime import UTC, date, datetime
@@ -25,7 +26,7 @@ from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
 from app import db as db_module
-from app import sql_diagnostics
+from app import personnel_page, sql_diagnostics
 from app.arrival_settings import settings_response
 from app.models.arrival_plan import ArrivalPlan
 from app.models.dormitory import Dormitory
@@ -33,7 +34,13 @@ from app.models.organization import Organization
 from app.models.personnel import Employee, EmployeeEvent, EmployeePlan
 from app.models.resident import Resident
 from app.models.user import User
-from app.personnel import workspace
+from app.personnel import (
+    dormitory_list,
+    employee_cards,
+    today,
+    workspace,
+    workspace_context,
+)
 
 # Объём по умолчанию — крупная организация: две тысячи карточек и двадцать тысяч
 # строк-источников. Это тот же порядок, на котором снимался профиль в #237.
@@ -224,5 +231,105 @@ def test_workspace_cost_is_accounted_for_by_stages() -> None:
                 sql_diagnostics.finish_request(settings_token)
             assert settings_sql is not None
             report("settings", settings_elapsed, settings_sql)
+        finally:
+            clean_stand(db, dormitory_id, organization_id, marker)
+
+
+@pytest.mark.dbtest
+def test_page_cost_and_body_size_on_the_same_volume() -> None:
+    """Страница по 20 карточек вместо всех: время и объём тела (#247).
+
+    Числа печатаются, утверждения касаются состава ответа и доли тела: страница
+    не должна расти вместе с организацией, а полная поверхность — оставаться
+    прежней. Объём тела сравнивается с полным ответом, а не с фиксированными
+    килобайтами: на этом объёме у карточки десять строк-источников, и она тяжелее
+    реальной. Сравнение времени вариантов видно в `report`.
+    """
+    with db_module.SessionLocal() as db:
+        dormitory_id, organization_id, marker = build_stand(db)
+        user = db.scalar(select(User).where(User.email == f"perf-{marker}@example.com"))
+        assert user is not None
+        try:
+            today_iso = today().isoformat()
+            token = sql_diagnostics.start_request("perf-page")
+            started = time.perf_counter()
+            try:
+                context = workspace_context(db, [dormitory_id])
+                cards = employee_cards(db, context)
+                items, total = personnel_page.page(
+                    cards,
+                    personnel_page.ListCriteria(),
+                    today_iso,
+                    dormitory_list(context),
+                    [],
+                    1,
+                    20,
+                )
+                body = json.dumps(
+                    {
+                        "items": items,
+                        "total": total,
+                        "page": 1,
+                        "per_page": 20,
+                        "pages": -(-total // 20),
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            finally:
+                page_elapsed = (time.perf_counter() - started) * 1000
+                page_sql = sql_diagnostics.current()
+                sql_diagnostics.finish_request(token)
+            assert page_sql is not None
+            report("page (20 карточек)", page_elapsed, page_sql)
+
+            token = sql_diagnostics.start_request("perf-frame")
+            started = time.perf_counter()
+            try:
+                frame = workspace(
+                    db, user, [dormitory_id], include_employees=False, include_previews=True
+                )
+                frame_body = json.dumps(frame, ensure_ascii=False, separators=(",", ":"))
+            finally:
+                frame_elapsed = (time.perf_counter() - started) * 1000
+                frame_sql = sql_diagnostics.current()
+                sql_diagnostics.finish_request(token)
+            assert frame_sql is not None
+            report("workspace employees=none", frame_elapsed, frame_sql)
+
+            token = sql_diagnostics.start_request("perf-full")
+            started = time.perf_counter()
+            try:
+                full = workspace(db, user, [dormitory_id])
+                full_body = json.dumps(full, ensure_ascii=False, separators=(",", ":"))
+            finally:
+                full_elapsed = (time.perf_counter() - started) * 1000
+                full_sql = sql_diagnostics.current()
+                sql_diagnostics.finish_request(token)
+            assert full_sql is not None
+            report("workspace employees=full", full_elapsed, full_sql)
+            full_size = len(full_body.encode())
+            page_size = len(body.encode())
+            frame_size = len(frame_body.encode())
+            print(f"\n  тело полной поверхности: {full_size / 1024:.0f} КБ")
+            print(f"  тело страницы: {page_size / 1024:.0f} КБ")
+            print(f"  тело рамки без карточек: {frame_size / 1024:.0f} КБ")
+
+            assert total == EMPLOYEES
+            assert len(items) == 20
+            # Главное требование постановки: страница не растёт с числом людей.
+            # Тело страницы — доля полного тела, а не фиксированные 50 КБ: на этом
+            # объёме у человека десять строк-источников, и карточка тяжелее реальной.
+            assert page_size * 50 <= full_size, (page_size, full_size)
+            assert frame_size * 10 <= full_size, (frame_size, full_size)
+            assert frame["employees"] == [] and len(frame["block_previews"]) == 4
+            assert set(frame_sql.stages_ms) >= {
+                "sources",
+                "events",
+                "assemble",
+                "plans",
+                "arrivals",
+                "block_previews",
+            }
         finally:
             clean_stand(db, dormitory_id, organization_id, marker)
