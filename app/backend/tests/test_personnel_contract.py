@@ -62,7 +62,7 @@ def test_json_response_writes_compact_json_and_refuses_other_types() -> None:
         json_response({"ratio": float("nan")})
 
 
-def test_workspace_route_serialises_the_body_itself(
+def test_workspace_and_page_serialise_their_bodies_themselves(
     client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Главный выигрыш тикета держится тестом, а не честным словом.
@@ -70,7 +70,8 @@ def test_workspace_route_serialises_the_body_itself(
     `return result` вместо `return json_response(result)` даёт байт в байт то же
     тело (Starlette сериализует так же), поэтому проверки содержимого этого не
     заметят, а `jsonable_encoder` вернётся незамеченным. Здесь считаются вызовы:
-    поверхность обязана собрать тело через `json_response`, страница — нет.
+    и поверхность, и страница обязаны собирать тело через `json_response`, иначе
+    их ответы снова уходят через энкодер FastAPI.
     """
     sign_in(client, db_session)
     create_dormitory(client)
@@ -83,9 +84,14 @@ def test_workspace_route_serialises_the_body_itself(
     monkeypatch.setattr(personnel_api, "json_response", counted)
     assert client.get(API).status_code == 200
     assert len(calls) == 1, "поверхность должна собирать тело через json_response"
+    body = calls[0]
+    assert set(body) >= {"employees", "dormitories", "today"}
     calls.clear()
-    assert client.get(PAGE).status_code == 200
-    assert calls == [], "страница отдаёт словарь и не должна сериализовать тело дважды"
+    response = client.get(PAGE)
+    assert response.status_code == 200
+    assert len(calls) == 1, "страница должна собирать тело через json_response"
+    # Договор прежний — поменялся только путь сборки тела.
+    assert set(response.json()) == {"items", "total", "page", "per_page", "pages"}
 
 
 def test_workspace_and_page_contain_only_json_types(

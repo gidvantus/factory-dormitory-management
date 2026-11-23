@@ -181,7 +181,7 @@ def employees_page(
     column_filters: Annotated[str, Query(max_length=4000)] = "",
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> dict[str, Any]:
+) -> Response:
     """Страница сотрудников с серверной фильтрацией — те же правила, что в браузере.
 
     Список собирается из тех же карточек, что и рабочая поверхность, поэтому
@@ -210,14 +210,21 @@ def employees_page(
         page,
         per_page,
     )
-    return {
-        "items": items,
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        # Округление вверх без вещественной арифметики: 0 страниц при пустом списке.
-        "pages": -(-total // per_page),
-    }
+    result = EmployeePage.model_validate(
+        {
+            "items": items,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            # Округление вверх без вещественной арифметики: 0 страниц при пустом списке.
+            "pages": -(-total // per_page),
+        }
+    )
+    # Тело собирается здесь, как и у поверхности: иначе двадцать карточек по
+    # дороге проходят через `jsonable_encoder` — ровно та работа, которую убирает
+    # тикет. Схему по-прежнему проверяет модель из `response_model`, поэтому
+    # договор не меняется, а `test_personnel_contract.py` держит оба маршрута.
+    return json_response(result.model_dump(mode="json"))
 
 
 @router.post("/export")
