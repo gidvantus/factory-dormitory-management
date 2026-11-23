@@ -133,7 +133,7 @@ def used_values_by_sql(db: Session, organization_id: int) -> dict[str, list[str]
             CROSS JOIN LATERAL jsonb_each_text(plan.custom_values::jsonb) AS kv(key, value)
             WHERE dormitory.organization_id = :organization_id
               AND jsonb_typeof(plan.custom_values::jsonb) = 'object'
-              AND kv.value IS NOT NULL AND btrim(kv.value) <> ''
+              AND kv.value IS NOT NULL
             UNION
             SELECT kv.key, kv.value
             FROM arrival_plans AS plan
@@ -145,14 +145,20 @@ def used_values_by_sql(db: Session, organization_id: int) -> dict[str, list[str]
               AND plan.people IS NOT NULL
               AND jsonb_typeof(plan.people::jsonb) = 'array'
               AND jsonb_typeof(person.value -> 'custom_values') = 'object'
-              AND kv.value IS NOT NULL AND btrim(kv.value) <> ''
+              AND kv.value IS NOT NULL
             """
         ),
         {"organization_id": organization_id},
     )
     result: dict[str, list[str]] = {}
     for id, value in rows:
-        result.setdefault(cast(str, id), []).append(cast(str, value))
+        text_value = cast(str, value)
+        # Пустоту отсеиваем тем же `filled`, что и портативный путь: `btrim` в SQL
+        # срезает только пробел 0x20, а `str.strip` — ещё \t, \n, \r и \xa0,
+        # поэтому фильтр по `btrim` считал используемым поле с одним переводом строки.
+        if not filled(text_value):
+            continue
+        result.setdefault(cast(str, id), []).append(text_value)
     return {id: sorted(values) for id, values in result.items()}
 
 

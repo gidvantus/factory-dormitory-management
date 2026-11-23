@@ -53,10 +53,20 @@ def test_sql_and_rows_return_the_same_used_values() -> None:
                     "spaces": "   ",
                     "empty": "",
                     "null": None,
+                    "tab": "\t",
+                    "newline": "\n",
+                    "nbsp": "\u00a0",
                     "duplicate": "same",
                 },
                 people=[
-                    {"full_name": "Первый", "custom_values": {"duplicate": "same"}},
+                    {
+                        "full_name": "Первый",
+                        "custom_values": {
+                            "duplicate": "same",
+                            "person_tab": "\t",
+                            "person_newline": "\n",
+                        },
+                    },
                     {"full_name": "Без дополнительных полей"},
                     {"full_name": "Битые поля", "custom_values": None},
                 ],
@@ -115,6 +125,14 @@ def test_sql_and_rows_return_the_same_used_values() -> None:
             assert legacy["zero"] == [0]
             assert legacy["duplicate"] == ["same", "same"]
             assert set(legacy) == set(by_sql)
+
+            # `filled` одинаково считает незаполненными пробельные значения, но в SQL
+            # `btrim` срезает только пробел: без фильтра по `filled` ключи таба,
+            # перевода строки и \xa0 попадали бы в used_fields только на PostgreSQL.
+            for key in ("tab", "newline", "nbsp", "person_tab", "person_newline"):
+                assert key not in by_sql
+                assert key not in by_rows
+                assert key not in legacy
         finally:
             db.execute(delete(ArrivalPlan).where(ArrivalPlan.dormitory_id == dormitory.id))
             db.execute(delete(Dormitory).where(Dormitory.id == dormitory.id))
