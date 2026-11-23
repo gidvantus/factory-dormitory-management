@@ -1,15 +1,16 @@
 """Рабочая поверхность персонала и подтверждаемое связывание записей."""
 
+import json
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel, ValidationError
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import notification_rules
+from app import notification_rules, personnel_page
 from app.access import (
     OwnDormitory,
     SubscribedUser,
@@ -41,6 +42,8 @@ from app.personnel import (
     add_aliases,
     check_identity,
     choose_identity,
+    dormitory_list,
+    employee_cards,
     employee_detail,
     employee_in_scope,
     event,
@@ -49,8 +52,10 @@ from app.personnel import (
     group_ids,
     identity_lock,
     record_changed,
+    source_columns_response,
     today,
     workspace,
+    workspace_context,
 )
 from app.personnel_export import export_people
 from app.resident_identity import (
@@ -64,8 +69,11 @@ from app.schemas.inflow import UpdateInflowRequest
 from app.schemas.outflow import UpdateOutflowRequest
 from app.schemas.personnel import (
     BindingInput,
+    EmployeeColumnFilter,
+    EmployeePage,
     EmployeeUpdate,
     IdentityFields,
+    ListFilter,
     NoteInput,
     PersonnelExportInput,
     PlanInput,
@@ -101,14 +109,131 @@ def dormitory_scope(db: Session, membership: Membership) -> list[int]:
     return [item.id for item in scoped_dormitories(db, membership.organization_id)]
 
 
-@router.get("")
-def get_workspace(user: SubscribedUser, membership: Membership, db: DbSession) -> dict[str, Any]:
-    result = workspace(db, user, dormitory_scope(db, membership))
+def json_response(payload: Any) -> Response:
+    """Ответ из готового JSON без `jsonable_encoder` (#247).
+
+    Собирать рабочую поверхность в Python дешевле, чем отдавать её словарём:
+    энкодер FastAPI на объёме 1 467 296 байт тратил около 157 мс против 13.9 мс
+    у `json.dumps`. Поэтому в ответе только типы JSON (даты — строки
+    `YYYY-MM-DD`), а `default=` здесь намеренно не передан: значение, которое не
+    сериализуется, — ошибка данных, и её ловит `test_personnel_contract.py`.
+    """
+    return Response(
+        content=json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")),
+        media_type="application/json",
+    )
+
+
+def column_rules(raw: str) -> tuple[personnel_page.ColumnRule, ...]:
+    """`column_filters` — JSON-массив условий; разбор тот же, что у `SavedList`."""
+    if not raw.strip():
+        return ()
+    try:
+        values = TypeAdapter(list[EmployeeColumnFilter]).validate_json(raw)
+    except ValidationError as error:
+        raise HTTPException(
+            status_code=422, detail="Некорректное условие фильтра по столбцам"
+        ) from error
+    return tuple(
+        personnel_page.ColumnRule(value.field, value.operator, value.value) for value in values
+    )
+
+
+@router.get("", response_model=dict[str, Any])
+def get_workspace(
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+    employees: Annotated[Literal["full", "none"], Query()] = "full",
+    dormitory: Annotated[int | None, Query(ge=1)] = None,
+    days: Annotated[int, Query(ge=0, le=365)] = 5,
+) -> Response:
+    """Рабочая поверхность персонала.
+
+    `employees=none` отдаёт рамку поверхности без карточек: страница людей приходит
+    из `GET /api/personnel/employees`, а блоки — из `block_previews`, сводка — из
+    `counts` (#247). `days` — тот же срок вахты, что у страницы: от него зависит
+    число «Завершают вахту». Умолчание `full` оставлено прежним, чтобы переход был
+    пошаговым.
+    """
+    result = workspace(
+        db,
+        user,
+        dormitory_scope(db, membership),
+        include_employees=employees == "full",
+        include_previews=employees == "none",
+        preview_dormitory=dormitory,
+        days=days,
+    )
     # Настройки заездов — отдельный этап (#237): он читает свои таблицы, но
     # ответ отдаётся одной ручкой, и в событии это разные строки разбивки.
     with stage("settings"):
         result["arrival_settings"] = settings_response(db, membership.organization_id)
-    return result
+    return json_response(result)
+
+
+@router.get("/employees", response_model=EmployeePage)
+def employees_page(
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+    filter: Annotated[ListFilter, Query()] = "all",
+    dormitory: Annotated[int | None, Query(ge=1)] = None,
+    scope: Annotated[list[int] | None, Query()] = None,
+    days: Annotated[int, Query(ge=0, le=365)] = 5,
+    query: Annotated[str, Query(max_length=255)] = "",
+    column_filters: Annotated[str, Query(max_length=4000)] = "",
+    page: Annotated[int, Query(ge=1)] = 1,
+    per_page: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> Response:
+    """Страница сотрудников с серверной фильтрацией — те же правила, что в браузере.
+
+    Список собирается из тех же карточек, что и рабочая поверхность, поэтому
+    результат совпадает с прежним клиентским `filterPeople` при любых условиях:
+    фильтр, общежитие, область, срок вахты, поиск и условия по столбцам.
+    """
+    ids = dormitory_scope(db, membership)
+    context = workspace_context(db, ids)
+    cards = employee_cards(db, context)
+    dormitories = dormitory_list(context)
+    columns = source_columns_response(db, context) if column_filters.strip() else []
+    criteria = personnel_page.ListCriteria(
+        filter=filter,
+        dormitory=dormitory,
+        days=days,
+        query=query,
+        scope=tuple(scope or ()),
+        column_filters=column_rules(column_filters),
+    )
+    items, total = personnel_page.page(
+        cards,
+        criteria,
+        today().isoformat(),
+        dormitories,
+        columns,
+        page,
+        per_page,
+    )
+    result = EmployeePage.model_validate(
+        {
+            "items": items,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            # Округление вверх без вещественной арифметики: 0 страниц при пустом списке.
+            "pages": -(-total // per_page),
+        }
+    )
+    # Тело собирается здесь, как и у поверхности: иначе двадцать карточек по
+    # дороге проходят через `jsonable_encoder` — ровно та работа, которую убирает
+    # тикет. Схему по-прежнему проверяет модель из `response_model`, поэтому
+    # договор не меняется, а `test_personnel_contract.py` держит оба маршрута.
+    #
+    # Дамп в режиме `python`, а не `json`: `json_response` не принимает дату,
+    # `Decimal` и `NaN`, и страница ведёт себя так же, как поверхность. В режиме
+    # `json` Pydantic молча превратил бы их в строки, и правило «не JSON-тип в
+    # теле — ошибка данных» действовало бы только на одном маршруте из двух.
+    return json_response(result.model_dump())
 
 
 @router.post("/export")

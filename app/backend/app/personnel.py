@@ -34,6 +34,7 @@ from app.models.personnel import (
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
 from app.models.user import User
+from app.personnel_page import ListCriteria, block_previews, counts_by_filter
 from app.schemas.personnel import IdentityChoice, IdentityFields
 from app.sql_diagnostics import stage
 
@@ -738,37 +739,57 @@ def choose_identity(db: Session, choice: IdentityChoice, dormitory_ids: list[int
     return employee
 
 
-def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, Any]:
-    """Рабочая поверхность персонала в пределах области — общежитий организации.
+@dataclass(frozen=True)
+class WorkspaceContext:
+    """Данные поверхности, общие для карточек, столбцов и превью блоков."""
+
+    dormitory_ids: list[int]
+    employees: dict[str, Employee]
+    roots: dict[str, str]
+    identities: dict[str, dict[str, Any]]
+    dormitories: list[Any]
+    tabs: dict[str, str]
+
+
+def workspace_context(db: Session, dormitory_ids: list[int]) -> WorkspaceContext:
+    """Люди, корни слияний, общежития области и вкладки — один раз на запрос."""
+    employees, roots = root_map(db)
+    return WorkspaceContext(
+        dormitory_ids=list(dormitory_ids),
+        employees=employees,
+        roots=roots,
+        identities=group_identities(employees, roots),
+        dormitories=list(
+            db.execute(
+                select(Dormitory.id, Dormitory.name, Dormitory.client_name, Dormitory.is_archived)
+                .where(Dormitory.id.in_(dormitory_ids))
+                .order_by(Dormitory.name, Dormitory.id)
+            )
+        ),
+        tabs={f"custom_{tab.id}": tab.name for tab in db.scalars(select(CustomTab))},
+    )
+
+
+def employee_cards(db: Session, context: WorkspaceContext) -> list[dict[str, Any]]:
+    """Карточки людей области: источники, проживание, история и варианты ФИО.
 
     Этапы размечены для события `slow_sql_request` (#237): по ним видно, сколько
-    времени уходит на загрузку строк-источников, журнал, сборку карточек, планы и
-    заезды. Разметка ничего не меняет в вычислениях — только измеряет.
+    времени уходит на загрузку строк-источников, журнал и сборку карточек.
     """
-    employees, roots = root_map(db)
-    identities = group_identities(employees, roots)
-    dormitories = list(
-        db.execute(
-            select(Dormitory.id, Dormitory.name, Dormitory.client_name, Dormitory.is_archived)
-            .where(Dormitory.id.in_(dormitory_ids))
-            .order_by(Dormitory.name, Dormitory.id)
-        )
-    )
     # Корневые карточки и их состав — одним проходом по `roots`. Прежний вариант
     # перебирал `roots` целиком внутри цикла по карточкам: O(карточек × карточек).
     members: dict[str, list[str]] = defaultdict(list)
-    for member, root in roots.items():
+    for member, root in context.roots.items():
         members[root].append(member)
     sources: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    tabs = {f"custom_{tab.id}": tab.name for tab in db.scalars(select(CustomTab))}
     with stage("sources"):
-        for source in all_sources(db, dormitory_ids, dormitories):
-            sources[roots[source.employee_id or ""]].append(
+        for source in all_sources(db, context.dormitory_ids, context.dormitories):
+            sources[context.roots[source.employee_id or ""]].append(
                 {
                     "table_key": source.table_key,
                     "row_id": source.row_id,
                     "dormitory_id": source.dormitory_id,
-                    "source_name": tabs.get(
+                    "source_name": context.tabs.get(
                         source.table_key, SOURCE_NAMES.get(source.table_key, source.table_key)
                     ),
                     "values": source.values,
@@ -779,20 +800,20 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
     with stage("events"):
         for entry in db.execute(
             select(EmployeeEvent.employee_id, EmployeeEvent.dormitory_id)
-            .where(EmployeeEvent.dormitory_id.in_(dormitory_ids))
+            .where(EmployeeEvent.dormitory_id.in_(context.dormitory_ids))
             .order_by(EmployeeEvent.id)
         ):
-            root = roots[entry.employee_id]
+            root = context.roots[entry.employee_id]
             history_ids.add(root)
             if entry.dormitory_id:
                 history_dorms[root].add(entry.dormitory_id)
     variants: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for alias in db.scalars(select(EmployeeAlias)):
-        variants[roots[alias.employee_id]][alias.field].add(alias.raw_value)
+        variants[context.roots[alias.employee_id]][alias.field].add(alias.raw_value)
     result = []
     with stage("assemble"):
-        for id in sorted(set(roots.values())):
-            item = employees[id]
+        for id in sorted(set(context.roots.values())):
+            item = context.employees[id]
             rows = sources[id]
             if not rows and id not in history_ids:
                 continue
@@ -800,7 +821,7 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
             result.append(
                 {
                     "id": id,
-                    **identities[id],
+                    **context.identities[id],
                     "identity_status": item.identity_status,
                     "member_ids": sorted(members[id]),
                     "sources": rows,
@@ -809,9 +830,72 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
                     "variants": {field: sorted(values) for field, values in variants[id].items()},
                 }
             )
+    return result
+
+
+def dormitory_list(context: WorkspaceContext) -> list[dict[str, Any]]:
+    return [
+        {"id": d.id, "name": d.name, "client_name": d.client_name, "is_archived": d.is_archived}
+        for d in context.dormitories
+    ]
+
+
+def source_columns_response(db: Session, context: WorkspaceContext) -> list[dict[str, Any]]:
+    """Столбцы исходных таблиц области — они же поля условий страницы (#247)."""
+    return [
+        {
+            "id": column.id,
+            "dormitory_id": column.dormitory_id,
+            "table_key": column.table_key,
+            "source_name": context.tabs.get(column.table_key, SOURCE_NAMES.get(column.table_key)),
+            "name": column.name,
+            "kind": column.kind,
+            "builtin_key": column.builtin_key,
+            "options": column.options,
+        }
+        for column in db.scalars(
+            select(TableColumn)
+            .where(
+                TableColumn.archived.is_(False),
+                TableColumn.kind != "action",
+                TableColumn.dormitory_id.in_(context.dormitory_ids),
+            )
+            .order_by(TableColumn.dormitory_id, TableColumn.table_key, TableColumn.position)
+        )
+        if column.table_key in SOURCE_NAMES or column.table_key in context.tabs
+    ]
+
+
+def workspace(
+    db: Session,
+    user: User,
+    dormitory_ids: list[int],
+    *,
+    include_employees: bool = True,
+    include_previews: bool = False,
+    preview_dormitory: int | None = None,
+    days: int = 5,
+) -> dict[str, Any]:
+    """Рабочая поверхность персонала в пределах области — общежитий организации.
+
+    `include_employees=False` (`?employees=none`) отдаёт ту же рамку без карточек:
+    ответ больше не растёт вместе с числом сотрудников, а страницу людей приносит
+    `GET /api/personnel/employees`. Превью блоков (`include_previews`) и сводка
+    (`counts`) считаются здесь же — их источники те же карточки, поэтому второй
+    сборки не нужно. `days` задаёт срок вахты для счётчика «Завершают вахту».
+
+    В ответе только типы JSON: даты идут строками `YYYY-MM-DD`, чтобы не гонять
+    тело через `jsonable_encoder` (см. `app.api.personnel.json_response`).
+
+    Этапы размечены для события `slow_sql_request` (#237): по ним видно, сколько
+    времени уходит на загрузку строк-источников, журнал, сборку карточек, планы и
+    заезды. Разметка ничего не меняет в вычислениях — только измеряет.
+    """
+    context = workspace_context(db, dormitory_ids)
+    cards = employee_cards(db, context)
 
     def person(id: str) -> str:
-        return roots[id]
+        return context.roots[id]
 
     preferences = db.get(PersonnelPreferences, user.id)
     with stage("plans"):
@@ -820,8 +904,8 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
                 "id": p.id,
                 "employee_id": person(p.employee_id),
                 "kind": p.kind,
-                "date": p.date,
-                "end": p.end,
+                "date": p.date.isoformat(),
+                "end": p.end.isoformat() if p.end else None,
                 "dormitory_id": p.dormitory_id,
                 "confirmed": p.confirmed,
                 "comment": p.comment,
@@ -834,41 +918,47 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
         ]
     with stage("arrivals"):
         arrivals = active_arrivals(db, dormitory_ids)
-    return {
-        "today": today(),
-        "dormitories": [
-            {"id": d.id, "name": d.name, "client_name": d.client_name, "is_archived": d.is_archived}
-            for d in dormitories
-        ],
-        "employees": result,
-        "source_columns": [
-            {
-                "id": column.id,
-                "dormitory_id": column.dormitory_id,
-                "table_key": column.table_key,
-                "source_name": tabs.get(column.table_key, SOURCE_NAMES.get(column.table_key)),
-                "name": column.name,
-                "kind": column.kind,
-                "builtin_key": column.builtin_key,
-                "options": column.options,
-            }
-            for column in db.scalars(
-                select(TableColumn)
-                .where(
-                    TableColumn.archived.is_(False),
-                    TableColumn.kind != "action",
-                    TableColumn.dormitory_id.in_(dormitory_ids),
-                )
-                .order_by(TableColumn.dormitory_id, TableColumn.table_key, TableColumn.position)
-            )
-            if column.table_key in SOURCE_NAMES or column.table_key in tabs
-        ],
+    columns = source_columns_response(db, context)
+    dormitories = dormitory_list(context)
+    settings = (
+        {"revision": preferences.revision, **preferences.settings}
+        if preferences
+        else {"revision": 0, "blocks": None, "lists": []}
+    )
+    response: dict[str, Any] = {
+        "today": today().isoformat(),
+        "dormitories": dormitories,
+        "employees": cards if include_employees else [],
+        "source_columns": columns,
         "arrival_plans": arrivals,
         "plans": plans,
-        "preferences": {"revision": preferences.revision, **preferences.settings}
-        if preferences
-        else {"revision": 0, "blocks": None, "lists": []},
+        "preferences": settings,
     }
+    if include_previews:
+        with stage("block_previews"):
+            response["block_previews"] = block_previews(
+                cards=cards,
+                lists=settings.get("lists") or [],
+                blocks=settings.get("blocks"),
+                today=response["today"],
+                dormitory=preview_dormitory,
+                dormitories=dormitories,
+                source_columns=columns,
+                arrivals=arrivals,
+            )
+        # Сводка поверхности: раньше эти три числа считались в браузере по всему
+        # массиву карточек, а при `employees=none` массива нет. Отдельный запрос на
+        # каждое число стоил бы трёх полных сборок карточек, поэтому считаем здесь,
+        # где карточки уже собраны.
+        with stage("counts"):
+            response["counts"] = counts_by_filter(
+                cards,
+                ListCriteria(dormitory=preview_dormitory, days=days),
+                response["today"],
+                dormitories,
+                columns,
+            )
+    return response
 
 
 def employee_detail(db: Session, employee_id: str) -> dict[str, Any]:
