@@ -3,12 +3,12 @@
 import re
 from datetime import date, time
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 from uuid import NAMESPACE_URL, uuid5
 
 from fastapi import HTTPException
-from sqlalchemy import select
-from sqlalchemy.orm import Session, lazyload
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
 
 from app.models.arrival_plan import ArrivalPlan, ArrivalSettings
 from app.models.dormitory import Dormitory
@@ -75,29 +75,92 @@ def active_people(plan: ArrivalPlan) -> list[dict[str, Any]]:
     return [person for person in effective_people(plan) if person["id"] not in moved]
 
 
-def organization_plans(db: Session, organization_id: int) -> list[ArrivalPlan]:
-    return list(
-        db.scalars(
-            select(ArrivalPlan)
-            .options(lazyload(ArrivalPlan.visits))
-            .join(Dormitory)
-            .where(Dormitory.organization_id == organization_id)
-        )
-    )
+def collect_values(groups: list[dict[str, Any]]) -> dict[str, list[Any]]:
+    result: dict[str, list[Any]] = {}
+    for values in groups:
+        if not isinstance(values, dict):
+            continue
+        for id, value in values.items():
+            if filled(value):
+                result.setdefault(id, []).append(value)
+    return result
 
 
 def used_values(plans: list[ArrivalPlan]) -> dict[str, list[Any]]:
-    result: dict[str, list[Any]] = {}
+    groups: list[dict[str, Any]] = []
     for plan in plans:
-        groups = [
-            plan.custom_values or {},
-            *(person.get("custom_values", {}) for person in (plan.people or [])),
-        ]
-        for values in groups:
-            for id, value in values.items():
-                if filled(value):
-                    result.setdefault(id, []).append(value)
-    return result
+        groups.extend(
+            [
+                plan.custom_values or {},
+                *(person.get("custom_values", {}) for person in (plan.people or [])),
+            ]
+        )
+    return collect_values(groups)
+
+
+def used_values_by_rows(db: Session, organization_id: int) -> dict[str, list[str]]:
+    rows = db.execute(
+        select(ArrivalPlan.custom_values, ArrivalPlan.people)
+        .join(Dormitory)
+        .where(Dormitory.organization_id == organization_id)
+    )
+    groups: list[dict[str, Any]] = []
+    for custom_values, people in rows:
+        plan_custom_values = cast(dict[str, Any], custom_values)
+        people_values = cast(list[dict[str, Any]] | None, people)
+        groups.extend(
+            [
+                plan_custom_values or {},
+                *(person.get("custom_values", {}) for person in (people_values or [])),
+            ]
+        )
+    # Повторяем контракт jsonb_each_text и UNION: текстовые значения без дублей.
+    return {
+        id: sorted(
+            {str(value).lower() if isinstance(value, bool) else str(value) for value in values}
+        )
+        for id, values in collect_values(groups).items()
+    }
+
+
+def used_values_by_sql(db: Session, organization_id: int) -> dict[str, list[str]]:
+    rows = db.execute(
+        text(
+            """
+            SELECT kv.key, kv.value
+            FROM arrival_plans AS plan
+            JOIN dormitories AS dormitory ON dormitory.id = plan.dormitory_id
+            CROSS JOIN LATERAL jsonb_each_text(plan.custom_values::jsonb) AS kv(key, value)
+            WHERE dormitory.organization_id = :organization_id
+              AND jsonb_typeof(plan.custom_values::jsonb) = 'object'
+              AND kv.value IS NOT NULL AND btrim(kv.value) <> ''
+            UNION
+            SELECT kv.key, kv.value
+            FROM arrival_plans AS plan
+            JOIN dormitories AS dormitory ON dormitory.id = plan.dormitory_id
+            CROSS JOIN LATERAL jsonb_array_elements(plan.people::jsonb) AS person(value)
+            CROSS JOIN LATERAL jsonb_each_text((person.value -> 'custom_values')::jsonb)
+                AS kv(key, value)
+            WHERE dormitory.organization_id = :organization_id
+              AND plan.people IS NOT NULL
+              AND jsonb_typeof(plan.people::jsonb) = 'array'
+              AND jsonb_typeof(person.value -> 'custom_values') = 'object'
+              AND kv.value IS NOT NULL AND btrim(kv.value) <> ''
+            """
+        ),
+        {"organization_id": organization_id},
+    )
+    result: dict[str, list[str]] = {}
+    for id, value in rows:
+        result.setdefault(cast(str, id), []).append(cast(str, value))
+    return {id: sorted(values) for id, values in result.items()}
+
+
+def organization_used_values(db: Session, organization_id: int) -> dict[str, list[str]]:
+    # Юнит-тесты работают на SQLite, где функций PostgreSQL jsonb_* нет.
+    if db.get_bind().dialect.name == "postgresql":
+        return used_values_by_sql(db, organization_id)
+    return used_values_by_rows(db, organization_id)
 
 
 def settings_response(db: Session, organization_id: int) -> dict[str, Any]:
@@ -106,7 +169,7 @@ def settings_response(db: Session, organization_id: int) -> dict[str, Any]:
         "revision": row.revision if row else 0,
         **(row.settings if row else defaults()),
         "archived_fields": list((row.retired_fields or {}).values()) if row else [],
-        "used_fields": sorted(used_values(organization_plans(db, organization_id))),
+        "used_fields": sorted(organization_used_values(db, organization_id)),
     }
 
 
@@ -130,7 +193,7 @@ def save_settings(
     previous = row.settings if row else defaults()
     retired = dict(row.retired_fields or {}) if row else {}
     old_fields = {**retired, **{field["id"]: field for field in previous["fields"]}}
-    used = used_values(organization_plans(db, organization_id))
+    used = organization_used_values(db, organization_id)
     for field in payload.fields:
         old = old_fields.get(field.id)
         if not old or field.id not in used:
