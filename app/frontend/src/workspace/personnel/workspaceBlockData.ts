@@ -1,4 +1,11 @@
-import type { Block, Employee, PersonnelData, SavedList, Source } from '../../api/personnel';
+import type {
+  Block,
+  BlockPreview,
+  Employee,
+  PersonnelData,
+  SavedList,
+  Source,
+} from '../../api/personnel';
 import { addDays, dateLabel, filterPeople, value } from './helpers';
 
 export type BlockCriteria = Omit<SavedList, 'id' | 'name'>;
@@ -139,3 +146,31 @@ export function workspaceBlockData(block: Block, data: PersonnelData, dormitory:
   };
 }
 export type WorkspaceBlockData = ReturnType<typeof workspaceBlockData>;
+
+/**
+ * Данные блока из `block_previews` (#247).
+ *
+ * Пока поверхность приходила с полным списком, блок считался здесь же в браузере.
+ * При `employees=none` списка нет: счётчик, первые карточки, события диаграммы и
+ * разбивка по общежитиям приходят с сервера, а подписи дат, цвета и подпись
+ * области остаются на клиенте.
+ */
+export function workspaceBlockModel(
+  block: Block,
+  data: PersonnelData,
+  dormitory: number | null,
+  preview: BlockPreview | undefined,
+): WorkspaceBlockData {
+  const model = workspaceBlockData(block, data, dormitory);
+  // «План заездов» и раньше не зависел от карточек: он собирается из `arrival_plans`.
+  if (!preview || block.kind === 'plans') return model;
+  const dorms = preview.dorms.map((dorm, index) => ({ ...dorm, tone: Math.min(index, 4) }));
+  return {
+    ...model,
+    missingList: preview.missing_list,
+    people: preview.items,
+    dorms: block.kind === 'residents' ? dorms : [],
+    total: preview.count,
+    series: calendarSeries(preview.events),
+  };
+}

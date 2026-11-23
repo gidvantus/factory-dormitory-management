@@ -128,11 +128,24 @@ export function PersonnelWithBuilder(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt, refresh]);
 
-  const receiveData = useCallback((value: PersonnelData) => setData(value), []);
+  /**
+   * Страница персонала присылает рамку без карточек (#247). Конструктору вкладок
+   * карточки нужны для расчётов, поэтому он дочитывает полный список сам, а из
+   * рамки берёт всё остальное.
+   */
+  const receiveData = useCallback(
+    (value: PersonnelData) =>
+      setData((previous) =>
+        previous && previous.employees.length && !value.employees.length
+          ? { ...value, employees: previous.employees }
+          : value,
+      ),
+    [],
+  );
   const loadData = useCallback(async (): Promise<void> => {
     if (dataRequest.current) return dataRequest.current;
     const task = Promise.all([
-      data ? Promise.resolve(data) : personnelApi.workspace(),
+      data?.employees.length ? Promise.resolve(data) : personnelApi.workspace(),
       personnelBuilderApi.sources(),
     ])
       .then(([people, sources]) => {

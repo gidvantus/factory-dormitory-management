@@ -141,6 +141,42 @@ export type ArrivalConfiguration = Settings & {
   archived_fields: Field[];
   used_fields: string[];
 };
+/** Карточки страницы сотрудников: `GET /api/personnel/employees` (#247). */
+export type EmployeePage = {
+  items: Employee[];
+  total: number;
+  page: number;
+  per_page: number;
+  pages: number;
+};
+/** Условия страницы: те же правила, что раньше считались в браузере по всему списку. */
+export type EmployeeListQuery = {
+  filter: Filter;
+  dormitory: number | null;
+  scope: number[];
+  days: number;
+  query: string;
+  column_filters?: EmployeeColumnFilter[];
+  page: number;
+  per_page: number;
+};
+/** Данные блока рабочей поверхности без полной выборки карточек (#247). */
+export type BlockPreview = {
+  id: string;
+  kind: BlockKind;
+  title: string;
+  count: number;
+  items: Employee[];
+  events: { date: string; count: number }[];
+  dorms: {
+    id: number;
+    name: string;
+    client_name: string;
+    is_archived: boolean;
+    count: number;
+  }[];
+  missing_list: boolean;
+};
 export type PersonnelData = {
   today: string;
   dormitories: { id: number; name: string; client_name: string; is_archived: boolean }[];
@@ -150,6 +186,8 @@ export type PersonnelData = {
   arrival_plans: ArrivalPlan[];
   arrival_settings?: ArrivalConfiguration;
   preferences: Preferences;
+  /** Есть только при `employees=none`: так `Personnel.tsx` рисует блоки без полного списка. */
+  block_previews?: BlockPreview[];
 };
 export type ArrivalPlanningData = Pick<
   PersonnelData,
@@ -213,7 +251,37 @@ export const personnelApi = {
       method: 'POST',
       body: JSON.stringify({ name, employee_ids, columns }),
     }),
-  workspace: (signal?: AbortSignal): Promise<PersonnelData> => request('/personnel', { signal }),
+  /**
+   * Рабочая поверхность. `employees: 'none'` — рамка без карточек: люди приходят
+   * страницами из `employees()`, а блоки — из `block_previews` (#247).
+   * Умолчание `full` осталось ради остальных экранов, которым нужен весь список.
+   */
+  workspace: (
+    signal?: AbortSignal,
+    options?: { employees?: 'full' | 'none'; dormitory?: number | null },
+  ): Promise<PersonnelData> => {
+    const params = new URLSearchParams();
+    if (options?.employees === 'none') params.set('employees', 'none');
+    if (options?.dormitory) params.set('dormitory', String(options.dormitory));
+    const search = params.toString();
+    return request(`/personnel${search ? `?${search}` : ''}`, { signal });
+  },
+  /** Страница сотрудников с серверной фильтрацией и сортировкой (#247). */
+  employees: (query: EmployeeListQuery, signal?: AbortSignal): Promise<EmployeePage> => {
+    const params = new URLSearchParams({
+      filter: query.filter,
+      page: String(query.page),
+      per_page: String(query.per_page),
+    });
+    if (query.dormitory != null) params.set('dormitory', String(query.dormitory));
+    for (const id of query.scope) params.append('scope', String(id));
+    params.set('days', String(query.days));
+    const text = query.query.trim();
+    if (text) params.set('query', text);
+    if (query.column_filters?.length)
+      params.set('column_filters', JSON.stringify(query.column_filters));
+    return request(`/personnel/employees?${params}`, { signal });
+  },
   detail: (id: string, signal?: AbortSignal): Promise<EmployeeDetail> =>
     request(`/personnel/employees/${encodeURIComponent(id)}`, { signal }),
   check: (fields: IdentityFields, signal?: AbortSignal): Promise<IdentityCheck> =>

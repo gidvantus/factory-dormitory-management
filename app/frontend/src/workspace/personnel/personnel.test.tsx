@@ -11,6 +11,7 @@ import { BlockDialog } from './Dialogs';
 import { filterPeople } from './helpers';
 import { defaultColumns } from '../../test/tableColumns';
 import { renderWithExchangePermissions as render } from '../../test/renderWithExchangePermissions';
+import { mockPersonnelServer } from '../../test/personnelServer';
 
 const source = (
   dorm: number,
@@ -63,7 +64,7 @@ it('оставляет три фильтра, поиск и карточку б�
     refresh: vi.fn(),
     logout: vi.fn(),
   });
-  vi.spyOn(personnelApi, 'workspace').mockResolvedValue(payload);
+  mockPersonnelServer(payload);
   vi.spyOn(personnelApi, 'detail').mockResolvedValue({
     employee_id: 'ending',
     events: [],
@@ -99,7 +100,7 @@ it('оставляет три фильтра, поиск и карточку б�
     expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/Добавить в мои сотрудники/)).not.toBeInTheDocument();
   const table = screen.getByRole('table');
-  await user.click(within(table).getByRole('checkbox', { name: 'Выбрать весь список: 4' }));
+  await user.click(within(table).getByRole('checkbox', { name: 'Выбрать всех на странице: 4' }));
   expect(screen.getByText('Выбрано: 4')).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Снять выбор' }));
   expect(within(table).queryAllByRole('checkbox', { checked: true })).toHaveLength(0);
@@ -181,6 +182,7 @@ it('фильтрует по двум статусам, собирает выбр
     logout: vi.fn(),
   });
   vi.spyOn(personnelApi, 'workspace').mockImplementation(async () => ({ ...payload }));
+  mockPersonnelServer(payload);
   const save = vi.spyOn(personnelApi, 'preferences').mockImplementation(async (preferences) => {
     payload.preferences = { ...preferences, revision: preferences.revision + 1 };
     return payload.preferences;
@@ -253,6 +255,7 @@ it('открывает простой план из источника отчё�
     logout: vi.fn(),
   });
   vi.spyOn(personnelApi, 'workspace').mockImplementation(async () => ({ ...payload }));
+  mockPersonnelServer(payload);
   vi.spyOn(personnelApi, 'createArrival').mockImplementation(async (values) => {
     const plan = { ...values, id: 'new', revision: 0 };
     payload.arrival_plans = [plan];
@@ -285,6 +288,49 @@ it('открывает простой план из источника отчё�
   expect(personnelApi.workspace).not.toHaveBeenCalled();
 });
 
+it('загружает список страницами с сервера и не просит полный набор карточек', async () => {
+  const user = userEvent.setup();
+  const employees = Array.from({ length: 25 }, (_, index) => ({
+    ...person(`id-${index}`),
+    full_name: `Сотрудник ${String(index + 1).padStart(2, '0')}`,
+  }));
+  const payload = data(employees);
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  mockPersonnelServer(payload);
+  render(
+    <MemoryRouter>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('tab', { name: /Сотрудники/ });
+  await user.click(screen.getByRole('tab', { name: /Сотрудники/ }));
+  const table = await screen.findByRole('table');
+  expect(personnelApi.workspace).toHaveBeenCalledWith(expect.any(AbortSignal), {
+    employees: 'none',
+    dormitory: null,
+  });
+  expect(await screen.findByText('1–20 из 25')).toBeInTheDocument();
+  expect(within(table).getAllByRole('row')).toHaveLength(21);
+  await user.click(screen.getByRole('button', { name: 'Далее' }));
+  expect(await screen.findByText('21–25 из 25')).toBeInTheDocument();
+  expect(within(table).getAllByRole('row')).toHaveLength(6);
+  expect(within(table).getByText('Сотрудник 25')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Назад' }));
+  expect(await screen.findByText('1–20 из 25')).toBeInTheDocument();
+  await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Сотрудник 2');
+  await waitFor(() => expect(screen.getByText('1–6 из 6')).toBeInTheDocument());
+  expect(personnelApi.employees).toHaveBeenLastCalledWith(
+    expect.objectContaining({ query: 'Сотрудник 2', page: 1, per_page: 20 }),
+    expect.any(AbortSignal),
+  );
+});
+
 describe('Персонал без задач', () => {
   it('показывает заметки отдельно и сохраняет их в карточке', async () => {
     const user = userEvent.setup();
@@ -296,7 +342,7 @@ describe('Персонал без задач', () => {
       refresh: vi.fn(),
       logout: vi.fn(),
     });
-    vi.spyOn(personnelApi, 'workspace').mockResolvedValue(payload);
+    mockPersonnelServer(payload);
     vi.spyOn(personnelApi, 'detail').mockResolvedValue({
       employee_id: 'one',
       events: [],

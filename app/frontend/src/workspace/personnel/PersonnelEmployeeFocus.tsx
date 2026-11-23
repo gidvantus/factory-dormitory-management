@@ -50,7 +50,7 @@ export function PersonnelEmployeeFocus({
                 <th>
                   <input
                     type="checkbox"
-                    aria-label={`Выбрать весь список: ${rows.length}`}
+                    aria-label={`Выбрать всех на странице: ${rows.length}`}
                     checked={rows.length > 0 && selectedCount === rows.length}
                     aria-checked={
                       selectedCount > 0 && selectedCount < rows.length

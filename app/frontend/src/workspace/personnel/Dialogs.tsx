@@ -4,7 +4,8 @@ import { Modal } from '../../components/Modal';
 import { useEditorPreview } from '../../components/EditorSurface';
 import { EditorSection } from '../../components/EditorSection';
 import { SubmitForm } from './Forms';
-import { blockNames, dormName, filterPeople, names } from './helpers';
+import { blockNames, dormName, names } from './helpers';
+import { useEmployeeCount } from './serverList';
 import s from './Personnel.module.css';
 
 export function BlockDialog({
@@ -198,6 +199,8 @@ export function SaveListDialog({
   onSave: (list: SavedList, pin: boolean) => Promise<void>;
 }): JSX.Element {
   useEditorPreview('personnel-save-list', { criteria });
+  // Число в выборке считает сервер (#247): полного списка карточек в браузере больше нет.
+  const count = useEmployeeCount(criteria);
   return (
     <Modal
       title="Сохранить свой список"
@@ -226,7 +229,7 @@ export function SaveListDialog({
         </EditorSection>
         <EditorSection title="Сохраняемые условия">
           <p>
-            {names[criteria.filter]} · {filterPeople(data, criteria).length} в выборке
+            {names[criteria.filter]} · {count ?? '…'} в выборке
           </p>
           <p className={s.hint}>
             {criteria.dormitory == null ? 'Все общежития' : dormName(data, criteria.dormitory)} · до{' '}
