@@ -8,10 +8,9 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.reports import read_report
+from app import read_cache
 from app.arrival_plans import report_arrivals
 from app.dashboard_summary import calculate_summary, validate_summary
-from app.hostel_rows import read_place_days
 from app.models.custom_tab import CustomTab
 from app.models.dashboard_block import DEFAULT_DASHBOARD_ORDER, DashboardBlock, DashboardLayout
 from app.models.dormitory import Dormitory
@@ -41,11 +40,8 @@ from app.section_state import SECTIONS, require_section, section_ancestors, sect
 from app.table_data import (
     DEFAULT_COLUMNS,
     ensure_columns,
-    get_column,
-    get_custom_tab,
     normalize_value,
     record_value,
-    records_for,
 )
 
 
@@ -107,7 +103,7 @@ def checked_column(
 ) -> TableColumn:
     if column_id is None:
         raise HTTPException(422, "Выберите столбец")
-    column = get_column(db, source.dormitory_id, source.table_key, column_id)
+    column = read_cache.column(db, source.dormitory_id, source.table_key, column_id)
     if column.archived or column.kind in ("action", "hostel") or (kind and column.kind != kind):
         raise HTTPException(422, f"Столбец «{column.name}» недоступен. Измените источник блока.")
     return column
@@ -135,7 +131,7 @@ def validate_source(
         return
     if isinstance(source, ReportWidgetSource):
         require_section(db, source.dormitory_id, "report")
-        row = db.get(ReportRow, source.row_id)
+        row = read_cache.report_row(db, source.dormitory_id, source.row_id)
         if row is None or row.dormitory_id != source.dormitory_id:
             raise HTTPException(422, "Строка отчёта удалена. Измените источник блока.")
     elif isinstance(source, PlaceWidgetSource):
@@ -146,11 +142,10 @@ def validate_source(
                 raise HTTPException(422, "Хостел удалён. Измените источник блока.")
     else:
         if source.table_key.startswith("custom_"):
-            get_custom_tab(
+            read_cache.custom_tab(
                 db,
                 source.dormitory_id,
                 int(source.table_key.removeprefix("custom_")),
-                require_table=True,
             )
         else:
             require_section(db, source.dormitory_id, source.table_key)
@@ -330,7 +325,7 @@ def table_daily_groups(
     )
     daily: dict[date, dict[str, Decimal]] = {}
     errors: dict[date, str] = {}
-    for row in records_for(db, source.dormitory_id, source.table_key):
+    for row in read_cache.records(db, source.dormitory_id, source.table_key):
         if filter_col and source.filter:
             value = record_value(row, filter_col, resolver)
             if source.filter.operator == "equals" and value != source.filter.value:
@@ -388,10 +383,10 @@ def place_value(db: Session, source: PlaceWidgetSource, days: list[date]) -> Dec
 def place_daily_values(
     db: Session, source: PlaceWidgetSource, days: list[date]
 ) -> tuple[dict[date, Decimal], dict[date, str]]:
-    hostels = list(db.scalars(select(Hostel).where(Hostel.dormitory_id == source.dormitory_id)))
+    hostels = read_cache.hostels(db, source.dormitory_id)
     if source.hostel_id is not None:
         hostels = [hostel for hostel in hostels if hostel.id == source.hostel_id]
-    calculated = read_place_days(db, hostels, days[0], days[-1])
+    calculated = read_cache.place_days(db, hostels, days[0], days[-1])
     daily: dict[date, Decimal] = dict.fromkeys(days, Decimal(0))
     errors: dict[date, str] = {}
     for (_, day), entry in calculated.items():
@@ -424,6 +419,8 @@ def calculate_chart(
     reports: dict[int, ReportResponse],
 ) -> WidgetResult:
     """Aggregate one complete value per day, without repeating source queries per day."""
+    # `reports` оставлен в сигнатуре ради `calculate_widget`: чтения идут через
+    # кэш запроса, ключ которого включает период.
     config = block.config
     days = [start + timedelta(days=index) for index in range((end - start).days + 1)]
     totals: dict[date, Decimal | None] = {day: Decimal(0) for day in days}
@@ -439,8 +436,7 @@ def calculate_chart(
                 raise HTTPException(422, "Не выбран источник. Откройте настройки блока.")
             validate_source(db, config, source)
             if isinstance(source, ReportWidgetSource):
-                report = reports.get(dorm.id) or read_report(dorm.id, user, db, start, end, dorm)
-                reports[dorm.id] = report
+                report = read_cache.report(db, dorm.id, dorm, start, end)
                 row = next(item for item in report.rows if item.id == source.row_id)
                 for day in days:
                     cell = row.values.get(day.isoformat())
@@ -562,7 +558,7 @@ def calculate_widget(
                 raise HTTPException(422, "Не выбран источник. Откройте настройки блока.")
             validate_source(db, config, source)
             if isinstance(source, ReportWidgetSource):
-                report = reports.get(dorm.id) or read_report(dorm.id, user, db, start, end, dorm)
+                report = read_cache.report(db, dorm.id, dorm, start, end)
                 row = next(item for item in report.rows if item.id == source.row_id)
                 cells = [row.values.get(day.isoformat()) for day in days]
                 if any(

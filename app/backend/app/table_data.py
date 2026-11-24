@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session, object_session
 
+from app import read_cache
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel
@@ -429,10 +430,8 @@ def validate_link(db: Session, dormitory_id: int, link: ReportSourceLink) -> Rep
                 raise HTTPException(404, "Хостел не найден")
         return link
     if link.table_key.startswith("custom_"):
-        get_custom_tab(
-            db, dormitory_id, int(link.table_key.removeprefix("custom_")), require_table=True
-        )
-    column = get_column(db, dormitory_id, link.table_key, link.column_id)
+        read_cache.custom_tab(db, dormitory_id, int(link.table_key.removeprefix("custom_")))
+    column = read_cache.column(db, dormitory_id, link.table_key, link.column_id)
     if column.archived:
         raise HTTPException(422, "Столбец удалён. Восстановите его или измените связь")
     if column.kind not in ("text", "number", "date", "checkbox", "select"):
@@ -443,7 +442,7 @@ def validate_link(db: Session, dormitory_id: int, link: ReportSourceLink) -> Rep
         if value is None:
             raise HTTPException(422, "Выберите значение для подсчёта")
     if link.date_column_id is not None:
-        date_column = get_column(db, dormitory_id, link.table_key, link.date_column_id)
+        date_column = read_cache.column(db, dormitory_id, link.table_key, link.date_column_id)
         if date_column.archived or date_column.kind != "date":
             raise HTTPException(422, "Выберите действующий столбец с датой")
     return link.model_copy(update={"value": value})
@@ -462,9 +461,9 @@ def linked_counts(
     validated = validate_link(db, dormitory_id, link)
     assert isinstance(validated, ReportLink)
     link = validated
-    column = get_column(db, dormitory_id, link.table_key, link.column_id)
+    column = read_cache.column(db, dormitory_id, link.table_key, link.column_id)
     date_column = (
-        get_column(db, dormitory_id, link.table_key, link.date_column_id)
+        read_cache.column(db, dormitory_id, link.table_key, link.date_column_id)
         if link.date_column_id is not None
         else None
     )
@@ -503,15 +502,13 @@ def linked_counts(
 def linked_place_values(
     db: Session, dormitory_id: int, link: PlaceReportLink, start: date, end: date
 ) -> tuple[dict[date, Decimal], dict[date, str]]:
-    from app.hostel_rows import read_place_days
-
     validate_link(db, dormitory_id, link)
-    query = select(Hostel).where(Hostel.dormitory_id == dormitory_id)
+    hostels = read_cache.hostels(db, dormitory_id)
     if link.hostel_id is not None:
-        query = query.where(Hostel.id == link.hostel_id)
+        hostels = [hostel for hostel in hostels if hostel.id == link.hostel_id]
     result: dict[date, Decimal] = {}
     errors: dict[date, str] = {}
-    for (_, day), entry in read_place_days(db, db.scalars(query), start, end).items():
+    for (_, day), entry in read_cache.place_days(db, hostels, start, end).items():
         if error := entry.errors.get(link.metric):
             errors[day] = error
         if link.metric in entry.values:
