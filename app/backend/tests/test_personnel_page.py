@@ -11,12 +11,17 @@ from datetime import timedelta
 from typing import Any
 
 from fastapi.testclient import TestClient
-from sqlalchemy import event as sa_event
+from sqlalchemy import event as sa_event, select
 from sqlalchemy.orm import Session
 
+from app import sql_diagnostics
+from app.api.personnel import employees_page
+from app.models.organization import OrganizationMember
+from app.models.personnel import Employee
 from app.models.table_column import TableColumn
 from app.personnel import today
-from app.personnel_page import block_previews
+from app.personnel_page import ListCriteria
+from app.personnel_query import Shifts, ordered_roots
 from app.schemas.personnel import BlockPreview
 from tests.conftest import sign_in
 from tests.test_personnel import API, create, workspace
@@ -206,6 +211,113 @@ def test_query_count_does_not_grow_with_the_page(client: TestClient, db_session:
     assert second == third > 0
 
 
+def test_sql_count_does_not_grow_with_the_page_size(
+    client: TestClient, db_session: Session
+) -> None:
+    """`per_page` меняет размер окна, а не число запросов (#251).
+
+    До этой задачи страница собиралась из всех карточек организации, поэтому её
+    цена росла с числом людей, а не с `per_page`. Здесь проверяется обратное:
+    пять и пятьдесят строк стоят одинакового числа обращений к базе.
+
+    Имена и табельные разные: подбор личности по близким именам («Сотрудник 07» и
+    «Сотрудник 08») — отдельная ветка контракта, и она не должна мешать замеру.
+    """
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    surnames = [
+        "Абрамов",
+        "Богданов",
+        "Виноградов",
+        "Григорьев",
+        "Дорофеев",
+        "Евсеев",
+        "Желтов",
+        "Зайцев",
+        "Игнатов",
+        "Кузнецов",
+        "Лебедев",
+        "Морозов",
+        "Никитин",
+        "Орлов",
+        "Петухов",
+        "Романов",
+        "Соколов",
+        "Тимофеев",
+        "Устинов",
+        "Фомин",
+        "Хромов",
+        "Цветков",
+        "Чернов",
+        "Шилов",
+        "Щукин",
+        "Юдин",
+        "Яковлев",
+    ]
+    for index in range(2 * len(surnames) + 6):
+        surname = surnames[index % len(surnames)]
+        create(
+            client,
+            dorm,
+            fields=person(f"{surname}{'а' if index >= len(surnames) else ''} Иван", f"Т-{index:03d}"),
+        )
+    bind = db_session.get_bind()
+    statements: list[str] = []
+
+    def before(*args: Any) -> None:
+        statements.append("sql")
+
+    sa_event.listen(bind, "before_cursor_execute", before)
+    try:
+        statements.clear()
+        small = page(client, per_page=5)
+        few = len(statements)
+        statements.clear()
+        big = page(client, per_page=50)
+        many = len(statements)
+    finally:
+        sa_event.remove(bind, "before_cursor_execute", before)
+    assert small["total"] == big["total"] == 60
+    assert few == many > 0
+
+
+def test_page_route_marks_the_serialize_stage(client: TestClient, db_session: Session) -> None:
+    """Сборка тела страницы — отдельный этап разбивки (#251, шаг 0).
+
+    Без разметки время `json.dumps` попадало в «прочее», и по событию
+    `slow_sql_request` нельзя было понять, сколько стоит тело, а сколько —
+    выборки: остаток был непрозрачным.
+    """
+    user = sign_in(client, db_session)
+    membership = db_session.scalars(
+        select(OrganizationMember).where(OrganizationMember.user_id == user.id)
+    ).first()
+    assert membership is not None
+
+    token = sql_diagnostics.start_request("probe")
+    try:
+        response = employees_page(
+            user,
+            membership,
+            db_session,
+            filter="all",
+            dormitory=None,
+            scope=None,
+            days=5,
+            query="",
+            column_filters="",
+            page=1,
+            per_page=20,
+        )
+    finally:
+        request_sql = sql_diagnostics.current()
+        sql_diagnostics.finish_request(token)
+
+    assert request_sql is not None
+    assert "serialize" in request_sql.stages_ms
+    assert json.loads(response.body)["total"] == 0
+
+
 def test_workspace_frame_without_employees_keeps_blocks(
     client: TestClient, db_session: Session
 ) -> None:
@@ -296,62 +408,29 @@ def test_block_previews_keep_the_page_order(client: TestClient, db_session: Sess
     assert [item.id for item in residents.items] == [item["id"] for item in page(client)["items"]]
 
 
-def card(id: str, name: str) -> dict[str, Any]:
-    """Карточка в той форме, в которой её видит `personnel_page` (без ORM)."""
-    source = {
-        "table_key": "residents",
-        "row_id": 1,
-        "dormitory_id": 1,
-        "source_name": "Проживающие",
-        "values": {"full_name": name, "shift_end": ""},
-    }
-    return {
-        "id": id,
-        "full_name": name,
-        "personnel_number": None,
-        "phone": None,
-        "sources": [source],
-        "current": [source],
-        "history_dormitory_ids": [1],
-        "variants": {},
-    }
-
-
-def test_block_previews_order_by_name_not_by_id() -> None:
-    """Страж Б1: порядок превью задан ФИО и не зависит от `id` — детерминированно.
+def test_ordered_roots_puts_the_name_first_and_id_last(
+    db_session: Session,
+) -> None:
+    """Страж Б1: порядок задан ФИО и `id` — детерминированно, без `uuid4`.
 
     `id` в контракте — `uuid4()`, поэтому интеграционный тест на двух людях ловит
-    возврат к `filtered(cards, ...)` только в половине прогонов. Здесь карточки
-    синтетические и `id` заданы явно: первый по `id` — «Яблоков», первый по ФИО —
-    «Абрамов», так что старая реализация падает при каждом запуске.
+    возврат к сортировке по `id` только в половине прогонов. Здесь `id` заданы
+    явно: первый по `id` — «Яблоков», первый по ФИО — «Абрамов», так что старая
+    реализация падает при каждом запуске.
     """
-    cards = [
-        card("aaa00000-0000-0000-0000-000000000000", "Яблоков Пётр"),
-        card("zzz", "Абрамов Иван"),
-    ]
-    block = {
-        "id": "block-residents",
-        "kind": "residents",
-        "title": "Проживающий персонал",
-        "limit": 4,
-        "scope": [],
-        "days": 5,
-        "saved_list_id": None,
-    }
-    previews = block_previews(
-        cards=cards,
-        lists=[],
-        blocks=[block],
-        today=str(today()),
-        dormitory=None,
-        dormitories=[
-            {"id": 1, "name": "Северное", "client_name": "Стройкомплект", "is_archived": False}
-        ],
-        source_columns=[],
-        arrivals=[],
+    abramov = Employee(id="zzz", full_name="Абрамов Иван")
+    yakobov = Employee(id="aaa00000-0000-0000-0000-000000000000", full_name="Яблоков Пётр")
+    db_session.add_all([yakobov, abramov])
+    db_session.commit()
+    employees = {item.id: item for item in (yakobov, abramov)}
+    order = ordered_roots(
+        db_session,
+        employees,
+        set(employees),
+        ListCriteria(),
+        Shifts(frozenset(), frozenset(), {}, {}),
     )
-    assert [item["full_name"] for item in previews[0]["items"]] == ["Абрамов Иван", "Яблоков Пётр"]
-    assert [item["id"] for item in previews[0]["items"]] == [
-        "zzz",
-        "aaa00000-0000-0000-0000-000000000000",
-    ]
+    assert order == [abramov.id, yakobov.id]
+    assert [employees[id].full_name for id in order] == ["Абрамов Иван", "Яблоков Пётр"]
+    # Ё после е: порядок кодов символов совпадает с алфавитом клиента.
+    assert employees[abramov.id].sort_name == "абрамов иван"

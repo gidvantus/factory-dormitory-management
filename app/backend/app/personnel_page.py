@@ -1,4 +1,4 @@
-"""Фильтры, порядок и превью блоков серверной страницы персонала (#247).
+"""Правила страницы персонала: условия по столбцам и поля блоков (#247, #251).
 
 Здесь построчно перенесены клиентские правила: `filterPeople`, `matches`,
 `personName` из `app/frontend/src/workspace/personnel/helpers.ts` и
@@ -7,20 +7,26 @@
 сервер отвечает на те же вопросы, которые раньше решал браузер над полной
 выборкой, поэтому набор людей и их порядок совпадают с прежними.
 
-Модуль работает только со словарями-карточками из `app.personnel.workspace`:
-в базу он не ходит и своего состояния не держит.
+С #251 сам отбор (область, срок вахты, поиск, сортировка и страница) идёт в SQL —
+`app/personnel_query.py`; этот модуль остаётся описанием полей и сравнением
+значений: условия по столбцам решаются по строке-источнику, и их правила живут
+здесь, а не в запросе.
+
+Модуль работает только со словарями-карточками и метаданными столбцов: в базу он
+не ходит и своего состояния не держит.
 """
 
 import math
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-# Порядок букв русского алфавита: коллатор браузера раскладывает ФИО по нему, а не
-# по коду символа, поэтому «Ёлкин» идёт после «Ежова», а не рядом с «Я».
-ALPHABET = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
+from app.models.personnel import normalized_name
+
+# Стандартные поля условий и их вид. Порядок и состав задаёт `STANDARD_FIELDS`
+# в `employeeListFilters.ts`.
 STANDARD_FIELDS: tuple[tuple[str, str], ...] = (
     ("residence_status", "select"),
     ("full_name", "text"),
@@ -55,7 +61,6 @@ DEFAULT_BLOCKS: list[dict[str, Any]] = [
 ]
 DIGITS = re.compile(r"\D")
 PHONE_QUERY = re.compile(r"[+\d\s()\-]+")
-WHITESPACE = re.compile(r"\s+")
 # Значение, которое браузерный `Date.parse` не разобрал бы: в фильтр оно не проходит.
 NO_DATE = 10**6
 
@@ -104,8 +109,12 @@ class ListField:
 
 
 def normalize(text: str) -> str:
-    """Сравнение без учёта регистра, ё и повторных пробелов."""
-    return WHITESPACE.sub(" ", text.strip().lower().replace("ё", "е"))
+    """Сравнение без учёта регистра, ё и повторных пробелов.
+
+    Та же форма, что у `employees.sort_name` (`normalized_name` в модели),
+    поэтому сравнение и порядок страницы считаются одним правилом.
+    """
+    return normalized_name(text)
 
 
 def scalar(value: Any) -> str:
@@ -128,17 +137,6 @@ def number(value: str) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def shift_end(source: dict[str, Any] | None) -> str:
-    return scalar((source or {}).get("values", {}).get("shift_end"))
-
-
-def day_diff(start: str, end: str) -> int:
-    try:
-        return (date.fromisoformat(end[:10]) - date.fromisoformat(start[:10])).days
-    except ValueError:
-        return NO_DATE
-
-
 def add_days(day: str, days: int) -> str:
     """`addDays` из `helpers.ts`: сдвиг по календарю, формат `YYYY-MM-DD`."""
     try:
@@ -146,40 +144,6 @@ def add_days(day: str, days: int) -> str:
     except ValueError:
         return day
     return (start + timedelta(days=days)).isoformat()
-
-
-def matches_shift(person: dict[str, Any], criteria: ListCriteria, today: str) -> bool:
-    """`matches`: проживает сейчас или вахта кончается в ближайшие `days` дней."""
-    current = [source for source in person["current"] if criteria.allowed(source["dormitory_id"])]
-    if criteria.filter == "current":
-        return bool(current)
-    if criteria.filter == "ending":
-        return any(
-            end >= today and day_diff(today, end) <= criteria.days
-            for end in (shift_end(source) for source in current)
-            if end
-        )
-    return True
-
-
-def query_matches(person: dict[str, Any], query: str, digits: str) -> bool:
-    """Текстовый поиск: ФИО, табельный, телефон, варианты, плюс поиск по цифрам."""
-    if not query:
-        return True
-    text = " ".join(
-        [
-            person["full_name"] or "",
-            person["personnel_number"] or "",
-            person["phone"] or "",
-            *(value for values in person["variants"].values() for value in values),
-        ]
-    )
-    if query in text.lower().replace("ё", "е"):
-        return True
-    if not (PHONE_QUERY.fullmatch(query) and len(digits) >= 3):
-        return False
-    phones = [person["phone"] or "", *person["variants"].get("phone", [])]
-    return any(digits in DIGITS.sub("", phone) for phone in phones)
 
 
 def active_rule(rule: ColumnRule) -> bool:
@@ -334,141 +298,9 @@ def column_predicate(
     return predicate
 
 
-def filtered(
-    cards: list[dict[str, Any]],
-    criteria: ListCriteria,
-    today: str,
-    dormitories: list[dict[str, Any]],
-    source_columns: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Люди, проходящие условия списка (без сортировки) — `filterPeople`."""
-    matches_columns = (
-        column_predicate(criteria, source_columns, dormitories)
-        if any(active_rule(rule) for rule in criteria.column_filters)
-        else None
-    )
-    query = criteria.query.strip().lower().replace("ё", "е")
-    digits = DIGITS.sub("", query)
-    result = []
-    for person in cards:
-        if criteria.scoped and not (
-            any(criteria.allowed(source["dormitory_id"]) for source in person["sources"])
-            or any(criteria.allowed(id) for id in person["history_dormitory_ids"])
-        ):
-            continue
-        if not matches_shift(person, criteria, today):
-            continue
-        if matches_columns is not None and not matches_columns(person):
-            continue
-        if not query_matches(person, query, digits):
-            continue
-        result.append(person)
-    return result
-
-
-def russian_key(text: str) -> tuple[tuple[int, int], ...]:
-    """Ключ порядка: буквы по русскому алфавиту, остальные символы — по коду."""
-    return tuple(
-        (1, ALPHABET.index(character)) if character in ALPHABET else (0, ord(character))
-        for character in text.lower()
-    )
-
-
-def person_name(person: dict[str, Any]) -> str:
-    return person["full_name"] or "ФИО не указано"
-
-
-def earliest_end(person: dict[str, Any], criteria: ListCriteria) -> str:
-    ends = sorted(
-        end
-        for source in person["current"]
-        if criteria.allowed(source["dormitory_id"])
-        for end in (shift_end(source),)
-        if end
-    )
-    return ends[0] if ends else ""
-
-
-def ordered(people: list[dict[str, Any]], criteria: ListCriteria) -> list[dict[str, Any]]:
-    """Порядок клиента: при `ending` — по раннему концу вахты, дальше ФИО и `id`."""
-    if criteria.filter == "ending":
-        return sorted(
-            people,
-            key=lambda person: (
-                earliest_end(person, criteria),
-                russian_key(person_name(person)),
-                person["id"],
-            ),
-        )
-    return sorted(people, key=lambda person: (russian_key(person_name(person)), person["id"]))
-
-
-def page(
-    cards: list[dict[str, Any]],
-    criteria: ListCriteria,
-    today: str,
-    dormitories: list[dict[str, Any]],
-    source_columns: list[dict[str, Any]],
-    number: int,
-    per_page: int,
-) -> tuple[list[dict[str, Any]], int]:
-    """Карточки запрошенной страницы и общее число людей в списке.
-
-    Сортировка и срез идут по одному и тому же отфильтрованному списку, поэтому
-    страницы вместе дают `total` без пропусков и повторов.
-    """
-    people = ordered(filtered(cards, criteria, today, dormitories, source_columns), criteria)
-    start = (number - 1) * per_page
-    return people[start : start + per_page], len(people)
-
-
-def counts_by_filter(
-    cards: list[dict[str, Any]],
-    criteria: ListCriteria,
-    today: str,
-    dormitories: list[dict[str, Any]],
-    source_columns: list[dict[str, Any]],
-    filters: tuple[str, ...] = ("all", "current", "ending"),
-) -> dict[str, int]:
-    """Сколько человек в каждом фильтре — сводка рабочей поверхности (#247).
-
-    Числа «Персонал N», «Проживают сейчас» и «Завершают вахту» раньше считались
-    в браузере по всему массиву карточек. При `?employees=none` массива нет, а
-    три отдельных запроса страницы стоили бы по полной сборке карточек каждый,
-    поэтому сводка считается здесь — теми же `filtered`, по тем же карточкам.
-    Область, срок вахты, поиск и условия столбцов приходят в `criteria`; меняется
-    только сам фильтр. Значение совпадает с `total` одноимённой страницы.
-    """
-    return {
-        filter: len(
-            filtered(
-                cards,
-                replace(criteria, filter=filter),
-                today,
-                dormitories,
-                source_columns,
-            )
-        )
-        for filter in filters
-    }
-
-
-def block_source(
-    person: dict[str, Any], criteria: ListCriteria, today: str
-) -> dict[str, Any] | None:
-    """`blockSource`: текущая запись, попавшая в фильтр, а не прошлая вахта человека."""
-    candidates = [
-        source
-        for source in person["current"]
-        if criteria.allowed(source["dormitory_id"])
-        and (
-            criteria.filter != "ending"
-            or (shift_end(source) >= today and day_diff(today, shift_end(source)) <= criteria.days)
-        )
-    ]
-    if not candidates:
-        return None
-    return min(candidates, key=lambda source: shift_end(source) or "9999")
+def has_active_column_rules(criteria: ListCriteria) -> bool:
+    """Есть ли условие, которое вообще что-то отбирает."""
+    return any(active_rule(rule) for rule in criteria.column_filters)
 
 
 def block_criteria(
@@ -503,98 +335,3 @@ def block_criteria(
         ),
     )
     return criteria, missing
-
-
-def block_previews(
-    *,
-    cards: list[dict[str, Any]],
-    lists: list[dict[str, Any]],
-    blocks: list[dict[str, Any]] | None,
-    today: str,
-    dormitory: int | None,
-    dormitories: list[dict[str, Any]],
-    source_columns: list[dict[str, Any]],
-    arrivals: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Данные блоков рабочей поверхности без полной выборки карточек (#247).
-
-    Блок рисовался из общего массива сотрудников; при `?employees=none` массива
-    больше нет, поэтому счётчик, первые карточки, события для диаграммы и разбивка
-    по общежитиям считаются здесь. Подписи дат, цвета и легенда остаются на клиенте.
-    """
-    previews = []
-    for block in blocks if blocks is not None else DEFAULT_BLOCKS:
-        criteria, missing = block_criteria(block, dormitory, lists)
-        if block["kind"] == "plans":
-            selected = sorted(
-                (
-                    plan
-                    for plan in arrivals
-                    if criteria.allowed(plan["dormitory_id"])
-                    and today <= plan["date"] <= add_days(today, block["days"])
-                ),
-                key=lambda plan: (plan["date"], plan["id"]),
-            )
-            previews.append(
-                {
-                    "id": block["id"],
-                    "kind": block["kind"],
-                    "title": block["title"],
-                    "count": sum(plan["count"] for plan in selected),
-                    "items": [],
-                    "events": [{"date": plan["date"], "count": plan["count"]} for plan in selected],
-                    "dorms": [],
-                    "missing_list": False,
-                }
-            )
-            continue
-        # Порядок тот же, что у страницы: `ordered` сортирует по ФИО, а для
-        # `ending` — по дате конца. Раньше превью шло в порядке карточек
-        # (по `id`), и блок показывал не тех людей, чем список под ним.
-        people = (
-            []
-            if missing
-            else ordered(filtered(cards, criteria, today, dormitories, source_columns), criteria)
-        )
-        events = (
-            [
-                {"date": end, "count": 1}
-                for person in people
-                for end in (shift_end(block_source(person, criteria, today)),)
-                if end
-            ]
-            if block["kind"] == "ending"
-            else []
-        )
-        dorms = (
-            [
-                {
-                    "id": item["id"],
-                    "name": item["name"],
-                    "client_name": item["client_name"],
-                    "is_archived": item["is_archived"],
-                    "count": sum(
-                        1
-                        for person in people
-                        if any(source["dormitory_id"] == item["id"] for source in person["current"])
-                    ),
-                }
-                for item in dormitories
-                if criteria.allowed(item["id"])
-            ]
-            if block["kind"] == "residents"
-            else []
-        )
-        previews.append(
-            {
-                "id": block["id"],
-                "kind": block["kind"],
-                "title": block["title"],
-                "count": len(people),
-                "items": people[: int(block["limit"])],
-                "events": events,
-                "dorms": dorms,
-                "missing_list": missing,
-            }
-        )
-    return previews

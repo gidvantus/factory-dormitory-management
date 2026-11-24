@@ -40,10 +40,10 @@ from app.personnel import (
     IDENTITY_FIELDS,
     Row,
     add_aliases,
+    cards_by_ids,
     check_identity,
     choose_identity,
     dormitory_list,
-    employee_cards,
     employee_detail,
     employee_in_scope,
     event,
@@ -51,6 +51,7 @@ from app.personnel import (
     get_employee,
     group_ids,
     identity_lock,
+    page_selection,
     record_changed,
     source_columns_response,
     today,
@@ -117,11 +118,14 @@ def json_response(payload: Any) -> Response:
     у `json.dumps`. Поэтому в ответе только типы JSON (даты — строки
     `YYYY-MM-DD`), а `default=` здесь намеренно не передан: значение, которое не
     сериализуется, — ошибка данных, и её ловит `test_personnel_contract.py`.
+
+    `stage("serialize")` (#251) делает сериализацию видимой в разбивке
+    `slow_sql_request`: без неё время ответа уходило в «прочее», и было неясно,
+    сколько стоит тело, а сколько — выборки. Разметка ничего не меняет.
     """
-    return Response(
-        content=json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")),
-        media_type="application/json",
-    )
+    with stage("serialize"):
+        body = json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+    return Response(content=body, media_type="application/json")
 
 
 def column_rules(raw: str) -> tuple[personnel_page.ColumnRule, ...]:
@@ -188,13 +192,13 @@ def employees_page(
 ) -> Response:
     """Страница сотрудников с серверной фильтрацией — те же правила, что в браузере.
 
-    Список собирается из тех же карточек, что и рабочая поверхность, поэтому
-    результат совпадает с прежним клиентским `filterPeople` при любых условиях:
-    фильтр, общежитие, область, срок вахты, поиск и условия по столбцам.
+    Набор и порядок людей проверяются теми же правилами, что и клиентский
+    `filterPeople`, но отбор, сортировка и срез страницы идут в SQL (#251):
+    карточки собираются только для `per_page` отобранных строк, поэтому время
+    ответа и число запросов не зависят от общего числа сотрудников.
     """
     ids = dormitory_scope(db, membership)
     context = workspace_context(db, ids)
-    cards = employee_cards(db, context)
     dormitories = dormitory_list(context)
     columns = source_columns_response(db, context) if column_filters.strip() else []
     criteria = personnel_page.ListCriteria(
@@ -205,15 +209,17 @@ def employees_page(
         scope=tuple(scope or ()),
         column_filters=column_rules(column_filters),
     )
-    items, total = personnel_page.page(
-        cards,
+    selected, total = page_selection(
+        db,
+        context,
         criteria,
-        today().isoformat(),
-        dormitories,
-        columns,
-        page,
-        per_page,
+        day=today(),
+        number=page,
+        per_page=per_page,
+        dormitories=dormitories,
+        source_columns=columns,
     )
+    items = cards_by_ids(db, context, selected)
     result = EmployeePage.model_validate(
         {
             "items": items,
