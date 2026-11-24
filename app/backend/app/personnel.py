@@ -810,10 +810,16 @@ def employee_cards(db: Session, context: WorkspaceContext) -> list[dict[str, Any
         if wanted is None or root in wanted:
             members[root].append(member)
     targets = set(members)
+    # Строки-источники читаются по всем участникам отобранных групп, а не только
+    # по корням: у присоединённой карточки свои строки, и карточка группы обязана
+    # их показать (#251).
+    group: set[str] | None = None
+    if wanted is not None:
+        group = {member for ids in members.values() for member in ids}
     sources: dict[str, list[dict[str, Any]]] = defaultdict(list)
     with stage("sources"):
         for source in all_sources(
-            db, context.dormitory_ids, context.dormitories, employee_ids=targets
+            db, context.dormitory_ids, context.dormitories, employee_ids=group
         ):
             sources[context.roots[source.employee_id or ""]].append(
                 {

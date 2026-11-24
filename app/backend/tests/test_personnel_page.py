@@ -11,13 +11,15 @@ from datetime import timedelta
 from typing import Any
 
 from fastapi.testclient import TestClient
-from sqlalchemy import event as sa_event, select
+from sqlalchemy import event as sa_event
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import sql_diagnostics
 from app.api.personnel import employees_page
 from app.models.organization import OrganizationMember
 from app.models.personnel import Employee
+from app.models.resident import Resident
 from app.models.table_column import TableColumn
 from app.personnel import today
 from app.personnel_page import ListCriteria
@@ -220,8 +222,9 @@ def test_sql_count_does_not_grow_with_the_page_size(
     цена росла с числом людей, а не с `per_page`. Здесь проверяется обратное:
     пять и пятьдесят строк стоят одинакового числа обращений к базе.
 
-    Имена и табельные разные: подбор личности по близким именам («Сотрудник 07» и
-    «Сотрудник 08») — отдельная ветка контракта, и она не должна мешать замеру.
+    Карточки кладутся прямо в сессию, а не через `POST /personnel/records`: подбор
+    личности на шестидесяти подряд идущих созданиях — отдельная ветка контракта,
+    и замеру запросов она не нужна.
     """
     sign_in(client, db_session)
     dorm = create_dormitory(client)
@@ -254,13 +257,22 @@ def test_sql_count_does_not_grow_with_the_page_size(
         "Юдин",
         "Яковлев",
     ]
-    for index in range(2 * len(surnames) + 6):
-        surname = surnames[index % len(surnames)]
-        create(
-            client,
-            dorm,
-            fields=person(f"{surname}{'а' if index >= len(surnames) else ''} Иван", f"Т-{index:03d}"),
+    people = [
+        Employee(
+            full_name=f"{surnames[index % len(surnames)]}{'а' if index >= len(surnames) else ''} "
+            f"Иван",
+            personnel_number=f"Т-{index:03d}",
+            identity_status="confirmed",
         )
+        for index in range(60)
+    ]
+    db_session.add_all(people)
+    db_session.flush()
+    db_session.add_all(
+        Resident(dormitory_id=dorm, employee_id=employee.id, full_name=employee.full_name)
+        for employee in people
+    )
+    db_session.commit()
     bind = db_session.get_bind()
     statements: list[str] = []
 
