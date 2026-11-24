@@ -273,6 +273,11 @@ def test_sql_count_does_not_grow_with_the_page_size(
         for employee in people
     )
     db_session.commit()
+    # Прогрев: первый запрос страницы в процессе поднимает ленивые справочники
+    # (`table_import_jobs` читается один раз на процесс). Без прогрева это
+    # обращение попадает в тот замер, которому не повезло быть первым, и разница
+    # между страницами оказывается случайной — измерять надо установившийся режим.
+    page(client, per_page=1)
     bind = db_session.get_bind()
     statements: list[str] = []
 
