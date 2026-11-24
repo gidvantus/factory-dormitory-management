@@ -79,7 +79,7 @@ def test_sort_name_is_filled_for_existing_cards_and_removed_by_downgrade() -> No
         columns = {column["name"] for column in sa.inspect(connection).get_columns("employees")}
         assert "sort_name" not in columns
         # Откат трогает только схему: карточки остаются на месте.
-        assert list(connection.execute(sa.select(employees.c.id).order_by(employees.c.id)))[0] == (
-            "a-root",
-        )
+        assert next(
+            iter(connection.execute(sa.select(employees.c.id).order_by(employees.c.id)))
+        ) == ("a-root",)
     engine.dispose()
