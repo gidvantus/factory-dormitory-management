@@ -104,7 +104,7 @@ jobs:
         # начинает старт с `alembic upgrade head` (app/backend/entrypoint.sh):
         # при двух головах он выходит с «Multiple head revisions» и уходит в
         # цикл перезапуска, а nginx фронта отдаёт 502 на /api/ — так деплой
-        # 5 ноября дошёл до шага 17 и покраснел на 502 вместо внятной причины.
+        # 5 ноября дошёл до шага 18 и покраснел на 502 вместо внятной причины.
         # Проверка читает `alembic/versions` как текст модулей: alembic и
         # зависимости api на раннере не нужны. Тот же скрипт запускается в
         # проверках pull request (.github/workflows/alembic-heads.yml) и руками:
@@ -345,11 +345,21 @@ jobs:
             echo "::warning::Стек мониторинга на этом сервере не развёрнут, останавливать нечего: нет $REMOTE_DIR/$MONITOR_DIR/.env."
             exit 0
           fi
+          # Флаг пишется ДО попытки остановки. `docker compose stop` гасит
+          # сервисы по очереди, и при сбое часть стека уже лежит: если писать
+          # флаг только в успешной ветке, упавший `stop` выглядел бы как
+          # «ничего не остановлено», шаг 19 не запустился бы, и сервер остался
+          # бы без метрик и алертов до ручной команды. `up -d --wait` в шаге 19
+          # идемпотентен: на сервере без контейнеров он создаст стек, на живом —
+          # ничего не сломает.
+          echo "stopped=true" >> "$GITHUB_OUTPUT"
           if ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env stop"; then
-            echo "stopped=true" >> "$GITHUB_OUTPUT"
             # Состав стека в лог деплоя: по нему видно, что именно остановили.
+            # `ps` — диагностика, а не проверка: его падение не должно отменять
+            # уже принятое решение и валить прогон на строке лога.
             # shellcheck disable=SC2029
-            ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env ps --format '{{.Service}} {{.State}}'"
+            ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env ps --format '{{.Service}} {{.State}}'" \
+              || echo "::warning::Стек мониторинга остановлен, но состав стека через ps прочитать не удалось."
           else
             echo "::warning::Не удалось остановить стек мониторинга. Деплой продолжаем: шум в Telegram возможен, но мониторинг не должен блокировать выкатку боевого кода."
           fi
@@ -535,9 +545,12 @@ jobs:
             echo "::error::Стек мониторинга не вернулся. Мониторинг не имеет права остаться выключенным молча — поднимите его вручную: cd /srv/crm-dormitory && docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env up -d --wait"
             exit 1
           fi
-          # Состав возвращённого стека остаётся в логе деплоя.
+          # Состав возвращённого стека остаётся в логе деплоя. `ps` — диагностика:
+          # упавший `ps` при уже поднятом стеке не должен краснить прогон и
+          # отправлять оператора в лишний деплой.
           # shellcheck disable=SC2029
-          ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env ps"
+          ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env ps" \
+            || echo "::warning::Стек мониторинга поднят, но состав стека через ps прочитать не удалось."
 
       - name: "Итог: деплой завершён"
         run: |

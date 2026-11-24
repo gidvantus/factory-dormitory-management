@@ -76,7 +76,7 @@
 | A | `logs` | адрес сервера | 600 |
 
 `operator` — поддомен кабинета оператора; без него ACME не выпустит на него
-сертификат, а шаг 16 деплоя покраснеет. `monitor` — вход в мониторинг, `logs` —
+сертификат, а шаг 18 деплоя покраснеет. `monitor` — вход в мониторинг, `logs` —
 живой просмотр логов (`docs/monitoring.md`); без них сертификат на эти имена не
 выпустится, но деплой мониторинга об этом только предупредит (`::warning::`), а
 не покраснеет. Проверка резолва — та же, что ниже.
@@ -266,7 +266,7 @@ API отдаёт `Set-Cookie: crm_session=…; Secure` (`app/backend/app/securit
 | `operator.<домен>` отдаёт 502 | упал контейнер `operator-web` в сети проекта |
 | `logs.<домен>` отдаёт 502 | упал контейнер `dozzle` в сети проекта: `docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env logs dozzle` |
 | `logs.<домен>` открывается без пароля | в `.env` сервера пустой `LOGS_BASIC_AUTH_HASH`, и Caddy взял заглушку… которой пароль неизвестен, то есть 401 обязан быть при любом значении; открытый адрес означает, что блок `logs.` в `caddy/Caddyfile` не доехал — проверить `docker compose --profile tls exec -T caddy cat /etc/caddy/Caddyfile | grep -c logs` |
-| шаг 16 красный только на операторском хосте | нет A-записи `operator.<домен>` или DNS ещё не разошёлся: проверить `dig +short operator.<домен>`, затем `docker compose --profile tls up -d --force-recreate caddy` |
+| шаг 18 красный только на операторском хосте | нет A-записи `operator.<домен>` или DNS ещё не разошёлся: проверить `dig +short operator.<домен>`, затем `docker compose --profile tls up -d --force-recreate caddy` |
 | `monitor.<домен>` или `logs.<домен>` отдают 401 при верном пароле | соответствующий `*_BASIC_AUTH_HASH` попал в `.env` с одиночными `$`: compose интерполирует их и обрезает хеш. Значение в контейнере (`docker compose --profile tls run --rm --no-deps --entrypoint env caddy`) должно быть 60 символов — `docs/monitoring.md` |
 | сайт отдаёт 502 | упал контейнер `web` в сети проекта |
 | в журнале аудита IP контейнера вместо клиента | сеть прокси не входит в `TRUSTED_PROXY_NETWORKS`: по умолчанию API верит loopback и `10.0.0.0/8`, `172.16.0.0/12`, и на другой сети Docker (`default-address-pools`) цепочка `X-Forwarded-For` игнорируется — добавьте сеть в `TRUSTED_PROXY_NETWORKS` в `.env` |
