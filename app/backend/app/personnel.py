@@ -37,6 +37,7 @@ from app.models.table_column import ArchiveEntry, TableColumn
 from app.models.user import User
 from app.personnel_page import DEFAULT_BLOCKS, ListCriteria
 from app.personnel_query import (
+    SelectionCache,
     block_previews,
     candidates,
     counts_by_filter,
@@ -1051,22 +1052,31 @@ def workspace(
     }
     if include_previews:
         day = today()
+        # Отбор у блоков и сводки общий: область, срок вахты, поиск и условия
+        # столбцов у них совпадают, отличается только фильтр срока. Без кеша
+        # каждый блок заново читал строки-источники, журнал и вахты (#251).
+        selection = SelectionCache(
+            db=db,
+            roots=context.roots,
+            identities=context.identities,
+            tabs=context.tabs,
+            dormitory_ids=context.dormitory_ids,
+            day=day,
+            dormitories=dormitories,
+            source_columns=columns,
+            load_sources=sources_loader(db, context),
+        )
         with stage("block_previews"):
             response["block_previews"] = block_previews(
                 db,
-                roots=context.roots,
+                selection=selection,
                 employees=context.employees,
-                identities=context.identities,
-                tabs=context.tabs,
-                dormitory_ids=context.dormitory_ids,
                 lists=settings.get("lists") or [],
                 blocks=settings.get("blocks"),
                 day=day,
                 dormitory=preview_dormitory,
                 dormitories=dormitories,
-                source_columns=columns,
                 arrivals=arrivals,
-                load_sources=sources_loader(db, context),
                 cards_for=lambda ids: cards_by_ids(db, context, ids),
                 default_blocks=DEFAULT_BLOCKS,
             )
@@ -1074,19 +1084,9 @@ def workspace(
         # массиву карточек, а при `employees=none` массива нет. С #251 числа
         # считает отбор в SQL: у всех трёх фильтров он общий, меняется только срок.
         with stage("counts"):
-            counted = candidates(
-                db,
-                roots=context.roots,
-                identities=context.identities,
-                tabs=context.tabs,
-                dormitory_ids=context.dormitory_ids,
-                criteria=ListCriteria(dormitory=preview_dormitory, days=days),
-                day=day,
-                dormitories=dormitories,
-                source_columns=columns,
-                load_sources=sources_loader(db, context),
+            response["counts"] = counts_by_filter(
+                candidates=selection.get(ListCriteria(dormitory=preview_dormitory, days=days))
             )
-            response["counts"] = counts_by_filter(candidates=counted)
     return response
 
 

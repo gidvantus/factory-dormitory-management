@@ -15,8 +15,9 @@
 
 * область, срок вахты и поиск — одним проходом по строкам-источникам и журналу
   (`employee_events`), без сборки карточек;
-* сортировка — по `employees.sort_name` и `id`; для `filter=ending` первым ключом
-  идёт ранний конец вахты, как у клиентского `ordered`;
+* сортировка — по показываемому имени карточки (`employees.sort_name`, а при
+  пустом ФИО — «ФИО не указано») и `id`; для `filter=ending` первым ключом идёт
+  ранний конец вахты, как у клиентского `ordered`;
 * условия по столбцам остаются правилами из `app/personnel_page.py`: они решают
   по строке-источнику (одна таблица, одна строка), поэтому строки читаются только
   у кандидатов, а сравнение значений делает тот же проверенный код, что и раньше.
@@ -30,11 +31,11 @@
 
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.personnel import Employee, EmployeeAlias, EmployeeEvent
@@ -55,6 +56,9 @@ if TYPE_CHECKING:
 
 SourcesLoader = Callable[[Sequence[int], set[str]], list["SourceRecord"]]
 """Строки-источники по общежитиям области и множеству карточек: `all_sources`."""
+
+NAMELESS = normalize("ФИО не указано")
+"""Показываемое имя карточки без своего ФИО — в форме сравнения (`sort_name`)."""
 
 
 def allowed_dormitories(dormitory_ids: Sequence[int], criteria: ListCriteria) -> list[int]:
@@ -77,6 +81,13 @@ class Shifts:
 
     window_ends: dict[str, str]
     """Ранний конец вахты внутри окна — дата события в блоке «Заканчивается вахта»."""
+
+    dorms: dict[str, set[int]] = field(default_factory=dict)
+    """Общежития текущих записей по корням — разбивка блока «Проживают».
+
+    Снято тем же запросом по `residents`, что и сроки: отдельный проход давал
+    рамке ещё одно обращение к базе за теми же строками (#251).
+    """
 
 
 @dataclass(frozen=True)
@@ -139,14 +150,15 @@ def _base_roots(db: Session, roots: dict[str, str], allowed: Sequence[int]) -> f
 def _shifts(
     db: Session, roots: dict[str, str], allowed: Sequence[int], day: date, days: int
 ) -> Shifts:
-    """Текущее проживание и концы вахты по строкам `residents` области."""
+    """Текущее проживание, концы вахты и общежития по строкам `residents` области."""
     current: set[str] = set()
     ending: set[str] = set()
     ends: dict[str, str] = {}
     window_ends: dict[str, str] = {}
+    dorms: dict[str, set[int]] = defaultdict(set)
     if allowed:
-        for employee_id, end in db.execute(
-            select(Resident.employee_id, Resident.shift_end).where(
+        for employee_id, dormitory_id, end in db.execute(
+            select(Resident.employee_id, Resident.dormitory_id, Resident.shift_end).where(
                 Resident.employee_id.is_not(None), Resident.dormitory_id.in_(allowed)
             )
         ):
@@ -154,6 +166,7 @@ def _shifts(
                 continue
             root = roots[employee_id]
             current.add(root)
+            dorms[root].add(dormitory_id)
             if end is None:
                 continue
             text = end.isoformat()
@@ -165,10 +178,12 @@ def _shifts(
             ending.add(root)
             if root not in window_ends or text < window_ends[root]:
                 window_ends[root] = text
-    return Shifts(frozenset(current), frozenset(ending), ends, window_ends)
+    return Shifts(frozenset(current), frozenset(ending), ends, window_ends, dict(dorms))
 
 
-def _query_roots(db: Session, criteria: ListCriteria) -> frozenset[str] | None:
+def _query_roots(
+    db: Session, criteria: ListCriteria, roots: dict[str, str]
+) -> frozenset[str] | None:
     """Корни, у которых ФИО, табельный, телефон или вариант ФИО содержат запрос.
 
     Сравнение идёт в Python, а не в SQL: `lower()` в SQLite знает только латиницу,
@@ -177,7 +192,12 @@ def _query_roots(db: Session, criteria: ListCriteria) -> frozenset[str] | None:
     единственный запрос страницы, который читает строки помимо отобранных; так
     делает и клиент, который искал подстроку в склейке полей карточки и её
     вариантов. Если запрос выглядит телефоном, добавляется сравнение по цифрам —
-    ровно то, что делал клиент (`PHONE_QUERY` и `DIGITS`).
+    ровно то, что делал клиент (`PHONE_QUERY` и `DIGITS`), и только по телефонам:
+    табельный номер в цифровую ветку не входит.
+
+    Отдаются корни, а не `id` найденных строк: остальные множества отбора тоже
+    множества корней, и присоединённая карточка иначе выпадала бы из пересечения
+    в `Candidates.roots()`, хотя её ФИО показывает карточка группы.
     """
     query = normalize(criteria.query)
     if not query:
@@ -185,35 +205,28 @@ def _query_roots(db: Session, criteria: ListCriteria) -> frozenset[str] | None:
     digits = DIGITS.sub("", query)
     by_digits = bool(PHONE_QUERY.fullmatch(query)) and len(digits) >= 3
     parts: dict[str, list[str]] = defaultdict(list)
+    phones: dict[str, list[str]] = defaultdict(list)
     for employee_id, name, number, phone in db.execute(
         select(Employee.id, Employee.full_name, Employee.personnel_number, Employee.phone)
     ):
         parts[employee_id].extend(value for value in (name, number, phone) if value)
-    for employee_id, raw in db.execute(select(EmployeeAlias.employee_id, EmployeeAlias.raw_value)):
+        if phone:
+            phones[employee_id].append(phone)
+    for employee_id, alias_field, raw in db.execute(
+        select(EmployeeAlias.employee_id, EmployeeAlias.field, EmployeeAlias.raw_value)
+    ):
         parts[employee_id].append(raw)
+        if alias_field == "phone":
+            phones[employee_id].append(raw)
     result: set[str] = set()
     for employee_id, values in parts.items():
         text = normalize(" ".join(values))
-        if query in text or (by_digits and digits in DIGITS.sub("", text)):
-            result.add(employee_id)
+        matched = query in text
+        if not matched and by_digits:
+            matched = digits in DIGITS.sub("", normalize(" ".join(phones.get(employee_id, ()))))
+        if matched and (root := roots.get(employee_id)) is not None:
+            result.add(root)
     return frozenset(result)
-
-
-def _current_dormitories(
-    db: Session, roots: dict[str, str], allowed: Sequence[int]
-) -> dict[str, set[int]]:
-    """Общежития текущих записей проживания по корням — разбивка блока «Проживают»."""
-    result: dict[str, set[int]] = defaultdict(set)
-    if allowed:
-        for employee_id, dormitory_id in db.execute(
-            select(Resident.employee_id, Resident.dormitory_id).where(
-                Resident.employee_id.is_not(None), Resident.dormitory_id.in_(allowed)
-            )
-        ):
-            if employee_id is None:
-                continue
-            result[roots[employee_id]].add(dormitory_id)
-    return dict(result)
 
 
 def _cards_lite(
@@ -249,12 +262,12 @@ def _cards_lite(
     if not selected:
         return result
     variants: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
-    for employee_id, field, raw in db.execute(
+    for employee_id, alias_field, raw in db.execute(
         select(EmployeeAlias.employee_id, EmployeeAlias.field, EmployeeAlias.raw_value).where(
             EmployeeAlias.employee_id.in_(selected)
         )
     ):
-        variants[roots[employee_id]][field].append(raw)
+        variants[roots[employee_id]][alias_field].append(raw)
     for root, field_values in variants.items():
         result[root]["variants"] = dict(field_values)
     for source in load_sources(allowed, selected):
@@ -292,7 +305,7 @@ def candidates(
     allowed = allowed_dormitories(dormitory_ids, criteria)
     base = _base_roots(db, roots, allowed)
     shifts = _shifts(db, roots, allowed, day, criteria.days)
-    query = _query_roots(db, criteria) if base else None
+    query = _query_roots(db, criteria, roots) if base else None
     columns: frozenset[str] | None = None
     if has_active_column_rules(criteria) and base:
         narrowed = set(base)
@@ -315,14 +328,98 @@ def candidates(
     return Candidates(criteria, base, shifts, query, columns)
 
 
+def criteria_key(criteria: ListCriteria) -> tuple[Any, ...]:
+    """Условия, от которых зависит `candidates()`.
+
+    `filter` в ключ не входит: `base`, `shifts`, `query` и `columns` от него не
+    зависят, а текущий фильтр `Candidates.roots(filter)` принимает аргументом.
+    Поэтому блоки с разными фильтрами, но одной областью и сроком вахты делят
+    один отбор.
+    """
+    return (
+        criteria.dormitory,
+        tuple(criteria.scope),
+        criteria.days,
+        normalize(criteria.query),
+        criteria.column_filters,
+    )
+
+
+@dataclass
+class SelectionCache:
+    """Отбор списка по набору условий — один раз на запрос рабочей поверхности.
+
+    Превью блоков и сводка `counts` считают отбор при разных фильтрах срока, но
+    при одинаковых области, сроке вахты, поиске и условиях столбцов; без кеша
+    каждый блок заново читал строки-источники, журнал и вахты (`_base_roots`,
+    `_shifts`, `_query_roots`). Кеш держит отбор на набор условий, а фильтр
+    пересекается с ним при сборке блока или сводки.
+    """
+
+    db: Session
+    roots: dict[str, str]
+    identities: dict[str, dict[str, Any]]
+    tabs: dict[str, str]
+    dormitory_ids: Sequence[int]
+    day: date
+    dormitories: list[dict[str, Any]]
+    source_columns: list[dict[str, Any]]
+    load_sources: SourcesLoader
+    _found: dict[tuple[Any, ...], Candidates] = field(default_factory=dict)
+
+    def get(self, criteria: ListCriteria) -> Candidates:
+        key = criteria_key(criteria)
+        found = self._found.get(key)
+        if found is None:
+            found = candidates(
+                self.db,
+                roots=self.roots,
+                identities=self.identities,
+                tabs=self.tabs,
+                dormitory_ids=self.dormitory_ids,
+                criteria=criteria,
+                day=self.day,
+                dormitories=self.dormitories,
+                source_columns=self.source_columns,
+                load_sources=self.load_sources,
+            )
+            self._found[key] = found
+        return found
+
+
+def displayed_name() -> Any:
+    """Ключ порядка страницы: показываемое имя карточки, а не ФИО строки-корня.
+
+    У карточки без своего ФИО `sort_name` пуст, а показывается она как «ФИО не
+    указано» (`personName` клиента), поэтому прежний порядок ставил её между
+    «Устинов» и «Хромов», а не первой. Подстановка возвращает этот порядок, не
+    трогая саму колонку: ФИО карточки остаётся пустым в ответе.
+    """
+    return func.coalesce(func.nullif(Employee.sort_name, ""), NAMELESS)
+
+
+def sort_name_of(employee: Employee) -> str:
+    """То же, что `displayed_name()`, но для ключа `ending` в Python."""
+    return employee.sort_name or NAMELESS
+
+
 def ordered_roots(
     db: Session,
     employees: dict[str, Employee],
     selection: set[str],
     criteria: ListCriteria,
     shifts: Shifts,
+    *,
+    sql_order: bool = True,
 ) -> list[str]:
-    """Порядок клиента: при `ending` — по раннему концу вахты, дальше ФИО и `id`."""
+    """Порядок клиента: при `ending` — по раннему концу вахты, дальше ФИО и `id`.
+
+    `sql_order=False` считает тот же порядок в памяти: превью блоков сортируют
+    весь отбор целиком, и отдельный `ORDER BY` был бы ещё одним обращением к базе
+    без выигрыша. Страница сортируется в SQL — там порядок идёт по индексу.
+    Ключи совпадают: `sort_name` уже в форме сравнения, а коды символов и байты
+    UTF-8 дают один порядок, как и `COLLATE "C"` в PostgreSQL.
+    """
     if not selection:
         return []
     if criteria.filter == "ending":
@@ -330,15 +427,17 @@ def ordered_roots(
             selection,
             key=lambda root: (
                 shifts.ends.get(root, ""),
-                employees[root].sort_name,
+                sort_name_of(employees[root]),
                 root,
             ),
         )
-    column: Any = Employee.sort_name
+    if not sql_order:
+        return sorted(selection, key=lambda root: (sort_name_of(employees[root]), root))
+    column: Any = displayed_name()
     if db.get_bind().dialect.name == "postgresql":
         # Порядок байтов UTF-8 совпадает с порядком кодов символов, как и
         # клиентский `russian_key`: локаль базы на порядок списка не влияет.
-        column = Employee.sort_name.collate("C")
+        column = column.collate("C")
     return list(
         db.scalars(
             select(Employee.id).where(Employee.id.in_(selection)).order_by(column, Employee.id)
@@ -381,19 +480,14 @@ def counts_by_filter(
 def block_previews(
     db: Session,
     *,
-    roots: dict[str, str],
+    selection: SelectionCache,
     employees: dict[str, Employee],
-    identities: dict[str, dict[str, Any]],
-    tabs: dict[str, str],
-    dormitory_ids: Sequence[int],
     lists: list[dict[str, Any]],
     blocks: list[dict[str, Any]] | None,
     day: date,
     dormitory: int | None,
     dormitories: list[dict[str, Any]],
-    source_columns: list[dict[str, Any]],
     arrivals: list[dict[str, Any]],
-    load_sources: SourcesLoader,
     cards_for: Callable[[list[str]], list[dict[str, Any]]],
     default_blocks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -406,11 +500,23 @@ def block_previews(
     Отбор блока идёт тем же `candidates`, что и страница под ним, поэтому
     счётчик блока равен `total` списка с теми же условиями, а порядок — тот же
     (раньше превью шло в порядке карточек по `id`).
+
+    Отбор и порядок стоят один раз на набор условий, а не на блок (#251): у
+    блоков с одинаковой областью и сроком вахты общий `SelectionCache`, порядок
+    считается по всему отбору и пересекается с набором блока, а карточки
+    превью тянутся одним `cards_for` по объединению id. Иначе число запросов
+    рамки росло бы с числом блоков.
     """
     today_text = day.isoformat()
-    previews = []
+    ordered: dict[tuple[Any, ...], list[str]] = {}
+    previews: list[dict[str, Any]] = []
+    # Корни превью по блокам: карточки собираются одним `cards_for` ниже.
+    pages: list[list[str]] = []
+    wanted: list[str] = []
+    seen: set[str] = set()
     for block in blocks if blocks is not None else default_blocks:
         criteria, missing = block_criteria(block, dormitory, lists)
+        limit = int(block["limit"])
         if block["kind"] == "plans":
             selected = sorted(
                 (
@@ -433,62 +539,61 @@ def block_previews(
                     "missing_list": False,
                 }
             )
+            pages.append([])
             continue
-        found = candidates(
-            db,
-            roots=roots,
-            identities=identities,
-            tabs=tabs,
-            dormitory_ids=dormitory_ids,
-            criteria=criteria,
-            day=day,
-            dormitories=dormitories,
-            source_columns=source_columns,
-            load_sources=load_sources,
-        )
-        people = (
-            [] if missing else ordered_roots(db, employees, found.roots(), criteria, found.shifts)
-        )
-        limit = int(block["limit"])
-        cards = {card["id"]: card for card in cards_for(people[:limit])} if people else {}
-        events = (
-            [
-                {"date": found.shifts.window_ends[root], "count": 1}
-                for root in people
-                if root in found.shifts.window_ends
-            ]
-            if block["kind"] == "ending"
-            else []
-        )
-        if block["kind"] == "residents":
-            dormitories_now = _current_dormitories(
-                db, roots, allowed_dormitories(dormitory_ids, criteria)
+        found = selection.get(criteria)
+        # Порядок считается по всему отбору, а не по набору блока: ключ
+        # `(ФИО, id)` (или `(конец вахты, ФИО, id)`) — полный порядок, поэтому
+        # пересечение с набором блока его сохраняет, а запрос остаётся один на
+        # фильтр, сколько бы блоков его ни просило.
+        order_key = (criteria_key(criteria), criteria.filter)
+        if order_key not in ordered:
+            ordered[order_key] = ordered_roots(
+                db, employees, set(found.base), criteria, found.shifts, sql_order=False
             )
+        people = [] if missing else [root for root in ordered[order_key] if root in found.roots()]
+        page_ids = people[:limit]
+        pages.append(page_ids)
+        for root in page_ids:
+            if root not in seen:
+                seen.add(root)
+                wanted.append(root)
+        dorms: list[dict[str, Any]] = []
+        if block["kind"] == "residents":
+            # Общежития текущих записей сняты тем же запросом, что и сроки вахты.
+            now = found.shifts.dorms
             dorms = [
                 {
                     "id": item["id"],
                     "name": item["name"],
                     "client_name": item["client_name"],
                     "is_archived": item["is_archived"],
-                    "count": sum(
-                        1 for root in people if item["id"] in dormitories_now.get(root, set())
-                    ),
+                    "count": sum(1 for root in people if item["id"] in now.get(root, set())),
                 }
                 for item in dormitories
                 if criteria.allowed(item["id"])
             ]
-        else:
-            dorms = []
         previews.append(
             {
                 "id": block["id"],
                 "kind": block["kind"],
                 "title": block["title"],
                 "count": len(people),
-                "items": [cards[root] for root in people[:limit] if root in cards],
-                "events": events,
+                "items": [],
+                "events": (
+                    [
+                        {"date": found.shifts.window_ends[root], "count": 1}
+                        for root in people
+                        if root in found.shifts.window_ends
+                    ]
+                    if block["kind"] == "ending"
+                    else []
+                ),
                 "dorms": dorms,
                 "missing_list": missing,
             }
         )
+    cards = {card["id"]: card for card in cards_for(wanted)} if wanted else {}
+    for preview, page_ids in zip(previews, pages, strict=True):
+        preview["items"] = [cards[root] for root in page_ids if root in cards]
     return previews

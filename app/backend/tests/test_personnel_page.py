@@ -407,7 +407,7 @@ def test_block_previews_keep_the_page_order(client: TestClient, db_session: Sess
     Это сверка двух маршрутов на живых данных, а не страж регрессии: `Employee.id`
     — `uuid4()` (`app/models/personnel.py:25-26`), поэтому порядок карточек по `id`
     с порядком по ФИО совпадает случайно. Детерминированный страж — ниже,
-    `test_block_previews_order_by_name_not_by_id`.
+    `test_ordered_roots_puts_the_name_first_and_id_last`.
     """
     sign_in(client, db_session)
     dorm = create_dormitory(client)
@@ -446,3 +446,159 @@ def test_ordered_roots_puts_the_name_first_and_id_last(
     assert [employees[id].full_name for id in order] == ["Абрамов Иван", "Яблоков Пётр"]
     # Ё после е: порядок кодов символов совпадает с алфавитом клиента.
     assert employees[abramov.id].sort_name == "абрамов иван"
+
+
+def test_search_finds_a_merged_card_by_the_member_name(
+    client: TestClient, db_session: Session
+) -> None:
+    """Б1: поиск по ФИО участника находит карточку присоединённой группы.
+
+    У карточки без своего ФИО (`full_name = NULL`) показывается имя участника
+    (`group_identities`). `_query_roots` отдавал `id` найденных строк, а `base`,
+    `shifts` и `columns` держат корни, поэтому совпадение терялось на пересечении
+    в `Candidates.roots()` и человек молча пропадал из выдачи.
+    """
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    root = Employee(full_name=None, identity_status="confirmed")
+    db_session.add(root)
+    db_session.flush()
+    member = Employee(full_name="Петров Олег", identity_status="confirmed", merged_into_id=root.id)
+    db_session.add(member)
+    db_session.flush()
+    db_session.add(
+        Resident(dormitory_id=dorm, employee_id=root.id, full_name=None, personnel_number="Т-1")
+    )
+    db_session.commit()
+    found = page(client, query="петров")
+    assert found["total"] == 1, found["items"]
+    assert found["items"][0]["id"] == root.id
+    # Карточка показывает имя участника, а не пустое ФИО строки-корня.
+    assert found["items"][0]["full_name"] == "Петров Олег"
+
+
+def test_nameless_card_sorts_under_the_placeholder_name(
+    client: TestClient, db_session: Session
+) -> None:
+    """Б3: карточка без ФИО стоит под «ФИО не указано», как у клиента.
+
+    `sort_name` строки-корня без ФИО пуст, поэтому SQL-порядок ставил такую
+    карточку первой на странице, а клиентский `personName` показывает её как
+    «ФИО не указано» и `filterPeople` кладёт под букву «ф».
+    """
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    end = today() + timedelta(days=3)
+    people = [
+        Employee(id="aaa00000-0000-0000-0000-000000000001", full_name="Устинов Иван"),
+        Employee(id="aaa00000-0000-0000-0000-000000000002", full_name=None),
+        Employee(id="aaa00000-0000-0000-0000-000000000003", full_name="Хромов Пётр"),
+    ]
+    for employee in people:
+        employee.identity_status = "confirmed"
+    db_session.add_all(people)
+    db_session.flush()
+    db_session.add_all(
+        Resident(
+            dormitory_id=dorm,
+            employee_id=employee.id,
+            full_name=employee.full_name,
+            shift_end=end,
+        )
+        for employee in people
+    )
+    db_session.commit()
+    nameless = people[1]
+    assert nameless.sort_name == ""
+    items = page(client, per_page=50)["items"]
+    assert [item["full_name"] for item in items] == ["Устинов Иван", None, "Хромов Пётр"]
+    assert items[1]["id"] == nameless.id
+    # При `ending` ключ — (конец вахты, показываемое имя, id); конец вахты один.
+    ending = page(client, filter="ending", days=5, per_page=50)
+    assert ending["total"] == 3
+    assert [item["full_name"] for item in ending["items"]] == ["Устинов Иван", None, "Хромов Пётр"]
+
+
+def test_phone_like_query_does_not_match_the_personnel_number(
+    client: TestClient, db_session: Session
+) -> None:
+    """Б4: цифровая ветка поиска смотрит только телефоны, как клиент.
+
+    Клиент (`matches`) и прежний порт искали цифры в телефоне и `variants.phone`,
+    а не в склейке ФИО и табельного: телефоноподобный запрос не должен находить
+    человека по цифрам табельного номера.
+    """
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    create(client, dorm, fields=person("Ким Анна", "Т-7912345"))
+    # Текстовая ветка табельный видит — как и раньше.
+    assert page(client, query="Т-7912345")["total"] == 1
+    assert page(client, query="+7 912 345")["total"] == 0
+    create(client, dorm, fields=person("Ли Олег", "Т-2", "+7 (912) 345-67-89"))
+    assert page(client, query="+7 912 345")["total"] == 1
+
+
+def set_blocks(client: TestClient, kinds: list[str]) -> None:
+    """Записать раскладку блоков поверхности через настройки."""
+    frame = client.get(API, params={"employees": "none"}).json()
+    blocks = [
+        {
+            "id": f"block{index}",
+            "kind": kind,
+            "title": f"Блок {index}",
+            "scope": [],
+            "days": 5,
+            "limit": 4,
+        }
+        for index, kind in enumerate(kinds)
+    ]
+    response = client.put(
+        API + "/preferences",
+        json={"revision": frame["preferences"]["revision"], "blocks": blocks, "lists": []},
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_sql_count_does_not_grow_with_the_number_of_blocks(
+    client: TestClient, db_session: Session
+) -> None:
+    """Б2: число запросов рамки не зависит от числа блоков (#251, шаг 3).
+
+    Каждый блок звал `candidates()` заново: полный проход по строкам-источникам и
+    журналу, вахты, порядок и полная сборка карточек. На раскладке по умолчанию
+    `residents` и `contacts` дают одинаковые условия и считали одно и то же
+    дважды, а цена рамки росла линейно от числа блоков. Отбор и карточки теперь
+    общие, поэтому два и шесть блоков стоят одинаково.
+    """
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    for index in range(6):
+        create(
+            client,
+            dorm,
+            fields=person(f"Сотрудник {index:02d}", f"Т-{index:03d}"),
+            values={"shift_end": str(today() + timedelta(days=index % 4))},
+        )
+    bind = db_session.get_bind()
+    statements: list[str] = []
+
+    def before(*args: Any) -> None:
+        statements.append("sql")
+
+    def frame_cost(kinds: list[str]) -> tuple[int, int]:
+        set_blocks(client, kinds)
+        statements.clear()
+        frame = client.get(API, params={"employees": "none"})
+        assert frame.status_code == 200
+        return len(statements), len(frame.json()["block_previews"])
+
+    sa_event.listen(bind, "before_cursor_execute", before)
+    try:
+        few, few_blocks = frame_cost(["residents", "ending"])
+        many, many_blocks = frame_cost(
+            ["residents", "contacts", "ending", "residents", "ending", "ending"]
+        )
+    finally:
+        sa_event.remove(bind, "before_cursor_execute", before)
+    assert (few_blocks, many_blocks) == (2, 6)
+    assert few == many > 0
