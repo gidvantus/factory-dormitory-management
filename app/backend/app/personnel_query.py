@@ -551,7 +551,15 @@ def block_previews(
             ordered[order_key] = ordered_roots(
                 db, employees, set(found.base), criteria, found.shifts, sql_order=False
             )
-        people = [] if missing else [root for root in ordered[order_key] if root in found.roots()]
+        # Фильтр передаётся явно: отбор в кеше общий для всех блоков и собран
+        # с фильтром того блока, который спросил первым, поэтому `found.roots()`
+        # без аргумента отдал бы набор чужого фильтра — «Заканчивается вахта»
+        # показывал бы всех проживающих (#251).
+        people = (
+            []
+            if missing
+            else [root for root in ordered[order_key] if root in found.roots(criteria.filter)]
+        )
         page_ids = people[:limit]
         pages.append(page_ids)
         for root in page_ids:

@@ -629,3 +629,55 @@ def test_sql_count_does_not_grow_with_the_number_of_blocks(
         sa_event.remove(bind, "before_cursor_execute", before)
     assert (few_blocks, many_blocks) == (2, 6)
     assert few == many > 0
+
+
+def test_blocks_keep_their_own_filter_over_the_shared_selection(
+    client: TestClient, db_session: Session
+) -> None:
+    """Блок берёт свой фильтр, даже когда отбор с другим блоком общий (#251).
+
+    Отбор в `SelectionCache` один на все блоки, и `Candidates` помнит фильтр
+    того блока, который спросил первым. Пока набор блока пересекался с
+    `found.roots()` без аргумента, «Заканчивается вахта» отдавал набор соседа:
+    двое проживающих вместо одного, кто кончает вахту в окне. Раньше каждый блок
+    считался своим `filtered(cards, criteria)`. Проверяются обе раскладки —
+    сначала «Проживают», затем «Заканчивается вахта», — чтобы порядок блоков не
+    решал, кто прав.
+    """
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    near = Employee(full_name="Ближний Пётр", personnel_number="Т-901")
+    far = Employee(full_name="Дальний Иван", personnel_number="Т-902")
+    db_session.add_all([near, far])
+    db_session.flush()
+    db_session.add_all(
+        [
+            Resident(
+                dormitory_id=dorm,
+                employee_id=near.id,
+                full_name=near.full_name,
+                shift_end=today() + timedelta(days=3),
+            ),
+            Resident(
+                dormitory_id=dorm,
+                employee_id=far.id,
+                full_name=far.full_name,
+                shift_end=today() + timedelta(days=30),
+            ),
+        ]
+    )
+    db_session.commit()
+    layouts = (
+        (["residents", "ending"], 0, 1),
+        (["ending", "residents"], 1, 0),
+    )
+    for kinds, residents_index, ending_index in layouts:
+        set_blocks(client, kinds)
+        frame = client.get(API, params={"employees": "none"}).json()
+        previews = [BlockPreview.model_validate(item) for item in frame["block_previews"]]
+        residents = previews[residents_index]
+        ending = previews[ending_index]
+        assert residents.count == len(residents.items) == 2, kinds
+        assert ending.count == len(ending.items) == 1, kinds
+        assert [item.full_name for item in ending.items] == ["Ближний Пётр"], kinds
+        assert frame["counts"] == {"all": 2, "current": 2, "ending": 1}, kinds
