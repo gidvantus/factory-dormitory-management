@@ -89,6 +89,8 @@ class HostelOccupancyChange(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     hostel_id: Mapped[int] = mapped_column(ForeignKey("hostels.id", ondelete="CASCADE"))
+    # Связь нужна до завершения проживания, чтобы исправить его историю при позднем оттоке.
+    resident_id: Mapped[int | None] = mapped_column(Integer, index=True)
     day: Mapped[date] = mapped_column(Date)
     men: Mapped[int] = mapped_column(Integer)
     women: Mapped[int] = mapped_column(Integer)

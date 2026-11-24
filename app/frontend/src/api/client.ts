@@ -692,6 +692,7 @@ export interface ResidentTransferPreview {
   warnings: { column: string; reason: string }[];
   empty_columns: string[];
   preview_token: string;
+  column_choices?: TransferColumnChoice[];
 }
 
 export interface ResidentOutflowPreview {
@@ -702,6 +703,7 @@ export interface ResidentOutflowPreview {
   payments_to_delete: Record<PaymentKind, number>;
   preview_token: string;
   fields: OutflowFields;
+  column_choices?: TransferColumnChoice[];
 }
 
 export interface OutflowFields {
@@ -745,6 +747,8 @@ export interface InflowActionPreview {
   empty_columns: string[];
   fields: OutflowFields | null;
   departure_date: string | null;
+  settlement_date?: string | null;
+  column_choices?: TransferColumnChoice[];
 }
 export interface InflowActionResponse {
   inflow: InflowRow;
@@ -789,6 +793,36 @@ export interface ResidentPaymentResult {
   created: boolean;
   copied_columns: string[];
   skipped_columns: string[];
+}
+
+export type TransferTable = 'residents' | 'inflow' | 'outflow' | PaymentKind;
+
+export interface TransferColumnRoute {
+  source: TransferTable;
+  target: TransferTable;
+  targetDormitoryId?: number;
+}
+
+interface TransferColumnOption {
+  id: number;
+  name: string;
+}
+
+export interface TransferColumnChoice {
+  source: TransferColumnOption;
+  targets: TransferColumnOption[];
+  target_id: number | null;
+}
+
+export interface PaymentColumnsRequired {
+  column_choices: TransferColumnChoice[];
+  can_continue: boolean;
+}
+
+function transferColumnPath(id: string, route: TransferColumnRoute): string {
+  const query = new URLSearchParams({ source: route.source, target: route.target });
+  if (route.targetDormitoryId) query.set('target_dormitory_id', String(route.targetDormitoryId));
+  return `/dormitories/${encodeURIComponent(id)}/settings/transfer-columns?${query}`;
 }
 
 export interface DailyReportReadiness {
@@ -2030,11 +2064,31 @@ export const api = {
     id: string,
     residentId: number,
     kind: PaymentKind,
-  ): Promise<ResidentPaymentResult> {
-    return request<ResidentPaymentResult>(
+    checkColumns = true,
+  ): Promise<ResidentPaymentResult | PaymentColumnsRequired> {
+    return request(
       `/dormitories/${encodeURIComponent(id)}/residents/${residentId}/payments/${kind}`,
-      { method: 'POST' },
+      { method: 'POST', body: JSON.stringify({ check_columns: checkColumns }) },
     );
+  },
+
+  transferColumns(
+    id: string,
+    route: TransferColumnRoute,
+    signal?: AbortSignal,
+  ): Promise<TransferColumnChoice[]> {
+    return request(transferColumnPath(id, route), { signal });
+  },
+
+  saveTransferColumns(
+    id: string,
+    route: TransferColumnRoute,
+    mappings: Record<number, number | null>,
+  ): Promise<void> {
+    return request(transferColumnPath(id, route), {
+      method: 'PUT',
+      body: JSON.stringify({ mappings }),
+    });
   },
 
   previewResidentTransfer(

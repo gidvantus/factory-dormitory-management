@@ -5,56 +5,17 @@ from collections.abc import Iterable
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Date, cast, event, func, inspect, null, select
+from sqlalchemy import Date, cast, func, null, select
 from sqlalchemy.orm import Session
 
 from app.models.hostel import Hostel, HostelOccupancyChange
 from app.models.resident import Resident
 
 Counts = tuple[int, int, int]
-EMPTY: Counts = (0, 0, 0)
 
 
 def occupancy_today() -> date:
     return datetime.now(ZoneInfo("Europe/Moscow")).date()
-
-
-def count_gender(gender: str | None) -> Counts:
-    return int(gender == "М"), int(gender == "Ж"), 1
-
-
-@event.listens_for(Session, "after_flush")
-def record_occupancy_changes(session: Session, _flush_context: object) -> None:
-    changes: dict[int, list[int]] = defaultdict(lambda: [0, 0, 0])
-
-    def add(hostel_id: int | None, gender: str | None, direction: int) -> None:
-        if hostel_id is not None:
-            for index, count in enumerate(count_gender(gender)):
-                changes[hostel_id][index] += direction * count
-
-    for row in session.new | session.dirty | session.deleted:
-        if not isinstance(row, Resident):
-            continue
-        state = inspect(row)
-        hostel = state.attrs.hostel_id.history
-        gender = state.attrs.gender.history
-        if row in session.new:
-            add(row.hostel_id, row.gender, 1)
-        elif row in session.deleted or hostel.has_changes() or gender.has_changes():
-            add(
-                hostel.deleted[0] if hostel.deleted else row.hostel_id,
-                gender.deleted[0] if gender.deleted else row.gender,
-                -1,
-            )
-            if row not in session.deleted:
-                add(row.hostel_id, row.gender, 1)
-    if changes:
-        day = occupancy_today()
-        session.add_all(
-            HostelOccupancyChange(hostel_id=key, day=day, men=men, women=women, total=total)
-            for key, (men, women, total) in changes.items()
-            if men or women or total
-        )
 
 
 def occupancy_by_day(

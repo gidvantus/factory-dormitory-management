@@ -224,6 +224,7 @@ def record_changed(
     *,
     kind: str | None = None,
     title: str | None = None,
+    happened_on: date | None = None,
 ) -> None:
     """Вызывается в той же транзакции, что исходное изменение, до удаления строки."""
     identity_lock(db)
@@ -313,8 +314,7 @@ def record_changed(
         if key in ("residents", "inflow") and first
         else "source"
     )
-    happened = None
-    if first:
+    if first and happened_on is None:
         raw_date = values.get(
             "departure_date"
             if key == "outflow"
@@ -324,7 +324,7 @@ def record_changed(
         )
         if raw_date:
             with suppress(ValueError):
-                happened = date.fromisoformat(raw_date)
+                happened_on = date.fromisoformat(raw_date)
     event(
         db,
         row.employee_id,
@@ -335,7 +335,7 @@ def record_changed(
         source_table=key,
         source_id=row.id,
         snapshot=values,
-        happened_on=happened,
+        happened_on=happened_on,
     )
     db.flush()
 

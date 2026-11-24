@@ -347,6 +347,39 @@ describe('Проживающие', () => {
     },
   );
 
+  it('при записи на аванс предлагает сопоставить заполненное поле и повторяет запись после сохранения', async () => {
+    mockResident();
+    const registration = vi
+      .spyOn(api, 'registerResidentPayment')
+      .mockResolvedValueOnce({
+        can_continue: false,
+        column_choices: [
+          {
+            source: { id: 10, name: 'Фамилия Имя Отчество' },
+            targets: [{ id: 20, name: 'ФИО' }],
+            target_id: null,
+          },
+        ],
+      })
+      .mockResolvedValue(paymentResult());
+    const save = vi.spyOn(api, 'saveTransferColumns').mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<ResidentsTable dormitoryId="7" />);
+    const row = within(await screen.findByTestId('resident-3'));
+    await user.click(row.getByRole('button', { name: 'Записать на аванс, строка 1' }));
+    const dialog = within(await screen.findByRole('dialog', { name: 'Записать на аванс' }));
+    expect(dialog.getByRole('button', { name: 'Записать без остальных полей' })).toBeDisabled();
+    await user.selectOptions(
+      dialog.getByLabelText('Столбец назначения для «Фамилия Имя Отчество»'),
+      '20',
+    );
+    await user.click(dialog.getByRole('button', { name: 'Сохранить соответствия' }));
+    expect(save).toHaveBeenCalledWith('7', { source: 'residents', target: 'advance' }, { 10: 20 });
+    await user.click(await dialog.findByRole('button', { name: 'Записать' }));
+    expect(await row.findByRole('status')).toHaveTextContent('Записан на аванс.');
+    expect(registration).toHaveBeenCalledTimes(2);
+  });
+
   it('дожидается сохранения ФИО перед записью и блокирует повторное нажатие во время запроса', async () => {
     mockResident();
     let finishSave!: (resident: Resident) => void;

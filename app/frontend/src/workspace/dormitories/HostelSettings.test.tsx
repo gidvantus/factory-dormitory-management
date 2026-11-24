@@ -146,7 +146,7 @@ it('открывает редактор хостелов в настройках
   expect(await screen.findByRole('rowheader', { name: /Свободных мест М/ })).toHaveTextContent('ƒ');
   await user.click(screen.getByRole('button', { name: 'Настроить' }));
   const dialog = within(await screen.findByRole('dialog', { name: 'Настройки общежития' }));
-  await user.click(await dialog.findByRole('button', { name: 'Настроить хостел Корпус' }));
+  await user.click(await dialog.findByRole('button', { name: 'Хостел Корпус Настроить строки' }));
   await user.clear(dialog.getByLabelText('Название строки'));
   await user.type(dialog.getByLabelText('Название строки'), 'Оплачено');
   await user.click(dialog.getByRole('button', { name: /Свободных мест М/ }));

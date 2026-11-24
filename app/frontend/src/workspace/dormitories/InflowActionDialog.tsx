@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom';
 import { api, ApiError } from '../../api/client';
 import type { InflowAction, InflowActionPreview, InflowRow } from '../../api/client';
 import { Modal, ModalCancelButton } from '../../components/Modal';
-import { todayDate } from '../dashboard/dates';
+import { formatDate, todayDate } from '../dashboard/dates';
 import { OutflowTransferFields } from './OutflowTransferFields';
+import { TransferColumnFields } from './TransferColumnFields';
+import transferStyles from './TransferResidentDialog.module.css';
 import styles from './TransferResidentDialog.module.css';
 
 export function InflowActionDialog({
@@ -23,6 +25,9 @@ export function InflowActionDialog({
   const [preview, setPreview] = useState<InflowActionPreview | null>(null);
   const [checking, setChecking] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [mappingBusy, setMappingBusy] = useState(false);
+  const [skipMappings, setSkipMappings] = useState(false);
+  const choices = preview?.column_choices ?? [];
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState('');
   const [reason, setReason] = useState('');
@@ -40,6 +45,7 @@ export function InflowActionDialog({
     const controller = new AbortController();
     setChecking(true);
     setPreview(null);
+    setSkipMappings(false);
     void api
       .previewInflowAction(dormitoryId, row.id, action, controller.signal)
       .then((result) => {
@@ -68,7 +74,14 @@ export function InflowActionDialog({
     return () => controller.abort();
   }, [dormitoryId, row.id, action, attempt]);
   async function submit(): Promise<void> {
-    if (!preview || checking || inFlight.current) return;
+    if (
+      !preview ||
+      checking ||
+      inFlight.current ||
+      mappingBusy ||
+      (choices.length && !skipMappings)
+    )
+      return;
     inFlight.current = true;
     setSaving(true);
     setError('');
@@ -93,7 +106,7 @@ export function InflowActionDialog({
       title={action === 'settle' ? 'Заселить из притока' : 'В отток из притока'}
       testId="inflow-action-modal"
       onClose={onClose}
-      closeDisabled={saving}
+      closeDisabled={saving || mappingBusy}
     >
       <form
         className={styles.form}
@@ -109,6 +122,35 @@ export function InflowActionDialog({
           {action === 'outflow' ? ' в «Отток»' : ''}?
         </p>
         {checking && <p role="status">Подготавливаем действие…</p>}
+        {!checking && preview && !!choices.length && (
+          <>
+            <TransferColumnFields
+              dormitoryId={dormitoryId}
+              route={{ source: 'inflow', target: preview.destination }}
+              choices={choices}
+              disabled={saving}
+              onBusy={setMappingBusy}
+              onSaved={() => {
+                setPreview(null);
+                setAttempt((value) => value + 1);
+              }}
+            />
+            <label className={transferStyles.confirmation}>
+              <input
+                type="checkbox"
+                checked={skipMappings}
+                disabled={saving || mappingBusy}
+                onChange={(event) => setSkipMappings(event.target.checked)}
+              />
+              Перенести без полей, для которых не выбраны столбцы
+            </label>
+          </>
+        )}
+        {action === 'settle' && !checking && preview?.settlement_date && (
+          <p>
+            Дата заселения в «Притоке» <strong>{formatDate(preview.settlement_date)}</strong>
+          </p>
+        )}
         {preview && !checking && action === 'outflow' && preview.fields && (
           <OutflowTransferFields
             fields={preview.fields}
@@ -137,13 +179,15 @@ export function InflowActionDialog({
           </button>
         )}
         <div className={styles.actions}>
-          <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
+          <ModalCancelButton onClick={onClose} type="button" disabled={saving || mappingBusy}>
             Отмена
           </ModalCancelButton>
           <button
             type="submit"
             disabled={
               saving ||
+              mappingBusy ||
+              (choices.length > 0 && !skipMappings) ||
               checking ||
               !preview ||
               (!!preview.fields?.reason_column && !reason.trim()) ||
