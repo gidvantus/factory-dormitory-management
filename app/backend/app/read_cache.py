@@ -25,21 +25,31 @@
 `flush`, и результат зависит от изменений внутри того же запроса. Раскладка
 дашборда и справочник источников тоже читаются один раз за запрос и в кэш не
 идут.
+
+Кроме крупных чтений, кэшируются точечные, которые блоки запрашивают по
+нескольку раз на одно и то же общежитие: столбец таблицы, список хостелов,
+пользовательская вкладка и строка отчёта. Это тоже чистое чтение: `get_column`,
+`get_custom_tab`, `select(Hostel)` и `db.get(ReportRow)` ничего не пишут, а
+`after_commit`/`after_rollback` не дают кэшу пережить запись.
 """
 
 from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING, cast
 
-from sqlalchemy import event
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
+
+from app.models.custom_tab import CustomTab
+from app.models.hostel import Hostel
+from app.models.report import ReportRow
+from app.models.table_column import TableColumn
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from app.hostel_rows import PlaceDay
     from app.models.dormitory import Dormitory
-    from app.models.hostel import Hostel
     from app.schemas.report import ReportResponse
     from app.table_data import Record
 
@@ -54,9 +64,13 @@ class _Cache:
 
     reports: dict[tuple[int, date, date, bool], "ReportResponse"] = field(default_factory=dict)
     records: dict[tuple[int, str], "list[Record]"] = field(default_factory=dict)
-    places: dict[
-        tuple[tuple[int, ...], date, date], "dict[tuple[int, date], PlaceDay]"
-    ] = field(default_factory=dict)
+    places: dict[tuple[tuple[int, ...], date, date], "dict[tuple[int, date], PlaceDay]"] = field(
+        default_factory=dict
+    )
+    columns: dict[tuple[int, str, int], TableColumn] = field(default_factory=dict)
+    dormitory_hostels: dict[int, list[Hostel]] = field(default_factory=dict)
+    tabs: dict[tuple[int, int], CustomTab] = field(default_factory=dict)
+    report_rows: dict[tuple[int, int], ReportRow | None] = field(default_factory=dict)
 
 
 def _cache(db: Session) -> _Cache:
@@ -142,3 +156,61 @@ def place_days(
 
         cache.places[key] = read_place_days(db, selected, start, end)
     return cache.places[key]
+
+
+def column(db: Session, dormitory_id: int, table_key: str, column_id: int) -> TableColumn:
+    """Столбец таблицы — один раз на запрос.
+
+    `get_column` читает по первичному ключу и ничего не пишет, поэтому кэш
+    безопасен. `ensure_columns` по-прежнему не кэшируется: он создаёт столбцы и
+    делает `flush`.
+    """
+    key = (dormitory_id, table_key, column_id)
+    cache = _cache(db)
+    if key not in cache.columns:
+        from app.table_data import get_column
+
+        cache.columns[key] = get_column(db, dormitory_id, table_key, column_id)
+    return cache.columns[key]
+
+
+def hostels(db: Session, dormitory_id: int) -> list[Hostel]:
+    """Хостелы общежития — один раз на запрос, в порядке базы.
+
+    Список общий и только для чтения: фильтровать его нужно в новый список, а
+    не `remove`/`sort` на месте.
+    """
+    cache = _cache(db)
+    if dormitory_id not in cache.dormitory_hostels:
+        cache.dormitory_hostels[dormitory_id] = list(
+            db.scalars(select(Hostel).where(Hostel.dormitory_id == dormitory_id))
+        )
+    return cache.dormitory_hostels[dormitory_id]
+
+
+def custom_tab(db: Session, dormitory_id: int, tab_id: int) -> CustomTab:
+    """Пользовательская вкладка как ручная таблица — один раз на запрос.
+
+    Обёртка над `get_custom_tab(..., require_table=True)`: именно так вкладку
+    проверяют блоки дашборда и связи отчёта.
+    """
+    key = (dormitory_id, tab_id)
+    cache = _cache(db)
+    if key not in cache.tabs:
+        from app.table_data import get_custom_tab
+
+        cache.tabs[key] = get_custom_tab(db, dormitory_id, tab_id, require_table=True)
+    return cache.tabs[key]
+
+
+def report_row(db: Session, dormitory_id: int, row_id: int) -> ReportRow | None:
+    """Строка общего отчёта — один раз на запрос.
+
+    Может быть `None`: блок со ссылкой на удалённую строку должен получить тот
+    же отказ, что и без кэша.
+    """
+    key = (dormitory_id, row_id)
+    cache = _cache(db)
+    if key not in cache.report_rows:
+        cache.report_rows[key] = db.get(ReportRow, row_id)
+    return cache.report_rows[key]

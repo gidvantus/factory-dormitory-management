@@ -40,8 +40,6 @@ from app.section_state import SECTIONS, require_section, section_ancestors, sect
 from app.table_data import (
     DEFAULT_COLUMNS,
     ensure_columns,
-    get_column,
-    get_custom_tab,
     normalize_value,
     record_value,
 )
@@ -105,7 +103,7 @@ def checked_column(
 ) -> TableColumn:
     if column_id is None:
         raise HTTPException(422, "Выберите столбец")
-    column = get_column(db, source.dormitory_id, source.table_key, column_id)
+    column = read_cache.column(db, source.dormitory_id, source.table_key, column_id)
     if column.archived or column.kind in ("action", "hostel") or (kind and column.kind != kind):
         raise HTTPException(422, f"Столбец «{column.name}» недоступен. Измените источник блока.")
     return column
@@ -133,7 +131,7 @@ def validate_source(
         return
     if isinstance(source, ReportWidgetSource):
         require_section(db, source.dormitory_id, "report")
-        row = db.get(ReportRow, source.row_id)
+        row = read_cache.report_row(db, source.dormitory_id, source.row_id)
         if row is None or row.dormitory_id != source.dormitory_id:
             raise HTTPException(422, "Строка отчёта удалена. Измените источник блока.")
     elif isinstance(source, PlaceWidgetSource):
@@ -144,11 +142,10 @@ def validate_source(
                 raise HTTPException(422, "Хостел удалён. Измените источник блока.")
     else:
         if source.table_key.startswith("custom_"):
-            get_custom_tab(
+            read_cache.custom_tab(
                 db,
                 source.dormitory_id,
                 int(source.table_key.removeprefix("custom_")),
-                require_table=True,
             )
         else:
             require_section(db, source.dormitory_id, source.table_key)
@@ -386,7 +383,7 @@ def place_value(db: Session, source: PlaceWidgetSource, days: list[date]) -> Dec
 def place_daily_values(
     db: Session, source: PlaceWidgetSource, days: list[date]
 ) -> tuple[dict[date, Decimal], dict[date, str]]:
-    hostels = list(db.scalars(select(Hostel).where(Hostel.dormitory_id == source.dormitory_id)))
+    hostels = read_cache.hostels(db, source.dormitory_id)
     if source.hostel_id is not None:
         hostels = [hostel for hostel in hostels if hostel.id == source.hostel_id]
     calculated = read_cache.place_days(db, hostels, days[0], days[-1])

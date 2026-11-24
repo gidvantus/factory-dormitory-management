@@ -216,9 +216,7 @@ def read_place_days(
     def report_values(dormitory_id: int) -> dict[int, ReportRowResponse]:
         dormitory = db.get(Dormitory, dormitory_id)
         assert dormitory is not None
-        report = read_cache.report(
-            db, dormitory_id, dormitory, start, end, exclude_places=True
-        )
+        report = read_cache.report(db, dormitory_id, dormitory, start, end, exclude_places=True)
         return {row.id: row for row in report.rows}
 
     @lru_cache
