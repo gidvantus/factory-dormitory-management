@@ -531,16 +531,23 @@ def test_phone_like_query_does_not_match_the_personnel_number(
 
     Клиент (`matches`) и прежний порт искали цифры в телефоне и `variants.phone`,
     а не в склейке ФИО и табельного: телефоноподобный запрос не должен находить
-    человека по цифрам табельного номера.
+    человека по цифрам табельного номера. Строки заведены в базе напрямую —
+    проверяется чтение, а не запись карточки.
     """
     sign_in(client, db_session)
     dorm = create_dormitory(client)
-    create(client, dorm, fields=person("Ким Анна", "Т-7912345"))
+    kim = Employee(full_name="Ким Анна", personnel_number="Т-7912345")
+    li = Employee(full_name="Ли Олег", personnel_number="Т-2", phone="+7 (912) 345-67-89")
+    db_session.add_all([kim, li])
+    db_session.flush()
+    db_session.add_all(
+        Resident(dormitory_id=dorm, employee_id=employee.id, full_name=employee.full_name)
+        for employee in (kim, li)
+    )
+    db_session.commit()
     # Текстовая ветка табельный видит — как и раньше.
-    assert page(client, query="Т-7912345")["total"] == 1
-    assert page(client, query="+7 912 345")["total"] == 0
-    create(client, dorm, fields=person("Ли Олег", "Т-2", "+7 (912) 345-67-89"))
-    assert page(client, query="+7 912 345")["total"] == 1
+    assert [item["id"] for item in page(client, query="Т-7912345")["items"]] == [kim.id]
+    assert [item["id"] for item in page(client, query="+7 912 345")["items"]] == [li.id]
 
 
 def set_blocks(client: TestClient, kinds: list[str]) -> None:
@@ -577,13 +584,24 @@ def test_sql_count_does_not_grow_with_the_number_of_blocks(
     """
     sign_in(client, db_session)
     dorm = create_dormitory(client)
-    for index in range(6):
-        create(
-            client,
-            dorm,
-            fields=person(f"Сотрудник {index:02d}", f"Т-{index:03d}"),
-            values={"shift_end": str(today() + timedelta(days=index % 4))},
+    people = [
+        Employee(full_name=f"Сотрудник {index:02d}", personnel_number=f"Т-{index:03d}")
+        for index in range(6)
+    ]
+    db_session.add_all(people)
+    db_session.flush()
+    db_session.add_all(
+        Resident(
+            dormitory_id=dorm,
+            employee_id=employee.id,
+            full_name=employee.full_name,
+            shift_end=today() + timedelta(days=index % 4),
         )
+        for index, employee in enumerate(people)
+    )
+    db_session.commit()
+    few_kinds = ["residents", "ending"]
+    many_kinds = ["residents", "contacts", "ending", "residents", "ending", "ending"]
     bind = db_session.get_bind()
     statements: list[str] = []
 
@@ -597,12 +615,16 @@ def test_sql_count_does_not_grow_with_the_number_of_blocks(
         assert frame.status_code == 200
         return len(statements), len(frame.json()["block_previews"])
 
+    # Прогрев: первый запрос поднимает ленивые справочники процесса
+    # (`table_import_jobs` читается один раз на процесс), и без прогрева это
+    # обращение попадает в тот замер, которому не повезло быть первым. Греются
+    # оба набора: мерить надо установившийся режим, а не порядок замеров.
+    frame_cost(few_kinds)
+    frame_cost(many_kinds)
     sa_event.listen(bind, "before_cursor_execute", before)
     try:
-        few, few_blocks = frame_cost(["residents", "ending"])
-        many, many_blocks = frame_cost(
-            ["residents", "contacts", "ending", "residents", "ending", "ending"]
-        )
+        few, few_blocks = frame_cost(few_kinds)
+        many, many_blocks = frame_cost(many_kinds)
     finally:
         sa_event.remove(bind, "before_cursor_execute", before)
     assert (few_blocks, many_blocks) == (2, 6)
