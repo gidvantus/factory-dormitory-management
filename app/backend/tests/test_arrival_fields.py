@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.audit import mask
 from app.models.arrival_plan import ArrivalPlan
 from tests.conftest import add_colleague, login, sign_in
+from tests.test_personnel import create as create_employee
 from tests.test_reports import create_dormitory
 
 API = "/api/personnel/arrivals"
@@ -44,6 +45,130 @@ def body(dormitory_id: int) -> dict[str, Any]:
             {"id": str(uuid4()), "full_name": "Иванов Иван", "custom_values": {"shifts": "30"}},
         ],
     }
+
+
+@pytest.mark.parametrize("shifts", [None, "24"])
+def test_employee_appends_to_existing_arrival_and_keeps_link_after_edit(
+    client: TestClient, db_session: Session, shifts: str | None
+) -> None:
+    sign_in(client, db_session)
+    source = create_dormitory(client, "Северное")
+    destination = create_dormitory(client, "Южное")
+    employee = create_employee(client, source, values={"shift_count": 17})["employee_id"]
+    settings = config(client)
+    assert settings["display"]["namesLimit"] == 10000
+    settings["display"]["namesLimit"] = 3
+    settings["fields"].append(
+        {"id": "phone", "label": "Телефон", "type": "text", "scope": "person"}
+    )
+    settings["display"]["order"].append("phone")
+    assert save_config(client, settings).status_code == 200
+    assert config(client)["display"]["namesLimit"] == 3
+    payload = body(destination)
+    payload["settings_revision"] = 1
+    initial = client.post(API, json=payload)
+    assert initial.status_code == 201, initial.text
+    initial_plan = initial.json()
+
+    url = f"{API}/from-employee/{employee}"
+    action: dict[str, Any] = {"dormitory_id": destination, "date": payload["date"]}
+    expected_values = {"phone": "+7 912 000 00 01"}
+    if shifts is not None:
+        action["values"] = {"shifts": shifts}
+        expected_values["shifts"] = shifts
+    response = client.post(url, json=action)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["created"] is True
+    plan = result["plan"]
+    assert plan["id"] == initial_plan["id"] and plan["count"] == 3 and plan["revision"] == 1
+    assert plan["custom_values"] == payload["custom_values"]
+    assert plan["people"][:2] == payload["people"]
+    assert plan["people"][2]["full_name"] == "Семёнов Иван Иванович"
+    assert plan["people"][2]["custom_values"] == expected_values
+    assert plan["employee_ids"] == {plan["people"][2]["id"]: employee}
+    assert client.post(url, json=action).json() == {"created": False, "plan": plan}
+
+    update = {**payload, "count": 3, "people": plan["people"], "revision": plan["revision"]}
+    update["people"][2]["custom_values"]["shifts"] = "18"
+    edited = client.put(f"{API}/{plan['id']}", json=update)
+    assert edited.status_code == 200, edited.text
+    assert client.post(url, json=action).json() == {"created": False, "plan": edited.json()}
+
+
+def test_moved_employee_stays_linked_without_duplicate_on_either_date(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    employee = create_employee(client, dorm)["employee_id"]
+    url = f"{API}/from-employee/{employee}"
+    original = {"dormitory_id": dorm, "date": "2026-11-24"}
+    destination = {**original, "date": "2026-11-25"}
+    plan = client.post(url, json=original).json()["plan"]
+    person_url = f"{API}/{plan['id']}/people/{plan['people'][0]['id']}"
+    moved = client.post(f"{person_url}/move", json={"date": destination["date"], "revision": 0})
+    assert moved.status_code == 200, moved.text
+    target = moved.json()["plans"][1]
+    assert client.post(url, json=destination).json() == {"created": False, "plan": target}
+    added_again = client.post(url, json=original).json()
+    assert added_again["created"] is True and added_again["plan"]["count"] == 1
+    undo = client.post(
+        f"{person_url}/undo-move", json={"revision": added_again["plan"]["revision"]}
+    )
+    assert undo.status_code == 409
+
+
+def test_employee_arrival_requests_unavailable_required_field_and_checks_access(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    employee = create_employee(client, dorm)["employee_id"]
+    settings = config(client)
+    settings["fields"][3]["required"] = True
+    assert save_config(client, settings).status_code == 200
+    url = f"{API}/from-employee/{employee}"
+    payload = {"dormitory_id": dorm, "date": "2026-11-24"}
+    response = client.post(url, json=payload)
+    assert response.status_code == 200, response.text
+    assert [field["id"] for field in response.json()["required_fields"]] == ["transport"]
+    assert client.get(API).json()["arrival_plans"] == []
+    assert client.post(url, json={**payload, "values": {"transport": "Такси"}}).status_code == 422
+    confirmed = client.post(url, json={**payload, "values": {"transport": "Автобус"}})
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["plan"]["count"] == 1
+    assert confirmed.json()["plan"]["custom_values"] == {"transport": "Автобус"}
+    sign_in(client, db_session, email="foreign-arrivals@example.com")
+    foreign_dorm = create_dormitory(client, "Другой владелец")
+    assert client.post(url, json={**payload, "dormitory_id": foreign_dorm}).status_code == 404
+
+
+def test_employee_arrival_requires_manual_value_for_configured_shift_count(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    employee = create_employee(client, dorm, values={"shift_count": 17})["employee_id"]
+    settings = config(client)
+    field = next(field for field in settings["fields"] if field["id"] == "shifts")
+    field.update(id="scheduled_shifts", label="Количество смен", required=True)
+    for key in ("visible", "order"):
+        fields = settings["display"][key]
+        fields[fields.index("shifts")] = "scheduled_shifts"
+    assert save_config(client, settings).status_code == 200
+
+    url = f"{API}/from-employee/{employee}"
+    payload = {"dormitory_id": dorm, "date": "2026-11-24"}
+    result = client.post(url, json=payload)
+    assert result.status_code == 200, result.text
+    assert [field["id"] for field in result.json()["required_fields"]] == ["scheduled_shifts"]
+    assert client.get(API).json()["arrival_plans"] == []
+    invalid = client.post(url, json={**payload, "values": {"scheduled_shifts": "nan"}})
+    assert invalid.status_code == 422
+    saved = client.post(url, json={**payload, "values": {"scheduled_shifts": "0"}})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["plan"]["people"][0]["custom_values"] == {"scheduled_shifts": "0"}
 
 
 def test_saves_independent_person_fields_and_keeps_blank_identity_position(

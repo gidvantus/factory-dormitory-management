@@ -1,4 +1,5 @@
 import { request, requestBlob } from './client';
+import type { DateRange } from '../workspace/dashboard/dates';
 import type { Field, Settings, Value } from '../workspace/personnel/arrivals/data';
 
 export type IdentityFields = {
@@ -59,6 +60,7 @@ export type SavedList = {
   filter: Filter;
   dormitory: number | null;
   days: number;
+  period?: DateRange | null;
   query: string;
   scope: number[];
   column_filters?: EmployeeColumnFilter[];
@@ -98,6 +100,7 @@ export type ArrivalPlan = {
   count: number;
   names: string[];
   people?: { id: string; full_name: string; custom_values: Record<string, Value> }[];
+  employee_ids?: Record<string, string>;
   custom_values?: Record<string, Value>;
   revision: number;
   workflow?: Record<string, ArrivalVisit>;
@@ -132,10 +135,12 @@ export type ArrivalVisit = {
 export type ArrivalWorkflowResult = { plans: ArrivalPlan[]; deleted_plan_ids: string[] };
 export type ArrivalInput = Omit<
   ArrivalPlan,
-  'id' | 'revision' | 'workflow' | 'dormitory_name' | 'is_archived'
+  'id' | 'revision' | 'workflow' | 'employee_ids' | 'dormitory_name' | 'is_archived'
 > & {
   settings_revision?: number;
 };
+export type EmployeeArrivalResult =
+  { created: boolean; plan: ArrivalPlan } | { required_fields: Field[] };
 export type ArrivalConfiguration = Settings & {
   revision: number;
   archived_fields: Field[];
@@ -180,6 +185,15 @@ export type EmployeeDetail = {
     undone_at: string | null;
   }[];
 };
+export type EmployeeProfileTarget =
+  { employeeId: string; fullName?: never } | { employeeId?: never; fullName: string };
+export type EmployeeProfileContext = Pick<PersonnelData, 'dormitories'> & {
+  arrival_settings?: Pick<ArrivalConfiguration, 'fields'>;
+};
+export type EmployeeProfileData = EmployeeProfileContext & {
+  employee: Employee;
+  detail: EmployeeDetail;
+};
 export type Binding = {
   fields: Record<string, number>;
   columns: {
@@ -216,6 +230,14 @@ export const personnelApi = {
   workspace: (signal?: AbortSignal): Promise<PersonnelData> => request('/personnel', { signal }),
   detail: (id: string, signal?: AbortSignal): Promise<EmployeeDetail> =>
     request(`/personnel/employees/${encodeURIComponent(id)}`, { signal }),
+  profile: (target: EmployeeProfileTarget, signal?: AbortSignal): Promise<EmployeeProfileData> =>
+    target.employeeId !== undefined
+      ? request(`/personnel/employees/${encodeURIComponent(target.employeeId)}/profile`, { signal })
+      : request('/personnel/employee-profile/by-name', {
+          method: 'POST',
+          body: JSON.stringify({ full_name: target.fullName }),
+          signal,
+        }),
   check: (fields: IdentityFields, signal?: AbortSignal): Promise<IdentityCheck> =>
     request('/personnel/check', { method: 'POST', body: JSON.stringify(fields), signal }),
   createRecord: (
@@ -245,6 +267,15 @@ export const personnelApi = {
   ) => send(`/employees/${id}`, 'PATCH', values),
   addNote: (id: string, text: string) => send(`/employees/${id}/notes`, 'POST', { text }),
   createArrival: (values: ArrivalInput) => send<ArrivalPlan>('/arrivals', 'POST', values),
+  addEmployeeToArrival: (
+    employeeId: string,
+    values: { date: string; dormitory_id: number; values?: Record<string, Value> },
+  ) =>
+    send<EmployeeArrivalResult>(
+      `/arrivals/from-employee/${encodeURIComponent(employeeId)}`,
+      'POST',
+      values,
+    ),
   arrivalSettings: (signal?: AbortSignal) =>
     request<ArrivalConfiguration>('/personnel/arrivals/settings', { signal }),
   saveArrivalSettings: (values: Settings & { revision: number }) =>

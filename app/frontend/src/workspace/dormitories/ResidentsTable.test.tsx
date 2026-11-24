@@ -143,11 +143,10 @@ describe('Проживающие', () => {
     vi.spyOn(api, 'tableColumns').mockResolvedValue(defaultColumns('residents'));
     vi.spyOn(api, 'residents').mockResolvedValue({ residents: [resident], hostels: [] });
     vi.spyOn(personnelApi, 'workspace').mockImplementation(async () => data);
-    vi.spyOn(personnelApi, 'detail').mockImplementation(async (id) => ({
-      employee_id: id,
-      events: [],
-      notes: [],
-      merges: [],
+    vi.spyOn(personnelApi, 'profile').mockImplementation(async ({ employeeId }) => ({
+      employee: data.employees.find((item) => item.id === employeeId)!,
+      dormitories: data.dormitories,
+      detail: { employee_id: employeeId!, events: [], notes: [], merges: [] },
     }));
     function Location(): JSX.Element {
       return <output data-testid="location">{useLocation().pathname}</output>;

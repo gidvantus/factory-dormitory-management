@@ -35,12 +35,12 @@ export function currentMonth(now = new Date()): DateRange {
   return { from: `${current.slice(0, 7)}-01`, to: `${current.slice(0, 7)}-${lastDay}` };
 }
 
-export function rangeError(range: DateRange): string {
+export function rangeError(range: DateRange, limitToYear = true): string {
   if (!isCalendarDate(range.from) || !isCalendarDate(range.to)) {
     return 'Укажите обе даты полностью.';
   }
   if (range.from > range.to) return 'Дата «От» должна быть не позже даты «До».';
-  if (dateNumber(range.to) - dateNumber(range.from) > 365 * DAY_MS) {
+  if (limitToYear && dateNumber(range.to) - dateNumber(range.from) > 365 * DAY_MS) {
     return 'Выберите период не длиннее года.';
   }
   return '';

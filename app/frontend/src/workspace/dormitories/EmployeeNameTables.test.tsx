@@ -122,11 +122,10 @@ function fixtures(
     preferences: { revision: 0, blocks: [], lists: [] },
   };
   vi.spyOn(personnelApi, 'workspace').mockResolvedValue(data);
-  vi.spyOn(personnelApi, 'detail').mockResolvedValue({
-    employee_id: 'person',
-    notes: [],
-    events: [],
-    merges: [],
+  vi.spyOn(personnelApi, 'profile').mockResolvedValue({
+    employee,
+    dormitories: data.dormitories,
+    detail: { employee_id: 'person', notes: [], events: [], merges: [] },
   });
 }
 

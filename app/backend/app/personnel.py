@@ -367,7 +367,9 @@ def fulfill_arrival(db: Session, resident: Resident, actor_id: int) -> None:
         db.delete(plan)
 
 
-def all_sources(db: Session, dormitory_ids: list[int]) -> list[tuple[Row, dict[str, Any]]]:
+def all_sources(
+    db: Session, dormitory_ids: list[int], employee_ids: list[str] | None = None
+) -> list[tuple[Row, dict[str, Any]]]:
     """Строки-источники только по перечисленным общежитиям.
 
     Область (`dormitory_ids`) разрешает вызывающий слой: принадлежность данных
@@ -394,10 +396,46 @@ def all_sources(db: Session, dormitory_ids: list[int]) -> list[tuple[Row, dict[s
         for model in SOURCE_MODELS
         for row in db.scalars(
             select(model).where(
-                model.employee_id.is_not(None), model.dormitory_id.in_(dormitory_ids)
+                model.employee_id.in_(employee_ids)
+                if employee_ids is not None
+                else model.employee_id.is_not(None),
+                model.dormitory_id.in_(dormitory_ids),
             )
         )
     ]
+
+
+def source_summary(row: Row, values: dict[str, Any], tabs: dict[str, str]) -> dict[str, Any]:
+    key = source_key(row)
+    return {
+        "table_key": key,
+        "row_id": row.id,
+        "dormitory_id": row.dormitory_id,
+        "source_name": tabs.get(key, SOURCE_NAMES.get(key, key)),
+        "values": values,
+    }
+
+
+def employee_group_in_scope(db: Session, ids: list[str], dormitory_ids: list[int]) -> bool:
+    if any(
+        db.scalar(
+            select(model.id)
+            .where(model.employee_id.in_(ids), model.dormitory_id.in_(dormitory_ids))
+            .limit(1)
+        )
+        is not None
+        for model in SOURCE_MODELS
+    ):
+        return True
+    history = (
+        select(EmployeeEvent.id)
+        .where(
+            EmployeeEvent.employee_id.in_(ids),
+            EmployeeEvent.dormitory_id.in_(dormitory_ids),
+        )
+        .limit(1)
+    )
+    return db.scalar(history) is not None
 
 
 def employee_in_scope(db: Session, employee_id: str, dormitory_ids: list[int]) -> Employee:
@@ -409,27 +447,7 @@ def employee_in_scope(db: Session, employee_id: str, dormitory_ids: list[int]) -
     """
     employee = get_employee(db, employee_id)
     ids = group_ids(db, employee_id)
-    has_source = any(
-        db.scalar(
-            select(model.id)
-            .where(model.employee_id.in_(ids), model.dormitory_id.in_(dormitory_ids))
-            .limit(1)
-        )
-        is not None
-        for model in SOURCE_MODELS
-    )
-    if (
-        has_source
-        or db.scalar(
-            select(EmployeeEvent.id)
-            .where(
-                EmployeeEvent.employee_id.in_(ids),
-                EmployeeEvent.dormitory_id.in_(dormitory_ids),
-            )
-            .limit(1)
-        )
-        is not None
-    ):
+    if employee_group_in_scope(db, ids, dormitory_ids):
         return employee
     raise HTTPException(404, "Карточка сотрудника не найдена")
 
@@ -578,16 +596,7 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
     sources: dict[str, list[dict[str, Any]]] = defaultdict(list)
     tabs = {f"custom_{tab.id}": tab.name for tab in db.scalars(select(CustomTab))}
     for row, values in all_sources(db, dormitory_ids):
-        key = source_key(row)
-        sources[roots[row.employee_id or ""]].append(
-            {
-                "table_key": key,
-                "row_id": row.id,
-                "dormitory_id": row.dormitory_id,
-                "source_name": tabs.get(key, SOURCE_NAMES.get(key, key)),
-                "values": values,
-            }
-        )
+        sources[roots[row.employee_id or ""]].append(source_summary(row, values, tabs))
     history_dorms: dict[str, set[int]] = defaultdict(set)
     history_ids: set[str] = set()
     for entry in db.scalars(
@@ -680,8 +689,10 @@ def workspace(db: Session, user: User, dormitory_ids: list[int]) -> dict[str, An
 
 
 def employee_detail(db: Session, employee_id: str) -> dict[str, Any]:
-    ids = group_ids(db, employee_id)
-    names = {user.id: user.full_name for user in db.scalars(select(User))}
+    return employee_history(db, get_employee(db, employee_id).id, group_ids(db, employee_id))
+
+
+def employee_history(db: Session, employee_id: str, ids: list[str]) -> dict[str, Any]:
     events = list(
         db.scalars(
             select(EmployeeEvent)
@@ -703,8 +714,13 @@ def employee_detail(db: Session, employee_id: str) -> dict[str, Any]:
             .order_by(EmployeeMerge.created_at.desc())
         )
     )
+    actor_ids = {item.actor_id for item in events if item.actor_id is not None}
+    actor_ids.update(item.actor_id for item in merges if item.actor_id is not None)
+    actor_ids.update(note.author_id for note in notes if note.author_id is not None)
+    actors = select(User.id, User.full_name).where(User.id.in_(actor_ids))
+    names = dict(db.execute(actors).tuples().all()) if actor_ids else {}
     return {
-        "employee_id": get_employee(db, employee_id).id,
+        "employee_id": employee_id,
         "events": [
             {
                 "id": e.id,

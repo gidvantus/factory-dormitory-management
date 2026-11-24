@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { currentMonth, dateNumber, rangeError } from '../dashboard/dates';
 import type { DateRange } from '../dashboard/dates';
 import styles from './Dormitories.module.css';
@@ -7,21 +7,30 @@ export function DormitoryPeriod({
   mode,
   range,
   onChange,
+  label = 'Период общежития',
+  limitToYear = true,
+  resetRange,
 }: {
   mode: 'range' | 'month';
   range: DateRange;
-  onChange: (range: DateRange) => Promise<void>;
+  onChange: (range: DateRange) => Promise<void> | void;
+  label?: string;
+  limitToYear?: boolean;
+  resetRange?: DateRange;
 }): JSX.Element {
+  const id = useId();
+  const errorId = `${id}-error`;
   const [draft, setDraft] = useState(range);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     setDraft(range);
+    setError('');
   }, [range]);
 
   async function apply(next: DateRange): Promise<void> {
     if (busy) return;
-    const invalid = rangeError(next);
+    const invalid = rangeError(next, limitToYear);
     if (invalid) {
       setError(invalid);
       return;
@@ -51,7 +60,7 @@ export function DormitoryPeriod({
   return (
     <form
       className={styles.periodForm}
-      aria-label="Период общежития"
+      aria-label={label}
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
@@ -70,10 +79,10 @@ export function DormitoryPeriod({
             >
               ←
             </button>
-            <label className={styles.periodField} htmlFor="dormitory-period-month">
+            <label className={styles.periodField} htmlFor={`${id}-month`}>
               Месяц
               <input
-                id="dormitory-period-month"
+                id={`${id}-month`}
                 data-testid="dormitory-period-month"
                 type="month"
                 value={range.from.slice(0, 7)}
@@ -96,18 +105,19 @@ export function DormitoryPeriod({
         ) : (
           <>
             {(['from', 'to'] as const).map((key) => (
-              <label key={key} className={styles.periodField} htmlFor={`dormitory-period-${key}`}>
+              <label key={key} className={styles.periodField} htmlFor={`${id}-${key}`}>
                 {key === 'from' ? 'От' : 'До'}
                 <input
-                  id={`dormitory-period-${key}`}
+                  id={`${id}-${key}`}
                   data-testid={`dormitory-period-${key}`}
                   type="date"
                   value={draft[key]}
                   disabled={busy}
                   aria-invalid={!!error}
-                  aria-describedby={error ? 'dormitory-period-error' : undefined}
+                  aria-describedby={error ? errorId : undefined}
                   onChange={(event) => {
-                    setDraft({ ...draft, [key]: event.target.value });
+                    const value = event.target.value;
+                    setDraft((current) => ({ ...current, [key]: value }));
                     setError('');
                   }}
                 />
@@ -122,13 +132,13 @@ export function DormitoryPeriod({
           type="button"
           className="btn btn--ghost btn--compact"
           disabled={busy}
-          onClick={() => void apply(currentMonth())}
+          onClick={() => void apply(resetRange ?? currentMonth())}
         >
           Текущий месяц
         </button>
       </div>
       {error && (
-        <p className={styles.periodError} id="dormitory-period-error" role="alert">
+        <p className={styles.periodError} id={errorId} role="alert">
           {error}
         </p>
       )}

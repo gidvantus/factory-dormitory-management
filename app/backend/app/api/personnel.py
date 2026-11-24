@@ -19,6 +19,7 @@ from app.access import (
 from app.api.organization import Membership
 from app.arrival_settings import settings_response
 from app.db import get_db
+from app.employee_profile import load_profile
 from app.models.custom_tab import CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.inflow import PersonnelInflow
@@ -64,6 +65,7 @@ from app.schemas.inflow import UpdateInflowRequest
 from app.schemas.outflow import UpdateOutflowRequest
 from app.schemas.personnel import (
     BindingInput,
+    EmployeeProfileLookup,
     EmployeeUpdate,
     IdentityFields,
     NoteInput,
@@ -300,6 +302,28 @@ def link_record(
     return {"employee_id": employee.id}
 
 
+@router.get("/employees/{employee_id}/profile")
+def get_employee_profile(
+    employee_id: UUID,
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+) -> dict[str, Any]:
+    dormitories = scoped_dormitories(db, membership.organization_id)
+    return load_profile(db, membership.organization_id, dormitories, employee_id=str(employee_id))
+
+
+@router.post("/employee-profile/by-name")
+def get_employee_profile_by_name(
+    payload: EmployeeProfileLookup,
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+) -> dict[str, Any]:
+    dormitories = scoped_dormitories(db, membership.organization_id)
+    return load_profile(db, membership.organization_id, dormitories, full_name=payload.full_name)
+
+
 @router.get("/employees/{employee_id}")
 def detail(
     employee_id: UUID,
@@ -503,7 +527,7 @@ def preferences(payload: PreferencesInput, user: SubscribedUser, db: DbSession) 
     if not item:
         item = PersonnelPreferences(user_id=user.id, revision=0)
         db.add(item)
-    item.settings = payload.model_dump(mode="json", exclude={"revision"})
+    item.settings = payload.model_dump(mode="json", by_alias=True, exclude={"revision"})
     item.revision += 1
     db.commit()
     return {"revision": item.revision, **item.settings}

@@ -152,6 +152,7 @@ export function SettingsDialog({
         JSON.stringify({ fields: settings.fields, display: settings.display })
       }
       panelClassName={`${s.dialog} ${s.settingsDialog}`}
+      containerClassName={s.dialogOverlay}
       initialFocus="panel"
     >
       <fieldset className={s.disabledFields} disabled={busy}>

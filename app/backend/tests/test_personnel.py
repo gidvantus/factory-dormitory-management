@@ -91,6 +91,41 @@ def legacy_merge(db: Session, source_id: str, target_id: str, actor_id: int) -> 
     return operation.id
 
 
+def test_profile_returns_one_scoped_card_by_id_or_exact_name(
+    client: TestClient, db_session: Session
+) -> None:
+    owner = sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    source = create(client, dorm)["employee_id"]
+    target = create(client, dorm, fields={**FIELDS, "full_name": "Семёнов Иван"})["employee_id"]
+    legacy_merge(db_session, source, target, owner.id)
+    note = client.post(f"{API}/employees/{target}/notes", json={"text": "Контроль"})
+    assert note.status_code == 201
+    route = f"{API}/employees/{source}/profile"
+    lookup = f"{API}/employee-profile/by-name"
+    name = {"full_name": "  СЕМЕНОВ   Иван Иванович "}
+    result = client.get(route)
+    assert result.status_code == 200, result.text
+    profile = result.json()
+    assert profile["employee"]["id"] == target
+    assert set(profile["employee"]["member_ids"]) == {source, target}
+    assert len(profile["employee"]["current"]) == 2
+    assert profile["detail"]["notes"][0]["text"] == "Контроль"
+    assert set(profile) == {"employee", "detail", "dormitories", "arrival_settings"}
+    assert client.post(lookup, json=name).json() == profile
+
+    sign_in(client, db_session, email="profile-foreign@example.com")
+    foreign = create(client, create_dormitory(client, "Другое общежитие"))["employee_id"]
+    assert client.get(route).status_code == 404
+    assert client.post(lookup, json=name).json()["employee"]["id"] == foreign
+    login(client, owner.email)
+    assert client.post(lookup, json=name).json() == profile
+
+    create(client, dorm, fields={**FIELDS, "phone": None, "personnel_number": None})
+    assert client.post(lookup, json=name).status_code == 409
+    assert client.post(lookup, json={"full_name": "Семёнов"}).status_code == 404
+
+
 def test_tasks_are_removed_and_employee_notes_remain(
     client: TestClient, db_session: Session
 ) -> None:
@@ -392,10 +427,15 @@ def test_preferences_are_personal_and_use_revision_check(
     owner = sign_in(client, db_session, email="first@example.com")
     dorm = create_dormitory(client)
     employee = create(client, dorm)["employee_id"]
-    lists = [{"id": "current", "name": "Проживающие", "filter": "current"}]
+    period = {"from": "2026-10-01", "to": "2026-10-31"}
+    lists = [{"id": "current", "name": "Проживающие", "filter": "current", "period": period}]
     prefs = {"revision": 0, "blocks": [], "lists": lists}
+    reversed_period = {"from": period["to"], "to": period["from"]}
+    invalid = {**prefs, "lists": [{**lists[0], "period": reversed_period}]}
+    assert client.put(API + "/preferences", json=invalid).status_code == 422
     response = client.put(API + "/preferences", json=prefs)
     assert response.status_code == 200, response.text
+    assert response.json()["lists"][0]["period"] == period
     assert client.put(API + "/preferences", json=prefs).status_code == 409
     # Второй участник — коллега по организации: карточки общие, настройки личные.
     colleague = add_colleague(db_session, owner.active_organization_id or 0, "second@example.com")
@@ -405,7 +445,8 @@ def test_preferences_are_personal_and_use_revision_check(
     assert "favorites" not in workspace(client)["preferences"]
     assert workspace(client)["employees"][0]["id"] == employee
     assert login(client, "first@example.com").status_code == 200
-    assert workspace(client)["preferences"]["lists"][0]["id"] == "current"
+    saved = workspace(client)["preferences"]["lists"][0]
+    assert saved["id"] == "current" and saved["period"] == period
 
 
 @pytest.mark.parametrize(

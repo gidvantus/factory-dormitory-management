@@ -29,6 +29,7 @@ interface ViewColumn {
   label: string;
   kind?: string;
   compact?: boolean;
+  minWidth?: number;
 }
 
 export interface PagedTableRows {
@@ -433,7 +434,7 @@ export function WorkingTable({
       const measureText = (text: string): number =>
         canvas?.measureText(text).width ?? text.length * 7;
       const pixels = (value: string): number => parseFloat(value) || 0;
-      const next = order.map(() => 0);
+      const next = order.map((key) => columns.find((column) => column.id === key)?.minWidth ?? 0);
       const headerRows = Array.from(table.tHead?.rows ?? []);
       for (const row of [...headerRows, ...bodyRows]) {
         Array.from(row.cells).forEach((cell, index) => {

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -82,7 +82,23 @@ it('оставляет три фильтра, поиск и карточку б�
     'План заездов',
   ]);
   expect(screen.queryByTestId('personnel-matches')).not.toBeInTheDocument();
+  const workspacePeriod = within(screen.getByRole('form', { name: 'Период персонала' }));
+  expect(workspacePeriod.getByLabelText('От')).toHaveValue('2026-10-01');
+  expect(workspacePeriod.getByLabelText('До')).toHaveValue('2026-10-31');
+  const endingSummary = screen.getByRole('button', { name: /Окончания вахт за период/ });
+  expect(endingSummary).toHaveTextContent('3');
+  fireEvent.change(workspacePeriod.getByLabelText('От'), { target: { value: '2026-10-16' } });
+  fireEvent.change(workspacePeriod.getByLabelText('До'), { target: { value: '2026-10-15' } });
+  await user.click(workspacePeriod.getByRole('button', { name: 'Применить' }));
+  expect(workspacePeriod.getByRole('alert')).toHaveTextContent('не позже');
+  expect(endingSummary).toHaveTextContent('3');
+  fireEvent.change(workspacePeriod.getByLabelText('От'), { target: { value: '2026-10-15' } });
+  await user.click(workspacePeriod.getByRole('button', { name: 'Применить' }));
+  expect(endingSummary).toHaveTextContent('1');
   await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+  const employeePeriod = within(screen.getByRole('form', { name: 'Период персонала' }));
+  expect(employeePeriod.getByLabelText('От')).toHaveValue('2026-10-15');
+  expect(employeePeriod.getByLabelText('До')).toHaveValue('2026-10-15');
   for (const name of [
     'Дата вахты прошла',
     'Неполные данные',
@@ -108,6 +124,10 @@ it('оставляет три фильтра, поиск и карточку б�
   expect(within(table).getAllByRole('row')).toHaveLength(4);
   await user.click(screen.getByRole('button', { name: 'Заканчивается вахта' }));
   expect(within(table).getAllByRole('row')).toHaveLength(2);
+  await user.click(employeePeriod.getByRole('button', { name: 'Текущий месяц' }));
+  expect(employeePeriod.getByLabelText('От')).toHaveValue('2026-10-01');
+  expect(employeePeriod.getByLabelText('До')).toHaveValue('2026-10-31');
+  expect(within(table).getAllByRole('row')).toHaveLength(4);
   await user.click(screen.getByRole('button', { name: 'Все сотрудники' }));
   await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Иванов');
   expect(within(table).getAllByRole('row')).toHaveLength(2);
@@ -231,6 +251,7 @@ it('фильтрует по двум статусам, собирает выбр
   await waitFor(() => expect(save).toHaveBeenCalled());
   await waitFor(() => expect(screen.queryByTestId('personnel-save-list')).not.toBeInTheDocument());
   expect(save.mock.calls[0][0].lists[0].column_filters).toHaveLength(2);
+  expect(save.mock.calls[0][0].lists[0].period).toEqual({ from: '2026-10-01', to: '2026-10-31' });
   await user.click(screen.getByRole('button', { name: 'Сбросить условия' }));
   expect(within(table).getAllByRole('row')).toHaveLength(4);
   await user.click(screen.getByRole('button', { name: /^Допущенные/ }));
@@ -272,7 +293,7 @@ it('открывает простой план из источника отчё�
     'aria-selected',
     'true',
   );
-  expect(screen.queryByLabelText('Период окончания вахты')).not.toBeInTheDocument();
+  expect(screen.queryByRole('form', { name: 'Период персонала' })).not.toBeInTheDocument();
   expect(screen.queryByRole('option', { name: /Старое/ })).not.toBeInTheDocument();
   expect(screen.queryByText('Нажмите на имя, чтобы открыть карточку')).not.toBeInTheDocument();
   await user.click(
@@ -335,6 +356,105 @@ describe('Персонал без задач', () => {
     expect(screen.queryByRole('option', { name: /Задачи/ })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Проживающий персонал' })).toBeInTheDocument();
   });
+});
+
+it('из действий карточки добавляет сотрудника в план по дате и общежитию', async () => {
+  const user = userEvent.setup();
+  const payload = data([person('one', [source(1)])]);
+  payload.dormitories = [
+    { id: 1, name: 'Северное', client_name: 'Индилайн', is_archived: false },
+    { id: 2, name: 'Старое', client_name: 'Другой клиент', is_archived: true },
+  ];
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  vi.spyOn(personnelApi, 'workspace').mockResolvedValue(payload);
+  vi.spyOn(personnelApi, 'detail').mockResolvedValue({
+    employee_id: 'one',
+    events: [],
+    notes: [],
+    merges: [],
+  });
+  const add = vi
+    .spyOn(personnelApi, 'addEmployeeToArrival')
+    .mockResolvedValueOnce({
+      required_fields: [
+        {
+          id: 'transport',
+          label: 'Транспорт',
+          type: 'select',
+          scope: 'arrival',
+          required: true,
+          inForm: true,
+          options: ['Автобус'],
+        },
+      ],
+    })
+    .mockResolvedValueOnce({
+      created: true,
+      plan: {
+        id: 'test-arrival',
+        date: '2026-11-25',
+        dormitory_id: 1,
+        count: 1,
+        names: ['Иванов Иван'],
+        revision: 0,
+      },
+    });
+  render(
+    <MemoryRouter initialEntries={['/cabinet/personnel?view=list&employee=one']}>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  const card = within(await screen.findByTestId('personnel-profile'));
+  expect(
+    card
+      .getAllByRole('tab')
+      .slice(-2)
+      .map((tab) => tab.textContent),
+  ).toEqual(['Заметки', 'Действия']);
+  await user.click(card.getByRole('tab', { name: 'Действия' }));
+  await user.click(card.getByRole('button', { name: 'Внести в план заездов' }));
+  const shifts = card.getByRole('spinbutton', { name: 'Кол-во смен' });
+  expect(shifts).toHaveValue(null);
+  await user.type(shifts, '24');
+  fireEvent.change(card.getByLabelText('Дата заезда'), { target: { value: '2026-11-25' } });
+  const dormitory = card.getByLabelText('Общежитие');
+  expect(within(dormitory).queryByRole('option', { name: /Старое/ })).not.toBeInTheDocument();
+  await user.selectOptions(
+    dormitory,
+    within(dormitory).getByRole('option', { name: 'Северное (Индилайн)' }),
+  );
+  await user.click(card.getByRole('button', { name: 'Внести в план заездов' }));
+  expect(add).toHaveBeenNthCalledWith(1, 'one', {
+    date: '2026-11-25',
+    dormitory_id: 1,
+    values: { shifts: '24' },
+  });
+  const transport = await card.findByLabelText(/Транспорт/);
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  await user.click(card.getByRole('button', { name: 'Закрыть окно' }));
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(transport).toBeInTheDocument();
+  confirm.mockClear();
+  await user.selectOptions(transport, 'Автобус');
+  await user.click(card.getByRole('button', { name: 'Внести в план заездов' }));
+  expect(add).toHaveBeenNthCalledWith(2, 'one', {
+    date: '2026-11-25',
+    dormitory_id: 1,
+    values: { shifts: '24', transport: 'Автобус' },
+  });
+  expect(await card.findByRole('link', { name: 'Открыть план заездов' })).toHaveAttribute(
+    'href',
+    '/cabinet/personnel?view=planning&date=2026-11-25&dormitory=1&arrival=test-arrival',
+  );
+  await user.click(card.getByRole('button', { name: 'Закрыть окно' }));
+  expect(confirm).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('personnel-profile')).not.toBeInTheDocument();
 });
 
 describe('Отбор сотрудников', () => {

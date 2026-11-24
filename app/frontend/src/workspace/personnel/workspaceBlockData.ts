@@ -1,5 +1,5 @@
 import type { Block, Employee, PersonnelData, SavedList, Source } from '../../api/personnel';
-import { addDays, dateLabel, filterPeople, value } from './helpers';
+import { addDays, dateLabel, endingRange, filterPeople, shiftEndsInPeriod, value } from './helpers';
 
 export type BlockCriteria = Omit<SavedList, 'id' | 'name'>;
 export type ChartPoint = { label: string; count: number };
@@ -22,6 +22,7 @@ export function blockCriteria(
           : 'ending',
     dormitory: dormitory ?? list?.dormitory ?? null,
     days: list?.days ?? block.days,
+    ...(list?.period ? { period: list.period } : {}),
     query: list?.query ?? '',
     scope: block.scope.length ? block.scope : (list?.scope ?? []),
     ...(list?.column_filters?.length ? { column_filters: list.column_filters } : {}),
@@ -34,13 +35,13 @@ export function blockSource(
   criteria: BlockCriteria,
   today: string,
 ): Source | undefined {
+  const period = criteria.period ?? endingRange(today, criteria.days);
   return person.current
     .filter((source) => {
-      const end = value(source, 'shift_end');
       return (
         (criteria.dormitory == null || source.dormitory_id === criteria.dormitory) &&
         (!criteria.scope.length || criteria.scope.includes(source.dormitory_id)) &&
-        (criteria.filter !== 'ending' || (end >= today && end <= addDays(today, criteria.days)))
+        (criteria.filter !== 'ending' || shiftEndsInPeriod(source, period))
       );
     })
     .sort((a, b) => {

@@ -11,6 +11,16 @@ from app.models.arrival_plan import ArrivalPlan, ArrivalVisit
 from app.models.dormitory import Dormitory
 
 
+def employee_is_planned(plan: ArrivalPlan, member_ids: list[str]) -> bool:
+    people = active_people(plan)
+    if any(person.get("employee_id") in member_ids for person in people):
+        return True
+    active_ids = {person["id"] for person in people}
+    return any(
+        visit.person_id in active_ids and visit.employee_id in member_ids for visit in plan.visits
+    )
+
+
 def plan_response(plan: ArrivalPlan) -> dict[str, Any]:
     people = active_people(plan)
     person_ids = {person["id"] for person in people}
@@ -20,7 +30,13 @@ def plan_response(plan: ArrivalPlan) -> dict[str, Any]:
         "date": plan.date,
         "count": len(people),
         "names": [person["full_name"] for person in people if person["full_name"]],
-        "people": people,
+        "people": [
+            {key: value for key, value in person.items() if key != "employee_id"}
+            for person in people
+        ],
+        "employee_ids": {
+            person["id"]: person["employee_id"] for person in people if person.get("employee_id")
+        },
         "custom_values": plan.custom_values or {},
         "revision": plan.revision,
         "workflow": {

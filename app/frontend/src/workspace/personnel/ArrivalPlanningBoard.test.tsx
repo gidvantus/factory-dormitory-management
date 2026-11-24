@@ -173,6 +173,7 @@ it('открывает все заполненные поля и людей, с�
   const user = userEvent.setup();
   const configuration = defaultConfiguration();
   configuration.display.visible = ['names'];
+  configuration.display.namesLimit = 3;
   const removed = configuration.fields.find((field) => field.id === 'comment')!;
   configuration.fields = configuration.fields.filter((field) => field.id !== 'comment');
   configuration.display.order = configuration.display.order.filter((id) => id !== 'comment');
@@ -203,7 +204,7 @@ it('открывает все заполненные поля и людей, с�
   const card = screen.getByTestId('arrival-card-plan');
   expect(within(card).queryByText('Скрытый комментарий')).not.toBeInTheDocument();
   expect(within(card).queryByText('Четвёртый')).not.toBeInTheDocument();
-  await user.click(within(card).getByText('Первый'));
+  await user.click(within(card).getByRole('button', { name: /Полная информация/ }));
   let detail = screen.getByRole('dialog', { name: 'Информация о заезде' });
   expect(within(detail).getByText('Скрытый комментарий')).toBeInTheDocument();
   expect(within(detail).getByText('Четвёртый')).toBeInTheDocument();

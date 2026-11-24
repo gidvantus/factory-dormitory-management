@@ -119,6 +119,16 @@ class ArrivalUpdate(ArrivalInput):
     revision: int = Field(ge=0)
 
 
+class EmployeeArrivalInput(StrictModel):
+    date: CalendarDate
+    dormitory_id: int = Field(ge=1, le=2147483647)
+    values: dict[str, StrictStr | StrictBool] = Field(default_factory=dict, max_length=40)
+
+
+class EmployeeProfileLookup(StrictModel):
+    full_name: str = Field(min_length=1, max_length=255)
+
+
 class PlanInput(StrictModel):
     date: CalendarDate
     end: CalendarDate
@@ -174,12 +184,24 @@ class PersonnelExportInput(StrictModel):
         return self
 
 
+class SavedListPeriod(StrictModel):
+    start: CalendarDate = Field(alias="from")
+    to: CalendarDate
+
+    @model_validator(mode="after")
+    def chronological(self) -> "SavedListPeriod":
+        if self.start > self.to:
+            raise ValueError("Дата «От» должна быть не позже даты «До»")
+        return self
+
+
 class SavedList(StrictModel):
     id: str = Field(min_length=1, max_length=80)
     name: str = Field(min_length=1, max_length=120)
     filter: ListFilter = "all"
     dormitory: int | None = Field(default=None, ge=1)
     days: int = Field(default=5, ge=1, le=365)
+    period: SavedListPeriod | None = None
     query: str = Field(default="", max_length=255)
     scope: list[int] = Field(default_factory=list, max_length=1000)
     column_filters: list[EmployeeColumnFilter] = Field(default_factory=list, max_length=10)

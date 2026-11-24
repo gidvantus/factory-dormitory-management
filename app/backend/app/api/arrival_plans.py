@@ -12,21 +12,24 @@ from sqlalchemy.orm import Session
 from app import arrival_workflow as workflow
 from app.access import SUBSCRIBED_USER_RESPONSES, SubscribedUser, own_dormitory, scoped_dormitories
 from app.api.organization import Membership
-from app.arrival_plans import active_arrivals, plan_response
+from app.arrival_plans import active_arrivals, employee_is_planned, plan_response
 from app.arrival_settings import (
+    active_people,
     effective_people,
     lock_configuration,
     plan_values,
     save_settings,
     settings_response,
+    validate_plan_volume,
 )
 from app.db import get_db
+from app.employee_arrival import employee_arrival_values
 from app.models.arrival_plan import ArrivalPlan
 from app.models.dormitory import Dormitory
-from app.personnel import today
+from app.personnel import employee_in_scope, event, group_ids, today
 from app.schemas.arrival_settings import ArrivalSettingsInput
 from app.schemas.arrival_workflow import VisitMark, VisitMove, VisitVersion
-from app.schemas.personnel import ArrivalInput, ArrivalUpdate
+from app.schemas.personnel import ArrivalInput, ArrivalUpdate, EmployeeArrivalInput
 from app.table_data import lock_dormitory
 
 router = APIRouter(
@@ -146,6 +149,70 @@ def create_arrival(
         setattr(plan, field, value)
     db.add(plan)
     return commit_plan(db, plan)
+
+
+@router.post("/from-employee/{employee_id}")
+def add_employee_to_arrival(
+    employee_id: UUID,
+    payload: EmployeeArrivalInput,
+    user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+) -> dict[str, Any]:
+    dormitories = [dorm.id for dorm in scoped_dormitories(db, membership.organization_id)]
+    employee = employee_in_scope(db, str(employee_id), dormitories)
+    member_ids = group_ids(db, employee.id)
+    config = lock_configuration(db, membership.organization_id)
+    writable_dormitory(db, payload.dormitory_id, membership)
+    plan = db.scalar(
+        select(ArrivalPlan)
+        .where(
+            ArrivalPlan.dormitory_id == payload.dormitory_id,
+            ArrivalPlan.date == payload.date,
+        )
+        .with_for_update()
+    )
+    if plan is not None:
+        if employee_is_planned(plan, member_ids):
+            return {"created": False, "plan": plan_response(plan)}
+        if len(active_people(plan)) >= 10000:
+            raise HTTPException(422, "В заезде уже 10 000 человек")
+
+    full_name, personal, common, missing = employee_arrival_values(
+        db, employee, member_ids, dormitories, payload, config, plan
+    )
+    if missing:
+        return {"required_fields": missing}
+    person: dict[str, Any] = {
+        "id": str(uuid4()),
+        "employee_id": employee.id,
+        "full_name": full_name,
+        "custom_values": personal,
+    }
+    people = [*effective_people(plan), person] if plan else [person]
+    validate_plan_volume(people, common)
+    if plan is None:
+        plan = ArrivalPlan(
+            id=str(uuid4()), dormitory_id=payload.dormitory_id, date=payload.date, revision=0
+        )
+        db.add(plan)
+    else:
+        plan.revision += 1
+    plan.people = people
+    plan.names = [item["full_name"] for item in people if item["full_name"]]
+    plan.count = len(people)
+    plan.custom_values = common
+    event(
+        db,
+        employee.id,
+        "plan",
+        "Сотрудник внесён в план заездов",
+        user.id,
+        dormitory_id=payload.dormitory_id,
+        snapshot={"arrival_plan_id": plan.id, "date": payload.date.isoformat()},
+        happened_on=payload.date,
+    )
+    return {"created": True, "plan": commit_plan(db, plan)}
 
 
 @router.put("/{plan_id}")

@@ -83,6 +83,7 @@ export function ArrivalDialog({
       closeDisabled={busy}
       protectChanges={false}
       panelClassName={`${s.dialog} ${s.arrivalDialog}`}
+      containerClassName={s.dialogOverlay}
     >
       <form onSubmit={(event) => void submit(event)}>
         <fieldset disabled={busy} className={s.disabledFields}>

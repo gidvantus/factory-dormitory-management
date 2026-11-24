@@ -44,7 +44,7 @@ def defaults() -> dict[str, Any]:
             "summary": True,
             "hideEmpty": True,
             "compact": False,
-            "namesLimit": 3,
+            "namesLimit": 10000,
         },
     }
 
@@ -161,39 +161,59 @@ def save_settings(
     return settings_response(db, organization_id)
 
 
+def validate_field_value(field: ArrivalField, value: Any) -> None:
+    if not filled(value):
+        return
+    valid = isinstance(value, str) and len(value) <= 4000 and "\x00" not in value
+    if field.type == "checkbox":
+        valid = isinstance(value, bool)
+    elif valid:
+        try:
+            if field.type == "number":
+                valid = len(value) <= 64 and Decimal(value).is_finite()
+            elif field.type == "date":
+                valid = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", value))
+                date.fromisoformat(value)
+            elif field.type == "time":
+                valid = bool(re.fullmatch(r"\d{2}:\d{2}(:\d{2})?", value))
+                time.fromisoformat(value)
+            elif field.type == "select":
+                valid = value in field.options
+            elif field.type == "text":
+                valid = len(value) <= 1000
+        except (ValueError, InvalidOperation):
+            valid = False
+    if not valid:
+        raise HTTPException(422, f"Проверьте значение поля «{field.label}».")
+
+
+def missing_required(field: ArrivalField, value: Any) -> bool:
+    return (
+        field.required
+        and field.inForm
+        and (not filled(value) or (field.type == "checkbox" and value is not True))
+    )
+
+
 def validate_values(values: dict[str, Any], fields: dict[str, ArrivalField], scope: str) -> None:
     for id, value in values.items():
         field = fields.get(id)
         if field is None or field.scope != scope:
             raise HTTPException(422, "Неизвестное поле или неверное размещение. Обновите страницу.")
-        if not filled(value):
-            continue
-        valid = isinstance(value, str) and len(value) <= 4000 and "\x00" not in value
-        if field.type == "checkbox":
-            valid = isinstance(value, bool)
-        elif valid:
-            try:
-                if field.type == "number":
-                    valid = len(value) <= 64 and Decimal(value).is_finite()
-                elif field.type == "date":
-                    valid = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", value))
-                    date.fromisoformat(value)
-                elif field.type == "time":
-                    valid = bool(re.fullmatch(r"\d{2}:\d{2}(:\d{2})?", value))
-                    time.fromisoformat(value)
-                elif field.type == "select":
-                    valid = value in field.options
-                elif field.type == "text":
-                    valid = len(value) <= 1000
-            except (ValueError, InvalidOperation):
-                valid = False
-        if not valid:
-            raise HTTPException(422, f"Проверьте значение поля «{field.label}».")
+        validate_field_value(field, value)
     for field in fields.values():
-        if field.scope == scope and field.required and field.inForm:
-            value = values.get(field.id)
-            if not filled(value) or (field.type == "checkbox" and value is not True):
-                raise HTTPException(422, f"Заполните обязательное поле «{field.label}».")
+        if field.scope == scope and missing_required(field, values.get(field.id)):
+            raise HTTPException(422, f"Заполните обязательное поле «{field.label}».")
+
+
+def validate_plan_volume(people: list[dict[str, Any]], values: dict[str, Any]) -> None:
+    total = sum(len(str(value)) for value in values.values()) + sum(
+        len(person["full_name"])
+        + sum(len(str(value)) for value in person["custom_values"].values())
+        for person in people
+    )
+    if total > 4_000_000:
+        raise HTTPException(422, "Слишком большой объём дополнительных сведений заезда.")
 
 
 def plan_values(
@@ -226,17 +246,21 @@ def plan_values(
     else:
         people = [person.model_dump(mode="json") for person in payload.people]
     validate_values(payload.custom_values, fields, "arrival")
-    total = sum(len(str(value)) for value in payload.custom_values.values())
+    linked_people = any(person.get("employee_id") for person in (plan.people or ()))
+    previous = effective_people(plan) if linked_people else []
+    previous_ids = {person["id"]: person for person in previous if person.get("employee_id")}
     for index, person in enumerate(people):
         try:
             validate_values(person["custom_values"], fields, "person")
         except HTTPException as exc:
             raise HTTPException(exc.status_code, f"Человек № {index + 1}: {exc.detail}") from exc
-        total += len(person["full_name"]) + sum(
-            len(str(value)) for value in person["custom_values"].values()
-        )
-    if total > 4_000_000:
-        raise HTTPException(422, "Слишком большой объём дополнительных сведений заезда.")
+        old = previous_ids.get(person["id"])
+        if payload.people is None and index < len(previous) and previous[index].get("employee_id"):
+            old = previous[index]
+        if old and old["full_name"] == person["full_name"]:
+            person["id"] = old["id"]
+            person["employee_id"] = old["employee_id"]
+    validate_plan_volume(people, payload.custom_values)
     return {
         "dormitory_id": payload.dormitory_id,
         "date": payload.date,
