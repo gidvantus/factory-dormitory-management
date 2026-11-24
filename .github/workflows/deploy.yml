@@ -9,8 +9,9 @@ name: Деплой на боевой сервер
 # по подсвеченному красным шагу сразу было видно, где встал деплой. Порядок:
 # проверка ветки и секретов → ревизия коммита → одна голова миграций → ключ и
 # связь по SSH → чек-лист .env сервера → бэкап БД → архив из main → распаковка →
-# сборка образов → запуск стека (здесь же миграции) → ANALYZE → reload caddy →
-# /healthz → /api/health по HTTPS → итог.
+# остановка мониторинга → сборка образов → запуск стека (здесь же миграции) →
+# ANALYZE → reload caddy → /healthz → /api/health по HTTPS → возврат
+# мониторинга → итог.
 #
 # Про ветки: код и этот файл правятся в рабочей ветке, релиз — это merge
 # рабочей ветки в main merge-коммитом, а деплой запускается только из main.
@@ -23,9 +24,11 @@ on:
   workflow_dispatch:
 
 # Один деплой за раз: второй дожидается первого, а не запускает параллельно
-# вторую сборку и вторые миграции по той же боевой базе.
+# вторую сборку и вторые миграции по той же боевой базе. Группа общая с
+# deploy-monitoring.yml: оба workflow ходят на один сервер, и деплой мониторинга
+# не должен проверять стек, который деплой кода держит остановленным.
 concurrency:
-  group: crm-deploy
+  group: crm-server
   cancel-in-progress: false
 
 permissions:
@@ -41,6 +44,10 @@ jobs:
       SSH_USER: ${{ secrets.CRM_SSH_USER }}
       SSH_PORT: ${{ secrets.CRM_SSH_PORT || '22' }}
       REMOTE_DIR: /srv/crm-dormitory
+      # Каталог стека мониторинга на сервере. `--env-file $MONITOR_DIR/.env`
+      # обязателен: без него compose подхватил бы корневой `.env` основного
+      # стека и упал бы на его переменных (так же, как в deploy-monitoring.yml).
+      MONITOR_DIR: monitor
       # Псевдоним хоста из ~/.ssh/config, который пишется на шаге настройки
       # ключа: в нём собраны ключ, порт и все ssh-опции. Шаги обращаются к
       # серверу только по нему, поэтому параметры подключения заданы в одном
@@ -318,6 +325,35 @@ jobs:
           ssh "$SSH_TARGET" \
               "rm -rf /tmp/crm-deploy-stage && mkdir -p /tmp/crm-deploy-stage && tar -xf /tmp/deploy.tar -C /tmp/crm-deploy-stage && rsync -a --delete --exclude='.env' --exclude='backups/' --exclude='monitor/.env' /tmp/crm-deploy-stage/ $REMOTE_DIR/ && rm -rf /tmp/crm-deploy-stage && echo extract-ok"
 
+      - name: "Сервер: остановить мониторинг"
+        id: monitor_stop
+        # Зачем: оба алерта (TargetDown и ApiMetricsDown) срабатывают на
+        # пересборку, а не на аварию — пока api пересоздаётся и молотит
+        # alembic upgrade head, /metrics недоступен, и в Telegram уходят два
+        # critical плюс два «Восстановлено». Вторая причина — память: сборка
+        # фронта идёт рядом с Prometheus, Grafana, Loki и promtail.
+        # `stop` тома не удаляет: prometheus-data, grafana-data,
+        # alertmanager-data, loki-data и promtail-positions переживают окно
+        # деплоя. `down`, `rm` и ключ `-v` в этом шаге запрещены: удалять
+        # тома и историю нельзя.
+        run: |
+          set -euo pipefail
+          # --env-file обязателен: без него compose подхватил бы корневой .env
+          # основного стека и упал бы на его переменных.
+          # shellcheck disable=SC2029
+          if ! ssh "$SSH_TARGET" "test -f $REMOTE_DIR/$MONITOR_DIR/.env"; then
+            echo "::warning::Стек мониторинга на этом сервере не развёрнут, останавливать нечего: нет $REMOTE_DIR/$MONITOR_DIR/.env."
+            exit 0
+          fi
+          if ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env stop"; then
+            echo "stopped=true" >> "$GITHUB_OUTPUT"
+            # Состав стека в лог деплоя: по нему видно, что именно остановили.
+            # shellcheck disable=SC2029
+            ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env ps --format '{{.Service}} {{.State}}'"
+          else
+            echo "::warning::Не удалось остановить стек мониторинга. Деплой продолжаем: шум в Telegram возможен, но мониторинг не должен блокировать выкатку боевого кода."
+          fi
+
       - name: "Сервер: сборка образов"
         run: |
           set -euo pipefail
@@ -477,6 +513,31 @@ jobs:
           # незамеченной.
           check_host "маршрут caddy → operator-web" "$OPERATOR_DOMAIN" "/healthz" "ok"
           check_host "цепочка до operator-api" "$OPERATOR_DOMAIN" "/api/health" "*"
+
+      - name: "Сервер: вернуть мониторинг"
+        # Возвращаем только то, что остановили: на сервере без monitor/.env
+        # стек мониторинга не трогали. always() — иначе падение деплоя или
+        # упавшая проверка оставили бы мониторинг выключенным молча.
+        if: always() && steps.monitor_stop.outputs.stopped == 'true'
+        run: |
+          set -euo pipefail
+          # Страховка на случай, если файл убрали в этом же прогоне.
+          # shellcheck disable=SC2029
+          if ! ssh "$SSH_TARGET" "test -f $REMOTE_DIR/$MONITOR_DIR/.env"; then
+            echo "::warning::Нет $REMOTE_DIR/$MONITOR_DIR/.env — возвращать нечего: стек мониторинга на этом сервере не развёрнут."
+            exit 0
+          fi
+          # Именно `up -d`, а не `start`: распаковка привезла актуальные
+          # monitor/*.yml, и вернуть стек надо по тому файлу, что лежит на
+          # сервере сейчас. --wait-timeout 300 — как у запуска стека мониторинга.
+          # shellcheck disable=SC2029
+          if ! ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env up -d --wait --wait-timeout 300"; then
+            echo "::error::Стек мониторинга не вернулся. Мониторинг не имеет права остаться выключенным молча — поднимите его вручную: cd /srv/crm-dormitory && docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env up -d --wait"
+            exit 1
+          fi
+          # Состав возвращённого стека остаётся в логе деплоя.
+          # shellcheck disable=SC2029
+          ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env ps"
 
       - name: "Итог: деплой завершён"
         run: |
