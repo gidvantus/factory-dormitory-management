@@ -355,10 +355,13 @@ jobs:
           echo "stopped=true" >> "$GITHUB_OUTPUT"
           if ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env stop"; then
             # Состав стека в лог деплоя: по нему видно, что именно остановили.
-            # `ps` — диагностика, а не проверка: его падение не должно отменять
-            # уже принятое решение и валить прогон на строке лога.
+            # `ps -a` обязателен: без него `compose ps` показывает только
+            # запущенные контейнеры, а они только что остановлены, и в лог не
+            # попало бы ни строки. `ps` — диагностика, а не проверка: его
+            # падение не должно отменять уже принятое решение и валить прогон
+            # на строке лога.
             # shellcheck disable=SC2029
-            ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env ps --format '{{.Service}} {{.State}}'" \
+            ssh "$SSH_TARGET" "cd $REMOTE_DIR && docker compose -f $MONITOR_DIR/docker-compose.monitor.yml --env-file $MONITOR_DIR/.env ps -a --format '{{.Service}} {{.State}}'" \
               || echo "::warning::Стек мониторинга остановлен, но состав стека через ps прочитать не удалось."
           else
             echo "::warning::Не удалось остановить стек мониторинга. Деплой продолжаем: шум в Telegram возможен, но мониторинг не должен блокировать выкатку боевого кода."

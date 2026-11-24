@@ -735,7 +735,9 @@ monitor/grafana/provisioning/datasources/prometheus.yml  источник uid=pr
 1. шаг 12 «Сервер: остановить мониторинг» — если на сервере есть
    `monitor/.env`, выполняет
    `docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env stop`
-   и печатает в лог состав стека (`ps --format '{{.Service}} {{.State}}'`);
+   и печатает в лог состав стека
+   (`ps -a --format '{{.Service}} {{.State}}'` — `-a` обязателен: контейнеры
+   остановлены, и без него `compose ps` их не показывает);
    файла нет — `::warning::` «стек мониторинга на этом сервере не развёрнут»,
    шаг зелёный, деплой идёт дальше; `stop` упал — тоже `::warning::` и зелёный
    шаг: мониторинг не должен блокировать выкатку боевого кода;
