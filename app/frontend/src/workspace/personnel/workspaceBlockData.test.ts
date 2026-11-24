@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Block, Employee, PersonnelData, Source } from '../../api/personnel';
-import { blockSource, calendarSeries, workspaceBlockData } from './workspaceBlockData';
+import {
+  blockSource,
+  calendarSeries,
+  workspaceBlockData,
+  workspaceBlockModel,
+} from './workspaceBlockData';
 
 const source = (dorm: number, end: string, id = dorm): Source => ({
   table_key: 'residents',
@@ -120,6 +125,50 @@ describe('Данные инфографики персонала', () => {
     expect(model.missingList).toBe(true);
     expect(model.total).toBe(0);
     expect(model.people).toEqual([]);
+  });
+  it('берёт счётчик, первые карточки, события и общежития из block_previews, а план считает сам', () => {
+    const payload = data();
+    payload.employees = [];
+    const preview = {
+      id: 'ending',
+      kind: 'ending' as const,
+      title: 'Заканчивается вахта',
+      count: 9,
+      items: [employee('Анна', [source(1, '2026-10-17')])],
+      events: [
+        { date: '2026-10-17', count: 4 },
+        { date: '2026-10-18', count: 5 },
+      ],
+      dorms: [],
+      missing_list: false,
+    };
+    const model = workspaceBlockModel(
+      block('ending', { limit: 1, days: 5 }),
+      payload,
+      null,
+      preview,
+    );
+    expect(model.total).toBe(9);
+    expect(model.people.map((person) => person.id)).toEqual(['Анна']);
+    expect(model.series).toEqual([
+      { label: '17 окт.', count: 4 },
+      { label: '18 окт.', count: 5 },
+    ]);
+    const residents = {
+      ...preview,
+      id: 'residents',
+      kind: 'residents' as const,
+      count: 2,
+      items: [],
+      events: [],
+      dorms: [{ id: 1, name: 'Северное', client_name: 'Клиент', is_archived: false, count: 2 }],
+    };
+    const byDorm = workspaceBlockModel(block('residents'), payload, null, residents);
+    expect(byDorm.dorms.map((dorm) => [dorm.id, dorm.count, dorm.tone])).toEqual([[1, 2, 0]]);
+    expect(byDorm.total).toBe(2);
+    // «План заездов» не зависит от карточек: он собирается из arrival_plans и без превью.
+    const plan = workspaceBlockModel(block('plans'), payload, null, undefined);
+    expect(plan.plans).toEqual([]);
   });
   it('сжимает длинный календарь без потери численности и без NaN на пустых данных', () => {
     const events = Array.from({ length: 20 }, (_, i) => ({

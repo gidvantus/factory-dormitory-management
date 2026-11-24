@@ -18,6 +18,7 @@ import type { WidgetConfig } from '../../api/dashboardBlocks';
 import { defaultTabOptions } from '../../workspace/dormitories/customTabOptions';
 import { standardTabs } from '../../workspace/dormitories/tabStructure';
 import { personnelFillSource, sourceFields } from '../../workspace/dormitories/cellFill';
+import { filterPeople } from '../../workspace/personnel/helpers';
 import { copy, fail, RANGE, requiredNames, Sandbox } from './store';
 import type { DemoDorm } from './store';
 import { references } from './formula';
@@ -890,7 +891,44 @@ export function installSandboxApis(store: Sandbox): () => void {
       store.changed();
       return store.dorm(String(id)).binding[String(table)];
     },
-    workspace: () => store.personnel,
+    /**
+     * Рамка поверхности. В стенде карточки уже в браузере, поэтому сводку `counts`
+     * (#247) считаем здесь же — так же, как это делает сервер по своим карточкам.
+     */
+    workspace: ([, options]) => {
+      const settings = options as { dormitory?: number | null; days?: number } | undefined;
+      const dormitory = settings?.dormitory ?? null;
+      const days = settings?.days ?? 5;
+      const count = (filter: 'all' | 'current' | 'ending'): number =>
+        filterPeople(store.personnel, { filter, dormitory, days, query: '', scope: [] }).length;
+      return {
+        ...store.personnel,
+        counts: { all: count('all'), current: count('current'), ending: count('ending') },
+      };
+    },
+    /** Страница сотрудников (#247): в стенде весь список уже лежит в браузере. */
+    employees: ([query]) => {
+      const list = query as {
+        filter: 'all' | 'current' | 'ending';
+        dormitory: number | null;
+        scope: number[];
+        days: number;
+        query: string;
+        column_filters?: Parameters<typeof filterPeople>[1]['column_filters'];
+        page: number;
+        per_page: number;
+      };
+      const found = filterPeople(store.personnel, list);
+      const per = list.per_page || 20;
+      const start = Math.max(0, (list.page || 1) - 1) * per;
+      return {
+        items: found.slice(start, start + per),
+        total: found.length,
+        page: list.page || 1,
+        per_page: per,
+        pages: Math.max(1, Math.ceil(found.length / per)),
+      };
+    },
     preferences: ([input]) => {
       store.personnel.preferences = copy(input as typeof store.personnel.preferences);
       store.personnel.preferences.revision++;

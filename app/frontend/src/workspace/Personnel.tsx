@@ -4,6 +4,7 @@ import { ApiError } from '../api/client';
 import { personnelApi } from '../api/personnel';
 import type {
   Block,
+  Employee,
   EmployeeColumnFilter,
   Filter,
   PersonnelData,
@@ -23,19 +24,18 @@ import { PersonnelWorkspaceBlock } from './personnel/PersonnelWorkspaceBlock';
 import { PersonnelBlockIcon } from './personnel/PersonnelBlockIcon';
 import { EmployeeListFilters } from './personnel/EmployeeListFilterPanel';
 import { SelectedEmployeesDialog } from './personnel/SelectedEmployeesDialog';
+import {
+  useEmployeeList,
+  useDebounced,
+  useEmployeeCounts,
+  PAGE_SIZE,
+} from './personnel/serverList';
 import { employeeListFields, sourceInScope } from './personnel/employeeListFilters';
 import plant from '../assets/plant.svg';
 import resident from '../assets/avatar-rezident.svg';
 import personnel from '../assets/avatar-kadrovik.svg';
 import manager from '../assets/avatar-komendant.svg';
-import {
-  dateLabel,
-  defaultBlocks,
-  dormName,
-  filterPeople,
-  message,
-  names,
-} from './personnel/helpers';
+import { dateLabel, defaultBlocks, dormName, message, names } from './personnel/helpers';
 import s from './personnel/Personnel.module.css';
 import w from './personnel/PersonnelWorkspace.module.css';
 import listStyles from './personnel/EmployeeList.module.css';
@@ -113,6 +113,13 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
   const [busy, setBusy] = useState(false);
   const mutating = useRef(false);
   const refresh = usePageRefresh();
+  /**
+   * Условия, по которым реально идёт запрос: поиск и условия столбцов применяются
+   * после паузы в наборе (#247). Каждый запрос сервер собирает карточки всей
+   * организации заново, поэтому буква в поиске не должна стоить отдельной сборки.
+   */
+  const debouncedQuery = useDebounced(query);
+  const debouncedColumnFilters = useDebounced(columnFilters);
   useEffect(() => {
     if (user?.is_active === false || mutating.current) {
       setLoading(false);
@@ -120,7 +127,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     }
     const controller = new AbortController();
     void personnelApi
-      .workspace(controller.signal)
+      .workspace(controller.signal, { employees: 'none', dormitory, days })
       .then((result) => {
         if (!controller.signal.aborted) {
           setData(result);
@@ -135,10 +142,69 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
         }
       });
     return () => controller.abort();
-  }, [attempt, refresh, user?.is_active]);
+  }, [attempt, refresh, user?.is_active, dormitory, days]);
+  const criteria: Criteria = {
+    filter,
+    dormitory,
+    days,
+    query: debouncedQuery,
+    scope,
+    column_filters: debouncedColumnFilters,
+  };
+  const revision = attempt + refresh;
+  /**
+   * Условия для полей ввода и сохранения списка: показывают набранное сразу, тогда
+   * как запросы идут по условиям после паузы. Иначе строка фильтра появлялась бы
+   * в самой панели с задержкой.
+   */
+  const shownCriteria: Criteria = { ...criteria, query, column_filters: columnFilters };
+  /**
+   * Страница сотрудников приходит с сервера (#247): условия, сортировка и
+   * разбиение на страницы считаются там, браузер рисует только полученные карточки.
+   */
+  const list = useEmployeeList(criteria, page, view === 'list', revision);
+  /**
+   * Сводка поверхности приходит в рамке полем `counts` (#247): раньше три числа
+   * считались в браузере по всему массиву, а без массива стоили бы трёх запросов
+   * страницы, каждый из которых пересобирает карточки заново.
+   */
+  const summary = (id: Filter): number | null => data?.counts?.[id] ?? null;
+  /** Счётчики списка при пустых поиске и фильтрах совпадают со сводкой — второй раз их не считаем. */
+  const sameAsSummary = !debouncedQuery.trim() && !scope.length && !debouncedColumnFilters.length;
+  /**
+   * У активного фильтра число уже пришло с показанной страницей (`total`), поэтому
+   * отдельный запрос нужен только второму статусу (#247).
+   */
+  const otherFilters = (['current', 'ending'] as Filter[]).filter((id) => id !== filter);
+  const listCounts = useEmployeeCounts(
+    criteria,
+    otherFilters,
+    view === 'list' && !sameAsSummary,
+    revision,
+  );
+  /**
+   * Ответ за пределами последнего листа: условия сузили список, пока человек стоял
+   * на третьей странице. Показываем последнюю существующую, а не пустой экран (#247).
+   */
+  useEffect(() => {
+    if (!list.result) return;
+    if (page > 0 && page >= list.result.pages) setPage(Math.max(0, list.result.pages - 1));
+  }, [list.result, page]);
+  /**
+   * Карточки, которые уже показывались. Полного списка на странице больше нет,
+   * поэтому профиль и «Список выбранных» берут карточку отсюда.
+   */
+  const cards = useRef(new Map<string, Employee>());
+  useEffect(() => {
+    for (const person of list.result?.items ?? []) cards.current.set(person.id, person);
+  }, [list.result]);
+  useEffect(() => {
+    for (const preview of data?.block_previews ?? [])
+      for (const person of preview.items) cards.current.set(person.id, person);
+  }, [data]);
   useEffect(() => {
     setPage(0);
-  }, [filter, query, dormitory, days, scope, columnFilters]);
+  }, [filter, debouncedQuery, dormitory, days, scope, debouncedColumnFilters]);
   const modalOpen = !!selectedId || !!blockEditor || savingList || selectedList !== null;
   useEffect(() => {
     if (!modalOpen) return;
@@ -155,11 +221,9 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     setError('');
     try {
       await action();
-      try {
-        setData(await personnelApi.workspace());
-      } catch (caught) {
-        setError(`Изменение сохранено. Не удалось обновить данные: ${message(caught)}`);
-      }
+      // Второй раз рамку не запрашиваем: тем же тиком её перезапрашивают эффекты
+      // (рамка, страница, счётчики) — раньше сохранение тянуло всю выборку (#247).
+      setAttempt((value) => value + 1);
     } catch (caught) {
       setError(message(caught));
       throw caught;
@@ -197,22 +261,27 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
       </section>
     );
   const blocks = data.preferences.blocks ?? defaultBlocks;
-  const criteria: Criteria = {
-    filter,
-    dormitory,
-    days,
-    query,
-    scope,
-    column_filters: columnFilters,
-  };
-  const rows = filterPeople(data, criteria);
-  const pages = Math.max(1, Math.ceil(rows.length / 20));
-  const actualPage = Math.min(page, pages - 1);
-  const visible = rows.slice(actualPage * 20, actualPage * 20 + 20).map((person) => ({
+  /**
+   * Карточка человека: из уже показанных страниц, из рамки (если сервер её прислал)
+   * и затем по объединённым id.
+   */
+  const cardOf = (id: string): Employee | undefined =>
+    cards.current.get(id) ??
+    data.employees.find((person) => person.id === id || person.member_ids.includes(id)) ??
+    [...cards.current.values()].find((person) => person.member_ids.includes(id));
+  const rows = list.result?.items ?? [];
+  const total = list.result?.total ?? 0;
+  const pages = Math.max(1, list.result?.pages ?? 1);
+  /**
+   * Номер страницы, к которой относятся показанные строки. Берётся из ответа, а не
+   * из состояния: иначе подвал и стрелки уходят вперёд таблицы (#247).
+   */
+  const shownPage = list.result ? list.result.page - 1 : page;
+  const visible = rows.map((person) => ({
     ...person,
     current: person.current.filter((source) => sourceInScope(source, criteria)),
   }));
-  const selectedRows = data.employees.filter((person) => selected.includes(person.id));
+  const selectedRows = selected.flatMap((id) => (cardOf(id) ? [cardOf(id)!] : []));
   const selectedInRows = rows.filter((person) => selected.includes(person.id));
   const listFields = employeeListFields(data, criteria);
   const extraFields = listFields.filter(
@@ -222,11 +291,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
   const previewFields = employeeListFields(data, fullCriteria).filter((field) =>
     extraFields.some((item) => item.id === field.id),
   );
-  const employee = selectedId
-    ? data.employees.find(
-        (person) => person.id === selectedId || person.member_ids.includes(selectedId),
-      )
-    : undefined;
+  const employee = selectedId ? cardOf(selectedId) : undefined;
   const savePreferences = async (changes: Partial<Preferences>): Promise<void> => {
     await mutate(async () => {
       await personnelApi.preferences({ ...data.preferences, blocks, ...changes });
@@ -252,10 +317,15 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     setColumnFilters(list.column_filters ?? []);
     setView('list');
   };
-  const summary = (id: Filter): number =>
-    filterPeople(data, { filter: id, dormitory, days, query: '', scope: [] }).length;
-  const listSummary = (id: Filter): number =>
-    filterPeople({ ...data, employees: rows }, { ...criteria, filter: id }).length;
+  /**
+   * Число под фильтром: при пустых условиях — сводка поверхности, у активного
+   * фильтра — `total` показанной страницы, у второго статуса — его счётчик (#247).
+   */
+  const listSummary = (id: Filter): number | null => {
+    if (sameAsSummary) return summary(id);
+    if (id === filter && list.result) return list.result.total;
+    return listCounts[id] ?? null;
+  };
   return (
     <section
       className={view === 'workspace' ? w.surface : `${s.page} ${w.surface} ${f.surface}`}
@@ -266,7 +336,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
         <div>
           <span className={`${s.eyebrow} ${w.eyebrow}`}>ЛЮДИ И ИХ ИСТОРИЯ</span>
           <h1>
-            Персонал <small>{data.employees.length}</small>
+            Персонал <small>{summary('all') ?? '—'}</small>
           </h1>
           <p>Проживание, вахты и контакты — в одном месте.</p>
         </div>
@@ -310,7 +380,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
             }}
           >
             {label}
-            {id === 'list' && <b>{data.employees.length}</b>}
+            {id === 'list' && <b>{summary('all') ?? ''}</b>}
           </button>
         ))}
         {extension?.tabs}
@@ -326,7 +396,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
                 <p>Люди, проживание и вахты — всё под рукой.</p>
                 <div className={f.stats}>
                   <span>
-                    <b>{rows.length}</b> В списке
+                    <b>{total}</b> В списке
                   </span>
                   <span>
                     <i aria-hidden="true" />
@@ -408,7 +478,10 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
           )}
           {selectedId && !employee && (
             <p role="alert" className={s.notice}>
-              Карточка не найдена. <button onClick={closeProfile}>Закрыть</button>
+              Карточка не найдена: полный список сотрудников на странице больше не загружается, и
+              карточка доступна только среди уже показанных.{' '}
+              <button onClick={closeProfile}>Закрыть</button>{' '}
+              <Link to="/cabinet/personnel?view=list">Открыть список сотрудников</Link>
             </p>
           )}
           {!data.dormitories.length && view !== 'planning' && (
@@ -455,6 +528,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
                     key={block.id}
                     block={block}
                     data={data}
+                    preview={data.block_previews?.find((item) => item.id === block.id)}
                     dormitory={dormitory}
                     configuring={configuring}
                     busy={busy}
@@ -520,9 +594,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
                 <span className={s.eyebrow}>МОИ СПИСКИ</span>
                 {data.preferences.lists.map((list) => (
                   <span key={list.id}>
-                    <button onClick={() => onList(list)}>
-                      {list.name} <b>{filterPeople(data, list).length}</b>
-                    </button>
+                    <button onClick={() => onList(list)}>{list.name}</button>
                     <button
                       disabled={busy}
                       aria-label={`Убрать сохранённый список «${list.name}»`}
@@ -546,7 +618,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
               <div className={s.toolbar}>
                 <div>
                   <h2>
-                    {names[filter]} · {rows.length}
+                    {names[filter]} · {total}
                   </h2>
                   <p className={s.hint}>Карточка связывает вахты и перемещения одного человека.</p>
                 </div>
@@ -578,15 +650,13 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
               )}
               <EmployeeListFilters
                 data={data}
-                criteria={criteria}
+                criteria={shownCriteria}
                 fields={listFields}
                 onChange={setColumnFilters}
               />
               <div className={s.bulk}>
                 <strong>
-                  {selectedRows.length
-                    ? `Выбрано: ${selectedRows.length}`
-                    : `Список: ${rows.length}`}
+                  {selectedRows.length ? `Выбрано: ${selectedRows.length}` : `Список: ${total}`}
                 </strong>
                 <button
                   type="button"
@@ -606,6 +676,24 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
                   </span>
                 )}
               </div>
+              {view === 'list' && list.loading && !list.result && (
+                <p role="status" className={s.hint}>
+                  Загружаем сотрудников…
+                </p>
+              )}
+              {view === 'list' && list.error && (
+                <p role="alert" className={s.error}>
+                  {list.error}{' '}
+                  <button type="button" onClick={list.reload}>
+                    Повторить
+                  </button>
+                </p>
+              )}
+              {view === 'list' && !list.loading && !list.error && list.result && total === 0 && (
+                <p className={s.empty} data-testid="personnel-list-empty">
+                  По этим условиям сотрудников нет. Измените фильтры или строку поиска.
+                </p>
+              )}
               <PersonnelEmployeeFocus
                 people={visible}
                 rows={rows}
@@ -618,13 +706,13 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
               />
               <div className={s.pagination}>
                 <span>
-                  {rows.length ? actualPage * 20 + 1 : 0}–
-                  {Math.min(rows.length, (actualPage + 1) * 20)} из {rows.length}
+                  {total ? shownPage * PAGE_SIZE + 1 : 0}–
+                  {Math.min(total, (shownPage + 1) * PAGE_SIZE)} из {total}
                 </span>
-                <button disabled={actualPage === 0} onClick={() => setPage(actualPage - 1)}>
+                <button disabled={shownPage === 0} onClick={() => setPage(shownPage - 1)}>
                   Назад
                 </button>
-                <button disabled={actualPage >= pages - 1} onClick={() => setPage(actualPage + 1)}>
+                <button disabled={shownPage >= pages - 1} onClick={() => setPage(shownPage + 1)}>
                   Далее
                 </button>
               </div>
@@ -642,7 +730,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
       )}
       {selectedList !== null && (
         <SelectedEmployeesDialog
-          people={data.employees.filter((person) => selectedList.includes(person.id))}
+          people={selectedList.flatMap((id) => (cardOf(id) ? [cardOf(id)!] : []))}
           data={data}
           criteria={fullCriteria}
           fields={previewFields}
@@ -678,7 +766,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
       )}
       {savingList && (
         <SaveListDialog
-          criteria={criteria}
+          criteria={shownCriteria}
           data={data}
           onClose={() => setSavingList(false)}
           onSave={async (list, pin) => {
