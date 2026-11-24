@@ -1,0 +1,285 @@
+{
+    "layout": {
+        "revision": 0,
+        "order": [
+            "residents",
+            "turnover",
+            "attendance",
+            "reports",
+            "custom:1",
+            "custom:2",
+            "custom:3",
+            "custom:4"
+        ],
+        "hidden": [],
+        "blocks": [
+            {
+                "id": 1,
+                "config": {
+                    "name": "Отчёт числом",
+                    "display": "number",
+                    "chart_mode": "total",
+                    "source_kind": "report",
+                    "operation": "sum",
+                    "period": "range",
+                    "grouping": "dormitory",
+                    "all_dormitories": false,
+                    "excluded_dormitory_ids": [],
+                    "sources": [
+                        {
+                            "kind": "report",
+                            "dormitory_id": 1,
+                            "row_id": 4
+                        },
+                        {
+                            "kind": "report",
+                            "dormitory_id": 2,
+                            "row_id": 9
+                        }
+                    ],
+                    "summary": null
+                }
+            },
+            {
+                "id": 2,
+                "config": {
+                    "name": "Отчёт графиком",
+                    "display": "chart",
+                    "chart_mode": "total",
+                    "source_kind": "report",
+                    "operation": "sum",
+                    "period": "range",
+                    "grouping": "dormitory",
+                    "all_dormitories": false,
+                    "excluded_dormitory_ids": [],
+                    "sources": [
+                        {
+                            "kind": "report",
+                            "dormitory_id": 1,
+                            "row_id": 4
+                        },
+                        {
+                            "kind": "report",
+                            "dormitory_id": 2,
+                            "row_id": 9
+                        }
+                    ],
+                    "summary": null
+                }
+            },
+            {
+                "id": 3,
+                "config": {
+                    "name": "Таблица",
+                    "display": "number",
+                    "chart_mode": "total",
+                    "source_kind": "table",
+                    "operation": "sum",
+                    "period": "range",
+                    "grouping": "dormitory",
+                    "all_dormitories": false,
+                    "excluded_dormitory_ids": [],
+                    "sources": [
+                        {
+                            "kind": "table",
+                            "dormitory_id": 1,
+                            "table_key": "custom_1",
+                            "value_column_id": 2,
+                            "date_column_id": 3,
+                            "group_column_id": null,
+                            "filter": null
+                        },
+                        {
+                            "kind": "table",
+                            "dormitory_id": 2,
+                            "table_key": "custom_2",
+                            "value_column_id": 5,
+                            "date_column_id": 6,
+                            "group_column_id": null,
+                            "filter": null
+                        }
+                    ],
+                    "summary": null
+                }
+            },
+            {
+                "id": 4,
+                "config": {
+                    "name": "Размещение",
+                    "display": "number",
+                    "chart_mode": "total",
+                    "source_kind": "places",
+                    "operation": "sum",
+                    "period": "range",
+                    "grouping": "dormitory",
+                    "all_dormitories": false,
+                    "excluded_dormitory_ids": [],
+                    "sources": [
+                        {
+                            "kind": "places",
+                            "dormitory_id": 1,
+                            "metric": "free_total",
+                            "hostel_id": null
+                        },
+                        {
+                            "kind": "places",
+                            "dormitory_id": 2,
+                            "metric": "free_total",
+                            "hostel_id": null
+                        }
+                    ],
+                    "summary": null
+                }
+            }
+        ],
+        "builtin_settings": {}
+    },
+    "widgets": [
+        {
+            "id": 1,
+            "value": 180.0,
+            "items": [
+                {
+                    "label": "Северное",
+                    "value": 93.0,
+                    "is_archived": false
+                },
+                {
+                    "label": "Южное",
+                    "value": 87.0,
+                    "is_archived": false
+                }
+            ],
+            "errors": [],
+            "daily": [],
+            "series": [],
+            "summary": null
+        },
+        {
+            "id": 2,
+            "value": 64.0,
+            "items": [],
+            "errors": [],
+            "daily": [
+                {
+                    "date": "2026-10-01",
+                    "value": 56.0
+                },
+                {
+                    "date": "2026-10-02",
+                    "value": 60.0
+                },
+                {
+                    "date": "2026-10-03",
+                    "value": 64.0
+                }
+            ],
+            "series": [],
+            "summary": null
+        },
+        {
+            "id": 3,
+            "value": 21.0,
+            "items": [
+                {
+                    "label": "Северное",
+                    "value": 9.0,
+                    "is_archived": false
+                },
+                {
+                    "label": "Южное",
+                    "value": 12.0,
+                    "is_archived": false
+                }
+            ],
+            "errors": [],
+            "daily": [],
+            "series": [],
+            "summary": null
+        },
+        {
+            "id": 4,
+            "value": 180.0,
+            "items": [
+                {
+                    "label": "Северное",
+                    "value": 93.0,
+                    "is_archived": false
+                },
+                {
+                    "label": "Южное",
+                    "value": 87.0,
+                    "is_archived": false
+                }
+            ],
+            "errors": [],
+            "daily": [],
+            "series": [],
+            "summary": null
+        }
+    ],
+    "report_date": "2026-10-09",
+    "snapshot_date": "2026-10-03",
+    "totals": {
+        "attendance": 36.0,
+        "residents": 36.0
+    },
+    "dormitories": [
+        {
+            "id": "1",
+            "name": "Северное",
+            "is_archived": false,
+            "residents": 13.0,
+            "attendance": 13.0,
+            "turnover": 13.0,
+            "vacancies": null,
+            "report_readiness": {
+                "report_date": "2026-10-09",
+                "is_ready": false,
+                "confirmed_at": null,
+                "confirmed_by": null
+            }
+        },
+        {
+            "id": "2",
+            "name": "Южное",
+            "is_archived": false,
+            "residents": 23.0,
+            "attendance": 23.0,
+            "turnover": 23.0,
+            "vacancies": null,
+            "report_readiness": {
+                "report_date": "2026-10-09",
+                "is_ready": false,
+                "confirmed_at": null,
+                "confirmed_by": null
+            }
+        }
+    ],
+    "clients": [
+        {
+            "name": "Клиент",
+            "attendance": 36.0
+        }
+    ],
+    "daily": [
+        {
+            "date": "2026-10-01",
+            "attendance": 32.0,
+            "residents": 32.0,
+            "turnover": 32.0
+        },
+        {
+            "date": "2026-10-02",
+            "attendance": 34.0,
+            "residents": 34.0,
+            "turnover": 34.0
+        },
+        {
+            "date": "2026-10-03",
+            "attendance": 36.0,
+            "residents": 36.0,
+            "turnover": 36.0
+        }
+    ]
+}

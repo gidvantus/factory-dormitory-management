@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session, object_session
 
+from app import read_cache
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel
@@ -503,15 +504,13 @@ def linked_counts(
 def linked_place_values(
     db: Session, dormitory_id: int, link: PlaceReportLink, start: date, end: date
 ) -> tuple[dict[date, Decimal], dict[date, str]]:
-    from app.hostel_rows import read_place_days
-
     validate_link(db, dormitory_id, link)
     query = select(Hostel).where(Hostel.dormitory_id == dormitory_id)
     if link.hostel_id is not None:
         query = query.where(Hostel.id == link.hostel_id)
     result: dict[date, Decimal] = {}
     errors: dict[date, str] = {}
-    for (_, day), entry in read_place_days(db, db.scalars(query), start, end).items():
+    for (_, day), entry in read_cache.place_days(db, db.scalars(query), start, end).items():
         if error := entry.errors.get(link.metric):
             errors[day] = error
         if link.metric in entry.values:
