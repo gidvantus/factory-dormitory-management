@@ -23,21 +23,32 @@ afterEach(() => {
 });
 
 describe('Обновление поверхности персонала', () => {
-  it('по таймеру обновляет только рамку, страница ждёт действия', () => {
+  it('по таймеру обновляет страницу, а персонал тикает только рамкой', () => {
     vi.useFakeTimers();
+    // Общий хук сохраняет таймер: дашборд, статистика и история ждут тика (Ф2).
     const page = renderHook(() => usePageRefresh());
+    // Персонал выключает его: страница и счётчики ждут действия (шаг 6 #251).
+    const personnelPage = renderHook(() => usePageRefresh({ timer: false }));
     const frame = renderHook(() => useFrameRefresh());
     act(() => void vi.advanceTimersByTime(FRAME_REFRESH_MS));
+    expect(page.result.current).toBe(1);
     expect(frame.result.current).toBe(1);
-    expect(page.result.current).toBe(0);
+    expect(personnelPage.result.current).toBe(0);
     act(() => void vi.advanceTimersByTime(FRAME_REFRESH_MS * 9));
+    expect(page.result.current).toBe(10);
     expect(frame.result.current).toBe(10);
-    expect(page.result.current).toBe(0);
+    expect(personnelPage.result.current).toBe(0);
   });
 
   it('по фокусу обновляет страницу целиком', () => {
     const page = renderHook(() => usePageRefresh());
     act(() => void window.dispatchEvent(new Event('focus')));
+    expect(page.result.current).toBe(1);
+  });
+
+  it('по возвращению на вкладку обновляет страницу целиком', () => {
+    const page = renderHook(() => usePageRefresh({ timer: false }));
+    act(() => void document.dispatchEvent(new Event('visibilitychange')));
     expect(page.result.current).toBe(1);
   });
 
@@ -49,6 +60,7 @@ describe('Обновление поверхности персонала', () =>
       const frame = renderHook(() => useFrameRefresh());
       act(() => void vi.advanceTimersByTime(FRAME_REFRESH_MS));
       act(() => void window.dispatchEvent(new Event('focus')));
+      act(() => void document.dispatchEvent(new Event('visibilitychange')));
       expect(frame.result.current).toBe(0);
       expect(page.result.current).toBe(0);
     } finally {

@@ -339,7 +339,19 @@ it('загружает список страницами с сервера и н
 
 it('проходит сценарий поверхности, ни разу не запросив полный набор карточек (#251)', async () => {
   const user = userEvent.setup();
-  const payload = data(people(25));
+  // Двое проживают и кончают вахту в окне: блок «Заканчивается вахта» обязан
+  // отрисоваться из `block_previews`, ведь массива `employees` в рамке нет.
+  const employees = people(25).map((employee, index) =>
+    index < 2
+      ? {
+          ...employee,
+          current: [source(1, 'residents', '2026-10-15')],
+          sources: [source(1, 'residents', '2026-10-15')],
+          history_dormitory_ids: [1],
+        }
+      : employee,
+  );
+  const payload = data(employees);
   vi.spyOn(session, 'useSession').mockReturnValue({
     status: 'authenticated',
     user: null,
@@ -361,6 +373,12 @@ it('проходит сценарий поверхности, ни разу не
   );
   // Поверхность: блоки и сводка без карточек.
   await user.click(await screen.findByRole('tab', { name: /Рабочая поверхность/ }));
+  // Сводка пришла полем `counts`, а карточки блоков — `block_previews`.
+  expect(await screen.findByRole('tab', { name: /Сотрудники\s*25/ })).toBeInTheDocument();
+  const ending = await screen.findByRole('article', { name: 'Заканчивается вахта' });
+  expect(within(ending).getByText('Сотрудник 01')).toBeInTheDocument();
+  expect(within(ending).getByText('Сотрудник 02')).toBeInTheDocument();
+  expect(within(ending).queryByText('Нет сотрудников в выборке')).not.toBeInTheDocument();
   await screen.findByRole('tab', { name: /Сотрудники/ });
   // Список: страница, поиск, пагинация.
   await user.click(screen.getByRole('tab', { name: /Сотрудники/ }));
@@ -556,6 +574,8 @@ it('по таймеру перезапрашивает только рамку, 
     await waitFor(() => expect(pageRequests()).toHaveLength(1));
     const frames = vi.mocked(personnelApi.workspace).mock.calls.length;
     const pages = pageRequests().length;
+    // Счётчики — те же запросы `employees` из одной записи; тик не должен их добавлять (Ф1).
+    const counters = counterFilters().length;
     await act(async () => {
       vi.advanceTimersByTime(FRAME_REFRESH_MS);
     });
@@ -569,6 +589,7 @@ it('по таймеру перезапрашивает только рамку, 
       days: 5,
     });
     expect(pageRequests()).toHaveLength(pages);
+    expect(counterFilters()).toHaveLength(counters);
     expect(screen.getByText('1–20 из 25')).toBeInTheDocument();
   } finally {
     vi.useRealTimers();

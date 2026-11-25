@@ -115,9 +115,10 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
   /**
    * Две ревизии вместо одной (#251): рамка обновляется ещё и по таймеру, а страница
    * сотрудников и её счётчики — только по фокусу и после сохранений. Иначе открытая
-   * вкладка раз в минуту тянула карточки списка.
+   * вкладка раз в минуту тянула карточки списка. Поэтому общий таймер `usePageRefresh`
+   * здесь выключен, а его роль играет `useFrameRefresh`.
    */
-  const refresh = usePageRefresh();
+  const refresh = usePageRefresh({ timer: false });
   const frameRefresh = useFrameRefresh();
   /**
    * Условия, по которым реально идёт запрос: поиск и условия столбцов применяются
