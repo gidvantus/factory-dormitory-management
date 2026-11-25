@@ -13,6 +13,7 @@ import { defaultColumns } from '../../test/tableColumns';
 import { renderWithExchangePermissions as render } from '../../test/renderWithExchangePermissions';
 import { mockPersonnelServer } from '../../test/personnelServer';
 import { PAGE_SIZE } from './serverList';
+import { FRAME_REFRESH_MS } from '../usePageRefresh';
 
 const source = (
   dorm: number,
@@ -336,6 +337,52 @@ it('загружает список страницами с сервера и н
   );
 });
 
+it('проходит сценарий поверхности, ни разу не запросив полный набор карточек (#251)', async () => {
+  const user = userEvent.setup();
+  const payload = data(people(25));
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  mockPersonnelServer(payload);
+  vi.spyOn(personnelApi, 'detail').mockResolvedValue({
+    employee_id: 'id-0',
+    events: [],
+    notes: [],
+    merges: [],
+  });
+  render(
+    <MemoryRouter>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  // Поверхность: блоки и сводка без карточек.
+  await user.click(await screen.findByRole('tab', { name: /Рабочая поверхность/ }));
+  await screen.findByRole('tab', { name: /Сотрудники/ });
+  // Список: страница, поиск, пагинация.
+  await user.click(screen.getByRole('tab', { name: /Сотрудники/ }));
+  await screen.findByRole('table');
+  await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Сотрудник 25');
+  await waitFor(() => expect(screen.getByText('1–1 из 1')).toBeInTheDocument());
+  await user.clear(screen.getByRole('textbox', { name: 'Поиск сотрудника' }));
+  await waitFor(() => expect(screen.getByText('1–20 из 25')).toBeInTheDocument());
+  await user.click(screen.getByRole('button', { name: 'Далее' }));
+  expect(await screen.findByText('21–25 из 25')).toBeInTheDocument();
+  // Профиль показанной карточки.
+  await user.click(screen.getByRole('button', { name: /^Сотрудник 21/ }));
+  await user.click(await screen.findByRole('button', { name: 'Открыть полную карточку' }));
+  expect(await screen.findByRole('tablist', { name: 'Карточка сотрудника' })).toBeInTheDocument();
+  expect(personnelApi.detail).toHaveBeenCalledWith('id-20', expect.any(AbortSignal));
+  // `employees=none` — единственный режим поверхности: полного списка в запросах нет.
+  expect(vi.mocked(personnelApi.workspace).mock.calls.length).toBeGreaterThan(0);
+  for (const [, options] of vi.mocked(personnelApi.workspace).mock.calls)
+    expect(options).toMatchObject({ employees: 'none' });
+  expect(pageRequests().length).toBeGreaterThan(0);
+});
+
 const people = (count: number): Employee[] =>
   Array.from({ length: count }, (_, index) => ({
     ...person(`id-${index}`),
@@ -482,6 +529,50 @@ it('после сохранения перезапрашивает рамку о
   expect(
     screen.getByRole('button', { name: 'Убрать сохранённый список «Все сотрудники»' }),
   ).toBeInTheDocument();
+});
+
+it('по таймеру перезапрашивает только рамку, карточки списка ждут действия (#251)', async () => {
+  // Фейковые только интервалы: таймер поверхности тикает по часам, а ожидания
+  // теста (`waitFor`) продолжают работать на настоящих таймаутах.
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'], shouldAdvanceTime: true });
+  try {
+    const user = userEvent.setup();
+    const payload = data(people(25));
+    vi.spyOn(session, 'useSession').mockReturnValue({
+      status: 'authenticated',
+      user: null,
+      setUser: vi.fn(),
+      refresh: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockPersonnelServer(payload);
+    render(
+      <MemoryRouter>
+        <Personnel />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+    await screen.findByRole('table');
+    await waitFor(() => expect(pageRequests()).toHaveLength(1));
+    const frames = vi.mocked(personnelApi.workspace).mock.calls.length;
+    const pages = pageRequests().length;
+    await act(async () => {
+      vi.advanceTimersByTime(FRAME_REFRESH_MS);
+    });
+    await waitFor(() =>
+      expect(vi.mocked(personnelApi.workspace).mock.calls.length).toBe(frames + 1),
+    );
+    // Тик несёт рамку `employees=none` и не тянет страницу карточек.
+    expect(vi.mocked(personnelApi.workspace).mock.calls.at(-1)?.[1]).toEqual({
+      employees: 'none',
+      dormitory: null,
+      days: 5,
+    });
+    expect(pageRequests()).toHaveLength(pages);
+    expect(screen.getByText('1–20 из 25')).toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('после исчезновения последней страницы показывает пустой список, а не пустой лист (#247)', async () => {
