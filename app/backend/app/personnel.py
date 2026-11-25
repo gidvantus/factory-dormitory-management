@@ -4,8 +4,9 @@ import hashlib
 import json
 import re
 from collections import defaultdict
+from collections.abc import Callable, Collection, Iterable, Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from difflib import SequenceMatcher
 from typing import Any
@@ -34,7 +35,14 @@ from app.models.personnel import (
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
 from app.models.user import User
-from app.personnel_page import ListCriteria, block_previews, counts_by_filter
+from app.personnel_page import DEFAULT_BLOCKS, ListCriteria
+from app.personnel_query import (
+    SelectionCache,
+    block_previews,
+    candidates,
+    counts_by_filter,
+    person_page,
+)
 from app.schemas.personnel import IdentityChoice, IdentityFields
 from app.sql_diagnostics import stage
 
@@ -516,6 +524,8 @@ def all_sources(
     db: Session,
     dormitory_ids: list[int],
     dormitories: list[Any] | None = None,
+    *,
+    employee_ids: Collection[str] | None = None,
 ) -> list[SourceRecord]:
     """Строки-источники только по перечисленным общежитиям.
 
@@ -526,9 +536,14 @@ def all_sources(
     читает его сам (он отдаёт его в ответ), и второй `SELECT` по той же таблице
     был лишним выполнением в каждом запросе. Не передан — читается здесь же.
 
+    `employee_ids` сужает выборку до карточек страницы (#251): `None` — строки
+    всей области, пустое множество — ни одной.
+
     Читаются колонки, а не ORM-объекты: на объёме стенда (20 000 строк) одно
     создание объектов стоило дольше, чем весь остальной запрос (`#237`).
     """
+    if employee_ids is not None and not employee_ids:
+        return []
     if dormitories is None:
         dormitories = list(db.scalars(select(Dormitory).where(Dormitory.id.in_(dormitory_ids))))
     lookup: dict[str, Any] = {
@@ -549,11 +564,12 @@ def all_sources(
     result: list[SourceRecord] = []
     for model in SOURCE_MODELS:
         spec = source_spec(model)
-        rows = db.execute(
-            select(*spec.columns).where(
-                model.employee_id.is_not(None), model.dormitory_id.in_(dormitory_ids)
-            )
-        )
+        condition = [model.employee_id.is_not(None), model.dormitory_id.in_(dormitory_ids)]
+        if employee_ids is not None:
+            # Ограничение страницы (#251): читаются строки только отобранных
+            # карточек, а не всей области.
+            condition.append(model.employee_id.in_(employee_ids))
+        rows = db.execute(select(*spec.columns).where(*condition))
         for row in rows:
             employee_id = row[spec.employee_at]
             # Порядок ключей — порядок колонок таблицы, как и раньше: он виден в
@@ -749,6 +765,13 @@ class WorkspaceContext:
     identities: dict[str, dict[str, Any]]
     dormitories: list[Any]
     tabs: dict[str, str]
+    members: frozenset[str] | None = None
+    """Чьи карточки собирать: `None` — всех корней области (#251).
+
+    Страница людей собирает карточки только для отобранных строк, поэтому
+    ограничение живёт в контексте, а не третьим аргументом `employee_cards`:
+    сигнатура `employee_cards(db, context)` остаётся прежней.
+    """
 
 
 def workspace_context(db: Session, dormitory_ids: list[int]) -> WorkspaceContext:
@@ -775,15 +798,30 @@ def employee_cards(db: Session, context: WorkspaceContext) -> list[dict[str, Any
 
     Этапы размечены для события `slow_sql_request` (#237): по ним видно, сколько
     времени уходит на загрузку строк-источников, журнал и сборку карточек.
+
+    `context.members` ограничивает выборку корнями отобранной страницы (#251):
+    тогда строки-источники читаются только для них, а не для всей области.
+    Первые шаги (состав групп и варианты ФИО) тоже сужены этим множеством.
     """
+    wanted = context.members
     # Корневые карточки и их состав — одним проходом по `roots`. Прежний вариант
     # перебирал `roots` целиком внутри цикла по карточкам: O(карточек × карточек).
     members: dict[str, list[str]] = defaultdict(list)
     for member, root in context.roots.items():
-        members[root].append(member)
+        if wanted is None or root in wanted:
+            members[root].append(member)
+    targets = set(members)
+    # Строки-источники читаются по всем участникам отобранных групп, а не только
+    # по корням: у присоединённой карточки свои строки, и карточка группы обязана
+    # их показать (#251).
+    group: set[str] | None = None
+    if wanted is not None:
+        group = {member for ids in members.values() for member in ids}
     sources: dict[str, list[dict[str, Any]]] = defaultdict(list)
     with stage("sources"):
-        for source in all_sources(db, context.dormitory_ids, context.dormitories):
+        for source in all_sources(
+            db, context.dormitory_ids, context.dormitories, employee_ids=group
+        ):
             sources[context.roots[source.employee_id or ""]].append(
                 {
                     "table_key": source.table_key,
@@ -798,21 +836,29 @@ def employee_cards(db: Session, context: WorkspaceContext) -> list[dict[str, Any
     history_dorms: dict[str, set[int]] = defaultdict(set)
     history_ids: set[str] = set()
     with stage("events"):
-        for entry in db.execute(
+        # Журнал раньше читался построчно: по строке на каждое событие человека.
+        # Здесь из SQL приходят только различные пары «человек — общежитие», а
+        # множество людей и их общежития собираются из них (#251).
+        for employee_id, dormitory_id in db.execute(
             select(EmployeeEvent.employee_id, EmployeeEvent.dormitory_id)
             .where(EmployeeEvent.dormitory_id.in_(context.dormitory_ids))
-            .order_by(EmployeeEvent.id)
+            .distinct()
         ):
-            root = context.roots[entry.employee_id]
+            root = context.roots[employee_id]
             history_ids.add(root)
-            if entry.dormitory_id:
-                history_dorms[root].add(entry.dormitory_id)
+            if dormitory_id:
+                history_dorms[root].add(dormitory_id)
     variants: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
-    for alias in db.scalars(select(EmployeeAlias)):
-        variants[context.roots[alias.employee_id]][alias.field].add(alias.raw_value)
+    with stage("aliases"):
+        alias_ids = [member for target in targets for member in members[target]]
+        aliases = select(EmployeeAlias)
+        if wanted is not None:
+            aliases = aliases.where(EmployeeAlias.employee_id.in_(alias_ids))
+        for alias in db.scalars(aliases):
+            variants[context.roots[alias.employee_id]][alias.field].add(alias.raw_value)
     result = []
     with stage("assemble"):
-        for id in sorted(set(context.roots.values())):
+        for id in sorted(targets):
             item = context.employees[id]
             rows = sources[id]
             if not rows and id not in history_ids:
@@ -866,6 +912,72 @@ def source_columns_response(db: Session, context: WorkspaceContext) -> list[dict
     ]
 
 
+def limited_context(context: WorkspaceContext, ids: Iterable[str]) -> WorkspaceContext:
+    """Копия контекста, ограниченная корнями отобранной страницы (#251)."""
+    return replace(context, members=frozenset(ids))
+
+
+def cards_by_ids(
+    db: Session, context: WorkspaceContext, ids: Iterable[str]
+) -> list[dict[str, Any]]:
+    """Карточки только для перечисленных корней — в порядке `ids`.
+
+    `employee_cards` отдаёт карточки по возрастанию `id`; страница и превью
+    блоков показывают свой порядок (`sort_name`, а для `ending` — конец вахты),
+    поэтому результат переставляется здесь.
+    """
+    wanted = [id for id in ids if id in context.employees]
+    if not wanted:
+        return []
+    cards = employee_cards(db, limited_context(context, wanted))
+    by_id = {card["id"]: card for card in cards}
+    return [by_id[id] for id in wanted if id in by_id]
+
+
+def sources_loader(
+    db: Session, context: WorkspaceContext
+) -> Callable[[Sequence[int], set[str]], list[SourceRecord]]:
+    """Загрузчик строк-источников для условий по столбцам (#251).
+
+    Отдаётся `app.personnel_query` вызывающим слоем: этот модуль зависит от
+    `all_sources`, а модуль отбора — нет, поэтому цикл модулей не заводится.
+    """
+
+    def load(dormitory_ids: Sequence[int], employee_ids: set[str]) -> list[SourceRecord]:
+        return all_sources(db, list(dormitory_ids), context.dormitories, employee_ids=employee_ids)
+
+    return load
+
+
+def page_selection(
+    db: Session,
+    context: WorkspaceContext,
+    criteria: ListCriteria,
+    *,
+    day: date,
+    number: int,
+    per_page: int,
+    dormitories: list[dict[str, Any]],
+    source_columns: list[dict[str, Any]],
+) -> tuple[list[str], int]:
+    """Корни запрошенной страницы и общее число людей списка (#251)."""
+    found = candidates(
+        db,
+        roots=context.roots,
+        identities=context.identities,
+        tabs=context.tabs,
+        dormitory_ids=context.dormitory_ids,
+        criteria=criteria,
+        day=day,
+        dormitories=dormitories,
+        source_columns=source_columns,
+        load_sources=sources_loader(db, context),
+    )
+    return person_page(
+        db, candidates=found, employees=context.employees, number=number, per_page=per_page
+    )
+
+
 def workspace(
     db: Session,
     user: User,
@@ -890,9 +1002,13 @@ def workspace(
     Этапы размечены для события `slow_sql_request` (#237): по ним видно, сколько
     времени уходит на загрузку строк-источников, журнал, сборку карточек, планы и
     заезды. Разметка ничего не меняет в вычислениях — только измеряет.
+
+    С #251 превью блоков и сводка считаются отбором в SQL, а не по полному
+    массиву карточек: при `?employees=none` карточки не собираются вообще, а
+    счётчик блока равен `total` списка с теми же условиями.
     """
     context = workspace_context(db, dormitory_ids)
-    cards = employee_cards(db, context)
+    cards = employee_cards(db, context) if include_employees else []
 
     def person(id: str) -> str:
         return context.roots[id]
@@ -935,28 +1051,41 @@ def workspace(
         "preferences": settings,
     }
     if include_previews:
+        day = today()
+        # Отбор у блоков и сводки общий: область, срок вахты, поиск и условия
+        # столбцов у них совпадают, отличается только фильтр срока. Без кеша
+        # каждый блок заново читал строки-источники, журнал и вахты (#251).
+        selection = SelectionCache(
+            db=db,
+            roots=context.roots,
+            identities=context.identities,
+            tabs=context.tabs,
+            dormitory_ids=context.dormitory_ids,
+            day=day,
+            dormitories=dormitories,
+            source_columns=columns,
+            load_sources=sources_loader(db, context),
+        )
         with stage("block_previews"):
             response["block_previews"] = block_previews(
-                cards=cards,
+                db,
+                selection=selection,
+                employees=context.employees,
                 lists=settings.get("lists") or [],
                 blocks=settings.get("blocks"),
-                today=response["today"],
+                day=day,
                 dormitory=preview_dormitory,
                 dormitories=dormitories,
-                source_columns=columns,
                 arrivals=arrivals,
+                cards_for=lambda ids: cards_by_ids(db, context, ids),
+                default_blocks=DEFAULT_BLOCKS,
             )
         # Сводка поверхности: раньше эти три числа считались в браузере по всему
-        # массиву карточек, а при `employees=none` массива нет. Отдельный запрос на
-        # каждое число стоил бы трёх полных сборок карточек, поэтому считаем здесь,
-        # где карточки уже собраны.
+        # массиву карточек, а при `employees=none` массива нет. С #251 числа
+        # считает отбор в SQL: у всех трёх фильтров он общий, меняется только срок.
         with stage("counts"):
             response["counts"] = counts_by_filter(
-                cards,
-                ListCriteria(dormitory=preview_dormitory, days=days),
-                response["today"],
-                dormitories,
-                columns,
+                candidates=selection.get(ListCriteria(dormitory=preview_dormitory, days=days))
             )
     return response
 

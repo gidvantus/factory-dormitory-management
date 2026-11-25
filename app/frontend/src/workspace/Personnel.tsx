@@ -12,7 +12,7 @@ import type {
   SavedList,
 } from '../api/personnel';
 import { useSession } from '../auth/SessionProvider';
-import { usePageRefresh } from './usePageRefresh';
+import { useFrameRefresh, usePageRefresh } from './usePageRefresh';
 import { ArrivalPlanningBoard } from './personnel/ArrivalPlanningBoard';
 import { ArrivalPlanningPage } from './personnel/ArrivalPlanningPage';
 import { PersonnelEmployeeFocus } from './personnel/PersonnelEmployeeFocus';
@@ -112,7 +112,14 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
   const [savingList, setSavingList] = useState(false);
   const [busy, setBusy] = useState(false);
   const mutating = useRef(false);
-  const refresh = usePageRefresh();
+  /**
+   * Две ревизии вместо одной (#251): рамка обновляется ещё и по таймеру, а страница
+   * сотрудников и её счётчики — только по фокусу и после сохранений. Иначе открытая
+   * вкладка раз в минуту тянула карточки списка. Поэтому общий таймер `usePageRefresh`
+   * здесь выключен, а его роль играет `useFrameRefresh`.
+   */
+  const refresh = usePageRefresh({ timer: false });
+  const frameRefresh = useFrameRefresh();
   /**
    * Условия, по которым реально идёт запрос: поиск и условия столбцов применяются
    * после паузы в наборе (#247). Каждый запрос сервер собирает карточки всей
@@ -142,7 +149,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
         }
       });
     return () => controller.abort();
-  }, [attempt, refresh, user?.is_active, dormitory, days]);
+  }, [attempt, refresh, frameRefresh, user?.is_active, dormitory, days]);
   const criteria: Criteria = {
     filter,
     dormitory,
@@ -262,8 +269,13 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     );
   const blocks = data.preferences.blocks ?? defaultBlocks;
   /**
-   * Карточка человека: из уже показанных страниц, из рамки (если сервер её прислал)
-   * и затем по объединённым id.
+   * Карточка человека: из уже показанных страниц, затем из рамки (если карточки в ней
+   * есть) и по объединённым id.
+   *
+   * На самой поверхности рамка приходит с `employees=none`: массива сотрудников в ней
+   * нет, и сервер больше не собирает карточки всех сотрудников на каждый запрос (#251).
+   * Непустой `employees` бывает только у конструктора вкладок — он грузит полный список
+   * для своих таблиц и расчётов.
    */
   const cardOf = (id: string): Employee | undefined =>
     cards.current.get(id) ??
@@ -589,7 +601,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
             <ArrivalPlanningBoard data={data} dormitory={dormitory} mutate={mutate} />
           )}
           {view === 'list' && (
-            <section className={`${s.board} ${f.employeeBoard}`}>
+            <section className={`${s.board} ${f.employeeBoard}`} data-testid="personnel-list">
               <div className={s.saved}>
                 <span className={s.eyebrow}>МОИ СПИСКИ</span>
                 {data.preferences.lists.map((list) => (
@@ -704,7 +716,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
                 fields={extraFields}
                 onPerson={onPerson}
               />
-              <div className={s.pagination}>
+              <div className={s.pagination} data-testid="personnel-pagination">
                 <span>
                   {total ? shownPage * PAGE_SIZE + 1 : 0}–
                   {Math.min(total, (shownPage + 1) * PAGE_SIZE)} из {total}

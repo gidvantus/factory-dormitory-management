@@ -26,7 +26,7 @@ from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
 from app import db as db_module
-from app import personnel_page, sql_diagnostics
+from app import sql_diagnostics
 from app.arrival_settings import settings_response
 from app.models.arrival_plan import ArrivalPlan
 from app.models.dormitory import Dormitory
@@ -35,12 +35,14 @@ from app.models.personnel import Employee, EmployeeEvent, EmployeePlan
 from app.models.resident import Resident
 from app.models.user import User
 from app.personnel import (
+    cards_by_ids,
     dormitory_list,
-    employee_cards,
+    page_selection,
     today,
     workspace,
     workspace_context,
 )
+from app.personnel_page import ListCriteria
 
 # Объём по умолчанию — крупная организация: две тысячи карточек и двадцать тысяч
 # строк-источников. Это тот же порядок, на котором снимался профиль в #237.
@@ -213,6 +215,7 @@ def test_workspace_cost_is_accounted_for_by_stages() -> None:
             assert set(request_sql.stages_ms) == {
                 "sources",
                 "events",
+                "aliases",
                 "assemble",
                 "plans",
                 "arrivals",
@@ -250,21 +253,22 @@ def test_page_cost_and_body_size_on_the_same_volume() -> None:
         user = db.scalar(select(User).where(User.email == f"perf-{marker}@example.com"))
         assert user is not None
         try:
-            today_iso = today().isoformat()
             token = sql_diagnostics.start_request("perf-page")
             started = time.perf_counter()
             try:
                 context = workspace_context(db, [dormitory_id])
-                cards = employee_cards(db, context)
-                items, total = personnel_page.page(
-                    cards,
-                    personnel_page.ListCriteria(),
-                    today_iso,
-                    dormitory_list(context),
-                    [],
-                    1,
-                    20,
+                criteria = ListCriteria()
+                selected, total = page_selection(
+                    db,
+                    context,
+                    criteria,
+                    day=today(),
+                    number=1,
+                    per_page=20,
+                    dormitories=dormitory_list(context),
+                    source_columns=[],
                 )
+                items = cards_by_ids(db, context, selected)
                 body = json.dumps(
                     {
                         "items": items,
