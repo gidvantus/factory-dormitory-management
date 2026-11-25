@@ -218,6 +218,71 @@ class Block(StrictModel):
     saved_list_id: str | None = Field(default=None, max_length=80)
 
 
+class PersonnelSourceModel(StrictModel):
+    """Строка-источник в карточке сотрудника."""
+
+    table_key: str
+    row_id: int
+    dormitory_id: int
+    source_name: str
+    values: dict[str, Any]
+
+
+class PersonnelEmployeeModel(StrictModel):
+    """Карточка сотрудника — тот же набор полей, что отдаёт рабочая поверхность."""
+
+    id: str
+    full_name: str | None = None
+    personnel_number: str | None = None
+    phone: str | None = None
+    identity_status: str
+    member_ids: list[str]
+    sources: list[PersonnelSourceModel]
+    current: list[PersonnelSourceModel]
+    history_dormitory_ids: list[int]
+    variants: dict[str, list[str]]
+
+
+class EmployeePage(StrictModel):
+    """Страница сотрудников: `total` и `pages` считаются по всему списку (#247)."""
+
+    items: list[PersonnelEmployeeModel]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
+class BlockEvent(StrictModel):
+    date: str
+    count: int
+
+
+class BlockDormitory(StrictModel):
+    id: int
+    name: str
+    client_name: str | None = None
+    is_archived: bool
+    count: int
+
+
+class BlockPreview(StrictModel):
+    """Превью блока рабочей поверхности при `?employees=none` (#247).
+
+    Подписи дат, цвета и легенда диаграммы остаются на клиенте: здесь только
+    данные, которые раньше он считал по полному массиву сотрудников.
+    """
+
+    id: str
+    kind: Literal["residents", "ending", "contacts", "plans", "saved"]
+    title: str
+    count: int
+    items: list[PersonnelEmployeeModel]
+    events: list[BlockEvent]
+    dorms: list[BlockDormitory]
+    missing_list: bool
+
+
 class PreferencesInput(StrictModel):
     revision: int = Field(ge=0)
     blocks: list[Block] = Field(max_length=20)

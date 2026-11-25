@@ -14,11 +14,11 @@ from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.personnel import Employee, EmployeeAlias
 from app.personnel import (
-    all_sources,
     employee_group_in_scope,
     employee_history,
     group_identities,
     normalized,
+    source_rows,
     source_summary,
 )
 
@@ -116,7 +116,7 @@ def load_profile(
         )
     ):
         aliases[field].add(raw)
-    rows = all_sources(db, dormitory_ids, ids)
+    rows = source_rows(db, dormitory_ids, ids)
     tab_ids = {row.tab_id for row, _ in rows if isinstance(row, CustomTabEntry)}
     tab_names = select(CustomTab.id, CustomTab.name).where(CustomTab.id.in_(tab_ids))
     tabs = {f"custom_{id}": name for id, name in db.execute(tab_names)} if tab_ids else {}

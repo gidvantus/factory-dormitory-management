@@ -11,7 +11,7 @@ from app.models.arrival_plan import ArrivalPlan, ArrivalSettings
 from app.models.personnel import Employee
 from app.models.resident import Resident
 from app.models.table_column import TableColumn
-from app.personnel import IDENTITY_FIELDS, all_sources, normalized, source_key
+from app.personnel import IDENTITY_FIELDS, normalized, source_key, source_rows
 from app.schemas.arrival_settings import ArrivalField
 from app.schemas.personnel import EmployeeArrivalInput
 from app.table_data import record_value
@@ -67,7 +67,7 @@ def employee_arrival_values(
     config: ArrivalSettings | None,
     plan: ArrivalPlan | None,
 ) -> tuple[str, dict[str, Any], dict[str, Any], list[ArrivalField]]:
-    sources = all_sources(db, dormitory_ids, member_ids)
+    sources = source_rows(db, dormitory_ids, member_ids)
     sources.sort(
         key=lambda item: (
             isinstance(item[0], Resident),

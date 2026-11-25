@@ -62,6 +62,10 @@ jobs:
       # подстановку «пусто -> develop-m» делают сами шаги, а не выражение.
       STAND_BRANCH: ${{ inputs.branch }}
       STAND_PROJECT: crm-dormitory
+      # Стек мониторинга — отдельный compose-проект (свои тома и образы),
+      # поэтому у него своё имя. Оно же записано в monitor/docker-compose.monitor.yml
+      # (`name:`), а здесь нужно, чтобы шаги не собирали имя из переменных.
+      STAND_MONITOR_PROJECT: crm-dormitory-monitor
       STAND_BACKUP_DIR: 'D:\stand-backups\CRMDormitory'
     steps:
       # actions/checkout здесь не нужен: job работает в клоне владельца, а не в
@@ -114,10 +118,10 @@ jobs:
           $target = "$env:STAND_BRANCH".Trim()
           if (-not $target) { $target = $branch }
 
-          # Ручная сборка другой ветки: fetch и merge не нужны, в дело идёт
-          # ровно то дерево, что открыто в клоне. Неотслеживаемые файлы при
-          # этом не мешают (.artifacts и прочий мусор), а вот правки в
-          # отслеживаемых файлах означают полусохранённое дерево — их не берём.
+          # Manual build of another branch: no fetch and no merge, the tree that
+          # is open in the clone is exactly what gets built. Untracked files do
+          # not interfere (.artifacts and other junk), but edits in tracked
+          # files mean a half-saved tree, so such a build is refused.
           if ($target -ne $branch) {
             $dirty = "$(git -C $clone status --porcelain -uno)".Trim()
             if ($dirty) {
@@ -217,8 +221,8 @@ jobs:
           $dir = $env:LOCAL_CLONE
           $script = Join-Path $dir '_tools\alembic-heads.py'
           if (-not (Test-Path $script)) {
-            # Клон обновляется fast-forward до develop-m, файл появится в нём
-            # после слияния инструмента. До этого проверять нечего.
+            # The clone is fast-forwarded to develop-m, so the file shows up
+            # there once the tool is merged. Until then there is nothing to check.
             Write-Host "::warning::No _tools\alembic-heads.py in ${dir}: alembic head check skipped."
             exit 0
           }
@@ -328,6 +332,250 @@ jobs:
           }
           Write-Host "$webUrl -> $($web.StatusCode)"
 
+      - name: 'Мониторинг: окружение стенда'
+        # Стек мониторинга - отдельный compose-проект со своими томами
+        # (Grafana, Prometheus, Loki) и своими образами. Здесь готовится
+        # monitor/.env: он не в git (.gitignore), поэтому первый прогон на
+        # свежем клоне создаёт его из monitor/.env.example. Два значения
+        # приходят из стенда, а не из шаблона: иначе Prometheus не нашёл бы
+        # api, а promtail и Dozzle смотрели бы контейнеры чужого проекта и
+        # показывали пустоту.
+        if: steps.clone.outputs.updated == 'true'
+        run: |
+          $dir = $env:LOCAL_CLONE
+          $monitor = Join-Path $dir 'monitor'
+          $envFile = Join-Path $monitor '.env'
+          $template = Join-Path $monitor '.env.example'
+
+          if (-not (Test-Path $envFile)) {
+            if (-not (Test-Path $template)) {
+              Write-Host "::error::monitor\.env.example is missing in ${dir}: cannot prepare monitor/.env, monitoring is not started."
+              exit 1
+            }
+            Copy-Item -LiteralPath $template -Destination $envFile
+            Write-Host "monitor/.env created from monitor/.env.example"
+          }
+
+          # WriteAllLines without BOM: docker compose --env-file reads the first
+          # line as-is and a BOM would glue itself to the first key name.
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+
+          function Set-EnvLine([string]$Path, [string]$Key, [string]$Value) {
+            $lines = @()
+            if (Test-Path $Path) { $lines = @([IO.File]::ReadAllLines($Path)) }
+            $pattern = '^\s*' + [regex]::Escape($Key) + '='
+            $found = $false
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+              if ($lines[$i] -match $pattern) {
+                $lines[$i] = "$Key=$Value"
+                $found = $true
+              }
+            }
+            if (-not $found) { $lines += "$Key=$Value" }
+            [IO.File]::WriteAllLines($Path, $lines, $utf8)
+          }
+
+          function Get-EnvLine([string]$Path, [string]$Key) {
+            if (-not (Test-Path $Path)) { return '' }
+            $pattern = '^\s*' + [regex]::Escape($Key) + '=(.*)$'
+            foreach ($line in [IO.File]::ReadAllLines($Path)) {
+              if ($line -match $pattern) { return $Matches[1].Trim() }
+            }
+            return ''
+          }
+
+          $project = $env:STAND_PROJECT
+          Set-EnvLine $envFile 'MONITORED_PROJECT' $project
+          Set-EnvLine $envFile 'APP_NETWORK' "${project}_default"
+          Write-Host "monitor: MONITORED_PROJECT=$project APP_NETWORK=${project}_default"
+
+          # Grafana with an empty admin password restart-loops, and api in the
+          # main stack needs the same non-empty value only on the server.
+          $admin = Get-EnvLine $envFile 'GRAFANA_ADMIN_PASSWORD'
+          if (-not $admin) {
+            Set-EnvLine $envFile 'GRAFANA_ADMIN_PASSWORD' 'monitor-stand-only-change-me'
+            Write-Host "::warning::GRAFANA_ADMIN_PASSWORD was empty in monitor/.env: the placeholder from monitor/.env.example is set (user admin). Change it in monitor/.env if this stand is reachable from the network."
+          }
+
+          # MONITOR_HOST is required by the main compose file (`${MONITOR_HOST:?}`)
+          # even locally, where the address in the browser comes from
+          # docker-compose.local.yml. An empty .env made by hand or a template
+          # with this key blank would otherwise fail the whole stack with a
+          # compose message about a missing variable.
+          $hostName = Get-EnvLine $envFile 'MONITOR_HOST'
+          if (-not $hostName) {
+            Set-EnvLine $envFile 'MONITOR_HOST' 'monitor.local'
+            Write-Host "::warning::MONITOR_HOST was empty in monitor/.env: set to monitor.local for the local stand. On a server it must be the real domain, otherwise Caddy has nothing to serve."
+          }
+
+          # Ports are published by monitor/docker-compose.local.yml on
+          # 127.0.0.1 only. A busy port is not waited out: it usually belongs
+          # to another stack, and stopping that stack is not this job's
+          # business. The exception is our own monitoring project: from the
+          # second run on, its grafana and dozzle still publish these ports
+          # from the previous run, and `compose up -d` recreates exactly those
+          # containers. Treating them as a foreign program made every run after
+          # the first one fail on a port it holds itself.
+          foreach ($pair in @(@('MONITOR_GRAFANA_PORT', '8095'), @('MONITOR_LOGS_PORT', '8096'))) {
+            $key = $pair[0]
+            $fallback = $pair[1]
+            $value = Get-EnvLine $envFile $key
+            if (-not $value) {
+              $value = $fallback
+              Set-EnvLine $envFile $key $value
+            }
+            $number = 0
+            if (-not [int]::TryParse($value, [ref]$number)) {
+              Write-Host "::error::$key in monitor/.env is '$value', expected a port number (for example $fallback)."
+              exit 1
+            }
+            $client = New-Object System.Net.Sockets.TcpClient
+            $free = $true
+            try {
+              $client.Connect('127.0.0.1', $number)
+              $free = $false
+            }
+            catch {
+              $free = $true
+            }
+            finally {
+              $client.Dispose()
+            }
+            if (-not $free) {
+              # @() keeps the result an array: an empty docker ps gives $null,
+              # and $null.Count throws on Windows PowerShell 5.1.
+              $own = @(docker ps --filter "publish=$number" --filter "label=com.docker.compose.project=$env:STAND_MONITOR_PROJECT" --format '{{.Names}}')
+              if ($own.Count -gt 0) {
+                Write-Host "monitor port ${number}: held by our own stack $($own -join ', ') - compose will recreate it ($key)"
+                continue
+              }
+              $holders = @(docker ps --filter "publish=$number" --format '{{.Names}}')
+              $who = ' (not a docker container)'
+              if ($holders.Count -gt 0) { $who = " ($($holders -join ', '))" }
+              Write-Host "::error::Port 127.0.0.1:$number ($key in monitor/.env) is already taken by another program$who. Monitoring is not started: free the port or set another one in monitor/.env and re-run the job."
+              exit 1
+            }
+            Write-Host "monitor port ${number}: free ($key)"
+          }
+
+          $grafanaPort = Get-EnvLine $envFile 'MONITOR_GRAFANA_PORT'
+          $logsPort = Get-EnvLine $envFile 'MONITOR_LOGS_PORT'
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "STAND_MONITOR_GRAFANA_PORT=$grafanaPort`n")
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "STAND_MONITOR_LOGS_PORT=$logsPort`n")
+
+      - name: 'Мониторинг: пересборка и перезапуск'
+        # -p обязателен: имя проекта у мониторинга своё, и без -p compose взял
+        # бы его из файла - а на машине может лежать второй такой же стенд.
+        # --build пересобирает docker-stats-exporter и notifier: они собираются
+        # из дерева, а не тянутся из registry, и без --build работал бы старый
+        # код. --remove-orphans убирает сервисы, выпавшие из файла (например
+        # после откатa логирования), но только внутри этого проекта.
+        if: steps.clone.outputs.updated == 'true'
+        run: |
+          $dir = $env:LOCAL_CLONE
+          $monitor = Join-Path $dir 'monitor'
+          $file = Join-Path $monitor 'docker-compose.monitor.yml'
+          $local = Join-Path $monitor 'docker-compose.local.yml'
+          $envFile = Join-Path $monitor '.env'
+          docker compose -p $env:STAND_MONITOR_PROJECT -f $file -f $local --env-file $envFile up -d --build --remove-orphans
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::docker compose up for the monitoring stack failed. The main stand is up and untouched; see docker compose ps -a for project $($env:STAND_MONITOR_PROJECT)."
+            exit 1
+          }
+          Write-Host "monitoring rebuilt: $($env:STAND_MONITOR_PROJECT)"
+
+      - name: 'Проверка: мониторинг отвечает'
+        # У Grafana и Dozzle нет healthcheck'ов в compose, поэтому проверяем
+        # снаружи и по тем же адресам, что человек откроет в браузере.
+        if: steps.clone.outputs.updated == 'true'
+        run: |
+          $dir = $env:LOCAL_CLONE
+          $monitor = Join-Path $dir 'monitor'
+          $file = Join-Path $monitor 'docker-compose.monitor.yml'
+          $local = Join-Path $monitor 'docker-compose.local.yml'
+          $envFile = Join-Path $monitor '.env'
+
+          $grafanaUrl = "http://127.0.0.1:$($env:STAND_MONITOR_GRAFANA_PORT)/api/health"
+          $grafanaOk = $false
+          # Five minutes, not two: on the first run Grafana migrates its own
+          # database inside the grafana-data volume, and on a cold machine that
+          # takes about three minutes. An empty answer here would mean "not up
+          # yet" rather than a broken stack.
+          for ($i = 1; $i -le 60; $i++) {
+            try {
+              $response = Invoke-WebRequest -Uri $grafanaUrl -UseBasicParsing -TimeoutSec 10
+              if ($response.StatusCode -eq 200) {
+                $grafanaOk = $true
+                break
+              }
+            }
+            catch {
+            }
+            if ($i % 12 -eq 0) {
+              Write-Host "waiting for Grafana ($($i * 5) seconds): the first start runs database migrations"
+            }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $grafanaOk) {
+            docker compose -p $env:STAND_MONITOR_PROJECT -f $file -f $local --env-file $envFile logs --tail=30 grafana
+            Write-Host "::error::Grafana did not answer 200 on $grafanaUrl within 300 seconds. The main stand is up and untouched. Check monitor/.env in the clone (port and GRAFANA_ADMIN_PASSWORD) and the log above."
+            exit 1
+          }
+          Write-Host "$grafanaUrl -> 200"
+
+          $logsUrl = "http://127.0.0.1:$($env:STAND_MONITOR_LOGS_PORT)/"
+          $logsOk = $false
+          for ($i = 1; $i -le 15; $i++) {
+            try {
+              $response = Invoke-WebRequest -Uri $logsUrl -UseBasicParsing -TimeoutSec 10
+              if ($response.StatusCode -eq 200) {
+                $logsOk = $true
+                break
+              }
+            }
+            catch {
+            }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $logsOk) {
+            docker compose -p $env:STAND_MONITOR_PROJECT -f $file -f $local --env-file $envFile logs --tail=30 dozzle
+            Write-Host "::error::Dozzle did not answer 200 on $logsUrl within 30 seconds. Check MONITOR_LOGS_PORT in monitor/.env and the log above."
+            exit 1
+          }
+          Write-Host "$logsUrl -> 200"
+
+          # Loki publishes nothing to the host, so its liveness is asked from
+          # inside the network - through notifier, which lives there.
+          $probe = "import urllib.request;print(urllib.request.urlopen('http://loki:3100/ready', timeout=5).read().decode().strip())"
+          $ready = ''
+          for ($i = 1; $i -le 15; $i++) {
+            $ready = "$(docker compose -p $env:STAND_MONITOR_PROJECT -f $file -f $local --env-file $envFile exec -T notifier python -c $probe 2>&1)".Trim()
+            if ($ready -match 'ready') { break }
+            Start-Sleep -Seconds 2
+          }
+          if ("$ready" -notmatch 'ready') {
+            Write-Host "::error::Loki did not report ready through the notifier container: $ready"
+            exit 1
+          }
+          Write-Host "loki: $ready"
+
+          # The 'container -> promtail -> Loki' seam. The service label shows up
+          # only when promtail really reads the containers of its own project:
+          # an empty answer means a wrong MONITORED_PROJECT.
+          $valuesProbe = "import urllib.request;print(urllib.request.urlopen('http://loki:3100/loki/api/v1/label/service/values', timeout=5).read().decode().strip())"
+          $services = ''
+          for ($i = 1; $i -le 10; $i++) {
+            $services = "$(docker compose -p $env:STAND_MONITOR_PROJECT -f $file -f $local --env-file $envFile exec -T notifier python -c $valuesProbe 2>&1)".Trim()
+            if ($services -match '"api"') { break }
+            Start-Sleep -Seconds 3
+          }
+          if ("$services" -notmatch '"api"') {
+            Write-Host "::warning::Loki has no logs with service=api yet: $services. Logs of the stand appeared a moment ago, so this may fill in by itself; if it stays empty, MONITORED_PROJECT in monitor/.env is not $($env:STAND_PROJECT)."
+          }
+          else {
+            Write-Host "loki services: $services"
+          }
+
       - name: 'Итог: что теперь на стенде'
         if: always()
         run: |
@@ -343,3 +591,16 @@ jobs:
           git -C $dir log -1 --oneline
           docker compose -f "$dir\docker-compose.yml" --project-directory $dir ps
           docker compose -f "$dir\docker-compose.yml" --project-directory $dir images
+
+          # Monitoring stands next to the main stack and is listed separately:
+          # its containers belong to another compose project.
+          $monitorFile = Join-Path $dir 'monitor\docker-compose.monitor.yml'
+          $monitorLocal = Join-Path $dir 'monitor\docker-compose.local.yml'
+          $monitorEnv = Join-Path $dir 'monitor\.env'
+          if ((Test-Path $monitorFile) -and (Test-Path $monitorEnv)) {
+            Write-Host "monitoring project: $($env:STAND_MONITOR_PROJECT)"
+            docker compose -p $env:STAND_MONITOR_PROJECT -f $monitorFile -f $monitorLocal --env-file $monitorEnv ps
+          }
+          else {
+            Write-Host "monitoring: monitor/.env is absent, the stack was not started by this run"
+          }

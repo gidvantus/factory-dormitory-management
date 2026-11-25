@@ -1,10 +1,10 @@
-import type { Block, BlockKind, PersonnelData } from '../../api/personnel';
+import type { Block, BlockKind, BlockPreview, PersonnelData } from '../../api/personnel';
 import resident from '../../assets/avatar-rezident.svg';
 import manager from '../../assets/avatar-kadrovik.svg';
 import commandant from '../../assets/avatar-komendant.svg';
 import { dayDiff, dormName, personName, value } from './helpers';
 import { PersonnelBlockIcon as Icon } from './PersonnelBlockIcon';
-import { blockSource, workspaceBlockData } from './workspaceBlockData';
+import { blockSource, workspaceBlockModel } from './workspaceBlockData';
 import type { BlockCriteria, WorkspaceBlockData } from './workspaceBlockData';
 import s from './PersonnelWorkspace.module.css';
 
@@ -113,6 +113,8 @@ function BlockChart({ kind, model }: { kind: BlockKind; model: WorkspaceBlockDat
 type Props = {
   block: Block;
   data: PersonnelData;
+  /** Данные блока из `block_previews`; без них блок считается по полному списку. */
+  preview?: BlockPreview;
   dormitory: number | null;
   configuring: boolean;
   busy: boolean;
@@ -128,6 +130,7 @@ type Props = {
 export function PersonnelWorkspaceBlock({
   block,
   data,
+  preview,
   dormitory,
   configuring,
   busy,
@@ -140,13 +143,13 @@ export function PersonnelWorkspaceBlock({
   onMove,
   onRemove,
 }: Props): JSX.Element {
-  const model = workspaceBlockData(block, data, dormitory);
+  const model = workspaceBlockModel(block, data, dormitory, preview);
   const rowCount =
     block.kind === 'plans'
       ? model.plans.length
       : block.kind === 'residents'
         ? model.dorms.length
-        : model.people.length;
+        : model.total;
   const placements = model.dorms.reduce((total, dorm) => total + dorm.count, 0);
   const openList = (): void => (block.kind === 'plans' ? onPlanning() : onList(model.criteria));
   return (

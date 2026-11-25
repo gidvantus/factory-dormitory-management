@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-
 import { describe, expect, it } from 'vitest';
+
+import { NGINX_CONFIG, location } from './test/nginxConfig';
 
 /**
  * Контракт раздачи статики. Выкатка меняет хеши в именах файлов сборки, но
@@ -12,16 +11,8 @@ import { describe, expect, it } from 'vitest';
  *
  * Тест текстовый (как `design-system.test.ts`): nginx в jsdom не проверить, а
  * регресс здесь виден только человеку в браузере — то есть слишком поздно.
+ * Чтение конфига и разбор `location` живут в `test/nginxConfig.ts`.
  */
-const CONFIG = readFileSync(resolve(process.cwd(), 'nginx.conf'), 'utf8').replace(/#[^\n]*/g, '');
-
-/** Тело `location` по точному пути-образцу; пустая строка, если блока нет. */
-function location(path: string): string {
-  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = new RegExp(`location\\s+${escaped}\\s*\\{([^}]*)\\}`, 'm').exec(CONFIG);
-  return match ? match[1] : '';
-}
-
 describe('раздача статики: кеш не прячет новую сборку', () => {
   it('index.html перепроверяется, а не кешируется', () => {
     expect(location('= /index.html')).toContain('add_header Cache-Control "no-cache"');
@@ -34,6 +25,6 @@ describe('раздача статики: кеш не прячет новую с�
   });
 
   it('SPA-фолбэк на index.html сохранён: кабинет открывается по прямому адресу', () => {
-    expect(CONFIG).toMatch(/try_files\s+\$uri\s+\$uri\/\s+\/index\.html/);
+    expect(NGINX_CONFIG).toMatch(/try_files\s+\$uri\s+\$uri\/\s+\/index\.html/);
   });
 });

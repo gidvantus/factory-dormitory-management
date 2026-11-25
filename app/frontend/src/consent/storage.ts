@@ -7,7 +7,22 @@
 
 export const CONSENT_COOKIE = 'domovoy_cookie_consent';
 
-export const CONSENT_VALUE = 'v1';
+/**
+ * Версия согласия — это редакция текста, под которой его собирают. Значение
+ * поднято до `v2` вместе с появлением в тексте плашки обезличенной статистики
+ * (Яндекс.Метрика): согласие `v1` собрано под прежнюю, более узкую формулировку
+ * и согласием не считается, поэтому после выкатки плашку увидят все посетители,
+ * а счётчик до нового «Принять» не загружается. Имя cookie при смене версии
+ * не меняется — так сохранённый выбор не размножается по нескольким cookie.
+ */
+export const CONSENT_VALUE = 'v2';
+
+/**
+ * Событие, которое бросается после записи согласия. Слушатели — те, кому
+ * согласие нужно, чтобы начать работу (загрузка счётчика Метрики): сама плашка
+ * о них ничего не знает и продолжает оставаться простым предупреждением.
+ */
+export const CONSENT_CHANGED_EVENT = 'domovoy:cookie-consent';
 
 export const CONSENT_MAX_AGE_DAYS = 180;
 
@@ -36,9 +51,13 @@ export function isConsentGiven(doc: Document = document): boolean {
  * Запоминает согласие на 180 дней. `Secure` добавляется только для https:
  * стенд и локальная разработка идут по http, и с безусловным флагом
  * браузер отбросил бы cookie.
+ *
+ * Событие бросается после записи, а не до неё: слушатель, проверяющий согласие
+ * через `isConsentGiven()`, обязан увидеть уже сохранённое значение.
  */
 export function rememberConsent(doc: Document = document): void {
   const maxAge = CONSENT_MAX_AGE_DAYS * SECONDS_PER_DAY;
   const secure = doc.location.protocol === 'https:' ? '; Secure' : '';
   doc.cookie = `${CONSENT_COOKIE}=${CONSENT_VALUE}; path=/; max-age=${maxAge}; SameSite=Lax${secure}`;
+  doc.dispatchEvent(new Event(CONSENT_CHANGED_EVENT));
 }

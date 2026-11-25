@@ -18,15 +18,20 @@
           ├─ <домен>, www.<домен> ── reverse_proxy web:80 ── nginx фронта
           │                                             ├─ /      → SPA
           │                                             └─ /api/  → api:8000
-          └─ operator.<домен> ── reverse_proxy operator-web:80 ── nginx кабинета
-                                                          ├─ /      → SPA кабинета
-                                                          └─ /api/  → operator-api:8000
+          ├─ operator.<домен> ── reverse_proxy operator-web:80 ── nginx кабинета
+          │                                             ├─ /      → SPA кабинета
+          │                                             └─ /api/  → operator-api:8000
+          └─ monitor.<домен> ── basic_auth ── reverse_proxy grafana:3000
+          │                                   (стек monitor/, docs/monitoring.md)
+          └─ logs.<домен> ── basic_auth ── reverse_proxy dozzle:8080
+                                            (там же: живые логи контейнеров)
 ```
 
-- Caddy выпускает сертификаты на `SITE_DOMAIN`, `www.SITE_DOMAIN` и
-  `operator.SITE_DOMAIN` сам, там же их и продлевает (за 30 дней до истечения).
-  Это три имени и три отдельных сертификата. Аккаунт ACME и сертификаты лежат
-  в томе `caddy_data` и переживают пересборку контейнера.
+- Caddy выпускает сертификаты на `SITE_DOMAIN`, `www.SITE_DOMAIN`,
+  `operator.SITE_DOMAIN`, `monitor.SITE_DOMAIN` и `logs.SITE_DOMAIN` сам, там же
+  их и продлевает (за 30 дней до истечения).
+  Это пять имён и пять отдельных сертификатов. Аккаунт ACME и сертификаты
+  лежат в томе `caddy_data` и переживают пересборку контейнера.
 - API проксируется с того же origin, что и SPA: `/api/` уводит на `api:8000`
   nginx фронта (`app/frontend/nginx.conf`), поэтому CORS и второй домен для API
   не нужны — `Access-Control-Allow-Origin` в API выключен намеренно.
@@ -45,9 +50,10 @@
   собирается как `operator.{$SITE_DOMAIN}` — отдельной переменной для него нет
   намеренно: любая новая обязательная переменная — ещё один способ уронить
   весь Caddyfile опечаткой, а вместе с ним и основной кабинет.
-- Запросы по нашим хостам (`<домен>`, `www`, `operator.<домен>`) редиректятся
-  **на тот же хост** по HTTPS: матчер `@ourhost` в блоке `:80` знает все три
-  имени, поэтому `http://operator.<домен>/login` уходит на
+- Запросы по нашим хостам (`<домен>`, `www`, `operator.<домен>`,
+  `monitor.<домен>`, `logs.<домен>`) редиректятся **на тот же хост** по HTTPS:
+  матчер `@ourhost` в блоке `:80` знает все пять
+  имён, поэтому `http://operator.<домен>/login` уходит на
   `https://operator.<домен>/login`, а не на основной домен. Запросы по IP или
   чужому `Host` уходят на канонический `https://<домен>`: сертификата на
   IP-адрес не существует, и без этого редиректа браузер показывал бы
@@ -58,16 +64,22 @@
 
 ## DNS
 
-Нужны **три A-записи** на адрес сервера: apex, `www` и `operator`:
+Нужны **пять A-записей** на адрес сервера: apex, `www`, `operator`, `monitor` и
+`logs`:
 
 | Тип | Имя | Значение | TTL |
 |---|---|---|---|
 | A | `@` (или пусто) | адрес сервера | 600 |
 | A | `www` | адрес сервера | 600 |
 | A | `operator` | адрес сервера | 600 |
+| A | `monitor` | адрес сервера | 600 |
+| A | `logs` | адрес сервера | 600 |
 
 `operator` — поддомен кабинета оператора; без него ACME не выпустит на него
-сертификат, а шаг 16 деплоя покраснеет. Проверка резолва — та же, что ниже.
+сертификат, а шаг 18 деплоя покраснеет. `monitor` — вход в мониторинг, `logs` —
+живой просмотр логов (`docs/monitoring.md`); без них сертификат на эти имена не
+выпустится, но деплой мониторинга об этом только предупредит (`::warning::`), а
+не покраснеет. Проверка резолва — та же, что ниже.
 
 Правила:
 
@@ -93,6 +105,10 @@
 | `FRONTEND_BASE_URL` | `https://<домен>` | из него собирается ссылка активации в письме, иначе она остаётся `http://localhost:8080` |
 | `SESSION_COOKIE_SECURE` | `true` | cookie сессии `crm_session` отдаётся только по https |
 | `JWT_SECRET` | случайная строка, не короче 32 символов | **обязательно**: секрет подписи сессии `crm_session`. Заглушка `local-stand-only-secret-change-me-32-chars` из `.env.example` проходит проверку длины в коде, поэтому её отбивает деплой, а не приложение |
+| `MONITOR_BASIC_AUTH_USER` | `monitor` | логин входа на `monitor.<домен>`; читается блоком `monitor.` в `caddy/Caddyfile` |
+| `MONITOR_BASIC_AUTH_HASH` | bcrypt-хеш из `caddy hash-password`, **с удвоенными `$`** | пароль входа на `monitor.<домен>`. Пустое значение роняет конфиг caddy целиком; одиночные `$` compose съедает — подробности в `docs/monitoring.md`. Пару генерирует `deploy-monitoring.yml`, руками её не пишут |
+| `LOGS_BASIC_AUTH_USER` | `logs` | логин входа на `logs.<домен>`; читается блоком `logs.` в `caddy/Caddyfile` |
+| `LOGS_BASIC_AUTH_HASH` | тот же bcrypt-хеш, что у `MONITOR_BASIC_AUTH_HASH` | пароль входа на `logs.<домен>`: пароль общий, логин свой. Деплой копирует хеш из пары мониторинга, поэтому отдельного пароля в `monitor/.env` нет |
 
 `FRONTEND_PORT=127.0.0.1:8081` публикует фронт только на локальный адрес
 сервера — для отладки и проверок с самого сервера. Наружу его больше не
@@ -244,11 +260,14 @@ API отдаёт `Set-Cookie: crm_session=…; Secure` (`app/backend/app/securit
 | сертификат не выпускается | нет A-записи, есть лишняя AAAA, закрыт порт 80/443 у провайдера, DNS ещё не разошёлся |
 | в браузере «не защищено» | выпущен staging-сертификат (вернуть боевой `CADDY_ACME_CA` и пересоздать caddy); сертификат при этом валиден |
 | `/healthz` отвечает не 200 | сломан блок `:80` в `caddy/Caddyfile` — он обязан отдавать 200 без редиректа |
-| правки `Caddyfile` не применяются | конфиг не перечитан: `caddy reload`; если не помогло — `--force-recreate caddy` |
+| правки `Caddyfile` не применяются | конфиг не перечитан: `caddy reload`; если не помогло — `--force-recreate caddy`. Переменные окружения (`MONITOR_BASIC_AUTH_HASH` и прочие) `reload` не перечитывает вообще: они читаются при старте контейнера, поэтому после правки `.env` нужен `docker compose --profile tls up -d --no-deps caddy` |
 | `http://<IP>` ведёт на `https://<IP>`, браузер ругается | в блоке `:80` нет редиректа неизвестных хостов на канонический домен |
-| `http://operator.<домен>/…` уводит на основной домен | в матчере `@ourhost` блока `:80` нет `operator.{$SITE_DOMAIN}` |
+| `http://operator.<домен>/…`, `http://monitor.<домен>/…` или `http://logs.<домен>/…` уводит на основной домен | в матчере `@ourhost` блока `:80` нет нужного имени: `operator.{$SITE_DOMAIN}` / `monitor.{$SITE_DOMAIN}` / `logs.{$SITE_DOMAIN}` |
 | `operator.<домен>` отдаёт 502 | упал контейнер `operator-web` в сети проекта |
-| шаг 16 красный только на операторском хосте | нет A-записи `operator.<домен>` или DNS ещё не разошёлся: проверить `dig +short operator.<домен>`, затем `docker compose --profile tls up -d --force-recreate caddy` |
+| `logs.<домен>` отдаёт 502 | упал контейнер `dozzle` в сети проекта: `docker compose -f monitor/docker-compose.monitor.yml --env-file monitor/.env logs dozzle` |
+| `logs.<домен>` открывается без пароля | в `.env` сервера пустой `LOGS_BASIC_AUTH_HASH`, и Caddy взял заглушку… которой пароль неизвестен, то есть 401 обязан быть при любом значении; открытый адрес означает, что блок `logs.` в `caddy/Caddyfile` не доехал — проверить `docker compose --profile tls exec -T caddy cat /etc/caddy/Caddyfile | grep -c logs` |
+| шаг 18 красный только на операторском хосте | нет A-записи `operator.<домен>` или DNS ещё не разошёлся: проверить `dig +short operator.<домен>`, затем `docker compose --profile tls up -d --force-recreate caddy` |
+| `monitor.<домен>` или `logs.<домен>` отдают 401 при верном пароле | соответствующий `*_BASIC_AUTH_HASH` попал в `.env` с одиночными `$`: compose интерполирует их и обрезает хеш. Значение в контейнере (`docker compose --profile tls run --rm --no-deps --entrypoint env caddy`) должно быть 60 символов — `docs/monitoring.md` |
 | сайт отдаёт 502 | упал контейнер `web` в сети проекта |
 | в журнале аудита IP контейнера вместо клиента | сеть прокси не входит в `TRUSTED_PROXY_NETWORKS`: по умолчанию API верит loopback и `10.0.0.0/8`, `172.16.0.0/12`, и на другой сети Docker (`default-address-pools`) цепочка `X-Forwarded-For` игнорируется — добавьте сеть в `TRUSTED_PROXY_NETWORKS` в `.env` |
 | caddy не стартует, в логах пустой адрес | не задан `SITE_DOMAIN` в `.env` |
@@ -264,6 +283,9 @@ CRMDormitory нужен **отдельный сервер** (или отдель
 
 ## Изменения
 
+- 2026-11-16 — второй поддомен мониторинга: `logs.<SITE_DOMAIN>` за своим basic
+  auth проксирует на `dozzle:8080` (живой просмотр логов), имя добавлено в
+  матчер `@ourhost` блока `:80`; сертификатов стало пять, A-записей — тоже.
 - 2026-11-05 — кабинет оператора выведен на `operator.<SITE_DOMAIN>` тем же
   caddy: третий сертификат, хост в матчере редиректа блока `:80`, отдельный
   site-блок на `operator-web:80`. Loopback-порты кабинета остаются резервом.

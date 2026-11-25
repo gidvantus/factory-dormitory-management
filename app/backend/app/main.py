@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from starlette.middleware.base import RequestResponseEndpoint
 
-from app import audit, dormitory_history
+from app import audit, dormitory_history, metrics, sql_diagnostics
 from app.api import (
     activation,
     arrival_plans,
@@ -357,6 +357,19 @@ def create_app() -> FastAPI:
         finally:
             dormitory_history.request_context.reset(token)
 
+    # Диагностика SQL (#231): сколько времени запроса ушло в базу. Контекст
+    # ставится до `call_next`, поэтому его наследует threadpool синхронных ручек,
+    # а слушатели SQLAlchemy (`app.sql_diagnostics`) дописывают счётчик и время в
+    # общий изменяемый объект. Ставится до метрик, то есть оказывается внутри
+    # них: скрейп `/metrics` исключён в самом middleware диагностики.
+    application.middleware("http")(sql_diagnostics.middleware)
+
+    # Метрики Prometheus — самый внешний middleware: в Starlette последний
+    # добавленный оказывается внешним, поэтому он видит ответ таким, каким его
+    # отдала ручка, и считает каждый запрос, включая падения и отказы 4xx/5xx.
+    # От журнала метрики не зависят: `AUDIT_ENABLED=false` их не выключает.
+    application.middleware("http")(metrics.middleware)
+
     application.include_router(health.router, prefix=API_PREFIX)
     application.include_router(auth.router, prefix=API_PREFIX)
     application.include_router(activation.router, prefix=API_PREFIX)
@@ -484,6 +497,22 @@ def create_app() -> FastAPI:
     application.include_router(documents.router, prefix=API_PREFIX)
     application.include_router(telegram.router, prefix=API_PREFIX)
     application.include_router(notification_rules.router, prefix=API_PREFIX)
+
+    # -----------------------------------------------------------------------
+    # Метрики Prometheus: `/metrics` живёт ВНЕ `/api` и вне публичной схемы.
+    # Это служебный вход для Prometheus, который ходит по адресу `api:8000`
+    # внутри сети compose. nginx фронта проксирует только `/api/`, поэтому
+    # наружу путь не публикуется. `include_in_schema=False` держит его и в
+    # `/openapi.json`: клиентский контракт метриками не расширяется.
+    #
+    # Ни `tags`, ни `summary`, ни `response_class` у маршрута нет намеренно:
+    # схему он не печатает, а ответ — готовый `Response` из `app.metrics`,
+    # поэтому эти поля не читает никто.
+    # -----------------------------------------------------------------------
+    @application.get("/metrics", include_in_schema=False)
+    def get_metrics() -> Response:
+        """Отдать метрики в текстовом формате Prometheus (`text/plain; version=0.0.4`)."""
+        return metrics.exposition()
 
     # -----------------------------------------------------------------------
     # Раздача загруженных файлов: `/uploads/<ключ>` читается через единый

@@ -10,6 +10,7 @@ from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import read_cache
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
 from app.arrival_plans import report_arrivals
 from app.db import get_db
@@ -40,7 +41,6 @@ from app.table_data import (
     linked_counts,
     linked_place_values,
     lock_dormitory,
-    records_for,
     validate_link,
 )
 from app.table_pagination import Paging, page_items
@@ -198,7 +198,9 @@ def read_report(
                     )
                     continue
                 if link.table_key not in source_records:
-                    source_records[link.table_key] = records_for(db, dormitory_id, link.table_key)
+                    source_records[link.table_key] = read_cache.records(
+                        db, dormitory_id, link.table_key
+                    )
                 linked_values[row.id] = linked_counts(
                     db,
                     dormitory_id,

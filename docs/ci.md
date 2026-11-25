@@ -44,7 +44,14 @@
    стенд не тронут: `api` на них ушёл бы в цикл перезапуска);
 5. снимает дамп БД стенда в `D:\stand-backups\CRMDormitory`;
 6. пересобирает и перезапускает стек (`docker compose up -d --build --wait`);
-7. проверяет, что API и веб отвечают.
+7. проверяет, что API и веб отвечают;
+8. готовит `monitor/.env` (создаёт из шаблона, подставляет имя проекта стенда и
+   адрес сети) и проверяет, что порты мониторинга свободны;
+9. пересобирает и перезапускает стек мониторинга — Grafana, Prometheus,
+   Alertmanager, Loki, promtail, Dozzle (`docker compose -p
+   crm-dormitory-monitor … up -d --build`);
+10. проверяет, что Grafana и Dozzle отвечают по своим портам, Loki готов, а логи
+    контейнеров стенда дошли до него.
 
 Держать это в `deploy.yml` нельзя: у файлов разные права (боевой деплой идёт с
 секретами сервера), разные раннеры (облачный против локального) и разные
@@ -146,11 +153,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File _tools\runner\install-ru
 | `LOCAL_BRANCH` | `develop-m` | базовая ветка: какая ветка обязана быть открыта в клоне и откуда берётся fast-forward |
 | `STAND_BRANCH` | `${{ inputs.branch }}` (пусто → `LOCAL_BRANCH`) | ветка, **из которой** собирается стенд. Приходит из input `branch`; пустое значение означает «как обычно, из `develop-m`» |
 | `STAND_PROJECT` | `crm-dormitory` | ожидаемое имя compose-проекта стенда (`COMPOSE_PROJECT_NAME` в `.env` клона) |
+| `STAND_MONITOR_PROJECT` | `crm-dormitory-monitor` | compose-проект стека мониторинга: он отдельный, со своими томами и образами. Это же имя стоит в `name:` файла `monitor/docker-compose.monitor.yml` |
 | `STAND_BACKUP_DIR` | `D:\stand-backups\CRMDormitory` | куда складываются дампы БД перед обновлением |
 
 Порты стенда здесь **не** задаются: они берутся из `docker compose config
 --format json`, то есть из `.env` клона (`API_PORT`, `FRONTEND_PORT`). Меняете
 порты в `.env` — workflow править не нужно.
+
+Порты мониторинга тоже не задаются в workflow: они читаются из `monitor/.env`
+клона (`MONITOR_GRAFANA_PORT`, `MONITOR_LOGS_PORT`, по умолчанию 8095 и 8096) и
+публикуются на `127.0.0.1` оверрайдом `monitor/docker-compose.local.yml`.
 
 Имя compose-проекта не переопределяется через `-p` ни в одной команде: оно
 читается из `.env` клона. Шаг «Проверка: имя compose-проекта» падает, если
@@ -257,6 +269,61 @@ docker compose exec -T db sh -c 'pg_restore -U $POSTGRES_USER -d $POSTGRES_DB --
 (перенаправление здесь в другую сторону — из файла в `stdin` контейнера; для
 двоичного `-Fc` надёжнее `docker cp` файла в контейнер и `pg_restore` по пути
 внутри него).
+
+## Мониторинг на стенде
+
+После каждого обновления клона job обновляет и стек мониторинга
+(`monitor/`). Он живёт **отдельным compose-проектом** `crm-dormitory-monitor`:
+у него свои тома (Grafana, Prometheus, Alertmanager, Loki), свои образы
+(`docker-stats-exporter`, `notifier` собираются из дерева) и своё время жизни —
+основной стенд и мониторинг можно пересобрать порознь.
+
+Что появляется на машине:
+
+| Что | Адрес | Вход |
+|---|---|---|
+| Grafana (дашборды, алерты, Explore по логам) | http://127.0.0.1:8095 | `admin` и пароль из `monitor/.env` (`GRAFANA_ADMIN_PASSWORD`) |
+| Dozzle (живой поток логов контейнеров) | http://127.0.0.1:8096 | без входа: слушает только `127.0.0.1` |
+
+Порты публикует оверрайд `monitor/docker-compose.local.yml`, в основном файле
+`ports:` нет — на сервере вход идёт через Caddy (`docs/monitoring.md`).
+
+Как устроены шаги:
+
+- **«Мониторинг: окружение стенда»** — `monitor/.env` не в git, поэтому первый
+  прогон создаёт его из `monitor/.env.example`. Дальше каждый прогон пишет два
+  значения из стенда: `MONITORED_PROJECT=crm-dormitory` и
+  `APP_NETWORK=crm-dormitory_default` — по ним Prometheus находит `api`, а
+  promtail, Dozzle и экспортёр берут контейнеры **своего** проекта, а не всей
+  машины. Пустые `MONITOR_HOST` и `GRAFANA_ADMIN_PASSWORD` заполняются
+  заглушками из шаблона (`::warning::`), потому что compose без них не
+  поднимется.
+- **«Мониторинг: пересборка и перезапуск»** — `docker compose -p
+  crm-dormitory-monitor -f monitor/docker-compose.monitor.yml -f
+  monitor/docker-compose.local.yml --env-file monitor/.env up -d --build
+  --remove-orphans`. `--build` нужен экспортёру и notifier (они собираются из
+  дерева), `--remove-orphans` убирает сервисы, выпавшие из файла. Тома не
+  трогаются: история метрик и логов переживает обновление.
+- **«Проверка: мониторинг отвечает»** — Grafana `GET /api/health` = 200,
+  Dozzle по корню = 200, Loki `/ready` спрашивается **изнутри** сети (наружу он
+  не публикуется), затем у Loki проверяется метка `service=api`: она
+  появляется только тогда, когда promtail действительно читает контейнеры
+  стенда.
+
+Первый запуск Grafana прогоняет миграции своей базы внутри тома
+`crm-dormitory-monitor_grafana-data` — это до трёх минут, поэтому проверка ждёт
+до пяти. Последующие прогоны отвечают за секунды.
+
+**Порты.** Если 8095 или 8096 заняты чужим стеком, шаг «окружение» падает с
+`::error::Port 127.0.0.1:… is already taken` и **не** запускает мониторинг:
+чужие контейнеры ради этого не останавливаются. Лечится строкой в
+`monitor/.env` клона (`MONITOR_GRAFANA_PORT`, `MONITOR_LOGS_PORT`) и повторным
+запуском job.
+
+**Второй стенд на машине** (например стенд отдела `crm-dormitory-agent`)
+обновляется этим workflow только если поменять `STAND_PROJECT` и
+`STAND_MONITOR_PROJECT` — мониторинг смотрит на тот проект, что указан в
+`MONITORED_PROJECT`, и на `APP_NETWORK` того же стенда.
 
 ## Правило: в блоках `run:` — только ASCII
 
@@ -404,6 +471,11 @@ config`: `git fetch`/`git merge` в этом режиме не нужны — с
 | `::error::Compose project name is ...` | нет/неверен `COMPOSE_PROJECT_NAME` в `.env` клона |
 | `::error::$apiUrl did not respond` | стек поднялся, но API не отвечает: `docker compose logs api` в клоне |
 | `::error::pg_dump failed` | контейнер `db` не готов или в нём нет `pg_dump`: `docker compose logs db`; стенд при этом не тронут |
+| `::error::Port 127.0.0.1:… is already taken` | порт мониторинга занят чужим стеком: освободите его или задайте другой в `monitor/.env` клона (`MONITOR_GRAFANA_PORT`/`MONITOR_LOGS_PORT`) |
+| `::error::MONITOR_HOST`/`GRAFANA_ADMIN_PASSWORD` в сообщении compose про `required variable` | `monitor/.env` клона заполнен частично: допишите значения из `monitor/.env.example` (шаг «окружение» заполняет пустые сам, но не исправляет неверные) |
+| `::error::Grafana did not answer 200 … within 300 seconds` | смотрите лог `grafana` в выводе шага: чаще всего первый запуск с миграциями не успел, или занят `MONITOR_GRAFANA_PORT` |
+| `::warning::Loki has no logs with service=api yet` | логи стенда ещё не доехали: повторится само; если остаётся — `MONITORED_PROJECT` в `monitor/.env` не равен `crm-dormitory` |
+| Пусто в Grafana и Dozzle, а метрики API идут | сборщики смотрят не тот проект: сверьте `MONITORED_PROJECT` в `monitor/.env` и имя проекта стенда (`docker compose ps` в клоне) |
 | Диск растёт | `D:\stand-backups\CRMDormitory` не ротируется: чистится руками. Плюс `D:\actions-runner-crm\_work` хранит файлы раннера |
 
 ## Что workflow не делает
@@ -416,6 +488,9 @@ config`: `git fetch`/`git merge` в этом режиме не нужны — с
   а `-p` нигде не переопределяется. Стенд отдела разработки
   (`crm-dormitory-agent`) и любой другой стенд этим workflow не обновляется.
 - Не мержит PR и не двигает метки процесса.
+- Не трогает тома и историю: `monitor/docker-compose.local.yml` публикует порты,
+  но `down -v` не выполняется ни для стенда, ни для мониторинга — метрики и логи
+  переживают пересборку.
 - Не делает `docker compose down -v`, не удаляет тома и не чистит Docker
   (`prune`): база стенда и файлы в `uploads` сохраняются.
 - Не откатывает миграции: откат БД — только вручную из дампа (см. выше).

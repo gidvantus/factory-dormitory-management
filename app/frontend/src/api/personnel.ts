@@ -146,6 +146,43 @@ export type ArrivalConfiguration = Settings & {
   archived_fields: Field[];
   used_fields: string[];
 };
+/** Карточки страницы сотрудников: `GET /api/personnel/employees` (#247). */
+export type EmployeePage = {
+  items: Employee[];
+  total: number;
+  page: number;
+  per_page: number;
+  pages: number;
+};
+/** Условия страницы: те же правила, что раньше считались в браузере по всему списку. */
+export type EmployeeListQuery = {
+  filter: Filter;
+  dormitory: number | null;
+  scope: number[];
+  days: number;
+  period?: DateRange | null;
+  query: string;
+  column_filters?: EmployeeColumnFilter[];
+  page: number;
+  per_page: number;
+};
+/** Данные блока рабочей поверхности без полной выборки карточек (#247). */
+export type BlockPreview = {
+  id: string;
+  kind: BlockKind;
+  title: string;
+  count: number;
+  items: Employee[];
+  events: { date: string; count: number }[];
+  dorms: {
+    id: number;
+    name: string;
+    client_name: string;
+    is_archived: boolean;
+    count: number;
+  }[];
+  missing_list: boolean;
+};
 export type PersonnelData = {
   today: string;
   dormitories: { id: number; name: string; client_name: string; is_archived: boolean }[];
@@ -155,6 +192,14 @@ export type PersonnelData = {
   arrival_plans: ArrivalPlan[];
   arrival_settings?: ArrivalConfiguration;
   preferences: Preferences;
+  /** Есть только при `employees=none`: так `Personnel.tsx` рисует блоки без полного списка. */
+  block_previews?: BlockPreview[];
+  /**
+   * Сводка поверхности при `employees=none` (#247): числа «Персонал N»,
+   * «Проживают сейчас» и «Завершают вахту» считает сервер, а не браузер по
+   * всему массиву карточек. Срок вахты задаётся `days` того же запроса.
+   */
+  counts?: Partial<Record<Filter, number>>;
 };
 export type ArrivalPlanningData = Pick<
   PersonnelData,
@@ -212,6 +257,14 @@ const send = <T = { ok: boolean }>(path: string, method: string, body?: unknown)
     method,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+
+/** Диапазон дат в запросе: сервер принимает обе границы вместе или ни одной. */
+const periodParams = (params: URLSearchParams, period?: DateRange | null): void => {
+  if (!period) return;
+  params.set('period_from', period.from);
+  params.set('period_to', period.to);
+};
+
 export const personnelApi = {
   arrivals: (
     range?: { from: string; to: string },
@@ -227,7 +280,48 @@ export const personnelApi = {
       method: 'POST',
       body: JSON.stringify({ name, employee_ids, columns }),
     }),
-  workspace: (signal?: AbortSignal): Promise<PersonnelData> => request('/personnel', { signal }),
+  /**
+   * Рабочая поверхность. `employees: 'none'` — рамка без карточек: люди приходят
+   * страницами из `employees()`, а блоки — из `block_previews` (#247).
+   * `days` — срок вахты для сводки `counts`; страница запрашивает его же.
+   * `period` — выбранный диапазон дат панели персонала: сервер считает «окончание
+   * вахты» ровно в его границах, а `days` остаётся запасным правилом.
+   * Умолчание `full` осталось ради остальных экранов, которым нужен весь список.
+   */
+  workspace: (
+    signal?: AbortSignal,
+    options?: {
+      employees?: 'full' | 'none';
+      dormitory?: number | null;
+      days?: number;
+      period?: DateRange | null;
+    },
+  ): Promise<PersonnelData> => {
+    const params = new URLSearchParams();
+    if (options?.employees === 'none') params.set('employees', 'none');
+    if (options?.dormitory) params.set('dormitory', String(options.dormitory));
+    if (options?.days != null) params.set('days', String(options.days));
+    periodParams(params, options?.period);
+    const search = params.toString();
+    return request(`/personnel${search ? `?${search}` : ''}`, { signal });
+  },
+  /** Страница сотрудников с серверной фильтрацией и сортировкой (#247). */
+  employees: (query: EmployeeListQuery, signal?: AbortSignal): Promise<EmployeePage> => {
+    const params = new URLSearchParams({
+      filter: query.filter,
+      page: String(query.page),
+      per_page: String(query.per_page),
+    });
+    if (query.dormitory != null) params.set('dormitory', String(query.dormitory));
+    for (const id of query.scope) params.append('scope', String(id));
+    params.set('days', String(query.days));
+    periodParams(params, query.period);
+    const text = query.query.trim();
+    if (text) params.set('query', text);
+    if (query.column_filters?.length)
+      params.set('column_filters', JSON.stringify(query.column_filters));
+    return request(`/personnel/employees?${params}`, { signal });
+  },
   detail: (id: string, signal?: AbortSignal): Promise<EmployeeDetail> =>
     request(`/personnel/employees/${encodeURIComponent(id)}`, { signal }),
   profile: (target: EmployeeProfileTarget, signal?: AbortSignal): Promise<EmployeeProfileData> =>

@@ -31,6 +31,9 @@ BODY_GUARDED: dict[tuple[str, str], str] = {
     ("put", "/api/personnel/arrivals/{plan_id}"): (
         "writable_dormitory → own_dormitory и для общежития плана, и для нового"
     ),
+    ("post", "/api/personnel/arrivals/from-employee/{employee_id}"): (
+        "writable_dormitory → own_dormitory(db, payload.dormitory_id, membership)"
+    ),
     ("put", "/api/personnel/employees/{employee_id}/next-shift"): (
         "own_dormitory(db, payload.dormitory_id, membership)"
     ),
@@ -51,6 +54,11 @@ BODY_GUARDED: dict[tuple[str, str], str] = {
         "/api/statistics/reports/{report_id}",
     ): "validate_blocks → validate_config с organization_id",
 }
+
+# Маршруты, которые обход `api_routes` обязан видеть, но которых намеренно нет
+# в публичной схеме (`include_in_schema=False`). `/metrics` — служебный вход
+# Prometheus вне `/api` и вне клиентского контракта (#213).
+UNDOCUMENTED_PATHS: set[str] = {"/metrics"}
 
 
 def api_routes() -> Iterator[tuple[str, APIRoute]]:
@@ -157,10 +165,14 @@ def test_walked_paths_match_the_documented_ones() -> None:
     версии FastAPI: если обход перестанет видеть вложенные роутеры, остальные
     проверки этого файла станут пустыми и «зелёными». Расхождение с публичной
     схемой — единственный признак, который это ловит.
+
+    `UNDOCUMENTED_PATHS` — маршруты, которые обход обязан видеть, но которых нет
+    в схеме намеренно (`include_in_schema=False`): `/metrics` для Prometheus
+    живёт вне клиентского контракта (#213).
     """
     walked = {path for path, _ in api_routes()}
 
-    assert walked == set(app.openapi()["paths"])
+    assert walked == set(app.openapi()["paths"]) | UNDOCUMENTED_PATHS
 
 
 def test_every_dormitory_path_route_declares_the_gate() -> None:

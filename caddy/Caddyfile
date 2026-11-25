@@ -14,9 +14,11 @@
 	route {
 		@healthz path /healthz
 		respond @healthz "ok" 200
-		# Кабинет оператора — тоже наш хост: без него http://operator.<домен>/…
-		# улетал бы на канонический домен, то есть в чужой кабинет.
-		@ourhost host {$SITE_DOMAIN} www.{$SITE_DOMAIN} operator.{$SITE_DOMAIN}
+		# Кабинет оператора, мониторинг и логи — тоже наши хосты: без них
+		# http://operator.<домен>/…, http://monitor.<домен>/… и
+		# http://logs.<домен>/… улетали бы на канонический домен, то есть в
+		# чужой кабинет.
+		@ourhost host {$SITE_DOMAIN} www.{$SITE_DOMAIN} operator.{$SITE_DOMAIN} monitor.{$SITE_DOMAIN} logs.{$SITE_DOMAIN}
 		redir @ourhost https://{host}{uri} permanent
 		# Запросы по IP и чужому Host — на канонический домен: сертификата на IP не бывает.
 		redir https://{$SITE_DOMAIN}{uri} permanent
@@ -39,4 +41,47 @@
 operator.{$SITE_DOMAIN} {
 	encode zstd gzip
 	reverse_proxy operator-web:80
+}
+
+# ---- Мониторинг: Grafana за логином и паролем (docs/monitoring.md) ----
+# Стек мониторинга (monitor/) живёт в сети основного стека и портов на хост не
+# публикует, поэтому единственный вход в него — этот блок; `grafana:3000` —
+# внутренний адрес сервиса.
+#
+# basic_auth проверяется ДО проксирования: без пары логин/пароль запрос до
+# Grafana не доходит вовсе (401 от Caddy, а не страница входа). Хеш — bcrypt,
+# его печатает `caddy hash-password`; живёт он в .env сервера, в репозитории
+# только заглушка.
+#
+# `{$VAR:умолчание}` — не украшение: если переменной в .env нет (свежий сервер),
+# Caddy берёт заглушку и поднимается. Пустое значение недопустимо: basic_auth с
+# пустым хешем не собирается, и тогда ложится ВЕСЬ конфиг — вместе с основным
+# кабинетом. Поэтому заглушка здесь валидный bcrypt, а не пустая строка.
+monitor.{$SITE_DOMAIN} {
+	encode zstd gzip
+	basic_auth {
+		{$MONITOR_BASIC_AUTH_USER:monitor} {$MONITOR_BASIC_AUTH_HASH:$2a$14$nduRAFlYpbDebxcIGa2oveoXKJswEHWAV8vFTVWn.HXKmBjZADkmy}
+	}
+	reverse_proxy grafana:3000
+}
+
+# ---- Логи: живой просмотр логов контейнеров (Dozzle, docs/monitoring.md) ----
+# Второй замок того же образца, что у `monitor.`: basic_auth проверяется до
+# проксирования, поэтому без пары логин/пароль запрос до Dozzle не доходит.
+#
+# Свой логин, пароль тот же (`LOGS_BASIC_AUTH_USER` против
+# `MONITOR_BASIC_AUTH_USER`, хеш один). Разные логины оставляют в логе caddy
+# след, с какого адреса входили; разные пароли на два адреса одного сервиса
+# человек всё равно путает и начинает хранить их в блокноте.
+#
+# Замок здесь обязателен: за Dozzle не «журнал приложения», а docker-сокет, то
+# есть stdout/stderr ВСЕХ контейнеров хоста — включая db и api с их токенами в
+# строках запросов. Заглушка хеша — та же, что у `monitor.`: валидный bcrypt от
+# неизвестного пароля, чтобы конфиг собирался на свежем сервере.
+logs.{$SITE_DOMAIN} {
+	encode zstd gzip
+	basic_auth {
+		{$LOGS_BASIC_AUTH_USER:logs} {$LOGS_BASIC_AUTH_HASH:$2a$14$nduRAFlYpbDebxcIGa2oveoXKJswEHWAV8vFTVWn.HXKmBjZADkmy}
+	}
+	reverse_proxy dozzle:8080
 }
