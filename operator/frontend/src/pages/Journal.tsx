@@ -137,6 +137,7 @@ function actionCell(entry: JournalEntry): { text: string; unknown: boolean } {
 
 /** Строка журнала: шесть ячеек по правилам постановки. */
 function JournalRow({ entry }: { entry: JournalEntry }): JSX.Element {
+  const [open, setOpen] = useState(false);
   const action = actionCell(entry);
   const tone = statusTone(entry.status);
   const platform = entry.organization_id === null;
@@ -150,7 +151,10 @@ function JournalRow({ entry }: { entry: JournalEntry }): JSX.Element {
 
   return (
     <>
-      <tr className="journal__row" data-testid="operator-journal-row">
+      <tr
+        className={open ? 'journal__row journal__row--open' : 'journal__row'}
+        data-testid="operator-journal-row"
+      >
         <td className="journal__when" data-testid="operator-journal-when">
           <span className="journal__date">{momentDate(entry.created_at)}</span>
           <span className="journal__time">{momentTime(entry.created_at)}</span>
@@ -198,7 +202,11 @@ function JournalRow({ entry }: { entry: JournalEntry }): JSX.Element {
       </tr>
       <tr className="details-row">
         <td colSpan={6}>
-          <details className="summary-block" data-testid="operator-journal-detail">
+          <details
+            className="summary-block"
+            onToggle={(event) => setOpen(event.currentTarget.open)}
+            data-testid="operator-journal-detail"
+          >
             <summary className="summary">
               <svg
                 className="summary__chevron"

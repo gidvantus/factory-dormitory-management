@@ -185,19 +185,30 @@ describe('раздел «Журнал» кабинета оператора', ()
     expect(status).toHaveTextContent('—');
   });
 
-  it('раскрытие записи: нативный details с JSON записи и номером', async () => {
+  it('раскрытие записи: нативный details, JSON и фон открытой строки', async () => {
     renderJournal([{ status: 200, body: FIRST_PAGE }]);
     await screen.findByTestId('operator-journal-count');
 
+    const [company] = screen.getAllByTestId('operator-journal-row');
     const [detail] = screen.getAllByTestId('operator-journal-detail');
+    const summary = detail.querySelector('summary');
+    expect(summary).not.toBeNull();
+    if (summary === null) throw new Error('У записи нет summary');
     expect(detail.tagName).toBe('DETAILS');
-    expect(detail.querySelector('summary')).toHaveTextContent('Запись журнала');
-    expect(detail.querySelector('summary')).toHaveTextContent('№ 14821');
+    expect(summary).toHaveTextContent('Запись журнала');
+    expect(summary).toHaveTextContent('№ 14821');
+    expect(company).not.toHaveClass('journal__row--open');
     const json = within(detail).getByTestId('operator-journal-json');
     const parsed = JSON.parse(json.textContent ?? '') as Record<string, unknown>;
     expect(parsed.id).toBe(14821);
     expect(parsed.organization_name).toBe('ООО Ромашка');
     expect(json.textContent).toContain('\n  "id": 14821');
+
+    await userEvent.click(summary);
+    await waitFor(() => expect(company).toHaveClass('journal__row--open'));
+
+    await userEvent.click(summary);
+    await waitFor(() => expect(company).not.toHaveClass('journal__row--open'));
   });
 
   it('фильтр по виду уходит параметром kind и заменяет ленту', async () => {
