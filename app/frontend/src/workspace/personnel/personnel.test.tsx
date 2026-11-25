@@ -1,4 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -360,34 +361,65 @@ it('загружает список страницами с сервера и н
 });
 
 it('на одно открытие раздела запрашивает рамку ровно один раз (#261)', async () => {
-  vi.spyOn(session, 'useSession').mockReturnValue({
-    status: 'authenticated',
-    user: null,
-    setUser: vi.fn(),
-    refresh: vi.fn(),
-    logout: vi.fn(),
-  });
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-    now.getDate(),
-  ).padStart(2, '0')}`;
-  // `today` сервера совпадает с местным месяцем: даты диапазона не меняются.
-  mockPersonnelServer({ ...data(people(3)), today });
-  render(
-    <MemoryRouter>
-      <Personnel />
-    </MemoryRouter>,
-  );
-  await screen.findByRole('tab', { name: /Сотрудники/ });
-  // Ответ сервера меняет `today`, а вместе с ним месяц: диапазон пересчитан, но
-  // даты те же — второй запрос с теми же параметрами не нужен.
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  });
-  expect(vi.mocked(personnelApi.workspace)).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(personnelApi.workspace).mock.calls[0][1]).toMatchObject({
-    employees: 'none',
-  });
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-25T12:00:00'));
+  try {
+    vi.spyOn(session, 'useSession').mockReturnValue({
+      status: 'authenticated',
+      user: null,
+      setUser: vi.fn(),
+      refresh: vi.fn(),
+      logout: vi.fn(),
+    });
+    // `today` сервера совпадает с местным месяцем: даты диапазона не меняются.
+    mockPersonnelServer({ ...data(people(3)), today: '2026-11-25' });
+    render(
+      <MemoryRouter>
+        <Personnel />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('tab', { name: /Сотрудники/ });
+    // Ответ сервера меняет `today`, а вместе с ним месяц: диапазон пересчитан, но
+    // даты те же — второй запрос с теми же параметрами не нужен.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(vi.mocked(personnelApi.workspace)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(personnelApi.workspace).mock.calls[0][1]).toMatchObject({
+      employees: 'none',
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('не теряет рамку при повторном запуске эффекта в StrictMode (#261)', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-25T12:00:00'));
+  try {
+    vi.spyOn(session, 'useSession').mockReturnValue({
+      status: 'authenticated',
+      user: null,
+      setUser: vi.fn(),
+      refresh: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockPersonnelServer({ ...data(people(3)), today: '2026-11-25' });
+    render(
+      <StrictMode>
+        <MemoryRouter>
+          <Personnel />
+        </MemoryRouter>
+      </StrictMode>,
+    );
+    // В dev StrictMode отменяет первый ответ. Ключ, запомненный до отправки,
+    // запрещал второй запуск эффекта и оставлял экран загрузки до минутного тика.
+    expect(await screen.findByRole('tab', { name: /Сотрудники/ })).toBeInTheDocument();
+    for (const [, options] of vi.mocked(personnelApi.workspace).mock.calls)
+      expect(options).toMatchObject({ employees: 'none' });
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('проходит сценарий поверхности, ни разу не запросив полный набор карточек (#251)', async () => {

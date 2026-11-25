@@ -159,22 +159,11 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
    */
   const debouncedQuery = useDebounced(query);
   const debouncedColumnFilters = useDebounced(columnFilters);
-  /**
-   * Последний запрошенный набор параметров рамки. Эффект зависит от ревизий
-   * обновления и от ссылок на `period`/`days`: при монтировании зависимость
-   * успевает смениться (сессия, месяц), и одинаковый запрос уходил дважды (#261).
-   * Аборт в очистке отменяет только ответ клиента — сервер уже считает рамку,
-   * поэтому в логе это два дорогих расчёта вместо одного.
-   */
-  const frameRequest = useRef('');
   useEffect(() => {
     if (user?.is_active === false || mutating.current) {
       setLoading(false);
       return;
     }
-    const key = JSON.stringify([attempt, refresh, frameRefresh, dormitory, days, period]);
-    if (frameRequest.current === key) return;
-    frameRequest.current = key;
     const controller = new AbortController();
     void personnelApi
       .workspace(controller.signal, { employees: 'none', dormitory, days, period })

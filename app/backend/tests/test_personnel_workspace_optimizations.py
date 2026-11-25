@@ -37,7 +37,7 @@ from app.models.hostel import Hostel
 from app.models.inflow import PersonnelInflow
 from app.models.organization import OrganizationMember
 from app.models.outflow import PersonnelOutflow
-from app.models.personnel import Employee, PersonnelBinding
+from app.models.personnel import Employee, EmployeeEvent, PersonnelBinding, PersonnelPreferences
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry
 from app.personnel import (
@@ -356,6 +356,80 @@ def test_block_previews_intersects_the_selection_once_per_block(
     assert len(frame["block_previews"]) == 4
     # Три блока по людям (план заездов отбор не спрашивает) и три числа сводки.
     assert len(calls) == 6, calls
+
+
+def test_limited_cards_keep_history_of_merged_members(
+    client: TestClient, db_session: Session
+) -> None:
+    """Сужение журнала по группе не теряет событие присоединённого участника (#261).
+
+    Карточка входит в отбор только через `employee_events`: строк-источников у неё
+    нет. Событие принадлежит участнику слияния, поэтому запрос только по корням
+    отобрал бы её из `base`, но не смог бы собрать ни на странице, ни в превью.
+    """
+    user = sign_in(client, db_session)
+    dormitory_id = create_dormitory(client)
+    target = Employee(full_name="Семёнов Иван Иванович", identity_status="confirmed")
+    member = Employee(full_name="Семёнов И. И.", identity_status="pending")
+    db_session.add_all([target, member])
+    db_session.flush()
+    member.merged_into_id = target.id
+    db_session.add(
+        EmployeeEvent(
+            employee_id=member.id,
+            dormitory_id=dormitory_id,
+            kind="merge",
+            title="Карточки объединены",
+            happened_on=date(2026, 1, 5),
+        )
+    )
+    db_session.add(
+        PersonnelPreferences(
+            user_id=user.id,
+            settings={
+                "blocks": [
+                    {
+                        "id": "history",
+                        "kind": "saved",
+                        "title": "С историей",
+                        "scope": [],
+                        "days": 5,
+                        "limit": 4,
+                        "wide": False,
+                        "saved_list_id": "all",
+                    }
+                ],
+                "lists": [
+                    {
+                        "id": "all",
+                        "name": "Все с историей",
+                        "filter": "all",
+                        "dormitory": None,
+                        "days": 5,
+                        "query": "",
+                        "scope": [],
+                        "column_filters": [],
+                    }
+                ],
+            },
+        )
+    )
+    db_session.commit()
+
+    page = client.get("/api/personnel/employees").json()
+    assert page["total"] == 1
+    [card] = page["items"]
+    assert card["id"] == target.id
+    assert card["member_ids"] == sorted([target.id, member.id])
+    assert card["sources"] == []
+    assert card["history_dormitory_ids"] == [dormitory_id]
+
+    frame = client.get("/api/personnel", params={"employees": "none"}).json()
+    [preview] = frame["block_previews"]
+    assert preview["count"] == page["total"] == 1
+    assert [item["id"] for item in preview["items"]] == [target.id]
+    assert preview["items"][0]["sources"] == []
+    assert preview["items"][0]["history_dormitory_ids"] == [dormitory_id]
 
 
 def test_workspace_reads_the_dormitory_directory_once(

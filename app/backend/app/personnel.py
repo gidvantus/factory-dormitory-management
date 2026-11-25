@@ -901,9 +901,9 @@ def employee_cards(db: Session, context: WorkspaceContext) -> list[dict[str, Any
         )
         if group is not None:
             # Ограниченный контекст (страница, превью блоков) собирает карточки
-            # только отобранных людей, поэтому журнал читается по ним, а не по
-            # всей области: строка события для остальных карточек в такой ответ
-            # не попадает (#261).
+            # только отобранных групп. Читаем журнал по всем их участникам, а не
+            # по одним корням: у присоединённого участника может быть единственное
+            # событие, на котором держится карточка группы (#261).
             events = events.where(EmployeeEvent.employee_id.in_(group))
         for employee_id, dormitory_id in db.execute(events.distinct()):
             root = context.roots[employee_id]
