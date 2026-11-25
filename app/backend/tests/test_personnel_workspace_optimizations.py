@@ -29,7 +29,7 @@ from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from app import sql_diagnostics
+from app import personnel_query, sql_diagnostics
 from app.api.personnel import get_workspace
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
@@ -310,6 +310,52 @@ def test_workspace_member_ids_lists_every_card_of_the_group(
     }
     # Карточка источника в ответ не попадает: группа отдаётся одной записью.
     assert [item["id"] for item in data["employees"]] == [target.id]
+
+
+def test_block_previews_intersects_the_selection_once_per_block(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Порядок блока пересекается с набором один раз, а не на каждый корень (#261).
+
+    Прежний список `[root for root in ordered if root in found.roots(...)]` вызывал
+    `Candidates.roots()` для каждой строки отбора: тот копировал весь `base` и
+    пересекал его с фильтром. На рамке с четырьмя блоками это дало 14 625 копий и
+    2,9 с в профиле. Здесь вызывается счётчик: число вызовов не зависит от того,
+    сколько людей в отборе.
+    """
+    user = sign_in(client, db_session)
+    dormitory_id = create_dormitory(client)
+    employees = [Employee(full_name=f"Сотрудник {index:02d}") for index in range(50)]
+    db_session.add_all(employees)
+    db_session.flush()
+    db_session.add_all(
+        [
+            Resident(
+                dormitory_id=dormitory_id,
+                employee_id=employee.id,
+                full_name=employee.full_name,
+            )
+            for employee in employees
+        ]
+    )
+    db_session.commit()
+
+    calls: list[str | None] = []
+    original = personnel_query.Candidates.roots
+
+    def counting(self: personnel_query.Candidates, filter: str | None = None) -> set[str]:
+        calls.append(filter)
+        return original(self, filter)
+
+    monkeypatch.setattr(personnel_query.Candidates, "roots", counting)
+
+    frame = workspace(
+        db_session, user, [dormitory_id], include_employees=False, include_previews=True
+    )
+
+    assert len(frame["block_previews"]) == 4
+    # Три блока по людям (план заездов отбор не спрашивает) и три числа сводки.
+    assert len(calls) == 6, calls
 
 
 def test_workspace_reads_the_dormitory_directory_once(
