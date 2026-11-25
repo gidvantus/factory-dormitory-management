@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { api, ApiError } from '../../api/client';
 import type { Dormitory, Resident, ResidentTransferPreview } from '../../api/client';
 import { Modal, ModalCancelButton } from '../../components/Modal';
+import { TransferColumnFields } from './TransferColumnFields';
 import styles from './TransferResidentDialog.module.css';
 
 export function TransferResidentDialog({
@@ -32,6 +33,7 @@ export function TransferResidentDialog({
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [mappingBusy, setMappingBusy] = useState(false);
   const inFlight = useRef(false);
 
   useEffect(() => {
@@ -92,6 +94,7 @@ export function TransferResidentDialog({
       !destination ||
       !preview ||
       checking ||
+      mappingBusy ||
       preview.target_dormitory_id !== destination.id
     )
       return;
@@ -127,7 +130,7 @@ export function TransferResidentDialog({
       title="Перевести проживающего"
       testId="transfer-resident-modal"
       onClose={onClose}
-      closeDisabled={saving}
+      closeDisabled={saving || mappingBusy}
     >
       <form className={styles.form} onSubmit={(event) => void submit(event)} aria-busy={saving}>
         <p>{resident.full_name || `Строка № ${resident.id}`}</p>
@@ -156,7 +159,7 @@ export function TransferResidentDialog({
               id="transfer-dormitory"
               className="field__input"
               value={target}
-              disabled={saving}
+              disabled={saving || mappingBusy}
               onChange={(event) => {
                 setTarget(event.target.value);
                 setPreview(null);
@@ -177,6 +180,23 @@ export function TransferResidentDialog({
         {checking && <p role="status">Сравниваем столбцы и значения…</p>}
         {preview && preview.target_dormitory_id === Number(target) && (
           <div className={styles.summary}>
+            {!!preview.column_choices?.length && (
+              <TransferColumnFields
+                dormitoryId={dormitoryId}
+                route={{
+                  source: 'residents',
+                  target: 'residents',
+                  targetDormitoryId: Number(target),
+                }}
+                choices={preview.column_choices}
+                disabled={saving}
+                onBusy={setMappingBusy}
+                onSaved={() => {
+                  setPreview(null);
+                  setAttempt((value) => value + 1);
+                }}
+              />
+            )}
             {preview.matched_columns.length > 0 && (
               <p>Перенесём совпадающие поля: {preview.matched_columns.join(', ')}.</p>
             )}
@@ -231,13 +251,14 @@ export function TransferResidentDialog({
           </button>
         )}
         <div className={styles.actions}>
-          <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
+          <ModalCancelButton onClick={onClose} type="button" disabled={saving || mappingBusy}>
             Отмена
           </ModalCancelButton>
           <button
             type="submit"
             disabled={
               saving ||
+              mappingBusy ||
               checking ||
               !preview ||
               preview.target_dormitory_id !== Number(target) ||

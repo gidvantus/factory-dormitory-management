@@ -8,6 +8,7 @@ import { todayDate } from '../dashboard/dates';
 import { OutflowTransferFields } from './OutflowTransferFields';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { useColumns } from './tableColumnsContext';
+import { TransferColumnFields } from './TransferColumnFields';
 import styles from './TransferResidentDialog.module.css';
 
 export function OutflowResidentDialog({
@@ -47,6 +48,9 @@ export function OutflowResidentDialog({
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [mappingBusy, setMappingBusy] = useState(false);
+  const [skipMappings, setSkipMappings] = useState(false);
+  const choices = preview?.column_choices ?? [];
   const inFlight = useRef(false);
 
   useEffect(() => {
@@ -62,6 +66,7 @@ export function OutflowResidentDialog({
     const controller = new AbortController();
     setPreviewToken(null);
     setChecking(true);
+    setSkipMappings(false);
     void api
       .previewResidentOutflow(dormitoryId, resident.id, controller.signal)
       .then((result) => {
@@ -93,7 +98,14 @@ export function OutflowResidentDialog({
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (inFlight.current || !previewToken || checking) return;
+    if (
+      inFlight.current ||
+      !previewToken ||
+      checking ||
+      mappingBusy ||
+      (choices.length && !skipMappings)
+    )
+      return;
     inFlight.current = true;
     setSaving(true);
     setError('');
@@ -121,7 +133,7 @@ export function OutflowResidentDialog({
       title="Перенести в отток"
       testId="outflow-resident-modal"
       onClose={onClose}
-      closeDisabled={saving}
+      closeDisabled={saving || mappingBusy}
     >
       <form className={styles.form} onSubmit={(event) => void submit(event)} aria-busy={saving}>
         <p>
@@ -131,6 +143,30 @@ export function OutflowResidentDialog({
           Проживающий будет удалён из «Проживающих» и списков аванса и расчёта этого общежития.
         </p>
         {checking && <p role="status">Подготавливаем перенос…</p>}
+        {!checking && !!choices.length && (
+          <>
+            <TransferColumnFields
+              dormitoryId={dormitoryId}
+              route={{ source: 'residents', target: 'outflow' }}
+              choices={choices}
+              disabled={saving}
+              onBusy={setMappingBusy}
+              onSaved={() => {
+                setPreviewToken(null);
+                setAttempt((value) => value + 1);
+              }}
+            />
+            <label className={styles.confirmation}>
+              <input
+                type="checkbox"
+                checked={skipMappings}
+                disabled={saving || mappingBusy}
+                onChange={(event) => setSkipMappings(event.target.checked)}
+              />
+              Перенести без полей, для которых не выбраны столбцы
+            </label>
+          </>
+        )}
         {preview && !checking && (
           <OutflowTransferFields
             fields={preview.fields}
@@ -159,13 +195,15 @@ export function OutflowResidentDialog({
           </button>
         )}
         <div className={styles.actions}>
-          <ModalCancelButton onClick={onClose} type="button" disabled={saving}>
+          <ModalCancelButton onClick={onClose} type="button" disabled={saving || mappingBusy}>
             Отмена
           </ModalCancelButton>
           <button
             type="submit"
             disabled={
               saving ||
+              mappingBusy ||
+              (choices.length > 0 && !skipMappings) ||
               checking ||
               !previewToken ||
               (!!preview?.fields.reason_column && !reason.trim()) ||

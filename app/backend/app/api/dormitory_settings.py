@@ -4,13 +4,14 @@ import hashlib
 import json
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser
+from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser, own_dormitory
 from app.api.custom_tabs import RESERVED_NAMES, tab_responses
+from app.api.organization import Membership
 from app.api.sections import metadata, section_keys
 from app.api.table_columns import prepare_options, update_column_options
 from app.cell_fill import assign_fill, refresh_copies, validate_fills
@@ -24,12 +25,15 @@ from app.db import get_db
 from app.models.custom_tab import CustomTab
 from app.models.report import ReportRow
 from app.models.table_column import TableColumn
+from app.outflow_fields import manual_outflow_columns
 from app.schemas.custom_tab import CreateTabRequest, TabOptions
 from app.schemas.table_column import CellFill, ColumnRequest, ColumnResponse
+from app.schemas.transfer_columns import TransferColumnChoice, TransferColumnUpdate, TransferTable
 from app.section_state import (
     SECTIONS,
     STANDARD_CLEAR_LIST_DEFAULTS,
     locked_dormitory,
+    require_section,
     section_ancestors,
     section_parents,
     section_status,
@@ -45,6 +49,7 @@ from app.table_data import (
     require_column_type_change,
     require_writable_table,
 )
+from app.transfer_columns import TransferColumns
 
 router = APIRouter(
     prefix="/dormitories/{dormitory_id}/settings",
@@ -53,6 +58,79 @@ router = APIRouter(
 )
 DbSession = Annotated[Session, Depends(get_db)]
 EntityId = Annotated[int, Path(ge=1, le=2147483647)]
+TransferDormitoryId = Annotated[int | None, Query(ge=1, le=2147483647)]
+
+
+def transfer_columns(
+    db: Session,
+    dormitory_id: int,
+    source: TransferTable,
+    target: TransferTable,
+    target_dormitory_id: int | None,
+    membership: Membership,
+    *,
+    writable: bool,
+) -> TransferColumns:
+    destination = target_dormitory_id or dormitory_id
+    if destination != dormitory_id:
+        if (source, target) != ("residents", "residents"):
+            raise HTTPException(422, "Выберите перенос между общежитиями")
+        own_dormitory(db, destination, membership)
+    elif (source, target) not in {
+        ("residents", "outflow"),
+        ("residents", "advance"),
+        ("residents", "settlement"),
+        ("inflow", "residents"),
+        ("inflow", "outflow"),
+    }:
+        raise HTTPException(422, "Выберите направление переноса")
+    for ident in sorted({dormitory_id, destination}):
+        locked_dormitory(db, ident)
+    require_section(db, dormitory_id, source, writable=writable)
+    require_section(db, destination, target, writable=writable)
+    sources = ensure_columns(db, dormitory_id, source)
+    targets = ensure_columns(db, destination, target)
+    return TransferColumns(
+        db, sources, targets, manual_outflow_columns(targets) if target == "outflow" else None
+    )
+
+
+@router.get("/transfer-columns", response_model=list[TransferColumnChoice])
+def read_transfer_columns(
+    dormitory_id: EntityId,
+    source: TransferTable,
+    target: TransferTable,
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+    _dormitory: OwnDormitory,
+    target_dormitory_id: TransferDormitoryId = None,
+) -> list[TransferColumnChoice]:
+    mapping = transfer_columns(
+        db, dormitory_id, source, target, target_dormitory_id, membership, writable=False
+    )
+    result = mapping.choices()
+    db.commit()
+    return result
+
+
+@router.put("/transfer-columns", status_code=204)
+def write_transfer_columns(
+    dormitory_id: EntityId,
+    source: TransferTable,
+    target: TransferTable,
+    payload: TransferColumnUpdate,
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+    _dormitory: OwnDormitory,
+    target_dormitory_id: TransferDormitoryId = None,
+) -> None:
+    mapping = transfer_columns(
+        db, dormitory_id, source, target, target_dormitory_id, membership, writable=True
+    )
+    mapping.save(payload.mappings)
+    db.commit()
 
 
 class SettingColumn(ColumnRequest):

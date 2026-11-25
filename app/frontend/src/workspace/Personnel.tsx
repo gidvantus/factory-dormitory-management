@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { personnelApi } from '../api/personnel';
@@ -12,7 +12,10 @@ import type {
   SavedList,
 } from '../api/personnel';
 import { useSession } from '../auth/SessionProvider';
-import { usePageRefresh } from './usePageRefresh';
+import { currentMonth, dateNumber } from './dashboard/dates';
+import type { DateRange } from './dashboard/dates';
+import { DormitoryPeriod } from './dormitories/DormitoryPeriod';
+import { useFrameRefresh, usePageRefresh } from './usePageRefresh';
 import { ArrivalPlanningBoard } from './personnel/ArrivalPlanningBoard';
 import { ArrivalPlanningPage } from './personnel/ArrivalPlanningPage';
 import { PersonnelEmployeeFocus } from './personnel/PersonnelEmployeeFocus';
@@ -35,7 +38,7 @@ import plant from '../assets/plant.svg';
 import resident from '../assets/avatar-rezident.svg';
 import personnel from '../assets/avatar-kadrovik.svg';
 import manager from '../assets/avatar-komendant.svg';
-import { dateLabel, defaultBlocks, dormName, message, names } from './personnel/helpers';
+import { dateLabel, dayDiff, defaultBlocks, dormName, endingRange, message, names } from './personnel/helpers';
 import s from './personnel/Personnel.module.css';
 import w from './personnel/PersonnelWorkspace.module.css';
 import listStyles from './personnel/EmployeeList.module.css';
@@ -99,7 +102,19 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     const id = Number(params.get('dormitory'));
     return Number.isSafeInteger(id) && id > 0 ? id : null;
   });
-  const [days, setDays] = useState(5);
+  const [selectedPeriod, setSelectedPeriod] = useState<DateRange | null>(null);
+  const today = data?.today;
+  const monthPeriod = useMemo(
+    () => (today ? currentMonth(new Date(dateNumber(today))) : currentMonth()),
+    [today],
+  );
+  const period = selectedPeriod ?? monthPeriod;
+  /**
+   * Сервер списка и сводки работает в днях (`days`), а панель показывает диапазон
+   * дат. Дни считаются из выбранного диапазона, как и раньше при фильтрации в
+   * браузере: одна и та же граница у «завершают вахту» и у блоков.
+   */
+  const days = Math.min(365, Math.max(1, dayDiff(period.from, period.to)));
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<number[]>([]);
@@ -112,7 +127,14 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
   const [savingList, setSavingList] = useState(false);
   const [busy, setBusy] = useState(false);
   const mutating = useRef(false);
-  const refresh = usePageRefresh();
+  /**
+   * Две ревизии вместо одной (#251): рамка обновляется ещё и по таймеру, а страница
+   * сотрудников и её счётчики — только по фокусу и после сохранений. Иначе открытая
+   * вкладка раз в минуту тянула карточки списка. Поэтому общий таймер `usePageRefresh`
+   * здесь выключен, а его роль играет `useFrameRefresh`.
+   */
+  const refresh = usePageRefresh({ timer: false });
+  const frameRefresh = useFrameRefresh();
   /**
    * Условия, по которым реально идёт запрос: поиск и условия столбцов применяются
    * после паузы в наборе (#247). Каждый запрос сервер собирает карточки всей
@@ -127,7 +149,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     }
     const controller = new AbortController();
     void personnelApi
-      .workspace(controller.signal, { employees: 'none', dormitory, days })
+      .workspace(controller.signal, { employees: 'none', dormitory, days, period })
       .then((result) => {
         if (!controller.signal.aborted) {
           setData(result);
@@ -142,11 +164,12 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
         }
       });
     return () => controller.abort();
-  }, [attempt, refresh, user?.is_active, dormitory, days]);
+  }, [attempt, refresh, frameRefresh, user?.is_active, dormitory, days, period]);
   const criteria: Criteria = {
     filter,
     dormitory,
     days,
+    period,
     query: debouncedQuery,
     scope,
     column_filters: debouncedColumnFilters,
@@ -204,7 +227,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
   }, [data]);
   useEffect(() => {
     setPage(0);
-  }, [filter, debouncedQuery, dormitory, days, scope, debouncedColumnFilters]);
+  }, [filter, debouncedQuery, dormitory, period, scope, debouncedColumnFilters]);
   const modalOpen = !!selectedId || !!blockEditor || savingList || selectedList !== null;
   useEffect(() => {
     if (!modalOpen) return;
@@ -262,8 +285,13 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     );
   const blocks = data.preferences.blocks ?? defaultBlocks;
   /**
-   * Карточка человека: из уже показанных страниц, из рамки (если сервер её прислал)
-   * и затем по объединённым id.
+   * Карточка человека: из уже показанных страниц, затем из рамки (если карточки в ней
+   * есть) и по объединённым id.
+   *
+   * На самой поверхности рамка приходит с `employees=none`: массива сотрудников в ней
+   * нет, и сервер больше не собирает карточки всех сотрудников на каждый запрос (#251).
+   * Непустой `employees` бывает только у конструктора вкладок — он грузит полный список
+   * для своих таблиц и расчётов.
    */
   const cardOf = (id: string): Employee | undefined =>
     cards.current.get(id) ??
@@ -308,10 +336,14 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     next.delete('employee');
     setParams(next, { replace: true });
   };
+  const changePeriod = (next: DateRange): void => {
+    setSelectedPeriod(next.from === monthPeriod.from && next.to === monthPeriod.to ? null : next);
+  };
   const onList = (list: Criteria): void => {
     setFilter(list.filter);
     setDormitory(list.dormitory);
-    setDays(list.days);
+    if (list.period) changePeriod(list.period);
+    else if (list.filter === 'ending') changePeriod(endingRange(data.today, list.days));
     setQuery(list.query);
     setScope(list.scope);
     setColumnFilters(list.column_filters ?? []);
@@ -439,22 +471,14 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
                 </select>
               </label>
               {view !== 'planning' && (
-                <label>
-                  Период
-                  <select
-                    aria-label="Период окончания вахты"
-                    value={days}
-                    onChange={(event) => setDays(Number(event.target.value))}
-                  >
-                    {[...new Set([5, 7, 14, 30, days])]
-                      .sort((a, b) => a - b)
-                      .map((days) => (
-                        <option key={days} value={days}>
-                          Вахта: до {days} дней
-                        </option>
-                      ))}
-                  </select>
-                </label>
+                <DormitoryPeriod
+                  mode="range"
+                  label="Период персонала"
+                  range={period}
+                  resetRange={monthPeriod}
+                  limitToYear={false}
+                  onChange={changePeriod}
+                />
               )}
             </div>
             {view === 'workspace' ? (
@@ -495,7 +519,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
               {(
                 [
                   ['current', 'Проживают сейчас'],
-                  ['ending', `Вахта заканчивается до ${days} дней`],
+                  ['ending', 'Окончания вахт за период'],
                 ] as const
               ).map(([id, label]) => (
                 <button
@@ -589,7 +613,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
             <ArrivalPlanningBoard data={data} dormitory={dormitory} mutate={mutate} />
           )}
           {view === 'list' && (
-            <section className={`${s.board} ${f.employeeBoard}`}>
+            <section className={`${s.board} ${f.employeeBoard}`} data-testid="personnel-list">
               <div className={s.saved}>
                 <span className={s.eyebrow}>МОИ СПИСКИ</span>
                 {data.preferences.lists.map((list) => (
@@ -704,7 +728,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
                 fields={extraFields}
                 onPerson={onPerson}
               />
-              <div className={s.pagination}>
+              <div className={s.pagination} data-testid="personnel-pagination">
                 <span>
                   {total ? shownPage * PAGE_SIZE + 1 : 0}–
                   {Math.min(total, (shownPage + 1) * PAGE_SIZE)} из {total}

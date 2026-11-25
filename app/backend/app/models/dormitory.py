@@ -42,6 +42,9 @@ class Dormitory(Base):
     standard_clear_list: Mapped[dict[str, bool]] = mapped_column(
         JSON, default=dict, server_default=text("'{}'")
     )
+    transfer_column_mappings: Mapped[dict[str, dict[str, int]]] = mapped_column(
+        JSON, default=dict, server_default=text("'{}'")
+    )
     is_archived: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )

@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app import personnel as personnel_module
 from app.api import personnel as personnel_api
 from app.api.personnel import json_response
 from app.personnel import today
@@ -144,13 +145,13 @@ def test_page_refuses_a_date_inside_a_card(
     dorm = create_dormitory(client)
     create(client, dorm, values={"shift_end": str(today() + timedelta(days=3))})
 
-    original = personnel_api.employee_cards
+    original = personnel_module.employee_cards
 
     def cards_with_date(db: Session, context: Any) -> list[dict[str, Any]]:
         cards = original(db, context)
         cards[0]["sources"][0]["values"]["shift_end"] = today()
         return cards
 
-    monkeypatch.setattr(personnel_api, "employee_cards", cards_with_date)
+    monkeypatch.setattr(personnel_module, "employee_cards", cards_with_date)
     with pytest.raises(TypeError):
         client.get(PAGE)

@@ -2,12 +2,15 @@ from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import hostel_occupancy
 from app.models.hostel import Hostel
+from app.models.personnel import EmployeeEvent
 from app.models.resident import Resident
 from tests.conftest import sign_in
+from tests.test_inflow_entry import form, payload, settle
 from tests.test_reports import create_dormitory
 from tests.test_table_exchange import filled, upload, workbook_rows
 
@@ -244,3 +247,116 @@ def test_snapshot_uses_configured_gender_and_custom_options(
     assert values["residents_m"] == {first: 1, second: 0}
     assert values["residents_f"] == {first: 0, second: 1}
     assert values[rows[2]["key"]] == {first: 1, second: 0}
+
+
+def test_snapshot_backdates_inflow_and_outflow_even_after_hostel_change(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sign_in(client, db_session)
+    dormitory_id = create_dormitory(client)
+    dorm = f"/api/dormitories/{dormitory_id}"
+    month = "2026-10-01"
+    columns = f"{dorm}/tables/residents/columns"
+    custom_gender = client.post(
+        columns,
+        json={
+            "name": "Пол по списку",
+            "kind": "select",
+            "options": [{"label": "М"}, {"label": "Ж"}],
+        },
+    ).json()
+    male, female = (option["id"] for option in custom_gender["options"])
+    rows = [
+        {
+            "key": "residents_m",
+            "name": "Проживает М",
+            "link": {
+                "table_key": "residents",
+                "column_id": custom_gender["id"],
+                "value": male,
+                "scope": "hostel",
+                "count_mode": "snapshot",
+            },
+        },
+        {
+            "key": "residents_total",
+            "name": "Всего проживает",
+            "link": {"table_key": "resident_occupancy", "gender": "all"},
+        },
+    ]
+    hostels = []
+    for name in ("Квартира", "Корпус"):
+        response = client.post(f"{dorm}/hostels", json={"name": name, "month": month, "rows": rows})
+        assert response.status_code == 201, response.text
+        hostel = db_session.get(Hostel, response.json()["id"])
+        assert hostel
+        hostel.occupancy_since = hostel.resident_fields_since = date(2026, 10, 19)
+        hostels.append(hostel.id)
+    first, second = hostels
+    db_session.commit()
+
+    def snapshots() -> dict[int, dict[str, dict[str, int]]]:
+        result = client.get(f"{dorm}/hostels?from=2026-10-19&to=2026-10-25")
+        assert result.status_code == 200, result.text
+        return {item["id"]: item["values"] for item in result.json()["months"][0]["hostels"]}
+
+    monkeypatch.setattr(hostel_occupancy, "occupancy_today", lambda: date(2026, 10, 22))
+    values = {
+        "full_name": "Иванов Иван",
+        "hostel_id": first,
+        str(custom_gender["id"]): male,
+    }
+    pending = client.post(
+        f"{dorm}/inflow/entries", json=payload(client, form(client, dormitory_id), values)
+    )
+    assert pending.status_code == 201, pending.text
+    pending_id = pending.json()["id"]
+    inflow = f"{dorm}/inflow/{pending_id}"
+    assert client.patch(inflow, json={"settlement_date": "2026-10-20"}).status_code == 200
+    assert snapshots()[first]["residents_m"]["2026-10-20"] == 0
+    preview = client.post(f"{inflow}/settle/preview")
+    assert preview.json()["settlement_date"] == "2026-10-20"
+    ident = settle(client, dormitory_id, pending_id)["row_id"]
+    after_settlement = {f"2026-10-{day}": int(day >= 20) for day in range(19, 23)}
+    assert snapshots()[first] == {
+        "residents_m": after_settlement,
+        "residents_total": after_settlement,
+    }
+
+    monkeypatch.setattr(hostel_occupancy, "occupancy_today", lambda: date(2026, 10, 24))
+    resident = f"{dorm}/residents/{ident}"
+    assert client.patch(f"{resident}?month={month}", json={"hostel_id": second}).status_code == 200
+    assert (
+        client.put(
+            f"{dorm}/tables/residents/rows/{ident}/cells/{custom_gender['id']}",
+            json={"value": female},
+        ).status_code
+        == 200
+    )
+    assert snapshots()[second]["residents_total"]["2026-10-24"] == 1
+    plan = client.post(f"{resident}/outflow/preview")
+    assert plan.status_code == 200, plan.text
+    result = client.post(
+        f"{resident}/outflow",
+        json={
+            "preview_token": plan.json()["preview_token"],
+            "confirm_loss": True,
+            "reason": "Окончание вахты",
+            "departure_date": "2026-10-23",
+        },
+    )
+    assert result.status_code == 201, result.text
+
+    history = snapshots()
+    expected = {f"2026-10-{day}": int(20 <= day < 23) for day in range(19, 25)}
+    assert history[first] == {"residents_m": expected, "residents_total": expected}
+    empty = dict.fromkeys(expected, 0)
+    assert history[second] == {"residents_m": empty, "residents_total": empty}
+    event_dates = db_session.execute(
+        select(EmployeeEvent.kind, EmployeeEvent.happened_on).where(
+            EmployeeEvent.source_table == "residents",
+            EmployeeEvent.source_id == ident,
+            EmployeeEvent.kind.in_(("arrival", "outflow")),
+        )
+    ).all()
+    assert dict(event_dates) == {"arrival": date(2026, 10, 20), "outflow": date(2026, 10, 23)}

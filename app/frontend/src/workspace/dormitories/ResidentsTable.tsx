@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { api, ApiError, waitForDormitoryWrites } from '../../api/client';
 import type {
   PaymentKind,
+  PaymentColumnsRequired,
   Resident,
   ResidentField,
   ResidentsResponse,
@@ -24,6 +26,8 @@ import {
 import { useColumns, useTableSaves } from './tableColumnsContext';
 import { TransferResidentDialog } from './TransferResidentDialog';
 import { OutflowResidentDialog } from './OutflowResidentDialog';
+import { TransferColumnFields } from './TransferColumnFields';
+import transferStyles from './TransferResidentDialog.module.css';
 import { IdentityDialog } from '../personnel/IdentityDialog';
 import { EmployeeNameCell } from './EmployeeNameCell';
 import { useUnsavedChanges } from '../../components/useUnsavedChanges';
@@ -78,6 +82,10 @@ function ResidentRow({
   const { trackSave, waitForRowSaves } = useTableSaves();
   const registrationInFlight = useRef(false);
   const [registering, setRegistering] = useState<PaymentKind | null>(null);
+  const [paymentColumns, setPaymentColumns] = useState<
+    (PaymentColumnsRequired & { kind: PaymentKind }) | null
+  >(null);
+  const [mappingBusy, setMappingBusy] = useState(false);
   const [preparingTransfer, setPreparingTransfer] = useState(false);
   const [transferError, setTransferError] = useState('');
   const [outflowAction, setOutflowAction] = useState(false);
@@ -141,14 +149,21 @@ function ResidentRow({
     }
   }
 
-  async function registerPayment(kind: PaymentKind): Promise<void> {
+  async function registerPayment(kind: PaymentKind, checkColumns = true): Promise<void> {
     if (registrationInFlight.current) return;
     registrationInFlight.current = true;
     setRegistering(kind);
     setPaymentNotice(null);
     try {
       await waitForRowSaves(resident.id);
-      const result = await api.registerResidentPayment(dormitoryId, resident.id, kind);
+      const result = await (checkColumns
+        ? api.registerResidentPayment(dormitoryId, resident.id, kind)
+        : api.registerResidentPayment(dormitoryId, resident.id, kind, false));
+      if ('column_choices' in result) {
+        setPaymentColumns({ kind, ...result });
+        return;
+      }
+      setPaymentColumns(null);
       const destination = kind === 'advance' ? 'аванс' : 'расчёт';
       let message = result.created
         ? `Записан на ${destination}.`
@@ -201,11 +216,73 @@ function ResidentRow({
         >
           {registering === kind ? 'Записываем…' : 'Записать'}
         </button>
-        {paymentNotice?.kind === kind && (
+        {paymentNotice?.kind === kind && paymentColumns?.kind !== kind && (
           <span role={paymentNotice.error ? 'alert' : 'status'} className={styles.paymentNotice}>
             {paymentNotice.message}
           </span>
         )}
+        {paymentColumns?.kind === kind &&
+          createPortal(
+            <Modal
+              title={kind === 'advance' ? 'Записать на аванс' : 'Записать на расчёт'}
+              testId="resident-payment-columns-modal"
+              onClose={() => setPaymentColumns(null)}
+              closeDisabled={mappingBusy || registering !== null}
+            >
+              <div className={transferStyles.summary}>
+                {!!paymentColumns.column_choices.length && (
+                  <TransferColumnFields
+                    dormitoryId={dormitoryId}
+                    route={{ source: 'residents', target: kind }}
+                    choices={paymentColumns.column_choices}
+                    disabled={registering !== null}
+                    onBusy={setMappingBusy}
+                    onSaved={(mappings) => {
+                      const selected = new Set(Object.values(mappings));
+                      setPaymentColumns(
+                        (current) =>
+                          current && {
+                            ...current,
+                            can_continue: true,
+                            column_choices: current.column_choices
+                              .filter(({ source }) => !(source.id in mappings))
+                              .map((choice) => ({
+                                ...choice,
+                                targets: choice.targets.filter(({ id }) => !selected.has(id)),
+                              }))
+                              .filter(({ targets }) => targets.length > 0),
+                          },
+                      );
+                    }}
+                  />
+                )}
+                {paymentNotice?.error && <p role="alert">{paymentNotice.message}</p>}
+                <div className={transferStyles.actions}>
+                  <button
+                    type="button"
+                    className="btn btn--outline btn--compact"
+                    disabled={mappingBusy || registering !== null}
+                    onClick={() => setPaymentColumns(null)}
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--compact"
+                    disabled={mappingBusy || registering !== null || !paymentColumns.can_continue}
+                    onClick={() =>
+                      void registerPayment(kind, paymentColumns.column_choices.length === 0)
+                    }
+                  >
+                    {paymentColumns.column_choices.length
+                      ? 'Записать без остальных полей'
+                      : 'Записать'}
+                  </button>
+                </div>
+              </div>
+            </Modal>,
+            document.body,
+          )}
       </>
     );
   }

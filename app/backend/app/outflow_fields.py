@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 from app.models.outflow import PersonnelOutflow
 from app.models.outflow_reason import OutflowReason
 from app.models.table_column import TableColumn
-from app.resident_payments import normalized_name
 from app.schemas.outflow import OutflowFields, ReasonChoice
 from app.schemas.table_column import ColumnResponse
 from app.table_data import ensure_columns, record_value
+from app.transfer_columns import normalized_name
 
 
 def field_columns(columns: list[TableColumn]) -> tuple[TableColumn | None, TableColumn | None]:
@@ -49,6 +49,10 @@ def field_columns(columns: list[TableColumn]) -> tuple[TableColumn | None, Table
     ]
     dates.sort(key=lambda column: (column.builtin_key != "departure_date", column.position))
     return reasons[0] if reasons else None, dates[0] if dates else None
+
+
+def manual_outflow_columns(columns: list[TableColumn]) -> set[int]:
+    return {column.id for column in field_columns(columns) if column is not None}
 
 
 def outflow_fields(

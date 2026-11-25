@@ -8,7 +8,7 @@ from hashlib import sha256
 from typing import Any
 from typing import cast as type_cast
 
-from sqlalchemy import Date, cast, event, insert, inspect, null, select
+from sqlalchemy import Date, case, cast, event, insert, inspect, null, select, update
 from sqlalchemy.orm import Session
 
 from app import hostel_occupancy
@@ -29,6 +29,8 @@ BUILTIN_FIELDS = (
 )
 ResidentFields = dict[str, Any]
 Histogram = dict[str, Counter[str]]
+_PRIOR_FIELDS = "hostel_occupancy_previous_fields"
+_EFFECTIVE_DAY = "hostel_occupancy_effective_day"
 
 
 def field_key(column: TableColumn) -> str:
@@ -47,44 +49,72 @@ def resident_fields(builtin: Iterable[Any], custom: dict[str, Any] | None) -> Re
     return {**(custom or {}), **dict(zip(BUILTIN_FIELDS, builtin, strict=True))}
 
 
+def set_occupancy_day(resident: Resident, day: date | None) -> None:
+    if day is not None:
+        inspect(resident).info[_EFFECTIVE_DAY] = day
+
+
 @event.listens_for(Session, "before_flush")
-def record_resident_fields(session: Session, _context: object, _instances: object) -> None:
-    residents = [
-        row
-        for row in session.new | session.dirty | session.deleted
+def capture_resident_fields(session: Session, _context: object, _instances: object) -> None:
+    session.info.pop(_PRIOR_FIELDS, None)
+    ids = [
+        row.id
+        for row in session.dirty | session.deleted
         if isinstance(row, Resident)
         and (
-            row in session.new
-            or row in session.deleted
+            row in session.deleted
             or any(
                 inspect(row).attrs[key].history.has_changes()
                 for key in ("hostel_id", "custom_values", *BUILTIN_FIELDS)
             )
         )
     ]
+    if not ids:
+        return
+    previous: dict[int, tuple[int | None, ResidentFields]] = {}
+    for ident, hostel_id, custom, *values in session.execute(
+        select(
+            Resident.id,
+            Resident.hostel_id,
+            Resident.custom_values,
+            *(getattr(Resident, key) for key in BUILTIN_FIELDS),
+        ).where(Resident.id.in_(ids))
+    ):
+        assert isinstance(ident, int)
+        assert hostel_id is None or isinstance(hostel_id, int)
+        previous[ident] = (hostel_id, resident_fields(values, type_cast(ResidentFields, custom)))
+    session.info[_PRIOR_FIELDS] = previous
+
+
+def field_changes(before: ResidentFields, after: ResidentFields) -> dict[str, dict[str, int]]:
+    # Для сравнения достаточно хешей, исходные значения личных полей не сохраняются.
+    changes = {}
+    for key in before.keys() | after.keys():
+        old, new = fingerprint(before.get(key)), fingerprint(after.get(key))
+        if old != new:
+            changes[key] = {
+                value: direction for value, direction in ((old, -1), (new, 1)) if value is not None
+            }
+    return changes
+
+
+@event.listens_for(Session, "after_flush")
+def record_occupancy_changes(session: Session, _context: object) -> None:
+    previous: dict[int, tuple[int | None, ResidentFields]] = session.info.pop(_PRIOR_FIELDS, {})
+    residents = [
+        row
+        for row in session.new | session.dirty | session.deleted
+        if isinstance(row, Resident) and (row in session.new or row.id in previous)
+    ]
     if not residents:
         return
-    ids = [row.id for row in residents if row not in session.new]
-    previous: dict[int, tuple[int | None, ResidentFields]] = {}
-    if ids:
-        for ident, hostel_id, custom, *values in session.execute(
-            select(
-                Resident.id,
-                Resident.hostel_id,
-                Resident.custom_values,
-                *(getattr(Resident, key) for key in BUILTIN_FIELDS),
-            ).where(Resident.id.in_(ids))
-        ):
-            assert isinstance(ident, int)
-            assert hostel_id is None or isinstance(hostel_id, int)
-            previous[ident] = (
-                hostel_id,
-                resident_fields(values, type_cast(ResidentFields, custom)),
-            )
-    changes: dict[int, Histogram] = defaultdict(lambda: defaultdict(Counter))
+    today = hostel_occupancy.occupancy_today()
+    departures: dict[date, list[int]] = defaultdict(list)
+    entries = []
     for resident in residents:
         old_hostel, old = previous.get(resident.id, (None, {}))
-        new_hostel = None if resident in session.deleted else resident.hostel_id
+        deleted = resident in session.deleted
+        new_hostel = None if deleted else resident.hostel_id
         new = (
             resident_fields(
                 (getattr(resident, key) for key in BUILTIN_FIELDS), resident.custom_values
@@ -92,34 +122,40 @@ def record_resident_fields(session: Session, _context: object, _instances: objec
             if new_hostel is not None
             else {}
         )
-        # Не храним исходные значения личных полей. Для сравнения достаточно хеша.
-        for key in old.keys() | new.keys():
-            before, after = fingerprint(old.get(key)), fingerprint(new.get(key))
-            if old_hostel == new_hostel and before == after:
-                continue
-            if old_hostel is not None and before is not None:
-                changes[old_hostel][key][before] -= 1
-            if new_hostel is not None and after is not None:
-                changes[new_hostel][key][after] += 1
-    day = hostel_occupancy.occupancy_today()
-    entries = []
-    for hostel_id, columns in changes.items():
-        fields = {
-            key: compact
-            for key, counters in columns.items()
-            if (compact := {value: delta for value, delta in counters.items() if delta})
-        }
-        if fields:
-            entries.append(
-                {
-                    "hostel_id": hostel_id,
-                    "day": day,
-                    "men": 0,
-                    "women": 0,
-                    "total": 0,
-                    "fields": fields,
-                }
+        day = min(inspect(resident).info.pop(_EFFECTIVE_DAY, today), today)
+        if deleted:
+            departures[day].append(resident.id)
+        for hostel_id in {old_hostel, new_hostel} - {None}:
+            before = old if old_hostel == hostel_id else {}
+            after = new if new_hostel == hostel_id else {}
+            total = int(new_hostel == hostel_id) - int(old_hostel == hostel_id)
+            men = int(after.get("gender") == "М") - int(before.get("gender") == "М")
+            women = int(after.get("gender") == "Ж") - int(before.get("gender") == "Ж")
+            fields = field_changes(before, after)
+            if total or men or women or fields:
+                entries.append(
+                    {
+                        "hostel_id": hostel_id,
+                        "resident_id": None if deleted else resident.id,
+                        "day": day,
+                        "men": men,
+                        "women": women,
+                        "total": total,
+                        "fields": fields,
+                    }
+                )
+    for day, ids in departures.items():
+        # Переводы и правки после фактического выезда схлопываются в день выезда.
+        # Обнуление ссылки отделяет завершённое проживание от новых записей.
+        session.execute(
+            update(HostelOccupancyChange)
+            .where(HostelOccupancyChange.resident_id.in_(ids))
+            .values(
+                resident_id=None,
+                day=case((HostelOccupancyChange.day > day, day), else_=HostelOccupancyChange.day),
             )
+            .execution_options(synchronize_session=False)
+        )
     if entries:
         session.execute(insert(HostelOccupancyChange), entries)
 

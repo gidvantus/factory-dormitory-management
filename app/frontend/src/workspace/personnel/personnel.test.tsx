@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -13,6 +13,7 @@ import { defaultColumns } from '../../test/tableColumns';
 import { renderWithExchangePermissions as render } from '../../test/renderWithExchangePermissions';
 import { mockPersonnelServer } from '../../test/personnelServer';
 import { PAGE_SIZE } from './serverList';
+import { FRAME_REFRESH_MS } from '../usePageRefresh';
 
 const source = (
   dorm: number,
@@ -84,7 +85,23 @@ it('оставляет три фильтра, поиск и карточку б�
     'План заездов',
   ]);
   expect(screen.queryByTestId('personnel-matches')).not.toBeInTheDocument();
+  const workspacePeriod = within(screen.getByRole('form', { name: 'Период персонала' }));
+  expect(workspacePeriod.getByLabelText('От')).toHaveValue('2026-10-01');
+  expect(workspacePeriod.getByLabelText('До')).toHaveValue('2026-10-31');
+  const endingSummary = screen.getByRole('button', { name: /Окончания вахт за период/ });
+  await waitFor(() => expect(endingSummary).toHaveTextContent('3'));
+  fireEvent.change(workspacePeriod.getByLabelText('От'), { target: { value: '2026-10-16' } });
+  fireEvent.change(workspacePeriod.getByLabelText('До'), { target: { value: '2026-10-15' } });
+  await user.click(workspacePeriod.getByRole('button', { name: 'Применить' }));
+  expect(workspacePeriod.getByRole('alert')).toHaveTextContent('не позже');
+  expect(endingSummary).toHaveTextContent('3');
+  fireEvent.change(workspacePeriod.getByLabelText('От'), { target: { value: '2026-10-15' } });
+  await user.click(workspacePeriod.getByRole('button', { name: 'Применить' }));
+  await waitFor(() => expect(endingSummary).toHaveTextContent('1'));
   await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+  const employeePeriod = within(screen.getByRole('form', { name: 'Период персонала' }));
+  expect(employeePeriod.getByLabelText('От')).toHaveValue('2026-10-15');
+  expect(employeePeriod.getByLabelText('До')).toHaveValue('2026-10-15');
   for (const name of [
     'Дата вахты прошла',
     'Неполные данные',
@@ -110,6 +127,10 @@ it('оставляет три фильтра, поиск и карточку б�
   expect(within(table).getAllByRole('row')).toHaveLength(4);
   await user.click(screen.getByRole('button', { name: 'Заканчивается вахта' }));
   expect(within(table).getAllByRole('row')).toHaveLength(2);
+  await user.click(employeePeriod.getByRole('button', { name: 'Текущий месяц' }));
+  expect(employeePeriod.getByLabelText('От')).toHaveValue('2026-10-01');
+  expect(employeePeriod.getByLabelText('До')).toHaveValue('2026-10-31');
+  expect(within(table).getAllByRole('row')).toHaveLength(4);
   await user.click(screen.getByRole('button', { name: 'Все сотрудники' }));
   await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Иванов');
   // Поиск применяется после паузы в наборе: запрос уходит не на каждую букву (#247).
@@ -236,6 +257,7 @@ it('фильтрует по двум статусам, собирает выбр
   await waitFor(() => expect(save).toHaveBeenCalled());
   await waitFor(() => expect(screen.queryByTestId('personnel-save-list')).not.toBeInTheDocument());
   expect(save.mock.calls[0][0].lists[0].column_filters).toHaveLength(2);
+  expect(save.mock.calls[0][0].lists[0].period).toEqual({ from: '2026-10-01', to: '2026-10-31' });
   await user.click(screen.getByRole('button', { name: 'Сбросить условия' }));
   await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(4));
   await user.click(screen.getByRole('button', { name: /^Допущенные/ }));
@@ -278,7 +300,7 @@ it('открывает простой план из источника отчё�
     'aria-selected',
     'true',
   );
-  expect(screen.queryByLabelText('Период окончания вахты')).not.toBeInTheDocument();
+  expect(screen.queryByRole('form', { name: 'Период персонала' })).not.toBeInTheDocument();
   expect(screen.queryByRole('option', { name: /Старое/ })).not.toBeInTheDocument();
   expect(screen.queryByText('Нажмите на имя, чтобы открыть карточку')).not.toBeInTheDocument();
   await user.click(
@@ -317,7 +339,8 @@ it('загружает список страницами с сервера и н
   expect(personnelApi.workspace).toHaveBeenCalledWith(expect.any(AbortSignal), {
     employees: 'none',
     dormitory: null,
-    days: 5,
+    days: 30,
+    period: { from: '2026-10-01', to: '2026-10-31' },
   });
   expect(await screen.findByText('1–20 из 25')).toBeInTheDocument();
   expect(within(table).getAllByRole('row')).toHaveLength(21);
@@ -334,6 +357,70 @@ it('загружает список страницами с сервера и н
     expect.objectContaining({ query: 'Сотрудник 2', page: 1, per_page: 20 }),
     expect.any(AbortSignal),
   );
+});
+
+it('проходит сценарий поверхности, ни разу не запросив полный набор карточек (#251)', async () => {
+  const user = userEvent.setup();
+  // Двое проживают и кончают вахту в окне: блок «Заканчивается вахта» обязан
+  // отрисоваться из `block_previews`, ведь массива `employees` в рамке нет.
+  const employees = people(25).map((employee, index) =>
+    index < 2
+      ? {
+          ...employee,
+          current: [source(1, 'residents', '2026-10-15')],
+          sources: [source(1, 'residents', '2026-10-15')],
+          history_dormitory_ids: [1],
+        }
+      : employee,
+  );
+  const payload = data(employees);
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  mockPersonnelServer(payload);
+  vi.spyOn(personnelApi, 'detail').mockResolvedValue({
+    employee_id: 'id-0',
+    events: [],
+    notes: [],
+    merges: [],
+  });
+  render(
+    <MemoryRouter>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  // Поверхность: блоки и сводка без карточек.
+  await user.click(await screen.findByRole('tab', { name: /Рабочая поверхность/ }));
+  // Сводка пришла полем `counts`, а карточки блоков — `block_previews`.
+  expect(await screen.findByRole('tab', { name: /Сотрудники\s*25/ })).toBeInTheDocument();
+  const ending = await screen.findByRole('article', { name: 'Заканчивается вахта' });
+  expect(within(ending).getByText('Сотрудник 01')).toBeInTheDocument();
+  expect(within(ending).getByText('Сотрудник 02')).toBeInTheDocument();
+  expect(within(ending).queryByText('Нет сотрудников в выборке')).not.toBeInTheDocument();
+  await screen.findByRole('tab', { name: /Сотрудники/ });
+  // Список: страница, поиск, пагинация.
+  await user.click(screen.getByRole('tab', { name: /Сотрудники/ }));
+  await screen.findByRole('table');
+  await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Сотрудник 25');
+  await waitFor(() => expect(screen.getByText('1–1 из 1')).toBeInTheDocument());
+  await user.clear(screen.getByRole('textbox', { name: 'Поиск сотрудника' }));
+  await waitFor(() => expect(screen.getByText('1–20 из 25')).toBeInTheDocument());
+  await user.click(screen.getByRole('button', { name: 'Далее' }));
+  expect(await screen.findByText('21–25 из 25')).toBeInTheDocument();
+  // Профиль показанной карточки.
+  await user.click(screen.getByRole('button', { name: /^Сотрудник 21/ }));
+  await user.click(await screen.findByRole('button', { name: 'Открыть полную карточку' }));
+  expect(await screen.findByRole('tablist', { name: 'Карточка сотрудника' })).toBeInTheDocument();
+  expect(personnelApi.detail).toHaveBeenCalledWith('id-20', expect.any(AbortSignal));
+  // `employees=none` — единственный режим поверхности: полного списка в запросах нет.
+  expect(vi.mocked(personnelApi.workspace).mock.calls.length).toBeGreaterThan(0);
+  for (const [, options] of vi.mocked(personnelApi.workspace).mock.calls)
+    expect(options).toMatchObject({ employees: 'none' });
+  expect(pageRequests().length).toBeGreaterThan(0);
 });
 
 const people = (count: number): Employee[] =>
@@ -484,6 +571,61 @@ it('после сохранения перезапрашивает рамку о
   ).toBeInTheDocument();
 });
 
+it('по таймеру перезапрашивает только рамку, карточки списка ждут действия (#251)', async () => {
+  // Фейковые только интервалы: таймер поверхности тикает по часам, а ожидания
+  // теста (`waitFor`) продолжают работать на настоящих таймаутах.
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'], shouldAdvanceTime: true });
+  try {
+    const user = userEvent.setup();
+    const payload = data(people(25));
+    vi.spyOn(session, 'useSession').mockReturnValue({
+      status: 'authenticated',
+      user: null,
+      setUser: vi.fn(),
+      refresh: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockPersonnelServer(payload);
+    render(
+      <MemoryRouter>
+        <Personnel />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+    await screen.findByRole('table');
+    await waitFor(() => expect(pageRequests()).toHaveLength(1));
+    // Счётчики при пустом поиске выключены: их числа приходят со сводкой рамки
+    // (`sameAsSummary`). Вводим поиск и ждём паузу в наборе, чтобы под тиком были
+    // живые запросы `per_page: 1`, а не пустой список (Ф1).
+    await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Сотрудник 2');
+    await waitFor(() => expect(screen.getByText('1–6 из 6')).toBeInTheDocument());
+    await waitFor(() => expect(counterFilters().length).toBeGreaterThan(0));
+    const frames = vi.mocked(personnelApi.workspace).mock.calls.length;
+    const pages = pageRequests().length;
+    // Счётчики — те же запросы `employees` из одной записи; тик не должен их добавлять (Ф1).
+    const counters = counterFilters().length;
+    expect(counters).toBeGreaterThan(0);
+    await act(async () => {
+      vi.advanceTimersByTime(FRAME_REFRESH_MS);
+    });
+    await waitFor(() =>
+      expect(vi.mocked(personnelApi.workspace).mock.calls.length).toBe(frames + 1),
+    );
+    // Тик несёт рамку `employees=none` и не тянет ни страницу карточек, ни счётчики.
+    expect(vi.mocked(personnelApi.workspace).mock.calls.at(-1)?.[1]).toEqual({
+      employees: 'none',
+      dormitory: null,
+      days: 30,
+      period: { from: '2026-10-01', to: '2026-10-31' },
+    });
+    expect(pageRequests()).toHaveLength(pages);
+    expect(counterFilters()).toHaveLength(counters);
+    expect(screen.getByText('1–6 из 6')).toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it('после исчезновения последней страницы показывает пустой список, а не пустой лист (#247)', async () => {
   const user = userEvent.setup();
   const payload = data(people(25));
@@ -572,6 +714,105 @@ describe('Персонал без задач', () => {
     expect(screen.queryByRole('option', { name: /Задачи/ })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Проживающий персонал' })).toBeInTheDocument();
   });
+});
+
+it('из действий карточки добавляет сотрудника в план по дате и общежитию', async () => {
+  const user = userEvent.setup();
+  const payload = data([person('one', [source(1)])]);
+  payload.dormitories = [
+    { id: 1, name: 'Северное', client_name: 'Индилайн', is_archived: false },
+    { id: 2, name: 'Старое', client_name: 'Другой клиент', is_archived: true },
+  ];
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  vi.spyOn(personnelApi, 'workspace').mockResolvedValue(payload);
+  vi.spyOn(personnelApi, 'detail').mockResolvedValue({
+    employee_id: 'one',
+    events: [],
+    notes: [],
+    merges: [],
+  });
+  const add = vi
+    .spyOn(personnelApi, 'addEmployeeToArrival')
+    .mockResolvedValueOnce({
+      required_fields: [
+        {
+          id: 'transport',
+          label: 'Транспорт',
+          type: 'select',
+          scope: 'arrival',
+          required: true,
+          inForm: true,
+          options: ['Автобус'],
+        },
+      ],
+    })
+    .mockResolvedValueOnce({
+      created: true,
+      plan: {
+        id: 'test-arrival',
+        date: '2026-11-25',
+        dormitory_id: 1,
+        count: 1,
+        names: ['Иванов Иван'],
+        revision: 0,
+      },
+    });
+  render(
+    <MemoryRouter initialEntries={['/cabinet/personnel?view=list&employee=one']}>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  const card = within(await screen.findByTestId('personnel-profile'));
+  expect(
+    card
+      .getAllByRole('tab')
+      .slice(-2)
+      .map((tab) => tab.textContent),
+  ).toEqual(['Заметки', 'Действия']);
+  await user.click(card.getByRole('tab', { name: 'Действия' }));
+  await user.click(card.getByRole('button', { name: 'Внести в план заездов' }));
+  const shifts = card.getByRole('spinbutton', { name: 'Кол-во смен' });
+  expect(shifts).toHaveValue(null);
+  await user.type(shifts, '24');
+  fireEvent.change(card.getByLabelText('Дата заезда'), { target: { value: '2026-11-25' } });
+  const dormitory = card.getByLabelText('Общежитие');
+  expect(within(dormitory).queryByRole('option', { name: /Старое/ })).not.toBeInTheDocument();
+  await user.selectOptions(
+    dormitory,
+    within(dormitory).getByRole('option', { name: 'Северное (Индилайн)' }),
+  );
+  await user.click(card.getByRole('button', { name: 'Внести в план заездов' }));
+  expect(add).toHaveBeenNthCalledWith(1, 'one', {
+    date: '2026-11-25',
+    dormitory_id: 1,
+    values: { shifts: '24' },
+  });
+  const transport = await card.findByLabelText(/Транспорт/);
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  await user.click(card.getByRole('button', { name: 'Закрыть окно' }));
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(transport).toBeInTheDocument();
+  confirm.mockClear();
+  await user.selectOptions(transport, 'Автобус');
+  await user.click(card.getByRole('button', { name: 'Внести в план заездов' }));
+  expect(add).toHaveBeenNthCalledWith(2, 'one', {
+    date: '2026-11-25',
+    dormitory_id: 1,
+    values: { shifts: '24', transport: 'Автобус' },
+  });
+  expect(await card.findByRole('link', { name: 'Открыть план заездов' })).toHaveAttribute(
+    'href',
+    '/cabinet/personnel?view=planning&date=2026-11-25&dormitory=1&arrival=test-arrival',
+  );
+  await user.click(card.getByRole('button', { name: 'Закрыть окно' }));
+  expect(confirm).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('personnel-profile')).not.toBeInTheDocument();
 });
 
 describe('Отбор сотрудников', () => {

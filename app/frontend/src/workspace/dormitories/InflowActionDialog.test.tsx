@@ -47,6 +47,7 @@ const plan: InflowActionPreview = {
   empty_columns: ['Телефон'],
   fields: null,
   departure_date: null,
+  settlement_date: row.settlement_date,
 };
 
 it('заселяет и оставляет строку притока с заблокированными действиями', async () => {
@@ -72,6 +73,7 @@ it('заселяет и оставляет строку притока с заб
   await user.click(within(source).getByRole('button', { name: 'Заселить' }));
   const dialog = await screen.findByRole('dialog', { name: 'Заселить из притока' });
   expect(dialog).toHaveTextContent('Заселить сотрудника «Иванов Иван»?');
+  expect(await within(dialog).findByText('14.10.2026')).toBeInTheDocument();
   await waitFor(() =>
     expect(within(dialog).getByRole('button', { name: 'Подтвердить' })).toBeEnabled(),
   );

@@ -13,11 +13,11 @@ from app.models.inflow import PersonnelInflow
 from app.models.resident import Resident
 from app.models.table_column import TableColumn
 from app.personnel import digest
-from app.resident_payments import matching_value, normalized_name
 from app.schemas.inflow import InflowEntryForm, UpdateInflowRequest
 from app.schemas.resident import HostelOption, UpdateResidentRequest
 from app.schemas.table_column import ColumnResponse
 from app.table_data import ensure_columns, normalize_value
+from app.transfer_columns import matching_value, normalized_name
 
 
 def entry_form(db: Session, dormitory_id: int, month: date) -> InflowEntryForm:

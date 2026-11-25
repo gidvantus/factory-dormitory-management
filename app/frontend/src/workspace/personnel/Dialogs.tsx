@@ -3,6 +3,7 @@ import type { Block, BlockKind, PersonnelData, SavedList } from '../../api/perso
 import { Modal } from '../../components/Modal';
 import { useEditorPreview } from '../../components/EditorSurface';
 import { EditorSection } from '../../components/EditorSection';
+import { formatDate } from '../dashboard/dates';
 import { SubmitForm } from './Forms';
 import { blockNames, dormName, names } from './helpers';
 import { useEmployeeCount } from './serverList';
@@ -232,8 +233,9 @@ export function SaveListDialog({
             {names[criteria.filter]} · {count ?? '…'} в выборке
           </p>
           <p className={s.hint}>
-            {criteria.dormitory == null ? 'Все общежития' : dormName(data, criteria.dormitory)} · до{' '}
-            {criteria.days} дней. Сохраняются условия; состав обновляется автоматически.
+            {criteria.dormitory == null ? 'Все общежития' : dormName(data, criteria.dormitory)}
+            {criteria.period &&
+              ` · ${formatDate(criteria.period.from)} – ${formatDate(criteria.period.to)}`}
           </p>
         </EditorSection>
         <EditorSection

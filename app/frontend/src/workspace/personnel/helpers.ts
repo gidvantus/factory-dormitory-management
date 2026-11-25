@@ -8,6 +8,7 @@ import type {
   Source,
 } from '../../api/personnel';
 import { ApiError } from '../../api/client';
+import type { DateRange } from '../dashboard/dates';
 import { columnFilterPredicate } from './employeeListFilters';
 
 export const names: Record<Filter, string> = {
@@ -55,24 +56,24 @@ export const addDays = (date: string, days: number): string =>
   new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
 export const dayDiff = (from: string, to: string): number =>
   Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
-export const dormName = (data: PersonnelData, id: number | null): string =>
+export const dormName = (data: Pick<PersonnelData, 'dormitories'>, id: number | null): string =>
   data.dormitories.find((d) => d.id === id)?.name ?? 'Общежитие удалено';
-export const currentSources = (person: Employee, dormitory: number | null = null): Source[] =>
-  person.current.filter((source) => dormitory == null || source.dormitory_id === dormitory);
-export function matches(
-  person: Employee,
-  filter: Filter,
-  data: PersonnelData,
-  days = 5,
-  dormitory: number | null = null,
-): boolean {
-  const current = currentSources(person, dormitory);
-  const ends = current.map((source) => value(source, 'shift_end')).filter(Boolean);
+export const endingRange = (today: string, days: number): DateRange => ({
+  from: today,
+  to: addDays(today, days),
+});
+
+export function shiftEndsInPeriod(source: Source, period: DateRange): boolean {
+  const end = value(source, 'shift_end');
+  return end >= period.from && end <= period.to;
+}
+
+function matches(current: Source[], filter: Filter, period: DateRange): boolean {
   switch (filter) {
     case 'current':
       return current.length > 0;
     case 'ending':
-      return ends.some((end) => end >= data.today && dayDiff(data.today, end) <= days);
+      return current.some((source) => shiftEndsInPeriod(source, period));
     default:
       return true;
   }
@@ -84,6 +85,7 @@ export function filterPeople(
   const query = list.query.trim().toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
   const digits = query.replace(/\D/g, '');
   const scoped = list.dormitory != null || list.scope.length > 0;
+  const period = list.period ?? endingRange(data.today, list.days);
   const allowed = (id: number): boolean =>
     (list.dormitory == null || id === list.dormitory) &&
     (!list.scope.length || list.scope.includes(id));
@@ -103,13 +105,10 @@ export function filterPeople(
         .join(' ')
         .toLocaleLowerCase('ru-RU')
         .replace(/ё/g, 'е');
-      const scopedPerson = {
-        ...person,
-        current: person.current.filter((source) => allowed(source.dormitory_id)),
-      };
+      const current = person.current.filter((source) => allowed(source.dormitory_id));
       return (
         inLocation &&
-        matches(scopedPerson, list.filter, data, list.days) &&
+        matches(current, list.filter, period) &&
         matchesColumns(person) &&
         (!query ||
           text.includes(query) ||
@@ -123,7 +122,7 @@ export function filterPeople(
     .sort((a, b) => {
       const end = (p: Employee): string =>
         p.current
-          .filter((source) => allowed(source.dormitory_id))
+          .filter((source) => allowed(source.dormitory_id) && shiftEndsInPeriod(source, period))
           .map((source) => value(source, 'shift_end'))
           .filter(Boolean)
           .sort()[0] ?? '';

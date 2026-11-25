@@ -31,6 +31,9 @@ BODY_GUARDED: dict[tuple[str, str], str] = {
     ("put", "/api/personnel/arrivals/{plan_id}"): (
         "writable_dormitory → own_dormitory и для общежития плана, и для нового"
     ),
+    ("post", "/api/personnel/arrivals/from-employee/{employee_id}"): (
+        "writable_dormitory → own_dormitory(db, payload.dormitory_id, membership)"
+    ),
     ("put", "/api/personnel/employees/{employee_id}/next-shift"): (
         "own_dormitory(db, payload.dormitory_id, membership)"
     ),

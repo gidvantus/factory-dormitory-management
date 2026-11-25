@@ -1,14 +1,21 @@
 import { useEffect, useState } from 'react';
 import { personnelApi } from '../../api/personnel';
-import type { Employee, EmployeeDetail, PersonnelData, Source } from '../../api/personnel';
+import type { Employee, EmployeeDetail, EmployeeProfileContext, Source } from '../../api/personnel';
 import { Modal, ModalCancelButton } from '../../components/Modal';
 import { EmployeeEditForm, NoteForm } from './Forms';
+import { EmployeeArrivalAction } from './EmployeeArrivalAction';
 import type { Mutate } from './Forms';
 import { dateLabel, dormName, message, personName, value } from './helpers';
 import s from './Personnel.module.css';
 
-export type ProfileTab = 'overview' | 'history' | 'shifts' | 'notes';
-function ResidenceCard({ source, data }: { source: Source; data: PersonnelData }): JSX.Element {
+export type ProfileTab = 'overview' | 'history' | 'shifts' | 'notes' | 'actions';
+function ResidenceCard({
+  source,
+  data,
+}: {
+  source: Source;
+  data: EmployeeProfileContext;
+}): JSX.Element {
   return (
     <article className={s.source}>
       <strong>
@@ -44,6 +51,7 @@ const labels: Record<string, string> = {
 export function PersonnelProfile({
   employee,
   data,
+  loadedDetail,
   tab: initialTab,
   onClose,
   mutate,
@@ -51,7 +59,8 @@ export function PersonnelProfile({
   refreshError,
 }: {
   employee: Employee;
-  data: PersonnelData;
+  data: EmployeeProfileContext;
+  loadedDetail?: EmployeeDetail;
   tab: ProfileTab;
   onClose: () => void;
   mutate: Mutate;
@@ -59,12 +68,14 @@ export function PersonnelProfile({
   refreshError?: string;
 }): JSX.Element {
   const [tab, setTab] = useState<ProfileTab>(initialTab);
-  const [detail, setDetail] = useState<EmployeeDetail | null>(null);
+  const [requestedDetail, setDetail] = useState<EmployeeDetail | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [requestPending, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
+  const [actionBusy, setActionBusy] = useState(false);
   useEffect(() => {
+    if (loadedDetail) return;
     const controller = new AbortController();
     setLoading(true);
     setError('');
@@ -83,7 +94,9 @@ export function PersonnelProfile({
         }
       });
     return () => controller.abort();
-  }, [employee.id, data, attempt]);
+  }, [employee.id, data, attempt, loadedDetail]);
+  const loading = !loadedDetail && requestPending;
+  const detail = loadedDetail ?? requestedDetail;
   const shifts = new Map<string, EmployeeDetail['events'][number]>();
   for (const event of [...(detail?.events ?? [])].sort((a, b) => a.id - b.id)) {
     if (event.snapshot.shift_start && (event.snapshot.shift_end || event.snapshot.departure_date))
@@ -95,6 +108,7 @@ export function PersonnelProfile({
       testId="personnel-profile"
       initialFocus="panel"
       onClose={onClose}
+      closeDisabled={actionBusy}
       panelClassName={`${s.modal} ${s.drawer}`}
       containerClassName={s.drawerContainer}
     >
@@ -125,12 +139,14 @@ export function PersonnelProfile({
             ['history', 'История'],
             ['shifts', 'Вахты'],
             ['notes', 'Заметки'],
+            ['actions', 'Действия'],
           ] as const
         ).map(([id, label]) => (
           <ModalCancelButton
             key={id}
             role="tab"
             aria-selected={tab === id}
+            disabled={actionBusy}
             when={tab !== id}
             onClick={() => setTab(id)}
           >
@@ -151,7 +167,11 @@ export function PersonnelProfile({
           <button onClick={() => setAttempt((n) => n + 1)}>Повторить загрузку истории</button>
         </p>
       )}
-      <div className={s.profileBody} role="tabpanel" aria-label={tab}>
+      <div
+        className={s.profileBody}
+        role="tabpanel"
+        aria-label={tab === 'actions' ? 'Действия' : tab}
+      >
         {tab === 'overview' && (
           <>
             <section className={s.softCard}>
@@ -333,6 +353,15 @@ export function PersonnelProfile({
               </div>
             </section>
           </>
+        )}
+        {tab === 'actions' && (
+          <EmployeeArrivalAction
+            employeeId={employee.id}
+            dormitories={data.dormitories}
+            settings={data.arrival_settings}
+            onBusy={setActionBusy}
+            onAdded={onReload}
+          />
         )}
       </div>
     </Modal>

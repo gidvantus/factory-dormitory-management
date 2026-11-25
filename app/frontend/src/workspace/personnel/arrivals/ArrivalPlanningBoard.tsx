@@ -4,10 +4,12 @@ import { personnelApi } from '../../../api/personnel';
 import type {
   ArrivalConfiguration,
   ArrivalPlan,
+  EmployeeProfileTarget,
   PersonnelData,
   ArrivalWorkflowResult,
 } from '../../../api/personnel';
 import { ApiError } from '../../../api/client';
+import { EmployeeProfileDialog } from '../EmployeeProfileDialog';
 import type { Mutate } from '../Forms';
 import { addDays, dateLabel, message } from '../helpers';
 import { PersonnelBlockIcon as Icon } from '../PersonnelBlockIcon';
@@ -54,6 +56,7 @@ export function ArrivalPlanningBoard({
   );
   const [draft, setDraft] = useState<ArrivalDraft | null>(null);
   const [detailsId, setDetailsId] = useState<string | null>(initialPlanId ?? null);
+  const [employeeProfile, setEmployeeProfile] = useState<EmployeeProfileTarget | null>(null);
   const [workflowDialog, setWorkflowDialog] = useState<{
     plan: ArrivalPlan;
     person: Person;
@@ -130,15 +133,14 @@ export function ArrivalPlanningBoard({
       setBusy(false);
     }
   }
-  function personAction(plan: ArrivalPlan, action: WorkflowAction, personId: string): void {
+  function personAction(plan: ArrivalPlan, action: WorkflowAction, person: Person): void {
     if (busy || loading) return;
     setError('');
-    const person = viewOf(plan, dormName(plan.dormitory_id)).people.find(
-      (item) => item.id === personId,
-    );
-    if (!person) return;
     if (action === 'details') {
-      setDetailsId(plan.id);
+      const employeeId = plan.employee_ids?.[person.id] ?? plan.workflow?.[person.id]?.employee_id;
+      if (person.name.trim()) {
+        setEmployeeProfile(employeeId ? { employeeId } : { fullName: person.name });
+      }
       return;
     }
     if (action === 'move') {
@@ -148,7 +150,7 @@ export function ArrivalPlanningBoard({
     }
     const request =
       action === 'expected' || action === 'arrived' || action === 'no_show'
-        ? () => personnelApi.markArrival(plan.id, personId, action, plan.revision)
+        ? () => personnelApi.markArrival(plan.id, person.id, action, plan.revision)
         : null;
     if (request)
       void runWorkflow(request)
@@ -405,7 +407,7 @@ export function ArrivalPlanningBoard({
                     onEdit={() => open(dorm.id, plan)}
                     workflow={plan.workflow}
                     busy={busy || loading}
-                    onPersonAction={(action, personId) => personAction(plan, action, personId)}
+                    onPersonAction={(action, person) => personAction(plan, action, person)}
                   />
                 ) : (
                   <article className={f.emptyArrival} key={dorm.id}>
@@ -446,7 +448,7 @@ export function ArrivalPlanningBoard({
           onDelete={remove}
         />
       )}
-      {details && !draft && !settingsEditor && (
+      {details && !draft && !settingsEditor && !employeeProfile && (
         <ArrivalDetailsDialog
           arrival={viewOf(details, dormName(details.dormitory_id))}
           fields={[...configuration.fields, ...configuration.archived_fields]}
@@ -459,8 +461,11 @@ export function ArrivalPlanningBoard({
           }
           busy={busy || loading}
           error={error}
-          onPersonAction={(action, personId) => personAction(details, action, personId)}
+          onPersonAction={(action, person) => personAction(details, action, person)}
         />
+      )}
+      {employeeProfile && (
+        <EmployeeProfileDialog {...employeeProfile} onClose={() => setEmployeeProfile(null)} />
       )}
       {workflowDialog && (
         <ArrivalMoveDialog

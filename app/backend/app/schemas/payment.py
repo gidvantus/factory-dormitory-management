@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.transfer_columns import TransferColumnChoice
+
 PaymentKind = Literal["advance", "settlement"]
 
 
@@ -42,3 +44,13 @@ class ResidentPaymentResponse(BaseModel):
     created: bool
     copied_columns: list[str]
     skipped_columns: list[str]
+
+
+class RegisterPaymentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    check_columns: bool = True
+
+
+class PaymentColumnsRequired(BaseModel):
+    column_choices: list[TransferColumnChoice]
+    can_continue: bool

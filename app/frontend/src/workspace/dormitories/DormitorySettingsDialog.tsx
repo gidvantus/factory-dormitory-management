@@ -22,6 +22,7 @@ import { RowDialog } from './ReportTable';
 import { HostelSettings } from './HostelSettings';
 import { CreateCustomTabDialog } from './CreateCustomTabDialog';
 import { RuleSummary } from './RuleSummary';
+import { TransferColumnSettings } from './TransferColumnSettings';
 import { BindingDialog } from '../personnel/BindingDialog';
 import type { SourceTable } from '../../api/personnel';
 import styles from './DormitorySettingsDialog.module.css';
@@ -31,7 +32,7 @@ import { ExchangeOptionsEditor } from './ExchangeOptionsEditor';
 import { cellFillError, personnelFillSource, sourceFields, supportsCellFill } from './cellFill';
 import type { CellFillSource } from '../../api/client';
 
-type Page = 'structure' | 'links' | 'templates';
+type Page = 'structure' | 'links' | 'transfers' | 'templates';
 type DraftColumn = Omit<SettingsColumn, 'id' | 'table_key'> & { id?: number; local: number };
 interface Node {
   key: string;
@@ -84,6 +85,7 @@ export function DormitorySettingsDialog({
   const [busy, setBusy] = useState(false);
   const [hostelDirty, setHostelDirty] = useState(false);
   const [hostelBusy, setHostelBusy] = useState(false);
+  const [mappingBusy, setMappingBusy] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -244,7 +246,7 @@ export function DormitorySettingsDialog({
     setConfirmDelete(false);
   }
   function close(): void {
-    if (!leaveHostel()) return;
+    if (mappingBusy || !leaveHostel()) return;
     if (dirty) setConfirmClose(true);
     else onClose();
   }
@@ -473,7 +475,7 @@ export function DormitorySettingsDialog({
       onClose={close}
       dirty={dirty}
       guardClose={false}
-      closeDisabled={busy || hostelBusy}
+      closeDisabled={busy || hostelBusy || mappingBusy}
       panelClassName={styles.panel}
       containerClassName={styles.overlay}
       testId="dormitory-settings-modal"
@@ -520,6 +522,7 @@ export function DormitorySettingsDialog({
               [
                 ['structure', 'Вкладки и таблицы'],
                 ['links', 'Связи отчёта'],
+                ['transfers', 'Перенос столбцов'],
                 ['templates', 'Шаблоны'],
               ] as const
             ).map(([key, label]) => (
@@ -534,7 +537,7 @@ export function DormitorySettingsDialog({
                   setPage(key);
                   setEditingRule(null);
                 }}
-                disabled={busy}
+                disabled={busy || mappingBusy}
               >
                 {label}
               </button>
@@ -1067,6 +1070,19 @@ export function DormitorySettingsDialog({
                     </div>
                   </article>
                 ))
+              )}
+            </main>
+          )}
+          {snapshot && page === 'transfers' && (
+            <main className={styles.fullPage}>
+              {dirty ? (
+                <p>Сохраните изменения столбцов, прежде чем настраивать соответствия.</p>
+              ) : (
+                <TransferColumnSettings
+                  dormitoryId={dormitoryId}
+                  disabled={busy}
+                  onBusy={setMappingBusy}
+                />
               )}
             </main>
           )}

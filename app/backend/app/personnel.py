@@ -4,11 +4,12 @@ import hashlib
 import json
 import re
 from collections import defaultdict
+from collections.abc import Callable, Collection, Iterable, Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -34,7 +35,14 @@ from app.models.personnel import (
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry, TableColumn
 from app.models.user import User
-from app.personnel_page import ListCriteria, block_previews, counts_by_filter
+from app.personnel_page import DEFAULT_BLOCKS, ListCriteria
+from app.personnel_query import (
+    SelectionCache,
+    block_previews,
+    candidates,
+    counts_by_filter,
+    person_page,
+)
 from app.schemas.personnel import IdentityChoice, IdentityFields
 from app.sql_diagnostics import stage
 
@@ -351,6 +359,7 @@ def record_changed(
     *,
     kind: str | None = None,
     title: str | None = None,
+    happened_on: date | None = None,
 ) -> None:
     """Вызывается в той же транзакции, что исходное изменение, до удаления строки."""
     identity_lock(db)
@@ -440,8 +449,7 @@ def record_changed(
         if key in ("residents", "inflow") and first
         else "source"
     )
-    happened = None
-    if first:
+    if first and happened_on is None:
         raw_date = values.get(
             "departure_date"
             if key == "outflow"
@@ -451,7 +459,7 @@ def record_changed(
         )
         if raw_date:
             with suppress(ValueError):
-                happened = date.fromisoformat(raw_date)
+                happened_on = date.fromisoformat(raw_date)
     event(
         db,
         row.employee_id,
@@ -462,7 +470,7 @@ def record_changed(
         source_table=key,
         source_id=row.id,
         snapshot=values,
-        happened_on=happened,
+        happened_on=happened_on,
     )
     db.flush()
 
@@ -516,6 +524,8 @@ def all_sources(
     db: Session,
     dormitory_ids: list[int],
     dormitories: list[Any] | None = None,
+    *,
+    employee_ids: Collection[str] | None = None,
 ) -> list[SourceRecord]:
     """Строки-источники только по перечисленным общежитиям.
 
@@ -526,9 +536,14 @@ def all_sources(
     читает его сам (он отдаёт его в ответ), и второй `SELECT` по той же таблице
     был лишним выполнением в каждом запросе. Не передан — читается здесь же.
 
+    `employee_ids` сужает выборку до карточек страницы (#251): `None` — строки
+    всей области, пустое множество — ни одной.
+
     Читаются колонки, а не ORM-объекты: на объёме стенда (20 000 строк) одно
     создание объектов стоило дольше, чем весь остальной запрос (`#237`).
     """
+    if employee_ids is not None and not employee_ids:
+        return []
     if dormitories is None:
         dormitories = list(db.scalars(select(Dormitory).where(Dormitory.id.in_(dormitory_ids))))
     lookup: dict[str, Any] = {
@@ -549,11 +564,12 @@ def all_sources(
     result: list[SourceRecord] = []
     for model in SOURCE_MODELS:
         spec = source_spec(model)
-        rows = db.execute(
-            select(*spec.columns).where(
-                model.employee_id.is_not(None), model.dormitory_id.in_(dormitory_ids)
-            )
-        )
+        condition = [model.employee_id.is_not(None), model.dormitory_id.in_(dormitory_ids)]
+        if employee_ids is not None:
+            # Ограничение страницы (#251): читаются строки только отобранных
+            # карточек, а не всей области.
+            condition.append(model.employee_id.in_(employee_ids))
+        rows = db.execute(select(*spec.columns).where(*condition))
         for row in rows:
             employee_id = row[spec.employee_at]
             # Порядок ключей — порядок колонок таблицы, как и раньше: он виден в
@@ -575,6 +591,83 @@ def all_sources(
     return result
 
 
+def source_rows(
+    db: Session, dormitory_ids: list[int], employee_ids: list[str] | None = None
+) -> list[tuple[Row, dict[str, Any]]]:
+    """Строки-источники вместе с ORM-объектами — для точечных карточек.
+
+    Массовому чтению (`all_sources`) объекты не нужны: там весь смысл в том,
+    чтобы не материализовать десятки тысяч строк (`#237`). Карточке сотрудника
+    и плану заезда, наоборот, нужны сами объекты: `record_value` дочитывает
+    вычисляемые колонки пользовательских вкладок, а тип строки — корень заезда.
+    Поэтому здесь остаётся прежний путь «объект + значения», но выборка сужена
+    до `employee_ids`, если они переданы.
+    """
+    lookup: dict[str, Any] = {
+        "dormitories": {
+            item.id: item
+            for item in db.scalars(select(Dormitory).where(Dormitory.id.in_(dormitory_ids)))
+        },
+        "hostels": {
+            item.id: item
+            for item in db.execute(
+                select(Hostel.id, Hostel.name).where(Hostel.dormitory_id.in_(dormitory_ids))
+            )
+        },
+        "bindings": {
+            (item.dormitory_id, item.table_key): item
+            for item in db.scalars(
+                select(PersonnelBinding).where(PersonnelBinding.dormitory_id.in_(dormitory_ids))
+            )
+        },
+    }
+    return [
+        (cast(Row, row), row_values(db, cast(Row, row), lookup))
+        for model in SOURCE_MODELS
+        for row in db.scalars(
+            select(model).where(
+                model.employee_id.in_(employee_ids)
+                if employee_ids is not None
+                else model.employee_id.is_not(None),
+                model.dormitory_id.in_(dormitory_ids),
+            )
+        )
+    ]
+
+
+def source_summary(row: Row, values: dict[str, Any], tabs: dict[str, str]) -> dict[str, Any]:
+    key = source_key(row)
+    return {
+        "table_key": key,
+        "row_id": row.id,
+        "dormitory_id": row.dormitory_id,
+        "source_name": tabs.get(key, SOURCE_NAMES.get(key, key)),
+        "values": values,
+    }
+
+
+def employee_group_in_scope(db: Session, ids: list[str], dormitory_ids: list[int]) -> bool:
+    if any(
+        db.scalar(
+            select(model.id)
+            .where(model.employee_id.in_(ids), model.dormitory_id.in_(dormitory_ids))
+            .limit(1)
+        )
+        is not None
+        for model in SOURCE_MODELS
+    ):
+        return True
+    history = (
+        select(EmployeeEvent.id)
+        .where(
+            EmployeeEvent.employee_id.in_(ids),
+            EmployeeEvent.dormitory_id.in_(dormitory_ids),
+        )
+        .limit(1)
+    )
+    return db.scalar(history) is not None
+
+
 def employee_in_scope(db: Session, employee_id: str, dormitory_ids: list[int]) -> Employee:
     """Карточка сотрудника в пределах области. Иначе — `404`, как за несуществующую.
 
@@ -584,27 +677,7 @@ def employee_in_scope(db: Session, employee_id: str, dormitory_ids: list[int]) -
     """
     employee = get_employee(db, employee_id)
     ids = group_ids(db, employee_id)
-    has_source = any(
-        db.scalar(
-            select(model.id)
-            .where(model.employee_id.in_(ids), model.dormitory_id.in_(dormitory_ids))
-            .limit(1)
-        )
-        is not None
-        for model in SOURCE_MODELS
-    )
-    if (
-        has_source
-        or db.scalar(
-            select(EmployeeEvent.id)
-            .where(
-                EmployeeEvent.employee_id.in_(ids),
-                EmployeeEvent.dormitory_id.in_(dormitory_ids),
-            )
-            .limit(1)
-        )
-        is not None
-    ):
+    if employee_group_in_scope(db, ids, dormitory_ids):
         return employee
     raise HTTPException(404, "Карточка сотрудника не найдена")
 
@@ -749,6 +822,13 @@ class WorkspaceContext:
     identities: dict[str, dict[str, Any]]
     dormitories: list[Any]
     tabs: dict[str, str]
+    members: frozenset[str] | None = None
+    """Чьи карточки собирать: `None` — всех корней области (#251).
+
+    Страница людей собирает карточки только для отобранных строк, поэтому
+    ограничение живёт в контексте, а не третьим аргументом `employee_cards`:
+    сигнатура `employee_cards(db, context)` остаётся прежней.
+    """
 
 
 def workspace_context(db: Session, dormitory_ids: list[int]) -> WorkspaceContext:
@@ -775,15 +855,30 @@ def employee_cards(db: Session, context: WorkspaceContext) -> list[dict[str, Any
 
     Этапы размечены для события `slow_sql_request` (#237): по ним видно, сколько
     времени уходит на загрузку строк-источников, журнал и сборку карточек.
+
+    `context.members` ограничивает выборку корнями отобранной страницы (#251):
+    тогда строки-источники читаются только для них, а не для всей области.
+    Первые шаги (состав групп и варианты ФИО) тоже сужены этим множеством.
     """
+    wanted = context.members
     # Корневые карточки и их состав — одним проходом по `roots`. Прежний вариант
     # перебирал `roots` целиком внутри цикла по карточкам: O(карточек × карточек).
     members: dict[str, list[str]] = defaultdict(list)
     for member, root in context.roots.items():
-        members[root].append(member)
+        if wanted is None or root in wanted:
+            members[root].append(member)
+    targets = set(members)
+    # Строки-источники читаются по всем участникам отобранных групп, а не только
+    # по корням: у присоединённой карточки свои строки, и карточка группы обязана
+    # их показать (#251).
+    group: set[str] | None = None
+    if wanted is not None:
+        group = {member for ids in members.values() for member in ids}
     sources: dict[str, list[dict[str, Any]]] = defaultdict(list)
     with stage("sources"):
-        for source in all_sources(db, context.dormitory_ids, context.dormitories):
+        for source in all_sources(
+            db, context.dormitory_ids, context.dormitories, employee_ids=group
+        ):
             sources[context.roots[source.employee_id or ""]].append(
                 {
                     "table_key": source.table_key,
@@ -798,21 +893,29 @@ def employee_cards(db: Session, context: WorkspaceContext) -> list[dict[str, Any
     history_dorms: dict[str, set[int]] = defaultdict(set)
     history_ids: set[str] = set()
     with stage("events"):
-        for entry in db.execute(
+        # Журнал раньше читался построчно: по строке на каждое событие человека.
+        # Здесь из SQL приходят только различные пары «человек — общежитие», а
+        # множество людей и их общежития собираются из них (#251).
+        for employee_id, dormitory_id in db.execute(
             select(EmployeeEvent.employee_id, EmployeeEvent.dormitory_id)
             .where(EmployeeEvent.dormitory_id.in_(context.dormitory_ids))
-            .order_by(EmployeeEvent.id)
+            .distinct()
         ):
-            root = context.roots[entry.employee_id]
+            root = context.roots[employee_id]
             history_ids.add(root)
-            if entry.dormitory_id:
-                history_dorms[root].add(entry.dormitory_id)
+            if dormitory_id:
+                history_dorms[root].add(dormitory_id)
     variants: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
-    for alias in db.scalars(select(EmployeeAlias)):
-        variants[context.roots[alias.employee_id]][alias.field].add(alias.raw_value)
+    with stage("aliases"):
+        alias_ids = [member for target in targets for member in members[target]]
+        aliases = select(EmployeeAlias)
+        if wanted is not None:
+            aliases = aliases.where(EmployeeAlias.employee_id.in_(alias_ids))
+        for alias in db.scalars(aliases):
+            variants[context.roots[alias.employee_id]][alias.field].add(alias.raw_value)
     result = []
     with stage("assemble"):
-        for id in sorted(set(context.roots.values())):
+        for id in sorted(targets):
             item = context.employees[id]
             rows = sources[id]
             if not rows and id not in history_ids:
@@ -866,6 +969,72 @@ def source_columns_response(db: Session, context: WorkspaceContext) -> list[dict
     ]
 
 
+def limited_context(context: WorkspaceContext, ids: Iterable[str]) -> WorkspaceContext:
+    """Копия контекста, ограниченная корнями отобранной страницы (#251)."""
+    return replace(context, members=frozenset(ids))
+
+
+def cards_by_ids(
+    db: Session, context: WorkspaceContext, ids: Iterable[str]
+) -> list[dict[str, Any]]:
+    """Карточки только для перечисленных корней — в порядке `ids`.
+
+    `employee_cards` отдаёт карточки по возрастанию `id`; страница и превью
+    блоков показывают свой порядок (`sort_name`, а для `ending` — конец вахты),
+    поэтому результат переставляется здесь.
+    """
+    wanted = [id for id in ids if id in context.employees]
+    if not wanted:
+        return []
+    cards = employee_cards(db, limited_context(context, wanted))
+    by_id = {card["id"]: card for card in cards}
+    return [by_id[id] for id in wanted if id in by_id]
+
+
+def sources_loader(
+    db: Session, context: WorkspaceContext
+) -> Callable[[Sequence[int], set[str]], list[SourceRecord]]:
+    """Загрузчик строк-источников для условий по столбцам (#251).
+
+    Отдаётся `app.personnel_query` вызывающим слоем: этот модуль зависит от
+    `all_sources`, а модуль отбора — нет, поэтому цикл модулей не заводится.
+    """
+
+    def load(dormitory_ids: Sequence[int], employee_ids: set[str]) -> list[SourceRecord]:
+        return all_sources(db, list(dormitory_ids), context.dormitories, employee_ids=employee_ids)
+
+    return load
+
+
+def page_selection(
+    db: Session,
+    context: WorkspaceContext,
+    criteria: ListCriteria,
+    *,
+    day: date,
+    number: int,
+    per_page: int,
+    dormitories: list[dict[str, Any]],
+    source_columns: list[dict[str, Any]],
+) -> tuple[list[str], int]:
+    """Корни запрошенной страницы и общее число людей списка (#251)."""
+    found = candidates(
+        db,
+        roots=context.roots,
+        identities=context.identities,
+        tabs=context.tabs,
+        dormitory_ids=context.dormitory_ids,
+        criteria=criteria,
+        day=day,
+        dormitories=dormitories,
+        source_columns=source_columns,
+        load_sources=sources_loader(db, context),
+    )
+    return person_page(
+        db, candidates=found, employees=context.employees, number=number, per_page=per_page
+    )
+
+
 def workspace(
     db: Session,
     user: User,
@@ -875,6 +1044,7 @@ def workspace(
     include_previews: bool = False,
     preview_dormitory: int | None = None,
     days: int = 5,
+    period: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
     """Рабочая поверхность персонала в пределах области — общежитий организации.
 
@@ -890,9 +1060,13 @@ def workspace(
     Этапы размечены для события `slow_sql_request` (#237): по ним видно, сколько
     времени уходит на загрузку строк-источников, журнал, сборку карточек, планы и
     заезды. Разметка ничего не меняет в вычислениях — только измеряет.
+
+    С #251 превью блоков и сводка считаются отбором в SQL, а не по полному
+    массиву карточек: при `?employees=none` карточки не собираются вообще, а
+    счётчик блока равен `total` списка с теми же условиями.
     """
     context = workspace_context(db, dormitory_ids)
-    cards = employee_cards(db, context)
+    cards = employee_cards(db, context) if include_employees else []
 
     def person(id: str) -> str:
         return context.roots[id]
@@ -935,35 +1109,52 @@ def workspace(
         "preferences": settings,
     }
     if include_previews:
+        day = today()
+        # Отбор у блоков и сводки общий: область, срок вахты, поиск и условия
+        # столбцов у них совпадают, отличается только фильтр срока. Без кеша
+        # каждый блок заново читал строки-источники, журнал и вахты (#251).
+        selection = SelectionCache(
+            db=db,
+            roots=context.roots,
+            identities=context.identities,
+            tabs=context.tabs,
+            dormitory_ids=context.dormitory_ids,
+            day=day,
+            dormitories=dormitories,
+            source_columns=columns,
+            load_sources=sources_loader(db, context),
+        )
         with stage("block_previews"):
             response["block_previews"] = block_previews(
-                cards=cards,
+                db,
+                selection=selection,
+                employees=context.employees,
                 lists=settings.get("lists") or [],
                 blocks=settings.get("blocks"),
-                today=response["today"],
+                day=day,
                 dormitory=preview_dormitory,
                 dormitories=dormitories,
-                source_columns=columns,
                 arrivals=arrivals,
+                cards_for=lambda ids: cards_by_ids(db, context, ids),
+                default_blocks=DEFAULT_BLOCKS,
             )
         # Сводка поверхности: раньше эти три числа считались в браузере по всему
-        # массиву карточек, а при `employees=none` массива нет. Отдельный запрос на
-        # каждое число стоил бы трёх полных сборок карточек, поэтому считаем здесь,
-        # где карточки уже собраны.
+        # массиву карточек, а при `employees=none` массива нет. С #251 числа
+        # считает отбор в SQL: у всех трёх фильтров он общий, меняется только срок.
         with stage("counts"):
             response["counts"] = counts_by_filter(
-                cards,
-                ListCriteria(dormitory=preview_dormitory, days=days),
-                response["today"],
-                dormitories,
-                columns,
+                candidates=selection.get(
+                    ListCriteria(dormitory=preview_dormitory, days=days, period=period)
+                )
             )
     return response
 
 
 def employee_detail(db: Session, employee_id: str) -> dict[str, Any]:
-    ids = group_ids(db, employee_id)
-    names = {user.id: user.full_name for user in db.scalars(select(User))}
+    return employee_history(db, get_employee(db, employee_id).id, group_ids(db, employee_id))
+
+
+def employee_history(db: Session, employee_id: str, ids: list[str]) -> dict[str, Any]:
     events = list(
         db.scalars(
             select(EmployeeEvent)
@@ -985,8 +1176,13 @@ def employee_detail(db: Session, employee_id: str) -> dict[str, Any]:
             .order_by(EmployeeMerge.created_at.desc())
         )
     )
+    actor_ids = {item.actor_id for item in events if item.actor_id is not None}
+    actor_ids.update(item.actor_id for item in merges if item.actor_id is not None)
+    actor_ids.update(note.author_id for note in notes if note.author_id is not None)
+    actors = select(User.id, User.full_name).where(User.id.in_(actor_ids))
+    names = dict(db.execute(actors).tuples().all()) if actor_ids else {}
     return {
-        "employee_id": get_employee(db, employee_id).id,
+        "employee_id": employee_id,
         "events": [
             {
                 "id": e.id,

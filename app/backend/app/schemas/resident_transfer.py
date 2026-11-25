@@ -4,6 +4,8 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.transfer_columns import TransferColumnChoice
+
 
 class TransferPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -34,3 +36,4 @@ class TransferPreviewResponse(BaseModel):
     warnings: list[TransferWarning]
     empty_columns: list[str]
     preview_token: str
+    column_choices: list[TransferColumnChoice] = Field(default_factory=list)

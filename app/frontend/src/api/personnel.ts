@@ -1,4 +1,5 @@
 import { request, requestBlob } from './client';
+import type { DateRange } from '../workspace/dashboard/dates';
 import type { Field, Settings, Value } from '../workspace/personnel/arrivals/data';
 
 export type IdentityFields = {
@@ -59,6 +60,7 @@ export type SavedList = {
   filter: Filter;
   dormitory: number | null;
   days: number;
+  period?: DateRange | null;
   query: string;
   scope: number[];
   column_filters?: EmployeeColumnFilter[];
@@ -98,6 +100,7 @@ export type ArrivalPlan = {
   count: number;
   names: string[];
   people?: { id: string; full_name: string; custom_values: Record<string, Value> }[];
+  employee_ids?: Record<string, string>;
   custom_values?: Record<string, Value>;
   revision: number;
   workflow?: Record<string, ArrivalVisit>;
@@ -132,10 +135,12 @@ export type ArrivalVisit = {
 export type ArrivalWorkflowResult = { plans: ArrivalPlan[]; deleted_plan_ids: string[] };
 export type ArrivalInput = Omit<
   ArrivalPlan,
-  'id' | 'revision' | 'workflow' | 'dormitory_name' | 'is_archived'
+  'id' | 'revision' | 'workflow' | 'employee_ids' | 'dormitory_name' | 'is_archived'
 > & {
   settings_revision?: number;
 };
+export type EmployeeArrivalResult =
+  { created: boolean; plan: ArrivalPlan } | { required_fields: Field[] };
 export type ArrivalConfiguration = Settings & {
   revision: number;
   archived_fields: Field[];
@@ -155,6 +160,7 @@ export type EmployeeListQuery = {
   dormitory: number | null;
   scope: number[];
   days: number;
+  period?: DateRange | null;
   query: string;
   column_filters?: EmployeeColumnFilter[];
   page: number;
@@ -224,6 +230,15 @@ export type EmployeeDetail = {
     undone_at: string | null;
   }[];
 };
+export type EmployeeProfileTarget =
+  { employeeId: string; fullName?: never } | { employeeId?: never; fullName: string };
+export type EmployeeProfileContext = Pick<PersonnelData, 'dormitories'> & {
+  arrival_settings?: Pick<ArrivalConfiguration, 'fields'>;
+};
+export type EmployeeProfileData = EmployeeProfileContext & {
+  employee: Employee;
+  detail: EmployeeDetail;
+};
 export type Binding = {
   fields: Record<string, number>;
   columns: {
@@ -242,6 +257,14 @@ const send = <T = { ok: boolean }>(path: string, method: string, body?: unknown)
     method,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+
+/** Диапазон дат в запросе: сервер принимает обе границы вместе или ни одной. */
+const periodParams = (params: URLSearchParams, period?: DateRange | null): void => {
+  if (!period) return;
+  params.set('period_from', period.from);
+  params.set('period_to', period.to);
+};
+
 export const personnelApi = {
   arrivals: (
     range?: { from: string; to: string },
@@ -261,16 +284,24 @@ export const personnelApi = {
    * Рабочая поверхность. `employees: 'none'` — рамка без карточек: люди приходят
    * страницами из `employees()`, а блоки — из `block_previews` (#247).
    * `days` — срок вахты для сводки `counts`; страница запрашивает его же.
+   * `period` — выбранный диапазон дат панели персонала: сервер считает «окончание
+   * вахты» ровно в его границах, а `days` остаётся запасным правилом.
    * Умолчание `full` осталось ради остальных экранов, которым нужен весь список.
    */
   workspace: (
     signal?: AbortSignal,
-    options?: { employees?: 'full' | 'none'; dormitory?: number | null; days?: number },
+    options?: {
+      employees?: 'full' | 'none';
+      dormitory?: number | null;
+      days?: number;
+      period?: DateRange | null;
+    },
   ): Promise<PersonnelData> => {
     const params = new URLSearchParams();
     if (options?.employees === 'none') params.set('employees', 'none');
     if (options?.dormitory) params.set('dormitory', String(options.dormitory));
     if (options?.days != null) params.set('days', String(options.days));
+    periodParams(params, options?.period);
     const search = params.toString();
     return request(`/personnel${search ? `?${search}` : ''}`, { signal });
   },
@@ -284,6 +315,7 @@ export const personnelApi = {
     if (query.dormitory != null) params.set('dormitory', String(query.dormitory));
     for (const id of query.scope) params.append('scope', String(id));
     params.set('days', String(query.days));
+    periodParams(params, query.period);
     const text = query.query.trim();
     if (text) params.set('query', text);
     if (query.column_filters?.length)
@@ -292,6 +324,14 @@ export const personnelApi = {
   },
   detail: (id: string, signal?: AbortSignal): Promise<EmployeeDetail> =>
     request(`/personnel/employees/${encodeURIComponent(id)}`, { signal }),
+  profile: (target: EmployeeProfileTarget, signal?: AbortSignal): Promise<EmployeeProfileData> =>
+    target.employeeId !== undefined
+      ? request(`/personnel/employees/${encodeURIComponent(target.employeeId)}/profile`, { signal })
+      : request('/personnel/employee-profile/by-name', {
+          method: 'POST',
+          body: JSON.stringify({ full_name: target.fullName }),
+          signal,
+        }),
   check: (fields: IdentityFields, signal?: AbortSignal): Promise<IdentityCheck> =>
     request('/personnel/check', { method: 'POST', body: JSON.stringify(fields), signal }),
   createRecord: (
@@ -321,6 +361,15 @@ export const personnelApi = {
   ) => send(`/employees/${id}`, 'PATCH', values),
   addNote: (id: string, text: string) => send(`/employees/${id}/notes`, 'POST', { text }),
   createArrival: (values: ArrivalInput) => send<ArrivalPlan>('/arrivals', 'POST', values),
+  addEmployeeToArrival: (
+    employeeId: string,
+    values: { date: string; dormitory_id: number; values?: Record<string, Value> },
+  ) =>
+    send<EmployeeArrivalResult>(
+      `/arrivals/from-employee/${encodeURIComponent(employeeId)}`,
+      'POST',
+      values,
+    ),
   arrivalSettings: (signal?: AbortSignal) =>
     request<ArrivalConfiguration>('/personnel/arrivals/settings', { signal }),
   saveArrivalSettings: (values: Settings & { revision: number }) =>

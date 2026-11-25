@@ -92,7 +92,7 @@ export function initialSettings(): Settings {
       summary: true,
       hideEmpty: true,
       compact: false,
-      namesLimit: 3,
+      namesLimit: 10000,
     },
   };
 }

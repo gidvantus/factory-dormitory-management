@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.reports import read_report
+from app import read_cache
 from app.models.dormitory import Dormitory
 from app.models.report import ReportRow
 from app.models.user import User
@@ -70,8 +70,9 @@ def calculate_summary(
         report = None
         try:
             require_section(db, dorm.id, "report")
-            # Отдельный запрос: кэш обычных блоков может заканчиваться датой среза.
-            report = read_report(dorm.id, user, db, start, end, dorm)
+            # Ключ кэша включает период, поэтому сводный блок читает свой
+            # период и не делит его со снимком обычных блоков.
+            report = read_cache.report(db, dorm.id, dorm, start, end)
         except HTTPException:
             errors.append(f"{dorm.name}: общий отчёт недоступен")
         label = dorm.name

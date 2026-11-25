@@ -490,6 +490,19 @@
 .formGrid > label:first-child:last-child {
   grid-column: 1 / -1;
 }
+.arrivalActionGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.55fr) minmax(0, 0.85fr);
+  gap: 14px;
+}
+.arrivalActionFields {
+  display: grid;
+  gap: 14px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
 .form textarea {
   min-height: 80px;
   resize: vertical;
@@ -734,6 +747,7 @@
     flex-wrap: wrap;
   }
   .formGrid,
+  .arrivalActionGrid,
   .facts {
     grid-template-columns: 1fr;
   }

@@ -54,11 +54,12 @@ export function mockPersonnelServer(payload: PersonnelData): void {
   vi.spyOn(personnelApi, 'workspace').mockImplementation(async (_signal, options) => {
     const dormitory = options?.dormitory ?? null;
     const days = options?.days ?? 5;
+    const period = options?.period ?? null;
     const frame = structuredClone(payload);
     if (options?.employees !== 'none') return frame;
     const blocks = frame.preferences.blocks ?? defaultBlocks;
     const count = (filter: Filter): number =>
-      filterPeople(frame, { filter, dormitory, days, query: '', scope: [] }).length;
+      filterPeople(frame, { filter, dormitory, days, period, query: '', scope: [] }).length;
     return {
       ...frame,
       employees: [],

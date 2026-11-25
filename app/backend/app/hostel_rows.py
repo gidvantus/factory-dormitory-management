@@ -15,6 +15,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import read_cache
 from app.arrival_plans import report_arrivals
 from app.hostel_occupancy import occupancy_by_day
 from app.hostel_resident_fields import field_key, filtered_occupancy, fingerprint
@@ -153,9 +154,8 @@ def compiled_formula(formula: str) -> tuple[ast.Expression, set[str]]:
 def read_place_days(
     db: Session, hostels: Iterable[Hostel], start: date, end: date
 ) -> dict[tuple[int, date], PlaceDay]:
-    from app.api.reports import read_report
     from app.section_state import require_section
-    from app.table_data import Record, get_column, linked_counts, records_for, validate_link
+    from app.table_data import Record, get_column, linked_counts, validate_link
 
     selected = {hostel.id: hostel for hostel in hostels}
     if not selected:
@@ -206,7 +206,7 @@ def read_place_days(
 
     @lru_cache
     def records(dormitory_id: int, table: str) -> list[Record]:
-        return records_for(db, dormitory_id, table)
+        return read_cache.records(db, dormitory_id, table)
 
     adapter: TypeAdapter[HostelReportLink | HostelTableLink | ArrivalPlanReportLink] = TypeAdapter(
         cast(Any, HostelReportLink | HostelTableLink | ArrivalPlanReportLink)
@@ -216,7 +216,7 @@ def read_place_days(
     def report_values(dormitory_id: int) -> dict[int, ReportRowResponse]:
         dormitory = db.get(Dormitory, dormitory_id)
         assert dormitory is not None
-        report = read_report(dormitory_id, None, db, start, end, dormitory, exclude_places=True)
+        report = read_cache.report(db, dormitory_id, dormitory, start, end, exclude_places=True)
         return {row.id: row for row in report.rows}
 
     @lru_cache

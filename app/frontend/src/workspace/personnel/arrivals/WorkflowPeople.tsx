@@ -6,7 +6,7 @@ import s from './Workflow.module.css';
 
 export type WorkflowAction =
   'arrived' | 'no_show' | 'expected' | 'move' | 'undo' | 'destination' | 'origin' | 'details';
-export type WorkflowActionHandler = (action: WorkflowAction, personId: string) => void;
+export type WorkflowActionHandler = (action: WorkflowAction, person: Person) => void;
 const labels = {
   expected: 'Ожидается',
   arrived: 'Прибыл',
@@ -48,6 +48,7 @@ export function WorkflowPeople({
   workflow,
   onAction,
   busy = false,
+  readOnly = false,
   showNames = true,
   hideEmpty = true,
   full = false,
@@ -57,6 +58,7 @@ export function WorkflowPeople({
   workflow: Record<string, ArrivalVisit>;
   onAction: WorkflowActionHandler;
   busy?: boolean;
+  readOnly?: boolean;
   showNames?: boolean;
   hideEmpty?: boolean;
   full?: boolean;
@@ -68,8 +70,9 @@ export function WorkflowPeople({
         .map((person, index) => {
           const visit = workflow[person.id];
           const status = visit?.status === 'settled' ? 'arrived' : (visit?.status ?? 'expected');
-          const invoke = (action: WorkflowAction): void => onAction(action, person.id);
-          const locked = busy || !person.name.trim();
+          const invoke = (action: WorkflowAction): void => onAction(action, person);
+          const named = !!person.name.trim();
+          const locked = busy || readOnly || !named;
           const statusHistory =
             visit?.history.filter(
               (item) => !['moved', 'rescheduled_from', 'undo_move'].includes(item.action),
@@ -82,16 +85,21 @@ export function WorkflowPeople({
               data-status={status}
             >
               <div className={s.personHeading}>
-                <button
-                  type="button"
-                  className={`btn link-button ${s.textAction}`}
-                  disabled={busy}
-                  onClick={() => invoke('details')}
-                >
-                  {showNames
-                    ? person.name || `Человек ${index + 1} — ФИО не указано`
-                    : `Человек ${index + 1}`}
-                </button>
+                {showNames && named ? (
+                  <button
+                    type="button"
+                    className={`btn link-button ${s.textAction}`}
+                    disabled={busy}
+                    onClick={() => invoke('details')}
+                  >
+                    {person.name}
+                  </button>
+                ) : (
+                  <strong>
+                    Человек {index + 1}
+                    {showNames && ' — ФИО не указано'}
+                  </strong>
+                )}
                 <span className={s.badge} data-state={status}>
                   {labels[status]}
                 </span>
@@ -135,7 +143,7 @@ export function WorkflowPeople({
                   <button
                     type="button"
                     className="btn btn--ghost btn--compact"
-                    disabled={busy}
+                    disabled={busy || readOnly}
                     onClick={() => invoke('expected')}
                   >
                     Изменить статус

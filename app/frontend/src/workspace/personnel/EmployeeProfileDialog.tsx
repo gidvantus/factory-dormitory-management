@@ -3,25 +3,24 @@ import { createPortal } from 'react-dom';
 
 import { ApiError } from '../../api/client';
 import { personnelApi } from '../../api/personnel';
-import type { PersonnelData, SourceTable } from '../../api/personnel';
+import type { EmployeeProfileData, EmployeeProfileTarget, SourceTable } from '../../api/personnel';
 import { Modal } from '../../components/Modal';
 import { message } from './helpers';
 import { PersonnelProfile } from './PersonnelProfile';
 import s from './Personnel.module.css';
 
-/** Open the existing personnel card without leaving the source table. */
 export function EmployeeProfileDialog({
   employeeId,
+  fullName,
   source,
   onClose,
   onSourceLinked,
-}: {
-  employeeId: string;
-  source: { dormitoryId: number; tableKey: SourceTable; rowId: number };
+}: EmployeeProfileTarget & {
+  source?: { dormitoryId: number; tableKey: SourceTable; rowId: number };
   onClose: () => void;
-  onSourceLinked: (id: string) => void;
+  onSourceLinked?: (id: string) => void;
 }): JSX.Element {
-  const [data, setData] = useState<PersonnelData | null>(null);
+  const [data, setData] = useState<EmployeeProfileData | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
@@ -41,8 +40,9 @@ export function EmployeeProfileDialog({
     const controller = new AbortController();
     setLoading(true);
     setError('');
+    const target = employeeId === undefined ? { fullName } : { employeeId };
     void personnelApi
-      .workspace(controller.signal)
+      .profile(target, controller.signal)
       .then((result) => {
         if (!controller.signal.aborted) setData(result);
       })
@@ -53,32 +53,30 @@ export function EmployeeProfileDialog({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [attempt]);
+  }, [attempt, employeeId, fullName]);
 
   async function reload(): Promise<void> {
-    const result = await personnelApi.workspace();
+    if (!data) return;
+    const result = await personnelApi.profile({ employeeId: data.employee.id });
     setError('');
     setData(result);
-    const linked = result.employees.find((employee) =>
-      employee.sources.some(
-        (record) =>
-          record.dormitory_id === source.dormitoryId &&
-          record.table_key === source.tableKey &&
-          record.row_id === source.rowId,
-      ),
+    if (!source || !onSourceLinked) return;
+    const linked = result.employee.sources.some(
+      (record) =>
+        record.dormitory_id === source.dormitoryId &&
+        record.table_key === source.tableKey &&
+        record.row_id === source.rowId,
     );
-    if (linked) onSourceLinked(linked.id);
+    if (linked) onSourceLinked(result.employee.id);
   }
 
-  const employee = data?.employees.find(
-    (person) => person.id === employeeId || person.member_ids.includes(employeeId),
-  );
   return createPortal(
-    employee && data ? (
+    data ? (
       <PersonnelProfile
-        key={employee.id}
-        employee={employee}
+        key={data.employee.id}
+        employee={data.employee}
         data={data}
+        loadedDetail={data.detail}
         tab="overview"
         onClose={onClose}
         onReload={() => void reload().catch((caught) => setError(message(caught)))}

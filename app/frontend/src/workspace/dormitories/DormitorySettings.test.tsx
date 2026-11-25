@@ -54,6 +54,40 @@ function snapshot(): DormitorySettings {
   };
 }
 
+it('показывает сохранённое соответствие и позволяет вернуть автоматический перенос', async () => {
+  vi.spyOn(api, 'dormitorySettings').mockResolvedValue(snapshot());
+  const choice = {
+    source: { id: 10, name: 'Фамилия Имя Отчество' },
+    targets: [{ id: 81, name: 'ФИО' }],
+    target_id: 81,
+  };
+  vi.spyOn(api, 'transferColumns')
+    .mockResolvedValueOnce([choice])
+    .mockResolvedValue([{ ...choice, target_id: null }]);
+  const save = vi.spyOn(api, 'saveTransferColumns').mockResolvedValue(undefined);
+  render(
+    <DormitorySettingsDialog
+      dormitoryId="7"
+      onClose={vi.fn()}
+      onChanged={vi.fn()}
+      onOpen={vi.fn()}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('tab', { name: 'Перенос столбцов' }));
+  await user.selectOptions(screen.getByLabelText('Направление переноса'), '0');
+  const destination = await screen.findByLabelText('Столбец назначения для «Фамилия Имя Отчество»');
+  expect(destination).toHaveValue('81');
+  await user.selectOptions(destination, '');
+  await user.click(screen.getByRole('button', { name: 'Сохранить соответствия' }));
+  expect(save).toHaveBeenCalledWith(
+    '7',
+    { source: 'residents', target: 'outflow', targetDormitoryId: undefined },
+    { 10: null },
+  );
+  expect(await screen.findByText('Соответствия сохранены.')).toBeInTheDocument();
+});
+
 it('собирает несколько столбцов и порядок в один запрос, показывает зависимости до удаления', async () => {
   const data = snapshot();
   vi.spyOn(api, 'dormitorySettings').mockResolvedValue(data);

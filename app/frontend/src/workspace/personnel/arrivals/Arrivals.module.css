@@ -448,11 +448,19 @@
   min-width: 0;
   display: contents;
 }
-.arrivalDialog {
-  width: min(100%, var(--container));
+.dialogOverlay:global(.modal) {
+  grid-template-columns: minmax(0, 1fr);
 }
-.settingsDialog {
+.arrivalDialog:global(.modal__panel),
+.settingsDialog:global(.modal__panel) {
   width: min(100%, var(--container));
+  min-width: 0;
+  container: arrival-dialog / inline-size;
+}
+.arrivalDialog :global(.modal__body),
+.settingsDialog :global(.modal__body),
+.arrivalDialog .formFields {
+  grid-template-columns: minmax(0, 1fr);
 }
 .formIntro {
   color: var(--color-text-muted);
@@ -483,8 +491,14 @@
 }
 .arrivalCore {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(10rem, 1fr));
   gap: var(--gap-16);
+}
+.arrivalCore .inputField {
+  justify-content: space-between;
+}
+.arrivalCore :is(input, select) {
+  min-height: var(--control-h-lg);
 }
 .peopleEditor {
   min-width: 0;
@@ -538,18 +552,10 @@
   z-index: 1;
   background: var(--color-bg-alt);
 }
-.peopleEditTable th:first-child {
-  width: var(--control-h-sm);
+.peopleEditTable [data-table-column='number'] {
   text-align: center;
   color: var(--color-text-muted);
   font-weight: 400;
-}
-.peopleEditTable td:nth-child(2) {
-  min-width: calc(var(--control-h-lg) * 5);
-  width: 45%;
-}
-.peopleEditTable td:nth-child(n + 3) {
-  min-width: calc(var(--control-h-lg) * 3);
 }
 .peopleEditTable tbody tr:last-child > *,
 .peopleReadTable tbody tr:last-child > * {
@@ -687,7 +693,7 @@
 }
 .settingsLayout {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(21rem, 0.53fr);
   gap: var(--gap-24);
   align-items: start;
 }
@@ -732,8 +738,10 @@
 .fieldListRow .fieldSelect {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--gap-8);
   width: 100%;
+  min-width: 0;
   flex: 1;
   text-align: left;
   white-space: normal;
@@ -764,6 +772,7 @@
 }
 .reorder {
   justify-content: flex-end;
+  flex-shrink: 0;
   flex-wrap: nowrap;
   gap: var(--gap-4);
 }
@@ -776,6 +785,7 @@
 }
 .fieldEditor {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--gap-12);
   align-content: start;
 }
@@ -801,6 +811,13 @@
 .livePreview h4 {
   margin-top: var(--gap-20);
 }
+.livePreview .peopleReadTable :is(th, td) {
+  min-width: 7ch;
+  padding: var(--gap-6);
+}
+.livePreview .peopleReadTable th:first-child {
+  min-width: 12ch;
+}
 .controlPreview {
   border: 0;
   padding: 0;
@@ -822,6 +839,9 @@
   border-bottom: 1px solid var(--color-border);
   padding-block: var(--gap-8);
 }
+.displayListRow > label {
+  min-width: 0;
+}
 .displayOptions {
   display: grid;
   gap: var(--gap-8);
@@ -835,6 +855,29 @@
 .dialog :focus-visible {
   outline: var(--focus-outline-width) solid var(--color-focus);
   outline-offset: var(--gap-4);
+}
+@container arrival-dialog (max-width: 56rem) {
+  .settingsLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container arrival-dialog (max-width: 35rem) {
+  .fieldWorkspace,
+  .arrivalCore {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fieldListRow .reorder {
+    flex-direction: row;
+  }
+}
+@container arrival-dialog (max-width: 25rem) {
+  .customFields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .livePreview,
+  .livePreview .arrivalCard {
+    padding: var(--gap-12);
+  }
 }
 @media (max-width: 1100px) {
   .shell {
@@ -856,8 +899,6 @@
   }
   .board,
   .production .arrivalLayout,
-  .settingsLayout,
-  .arrivalCore,
   .fullSummary {
     grid-template-columns: 1fr;
   }
@@ -868,14 +909,13 @@
   .pageHeading {
     align-items: start;
   }
-  .settingsDialog {
+  .arrivalDialog:global(.modal__panel),
+  .settingsDialog:global(.modal__panel) {
     padding: var(--gap-16);
   }
 }
 @media (max-width: 420px) {
-  .fieldWorkspace,
-  .formGrid,
-  .customFields {
+  .formGrid {
     grid-template-columns: 1fr;
   }
   .days .dayChoice {
