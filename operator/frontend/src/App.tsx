@@ -4,6 +4,7 @@ import { RequireOperator } from './auth/RequireOperator';
 import { AccessRights } from './pages/AccessRights';
 import { CompanyDetails } from './pages/CompanyDetails';
 import { Invoices } from './pages/Invoices';
+import { Journal } from './pages/Journal';
 import { Login } from './pages/Login';
 import { OrganizationCard } from './pages/OrganizationCard';
 import { Organizations } from './pages/Organizations';
@@ -65,6 +66,14 @@ export function App(): JSX.Element {
         element={
           <RequireOperator>
             <Solutions />
+          </RequireOperator>
+        }
+      />
+      <Route
+        path="/journal"
+        element={
+          <RequireOperator>
+            <Journal />
           </RequireOperator>
         }
       />

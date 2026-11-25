@@ -32,6 +32,8 @@ def test_openapi_documents_the_contract(client: TestClient) -> None:
         "/api/auth/me",
         "/api/auth/logout",
         "/api/health",
+        # Журнал действий всех организаций: прокси в `GET /api/platform/journal` основного API.
+        "/api/journal",
         # Организации платформы: чтение и правка через сервисный контур.
         "/api/organizations",
         "/api/organizations/{organization_id}",

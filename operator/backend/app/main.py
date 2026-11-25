@@ -14,6 +14,7 @@ from app.api import (
     company,
     health,
     invoices,
+    journal,
     organizations,
     solutions,
     tariffs,
@@ -50,6 +51,9 @@ def create_app() -> FastAPI:
     # оплата, отмена и печатные формы. Кабинет только проксирует их в основной
     # API — правил статусов и своей базы у него нет.
     application.include_router(invoices.router, prefix=API_PREFIX)
+    # Журнал действий всех организаций - прокси в основной API: лента, период и
+    # курсор считаются там, кабинет только пробрасывает параметры.
+    application.include_router(journal.router, prefix=API_PREFIX)
     # Тарифы платформы — четвёртый раздел того же контура: весь прайс, правка
     # полей и снятие с продажи. Кабинет только проксирует их в основной API —
     # правил правки и своей базы у него нет.

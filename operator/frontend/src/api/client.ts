@@ -428,6 +428,78 @@ export function updateInvoiceStatus(id: number, status: InvoiceStatus): Promise<
 // терялись на округлении.
 
 /** Период списания: коды, объявленные `TariffPeriod` в схеме основного API. */
+/** Вид действия журнала: совпадает с `JournalKind` основного API. */
+export type JournalKind = 'security' | 'data' | 'noise';
+
+/**
+ * Строка журнала всех организаций. `organization_id = null` - строка платформенного
+ * контура (вход, восстановление пароля); `organization_name = null` - имени нет.
+ */
+export interface JournalEntry {
+  id: number;
+  created_at: string;
+  actor_id: number | null;
+  actor_name: string | null;
+  method: string;
+  path: string;
+  action: string;
+  action_title: string;
+  kind: JournalKind;
+  status: number | null;
+  duration_ms: number | null;
+  ip: string | null;
+  user_agent: string | null;
+  request_id: string | null;
+  path_params: Record<string, unknown> | null;
+  request_body: unknown;
+  changes: Array<Record<string, unknown>> | null;
+  organization_id: number | null;
+  organization_name: string | null;
+}
+
+/** Страница журнала. `total` - за период по всей ленте, `null` у страниц по курсору. */
+export interface JournalPage {
+  items: JournalEntry[];
+  next_cursor: string | null;
+  total: number | null;
+}
+
+/** Размер страницы журнала: столько же, сколько отдаёт кабинет по умолчанию. */
+export const PAGE_SIZE = 50;
+
+export interface JournalQuery {
+  /** Пустая строка - вид не выбран, параметр не уходит. */
+  kind: JournalKind | '';
+  /** `YYYY-MM-DD` по московскому календарю; пустая строка - параметр не уходит. */
+  date_from: string;
+  date_to: string;
+  limit: number;
+  cursor?: string | null;
+}
+
+export function listJournal({
+  kind,
+  date_from,
+  date_to,
+  limit,
+  cursor,
+}: JournalQuery): Promise<JournalPage> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (kind !== '') {
+    query.set('kind', kind);
+  }
+  if (date_from !== '') {
+    query.set('date_from', date_from);
+  }
+  if (date_to !== '') {
+    query.set('date_to', date_to);
+  }
+  if (cursor) {
+    query.set('cursor', cursor);
+  }
+  return request<JournalPage>(`/journal?${query.toString()}`);
+}
+
 export type TariffPeriod = 'month' | 'quarter' | 'half_year' | 'year' | 'once';
 
 /**
