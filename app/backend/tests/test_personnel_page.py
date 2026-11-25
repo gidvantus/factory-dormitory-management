@@ -108,6 +108,52 @@ def test_shift_filters_repeat_the_client_rules(client: TestClient, db_session: S
     assert names(page(client, filter="ending", days=30)) == ["Петров Пётр", "Сидоров Иван"]
 
 
+def test_shift_period_bounds_repeat_the_client_period(
+    client: TestClient, db_session: Session
+) -> None:
+    """Период панели важнее срока `days`: окончание вахты попадает в его границы.
+
+    Браузерный `filterPeople` считает `ending` по периоду сохранённого списка, а
+    `days` — только запасное правило. Сервер обязан повторять это же: иначе панель
+    с диапазоном дат и тот же список в блоке показывали бы разные числа.
+    """
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    for name, number, offset in (
+        ("Прошлый Иван", "Т-1", -1),
+        ("Скоро Пётр", "Т-2", 3),
+        ("Позже Олег", "Т-3", 10),
+    ):
+        create(
+            client,
+            dorm,
+            fields=person(name, number),
+            values={"shift_end": str(today() + timedelta(days=offset))},
+        )
+    bounds = {
+        "period_from": str(today() - timedelta(days=2)),
+        "period_to": str(today() + timedelta(days=5)),
+    }
+    assert names(page(client, filter="ending", **bounds)) == ["Прошлый Иван", "Скоро Пётр"]
+    # Период сильнее срока: нулевой `days` его не сужает.
+    assert page(client, filter="ending", days=0, **bounds)["total"] == 2
+    # Сводка рамки считает по тем же правилам.
+    frame = client.get(API, params={"employees": "none", **bounds}).json()
+    assert frame["counts"]["ending"] == 2
+    # Обе границы обязательны, и «от» не может быть позже «до».
+    assert client.get(PAGE, params={"period_from": bounds["period_from"]}).status_code == 422
+    assert (
+        client.get(
+            PAGE,
+            params={
+                "period_from": bounds["period_to"],
+                "period_to": bounds["period_from"],
+            },
+        ).status_code
+        == 422
+    )
+
+
 def test_dormitory_scope_and_search_narrow_the_page(
     client: TestClient, db_session: Session
 ) -> None:

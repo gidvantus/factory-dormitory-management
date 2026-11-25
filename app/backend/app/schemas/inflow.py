@@ -10,6 +10,7 @@ from app.schemas.personnel import IdentityChoice
 from app.schemas.resident import HostelOption
 from app.schemas.resident_transfer import TransferWarning
 from app.schemas.table_column import ColumnResponse
+from app.schemas.transfer_columns import TransferColumnChoice
 
 
 class UpdateInflowRequest(BaseModel):
@@ -56,6 +57,8 @@ class InflowActionPreview(BaseModel):
     empty_columns: list[str]
     fields: OutflowFields | None
     departure_date: date | None
+    settlement_date: date | None = None
+    column_choices: list[TransferColumnChoice] = Field(default_factory=list)
 
 
 class InflowActionRequest(BaseModel):

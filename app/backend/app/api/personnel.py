@@ -1,7 +1,7 @@
 """Рабочая поверхность персонала и подтверждаемое связывание записей."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
@@ -20,6 +20,7 @@ from app.access import (
 from app.api.organization import Membership
 from app.arrival_settings import settings_response
 from app.db import get_db
+from app.employee_profile import load_profile
 from app.models.custom_tab import CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.inflow import PersonnelInflow
@@ -72,6 +73,7 @@ from app.schemas.personnel import (
     BindingInput,
     EmployeeColumnFilter,
     EmployeePage,
+    EmployeeProfileLookup,
     EmployeeUpdate,
     IdentityFields,
     ListFilter,
@@ -143,6 +145,17 @@ def column_rules(raw: str) -> tuple[personnel_page.ColumnRule, ...]:
     )
 
 
+def period_bounds(start: date | None, end: date | None) -> tuple[str, str] | None:
+    """Период панели персонала: обе границы или ни одной, «от» не позже «до»."""
+    if start is None and end is None:
+        return None
+    if start is None or end is None:
+        raise HTTPException(422, "Укажите обе даты периода")
+    if start > end:
+        raise HTTPException(422, "Дата «От» должна быть не позже даты «До»")
+    return start.isoformat(), end.isoformat()
+
+
 @router.get("", response_model=dict[str, Any])
 def get_workspace(
     user: SubscribedUser,
@@ -151,14 +164,17 @@ def get_workspace(
     employees: Annotated[Literal["full", "none"], Query()] = "full",
     dormitory: Annotated[int | None, Query(ge=1)] = None,
     days: Annotated[int, Query(ge=0, le=365)] = 5,
+    period_from: Annotated[date | None, Query()] = None,
+    period_to: Annotated[date | None, Query()] = None,
 ) -> Response:
     """Рабочая поверхность персонала.
 
     `employees=none` отдаёт рамку поверхности без карточек: страница людей приходит
     из `GET /api/personnel/employees`, а блоки — из `block_previews`, сводка — из
     `counts` (#247). `days` — тот же срок вахты, что у страницы: от него зависит
-    число «Завершают вахту». Умолчание `full` оставлено прежним, чтобы переход был
-    пошаговым.
+    число «Завершают вахту». Период (`period_from`/`period_to`) важнее срока и
+    приходит из панели персонала. Умолчание `full` оставлено прежним, чтобы переход
+    был пошаговым.
     """
     result = workspace(
         db,
@@ -168,6 +184,7 @@ def get_workspace(
         include_previews=employees == "none",
         preview_dormitory=dormitory,
         days=days,
+        period=period_bounds(period_from, period_to),
     )
     # Настройки заездов — отдельный этап (#237): он читает свои таблицы, но
     # ответ отдаётся одной ручкой, и в событии это разные строки разбивки.
@@ -185,6 +202,8 @@ def employees_page(
     dormitory: Annotated[int | None, Query(ge=1)] = None,
     scope: Annotated[list[int] | None, Query()] = None,
     days: Annotated[int, Query(ge=0, le=365)] = 5,
+    period_from: Annotated[date | None, Query()] = None,
+    period_to: Annotated[date | None, Query()] = None,
     query: Annotated[str, Query(max_length=255)] = "",
     column_filters: Annotated[str, Query(max_length=4000)] = "",
     page: Annotated[int, Query(ge=1)] = 1,
@@ -206,6 +225,7 @@ def employees_page(
         filter=filter,
         dormitory=dormitory,
         days=days,
+        period=period_bounds(period_from, period_to),
         query=query,
         scope=tuple(scope or ()),
         column_filters=column_rules(column_filters),
@@ -436,6 +456,28 @@ def link_record(
     return {"employee_id": employee.id}
 
 
+@router.get("/employees/{employee_id}/profile")
+def get_employee_profile(
+    employee_id: UUID,
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+) -> dict[str, Any]:
+    dormitories = scoped_dormitories(db, membership.organization_id)
+    return load_profile(db, membership.organization_id, dormitories, employee_id=str(employee_id))
+
+
+@router.post("/employee-profile/by-name")
+def get_employee_profile_by_name(
+    payload: EmployeeProfileLookup,
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+) -> dict[str, Any]:
+    dormitories = scoped_dormitories(db, membership.organization_id)
+    return load_profile(db, membership.organization_id, dormitories, full_name=payload.full_name)
+
+
 @router.get("/employees/{employee_id}")
 def detail(
     employee_id: UUID,
@@ -639,7 +681,7 @@ def preferences(payload: PreferencesInput, user: SubscribedUser, db: DbSession) 
     if not item:
         item = PersonnelPreferences(user_id=user.id, revision=0)
         db.add(item)
-    item.settings = payload.model_dump(mode="json", exclude={"revision"})
+    item.settings = payload.model_dump(mode="json", by_alias=True, exclude={"revision"})
     item.revision += 1
     db.commit()
     return {"revision": item.revision, **item.settings}

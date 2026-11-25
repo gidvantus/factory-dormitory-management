@@ -39,7 +39,7 @@ class ArrivalDisplay(ArrivalSchema):
     summary: bool = True
     hideEmpty: bool = True
     compact: bool = False
-    namesLimit: int = Field(default=3, ge=1, le=10000, strict=True)
+    namesLimit: int = Field(default=10000, ge=1, le=10000, strict=True)
 
 
 class ArrivalSettingsInput(ArrivalSchema):

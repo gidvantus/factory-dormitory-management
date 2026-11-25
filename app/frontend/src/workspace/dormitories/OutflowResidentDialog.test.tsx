@@ -62,6 +62,39 @@ function setup(loss = true) {
   return { preview, move };
 }
 
+it('сохраняет соответствие для ФИО и перед переносом повторно проверяет поля', async () => {
+  const { preview, move } = setup();
+  preview
+    .mockResolvedValueOnce({
+      ...plan(),
+      column_choices: [
+        {
+          source: { id: 45, name: 'Фамилия Имя Отчество' },
+          targets: [{ id: 81, name: 'ФИО' }],
+          target_id: null,
+        },
+      ],
+    })
+    .mockResolvedValue({ ...plan(false), preview_token: 'b'.repeat(64) });
+  const save = vi.spyOn(api, 'saveTransferColumns').mockResolvedValue(undefined);
+  const user = userEvent.setup();
+  render(<ResidentsTable dormitoryId="7" />);
+  await user.click(
+    within(await screen.findByTestId('resident-3')).getByRole('button', { name: 'Отток' }),
+  );
+  const dialog = within(screen.getByRole('dialog'));
+  const select = await dialog.findByLabelText('Столбец назначения для «Фамилия Имя Отчество»');
+  const submit = dialog.getByRole('button', { name: 'Перенести в отток' });
+  expect(submit).toBeDisabled();
+  await user.selectOptions(select, '81');
+  await user.click(dialog.getByRole('button', { name: 'Сохранить соответствия' }));
+  expect(save).toHaveBeenCalledWith('7', { source: 'residents', target: 'outflow' }, { 45: 81 });
+  await waitFor(() => expect(submit).toBeEnabled());
+  expect(preview).toHaveBeenCalledTimes(2);
+  await user.click(submit);
+  await waitFor(() => expect(move).toHaveBeenCalledWith('7', 3, 'b'.repeat(64), true, {}));
+});
+
 it.each(['text', 'select'] as const)(
   'требует причину из %s и отправляет выбранную дату выезда',
   async (kind) => {

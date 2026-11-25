@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ApiError } from '../../../api/client';
 import { personnelApi } from '../../../api/personnel';
-import type { ArrivalPlan, ArrivalVisit } from '../../../api/personnel';
+import type { ArrivalPlan, ArrivalVisit, Employee } from '../../../api/personnel';
 import { ArrivalPlanningBoard } from './ArrivalPlanningBoard';
 import { defaultConfiguration } from './adapter';
 
@@ -57,6 +57,66 @@ function show(arrival = plan, onPeriodChange?: (date: string) => void): void {
     </MemoryRouter>,
   );
 }
+
+it('показывает всех по умолчанию и открывает карточку по ФИО в плане и полной информации', async () => {
+  const user = userEvent.setup();
+  const employee = (id: string, fullName: string, memberIds = [id]): Employee => ({
+    id,
+    full_name: fullName,
+    phone: null,
+    personnel_number: null,
+    member_ids: memberIds,
+    identity_status: 'confirmed',
+    current: [],
+    sources: [],
+    history_dormitory_ids: [],
+    variants: {},
+  });
+  const people = [
+    ...plan.people!,
+    { id: 'third', full_name: 'Иван Смирнов', custom_values: {} },
+    { id: 'fourth', full_name: 'Виктор Петров', custom_values: {} },
+    { id: 'fifth', full_name: 'Мария Кузнецова', custom_values: {} },
+  ];
+  const workspace = vi.spyOn(personnelApi, 'workspace');
+  const detail = vi.spyOn(personnelApi, 'detail');
+  const response = (match: Employee) => ({
+    employee: match,
+    dormitories: [],
+    detail: { employee_id: match.id, events: [], notes: [], merges: [] },
+  });
+  const load = vi
+    .spyOn(personnelApi, 'profile')
+    .mockResolvedValueOnce(
+      response(employee('victor', 'Виктор Петров (уточнено)', ['victor', 'old-victor'])),
+    )
+    .mockResolvedValueOnce(response(employee('mikhail', 'Михаил  Соколов')))
+    .mockRejectedValueOnce(new ApiError(409, 'Найдено несколько карточек с таким ФИО.'));
+  show({ ...plan, people, count: people.length, employee_ids: { fourth: 'old-victor' } });
+  const card = within(screen.getByTestId('arrival-card-plan'));
+  expect(card.getAllByRole('listitem')).toHaveLength(5);
+  await user.click(card.getByRole('button', { name: 'Виктор Петров' }));
+  let profile = await screen.findByTestId('personnel-profile');
+  expect(profile).toHaveTextContent('Виктор Петров (уточнено)');
+  expect(load).toHaveBeenNthCalledWith(1, { employeeId: 'old-victor' }, expect.any(AbortSignal));
+  await user.click(within(profile).getByRole('button', { name: 'Закрыть окно' }));
+
+  await user.click(card.getByRole('button', { name: /Полная информация/ }));
+  let details = within(screen.getByRole('dialog', { name: 'Информация о заезде' }));
+  await user.click(details.getByRole('button', { name: 'Михаил Соколов' }));
+  profile = await screen.findByTestId('personnel-profile');
+  expect(load).toHaveBeenNthCalledWith(2, { fullName: 'Михаил Соколов' }, expect.any(AbortSignal));
+  expect(screen.queryByRole('dialog', { name: 'Информация о заезде' })).not.toBeInTheDocument();
+  await user.keyboard('{Escape}');
+  expect(profile).not.toBeInTheDocument();
+  details = within(screen.getByRole('dialog', { name: 'Информация о заезде' }));
+  await user.click(details.getByRole('button', { name: 'Иван Смирнов' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Найдено несколько карточек');
+  expect(load).toHaveBeenNthCalledWith(3, { fullName: 'Иван Смирнов' }, expect.any(AbortSignal));
+  expect(workspace).not.toHaveBeenCalled();
+  expect(detail).not.toHaveBeenCalled();
+});
+
 it('сохраняет отметку одного человека с ревизией, при ошибке оставляет ожидаемым', async () => {
   const user = userEvent.setup();
   const marked = { ...plan, revision: 5, workflow: { alex: state('arrived') } };

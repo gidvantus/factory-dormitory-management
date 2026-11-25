@@ -47,8 +47,13 @@ export function PeopleEditor({
             pasteCells
             columns={[
               { id: 'number', label: '№' },
-              { id: 'name', label: 'ФИО' },
-              ...fields.map((field) => ({ id: field.id, label: field.label, kind: field.type })),
+              { id: 'name', label: 'ФИО', minWidth: 224 },
+              ...fields.map((field) => ({
+                id: field.id,
+                label: field.label,
+                kind: field.type,
+                minWidth: field.type === 'date' ? 164 : undefined,
+              })),
             ]}
           >
             <thead>

@@ -12,8 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.payment import PaymentEntry
 from app.models.resident import Resident
-from app.outflow_fields import outflow_fields
-from app.resident_payments import matching_value, normalized_name
+from app.outflow_fields import manual_outflow_columns, outflow_fields
 from app.schemas.outflow import UpdateOutflowRequest
 from app.schemas.resident import UpdateResidentRequest
 from app.schemas.resident_outflow import ResidentOutflowPreview
@@ -21,6 +20,7 @@ from app.schemas.resident_transfer import TransferWarning
 from app.schemas.table_column import ColumnResponse
 from app.section_state import require_section_writable
 from app.table_data import ensure_columns, lock_dormitory
+from app.transfer_columns import TransferColumns, matching_value
 
 
 @dataclass
@@ -45,11 +45,14 @@ def prepare_outflow(db: Session, dormitory_id: int, resident_id: int) -> Outflow
         raise HTTPException(404, "Проживающий не найден")
     sources = ensure_columns(db, dormitory_id, "residents")
     targets = ensure_columns(db, dormitory_id, "outflow")
+    mapping = TransferColumns(db, sources, targets, manual_outflow_columns(targets))
     fields: dict[str, Any] = {}
     custom: dict[str, Any] = {}
     matched: list[str] = []
     warnings: list[TransferWarning] = []
     used: set[int] = set()
+    copied: set[int] = set()
+    occupied: set[int] = set()
     for source in sources:
         if source.kind == "action":
             continue
@@ -63,22 +66,11 @@ def prepare_outflow(db: Session, dormitory_id: int, resident_id: int) -> Outflow
             if raw is None or raw == "":
                 continue
             reason = "Столбец удалён в исходной таблице"
-        matches = [
-            col
-            for col in targets
-            if not col.archived and normalized_name(col.name) == normalized_name(source.name)
-        ]
+        matches = mapping.matches(source)
         if not reason:
             if not matches:
                 reason = "В таблице «Отток» нет этого столбца"
-            elif (
-                len(matches) != 1
-                or sum(
-                    not col.archived and normalized_name(col.name) == normalized_name(source.name)
-                    for col in sources
-                )
-                != 1
-            ):
+            elif mapping.ambiguous(source, matches):
                 reason = "Совпадение названий неоднозначно"
             elif source.kind != matches[0].kind:
                 reason = "В таблице «Отток» другой тип столбца"
@@ -94,6 +86,9 @@ def prepare_outflow(db: Session, dormitory_id: int, resident_id: int) -> Outflow
             elif value is not None:
                 custom[str(target.id)] = value
             used.add(target.id)
+            copied.add(source.id)
+            if value is not None:
+                occupied.add(target.id)
             matched.append(source.name)
         except HTTPException as caught:
             reason = str(caught.detail)
@@ -140,6 +135,7 @@ def prepare_outflow(db: Session, dormitory_id: int, resident_id: int) -> Outflow
         "targets": [ColumnResponse.model_validate(col).model_dump() for col in targets],
         "fields": fields,
         "custom": custom,
+        "column_mappings": mapping.stored,
         "payments": [
             {col.key: getattr(payment, col.key) for col in PaymentEntry.__table__.columns}
             for payment in payments
@@ -168,5 +164,8 @@ def prepare_outflow(db: Session, dormitory_id: int, resident_id: int) -> Outflow
             },
             preview_token=token,
             fields=outflow_fields(db, dormitory_id, targets),
+            column_choices=mapping.choices(
+                resident, copied=copied, occupied=occupied, schema=UpdateOutflowRequest
+            ),
         ),
     )

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.outflow import OutflowFields
 from app.schemas.resident_transfer import TransferWarning
+from app.schemas.transfer_columns import TransferColumnChoice
 
 
 class ResidentOutflowRequest(BaseModel):
@@ -24,3 +25,4 @@ class ResidentOutflowPreview(BaseModel):
     payments_to_delete: dict[str, int]
     preview_token: str
     fields: OutflowFields
+    column_choices: list[TransferColumnChoice] = Field(default_factory=list)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api/client';
 import { personnelApi } from '../api/personnel';
@@ -12,6 +12,9 @@ import type {
   SavedList,
 } from '../api/personnel';
 import { useSession } from '../auth/SessionProvider';
+import { currentMonth, dateNumber } from './dashboard/dates';
+import type { DateRange } from './dashboard/dates';
+import { DormitoryPeriod } from './dormitories/DormitoryPeriod';
 import { useFrameRefresh, usePageRefresh } from './usePageRefresh';
 import { ArrivalPlanningBoard } from './personnel/ArrivalPlanningBoard';
 import { ArrivalPlanningPage } from './personnel/ArrivalPlanningPage';
@@ -35,7 +38,7 @@ import plant from '../assets/plant.svg';
 import resident from '../assets/avatar-rezident.svg';
 import personnel from '../assets/avatar-kadrovik.svg';
 import manager from '../assets/avatar-komendant.svg';
-import { dateLabel, defaultBlocks, dormName, message, names } from './personnel/helpers';
+import { dateLabel, dayDiff, defaultBlocks, dormName, endingRange, message, names } from './personnel/helpers';
 import s from './personnel/Personnel.module.css';
 import w from './personnel/PersonnelWorkspace.module.css';
 import listStyles from './personnel/EmployeeList.module.css';
@@ -99,7 +102,19 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     const id = Number(params.get('dormitory'));
     return Number.isSafeInteger(id) && id > 0 ? id : null;
   });
-  const [days, setDays] = useState(5);
+  const [selectedPeriod, setSelectedPeriod] = useState<DateRange | null>(null);
+  const today = data?.today;
+  const monthPeriod = useMemo(
+    () => (today ? currentMonth(new Date(dateNumber(today))) : currentMonth()),
+    [today],
+  );
+  const period = selectedPeriod ?? monthPeriod;
+  /**
+   * Сервер списка и сводки работает в днях (`days`), а панель показывает диапазон
+   * дат. Дни считаются из выбранного диапазона, как и раньше при фильтрации в
+   * браузере: одна и та же граница у «завершают вахту» и у блоков.
+   */
+  const days = Math.min(365, Math.max(1, dayDiff(period.from, period.to)));
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<number[]>([]);
@@ -134,7 +149,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     }
     const controller = new AbortController();
     void personnelApi
-      .workspace(controller.signal, { employees: 'none', dormitory, days })
+      .workspace(controller.signal, { employees: 'none', dormitory, days, period })
       .then((result) => {
         if (!controller.signal.aborted) {
           setData(result);
@@ -149,11 +164,12 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
         }
       });
     return () => controller.abort();
-  }, [attempt, refresh, frameRefresh, user?.is_active, dormitory, days]);
+  }, [attempt, refresh, frameRefresh, user?.is_active, dormitory, days, period]);
   const criteria: Criteria = {
     filter,
     dormitory,
     days,
+    period,
     query: debouncedQuery,
     scope,
     column_filters: debouncedColumnFilters,
@@ -211,7 +227,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
   }, [data]);
   useEffect(() => {
     setPage(0);
-  }, [filter, debouncedQuery, dormitory, days, scope, debouncedColumnFilters]);
+  }, [filter, debouncedQuery, dormitory, period, scope, debouncedColumnFilters]);
   const modalOpen = !!selectedId || !!blockEditor || savingList || selectedList !== null;
   useEffect(() => {
     if (!modalOpen) return;
@@ -320,10 +336,14 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     next.delete('employee');
     setParams(next, { replace: true });
   };
+  const changePeriod = (next: DateRange): void => {
+    setSelectedPeriod(next.from === monthPeriod.from && next.to === monthPeriod.to ? null : next);
+  };
   const onList = (list: Criteria): void => {
     setFilter(list.filter);
     setDormitory(list.dormitory);
-    setDays(list.days);
+    if (list.period) changePeriod(list.period);
+    else if (list.filter === 'ending') changePeriod(endingRange(data.today, list.days));
     setQuery(list.query);
     setScope(list.scope);
     setColumnFilters(list.column_filters ?? []);
@@ -451,22 +471,14 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
                 </select>
               </label>
               {view !== 'planning' && (
-                <label>
-                  Период
-                  <select
-                    aria-label="Период окончания вахты"
-                    value={days}
-                    onChange={(event) => setDays(Number(event.target.value))}
-                  >
-                    {[...new Set([5, 7, 14, 30, days])]
-                      .sort((a, b) => a - b)
-                      .map((days) => (
-                        <option key={days} value={days}>
-                          Вахта: до {days} дней
-                        </option>
-                      ))}
-                  </select>
-                </label>
+                <DormitoryPeriod
+                  mode="range"
+                  label="Период персонала"
+                  range={period}
+                  resetRange={monthPeriod}
+                  limitToYear={false}
+                  onChange={changePeriod}
+                />
               )}
             </div>
             {view === 'workspace' ? (
@@ -507,7 +519,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
               {(
                 [
                   ['current', 'Проживают сейчас'],
-                  ['ending', `Вахта заканчивается до ${days} дней`],
+                  ['ending', 'Окончания вахт за период'],
                 ] as const
               ).map(([id, label]) => (
                 <button

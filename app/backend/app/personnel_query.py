@@ -148,9 +148,19 @@ def _base_roots(db: Session, roots: dict[str, str], allowed: Sequence[int]) -> f
 
 
 def _shifts(
-    db: Session, roots: dict[str, str], allowed: Sequence[int], day: date, days: int
+    db: Session,
+    roots: dict[str, str],
+    allowed: Sequence[int],
+    day: date,
+    days: int,
+    period: tuple[str, str] | None = None,
 ) -> Shifts:
-    """Текущее проживание, концы вахты и общежития по строкам `residents` области."""
+    """Текущее проживание, концы вахты и общежития по строкам `residents` области.
+
+    Если задан `period`, он важнее срока `days`: фильтр `ending` берёт окончания
+    вахты ровно в границах периода, включая прошедшие дни. Это то же правило, что
+    у панели персонала и сохранённого списка на клиенте.
+    """
     current: set[str] = set()
     ending: set[str] = set()
     ends: dict[str, str] = {}
@@ -172,8 +182,12 @@ def _shifts(
             text = end.isoformat()
             if root not in ends or text < ends[root]:
                 ends[root] = text
-            left = (end - day).days
-            if left < 0 or left > days:
+            in_window = (
+                period[0] <= text <= period[1]
+                if period is not None
+                else 0 <= (end - day).days <= days
+            )
+            if not in_window:
                 continue
             ending.add(root)
             if root not in window_ends or text < window_ends[root]:
@@ -304,7 +318,7 @@ def candidates(
     """Отбор по всем условиям списка — один раз на запрос страницы или рамки."""
     allowed = allowed_dormitories(dormitory_ids, criteria)
     base = _base_roots(db, roots, allowed)
-    shifts = _shifts(db, roots, allowed, day, criteria.days)
+    shifts = _shifts(db, roots, allowed, day, criteria.days, criteria.period)
     query = _query_roots(db, criteria, roots) if base else None
     columns: frozenset[str] | None = None
     if has_active_column_rules(criteria) and base:
@@ -340,6 +354,7 @@ def criteria_key(criteria: ListCriteria) -> tuple[Any, ...]:
         criteria.dormitory,
         tuple(criteria.scope),
         criteria.days,
+        criteria.period,
         normalize(criteria.query),
         criteria.column_filters,
     )

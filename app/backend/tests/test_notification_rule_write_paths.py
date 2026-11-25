@@ -50,7 +50,12 @@ HOOK = "notify_row_written"
 # Функции с маркером записи, которым хук не нужен, — с причиной. Пустой словарь
 # не случаен: каждый новый путь либо получает хук, либо объяснение здесь, и
 # мёртвую запись ловит отдельный тест.
-EXEMPT: dict[str, str] = {}
+EXEMPT: dict[str, str] = {
+    "arrival_plans.py::add_employee_to_arrival": (
+        "пишет `custom_values` плана заезда, а не строку таблицы общежития: "
+        "у плана нет строки каталога и `table_key` для правила уведомлений"
+    ),
+}
 
 
 def _call_name(node: ast.expr) -> str | None:
@@ -121,9 +126,7 @@ def write_paths() -> dict[str, dict[str, Any]]:
 def test_every_write_path_notifies_rules() -> None:
     """Забытый хук в любой точке записи валит тест, а не тихо теряет сообщение."""
     missing = sorted(
-        name
-        for name, found in write_paths().items()
-        if name.split("::")[1] not in EXEMPT and not found["hook"]
+        name for name, found in write_paths().items() if name not in EXEMPT and not found["hook"]
     )
 
     assert not missing, "точки записи без notify_row_written: " + ", ".join(missing)

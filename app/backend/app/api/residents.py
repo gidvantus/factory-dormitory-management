@@ -14,6 +14,7 @@ from app import notification_rules
 from app.access import SUBSCRIBED_USER_RESPONSES, OwnDormitory, SubscribedUser, own_dormitory
 from app.api.organization import Membership
 from app.db import get_db
+from app.hostel_resident_fields import set_occupancy_day
 from app.models.arrival_plan import ArrivalVisit
 from app.models.hostel import Hostel
 from app.models.outflow import PersonnelOutflow
@@ -26,7 +27,13 @@ from app.resident_outflow import prepare_outflow
 from app.resident_payments import copy_payment_values, existing_payment
 from app.resident_transfer import prepare_transfer
 from app.schemas.outflow import OutflowResponse
-from app.schemas.payment import PaymentKind, PaymentResponse, ResidentPaymentResponse
+from app.schemas.payment import (
+    PaymentColumnsRequired,
+    PaymentKind,
+    PaymentResponse,
+    RegisterPaymentRequest,
+    ResidentPaymentResponse,
+)
 from app.schemas.resident import (
     HostelOption,
     ResidentResponse,
@@ -179,7 +186,7 @@ def create_resident(
 
 @router.post(
     "/{resident_id}/payments/{kind}",
-    response_model=ResidentPaymentResponse,
+    response_model=ResidentPaymentResponse | PaymentColumnsRequired,
     status_code=status.HTTP_201_CREATED,
     summary="Записать проживающего на аванс или расчёт",
 )
@@ -191,14 +198,17 @@ def register_payment(
     _user: SubscribedUser,
     db: DbSession,
     _dormitory: OwnDormitory,
-) -> ResidentPaymentResponse:
+    payload: RegisterPaymentRequest | None = None,
+) -> ResidentPaymentResponse | PaymentColumnsRequired:
     # Один замок защищает сравнение и вставку от одновременных нажатий,
     # а также от изменения пользовательских столбцов и значений во время копирования.
     require_section_writable(db, dormitory_id, "residents")
     require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)
     resident = get_resident(db, dormitory_id, resident_id)
-    fields, custom, copied, skipped = copy_payment_values(db, dormitory_id, resident, kind)
+    fields, custom, copied, skipped, choices = copy_payment_values(
+        db, dormitory_id, resident, kind, check_columns=bool(payload and payload.check_columns)
+    )
     existing = existing_payment(db, dormitory_id, resident_id, kind, fields)
     if existing is not None:
         response.status_code = status.HTTP_200_OK
@@ -209,6 +219,10 @@ def register_payment(
             copied_columns=[],
             skipped_columns=[],
         )
+    if choices:
+        response.status_code = status.HTTP_200_OK
+        db.commit()
+        return PaymentColumnsRequired(column_choices=choices, can_continue=bool(copied))
     if not copied:
         raise HTTPException(422, "Нет заполненных столбцов с совпадающим названием и типом")
     row = PaymentEntry(
@@ -338,7 +352,12 @@ def move_to_outflow(
         payload.model_dump(exclude_unset=True, include={"reason", "departure_date"}),
     )
     record_changed(
-        db, plan.resident, _user.id, kind="outflow", title="Проживание завершено · перенос в отток"
+        db,
+        plan.resident,
+        _user.id,
+        kind="outflow",
+        title="Проживание завершено · перенос в отток",
+        happened_on=payload.departure_date,
     )
     row = PersonnelOutflow(
         dormitory_id=dormitory_id,
@@ -351,6 +370,7 @@ def move_to_outflow(
     record_changed(db, row, _user.id)
     for payment in plan.payments:
         db.delete(payment)
+    set_occupancy_day(plan.resident, payload.departure_date)
     db.delete(plan.resident)
     db.commit()
     db.refresh(row)

@@ -32,6 +32,7 @@ export const employeePageQuery = (
   dormitory: criteria.dormitory,
   scope: criteria.scope,
   days: criteria.days,
+  period: criteria.period,
   query: criteria.query.trim(),
   ...(criteria.column_filters?.length ? { column_filters: criteria.column_filters } : {}),
   page: page + 1,
@@ -44,6 +45,7 @@ const criteriaKey = (criteria: ListCriteria): string =>
     criteria.dormitory,
     criteria.scope,
     criteria.days,
+    criteria.period ?? null,
     criteria.query.trim(),
     criteria.column_filters ?? [],
   ]);

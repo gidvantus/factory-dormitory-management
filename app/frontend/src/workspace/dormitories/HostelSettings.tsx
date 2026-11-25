@@ -570,18 +570,21 @@ export function HostelSettings({
       >
         + Добавить хостел
       </button>
-      {data.hostels.map((hostel) => (
-        <button
-          key={hostel.id}
-          type="button"
-          className={`btn btn--quiet btn--compact ${styles.builderRow}`}
-          onClick={() => setEditor(hostel)}
-          aria-label={`Настроить хостел ${hostel.name}`}
-        >
-          {hostel.name}
-        </button>
-      ))}
-      {!data.hostels.length && <p>В выбранном месяце нет действующих хостелов.</p>}
+      {data.hostels.length ? (
+        <ul className={styles.hostelCards}>
+          {data.hostels.map((hostel) => (
+            <li key={hostel.id}>
+              <button type="button" className={styles.hostelCard} onClick={() => setEditor(hostel)}>
+                <span className={styles.hostelCardKind}>Хостел</span>
+                <strong className={styles.hostelCardName}>{hostel.name}</strong>
+                <span className={styles.hostelCardAction}>Настроить строки</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>В выбранном месяце нет действующих хостелов.</p>
+      )}
     </section>
   );
 }

@@ -9,7 +9,7 @@ from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -359,6 +359,7 @@ def record_changed(
     *,
     kind: str | None = None,
     title: str | None = None,
+    happened_on: date | None = None,
 ) -> None:
     """Вызывается в той же транзакции, что исходное изменение, до удаления строки."""
     identity_lock(db)
@@ -448,8 +449,7 @@ def record_changed(
         if key in ("residents", "inflow") and first
         else "source"
     )
-    happened = None
-    if first:
+    if first and happened_on is None:
         raw_date = values.get(
             "departure_date"
             if key == "outflow"
@@ -459,7 +459,7 @@ def record_changed(
         )
         if raw_date:
             with suppress(ValueError):
-                happened = date.fromisoformat(raw_date)
+                happened_on = date.fromisoformat(raw_date)
     event(
         db,
         row.employee_id,
@@ -470,7 +470,7 @@ def record_changed(
         source_table=key,
         source_id=row.id,
         snapshot=values,
-        happened_on=happened,
+        happened_on=happened_on,
     )
     db.flush()
 
@@ -591,6 +591,83 @@ def all_sources(
     return result
 
 
+def source_rows(
+    db: Session, dormitory_ids: list[int], employee_ids: list[str] | None = None
+) -> list[tuple[Row, dict[str, Any]]]:
+    """Строки-источники вместе с ORM-объектами — для точечных карточек.
+
+    Массовому чтению (`all_sources`) объекты не нужны: там весь смысл в том,
+    чтобы не материализовать десятки тысяч строк (`#237`). Карточке сотрудника
+    и плану заезда, наоборот, нужны сами объекты: `record_value` дочитывает
+    вычисляемые колонки пользовательских вкладок, а тип строки — корень заезда.
+    Поэтому здесь остаётся прежний путь «объект + значения», но выборка сужена
+    до `employee_ids`, если они переданы.
+    """
+    lookup: dict[str, Any] = {
+        "dormitories": {
+            item.id: item
+            for item in db.scalars(select(Dormitory).where(Dormitory.id.in_(dormitory_ids)))
+        },
+        "hostels": {
+            item.id: item
+            for item in db.execute(
+                select(Hostel.id, Hostel.name).where(Hostel.dormitory_id.in_(dormitory_ids))
+            )
+        },
+        "bindings": {
+            (item.dormitory_id, item.table_key): item
+            for item in db.scalars(
+                select(PersonnelBinding).where(PersonnelBinding.dormitory_id.in_(dormitory_ids))
+            )
+        },
+    }
+    return [
+        (cast(Row, row), row_values(db, cast(Row, row), lookup))
+        for model in SOURCE_MODELS
+        for row in db.scalars(
+            select(model).where(
+                model.employee_id.in_(employee_ids)
+                if employee_ids is not None
+                else model.employee_id.is_not(None),
+                model.dormitory_id.in_(dormitory_ids),
+            )
+        )
+    ]
+
+
+def source_summary(row: Row, values: dict[str, Any], tabs: dict[str, str]) -> dict[str, Any]:
+    key = source_key(row)
+    return {
+        "table_key": key,
+        "row_id": row.id,
+        "dormitory_id": row.dormitory_id,
+        "source_name": tabs.get(key, SOURCE_NAMES.get(key, key)),
+        "values": values,
+    }
+
+
+def employee_group_in_scope(db: Session, ids: list[str], dormitory_ids: list[int]) -> bool:
+    if any(
+        db.scalar(
+            select(model.id)
+            .where(model.employee_id.in_(ids), model.dormitory_id.in_(dormitory_ids))
+            .limit(1)
+        )
+        is not None
+        for model in SOURCE_MODELS
+    ):
+        return True
+    history = (
+        select(EmployeeEvent.id)
+        .where(
+            EmployeeEvent.employee_id.in_(ids),
+            EmployeeEvent.dormitory_id.in_(dormitory_ids),
+        )
+        .limit(1)
+    )
+    return db.scalar(history) is not None
+
+
 def employee_in_scope(db: Session, employee_id: str, dormitory_ids: list[int]) -> Employee:
     """Карточка сотрудника в пределах области. Иначе — `404`, как за несуществующую.
 
@@ -600,27 +677,7 @@ def employee_in_scope(db: Session, employee_id: str, dormitory_ids: list[int]) -
     """
     employee = get_employee(db, employee_id)
     ids = group_ids(db, employee_id)
-    has_source = any(
-        db.scalar(
-            select(model.id)
-            .where(model.employee_id.in_(ids), model.dormitory_id.in_(dormitory_ids))
-            .limit(1)
-        )
-        is not None
-        for model in SOURCE_MODELS
-    )
-    if (
-        has_source
-        or db.scalar(
-            select(EmployeeEvent.id)
-            .where(
-                EmployeeEvent.employee_id.in_(ids),
-                EmployeeEvent.dormitory_id.in_(dormitory_ids),
-            )
-            .limit(1)
-        )
-        is not None
-    ):
+    if employee_group_in_scope(db, ids, dormitory_ids):
         return employee
     raise HTTPException(404, "Карточка сотрудника не найдена")
 
@@ -987,6 +1044,7 @@ def workspace(
     include_previews: bool = False,
     preview_dormitory: int | None = None,
     days: int = 5,
+    period: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
     """Рабочая поверхность персонала в пределах области — общежитий организации.
 
@@ -1085,14 +1143,18 @@ def workspace(
         # считает отбор в SQL: у всех трёх фильтров он общий, меняется только срок.
         with stage("counts"):
             response["counts"] = counts_by_filter(
-                candidates=selection.get(ListCriteria(dormitory=preview_dormitory, days=days))
+                candidates=selection.get(
+                    ListCriteria(dormitory=preview_dormitory, days=days, period=period)
+                )
             )
     return response
 
 
 def employee_detail(db: Session, employee_id: str) -> dict[str, Any]:
-    ids = group_ids(db, employee_id)
-    names = {user.id: user.full_name for user in db.scalars(select(User))}
+    return employee_history(db, get_employee(db, employee_id).id, group_ids(db, employee_id))
+
+
+def employee_history(db: Session, employee_id: str, ids: list[str]) -> dict[str, Any]:
     events = list(
         db.scalars(
             select(EmployeeEvent)
@@ -1114,8 +1176,13 @@ def employee_detail(db: Session, employee_id: str) -> dict[str, Any]:
             .order_by(EmployeeMerge.created_at.desc())
         )
     )
+    actor_ids = {item.actor_id for item in events if item.actor_id is not None}
+    actor_ids.update(item.actor_id for item in merges if item.actor_id is not None)
+    actor_ids.update(note.author_id for note in notes if note.author_id is not None)
+    actors = select(User.id, User.full_name).where(User.id.in_(actor_ids))
+    names = dict(db.execute(actors).tuples().all()) if actor_ids else {}
     return {
-        "employee_id": get_employee(db, employee_id).id,
+        "employee_id": employee_id,
         "events": [
             {
                 "id": e.id,

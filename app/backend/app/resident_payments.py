@@ -9,44 +9,24 @@ from sqlalchemy.orm import Session
 
 from app.models.payment import PaymentEntry
 from app.models.resident import Resident
-from app.models.table_column import TableColumn
 from app.schemas.payment import PaymentKind, UpdatePaymentRequest
-from app.table_data import Record, ensure_columns, normalize_value, record_value
-
-
-def normalized_name(value: str) -> str:
-    return " ".join(value.split()).casefold()
-
-
-def matching_value(source: TableColumn, target: TableColumn, resident: Record) -> Any:
-    value = record_value(resident, source)
-    if value is None:
-        return None
-    if target.kind == "select":
-        option = next((item for item in source.options if item["id"] == value), None)
-        if option is None or option["archived"]:
-            raise HTTPException(422, "Вариант исходного списка недоступен")
-        matches = [
-            item
-            for item in target.options
-            if not item["archived"]
-            and normalized_name(item["label"]) == normalized_name(option["label"])
-        ]
-        if len(matches) != 1:
-            raise HTTPException(422, "Вариант не найден в списке выплат")
-        value = matches[0]["id"]
-    return normalize_value(target, value)
+from app.schemas.transfer_columns import TransferColumnChoice
+from app.table_data import ensure_columns, record_value
+from app.transfer_columns import TransferColumns, matching_value, normalized_name
 
 
 def copy_payment_values(
-    db: Session, dormitory_id: int, resident: Resident, kind: PaymentKind
-) -> tuple[dict[str, Any], dict[str, Any], list[str], list[str]]:
+    db: Session, dormitory_id: int, resident: Resident, kind: PaymentKind, *, check_columns: bool
+) -> tuple[dict[str, Any], dict[str, Any], list[str], list[str], list[TransferColumnChoice]]:
     sources = ensure_columns(db, dormitory_id, "residents")
     targets = ensure_columns(db, dormitory_id, kind)
+    mapping = TransferColumns(db, sources, targets)
     fields: dict[str, Any] = {}
     custom: dict[str, Any] = {}
     copied: list[str] = []
     skipped: list[str] = []
+    copied_sources: set[int] = set()
+    occupied: set[int] = set()
     for target in targets:
         if target.archived or target.kind not in ("text", "number", "date", "checkbox", "select"):
             continue
@@ -55,7 +35,14 @@ def copy_payment_values(
             for source in sources
             if not source.archived
             and source.kind == target.kind
-            and normalized_name(source.name) == normalized_name(target.name)
+            and (
+                mapping.reserved.get(target.id) == source.id
+                or (
+                    target.id not in mapping.reserved
+                    and source.id not in mapping.explicit
+                    and normalized_name(source.name) == normalized_name(target.name)
+                )
+            )
         ]
         if len(matches) != 1:
             continue
@@ -74,9 +61,18 @@ def copy_payment_values(
             else:
                 custom[str(target.id)] = value
             copied.append(target.name)
+            copied_sources.add(source.id)
+            occupied.add(target.id)
         except (HTTPException, ValidationError):
             skipped.append(target.name)
-    return fields, custom, copied, skipped
+    choices = (
+        mapping.choices(
+            resident, copied=copied_sources, occupied=occupied, schema=UpdatePaymentRequest
+        )
+        if check_columns
+        else []
+    )
+    return fields, custom, copied, skipped, choices
 
 
 def existing_payment(

@@ -10,9 +10,10 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.arrival_plans import employee_is_planned
 from app.arrival_settings import active_people, effective_people
 from app.models.arrival_plan import ArrivalPlan, ArrivalVisit
-from app.personnel import today
+from app.personnel import group_ids, today
 
 
 def person_of(plan: ArrivalPlan, person_id: str) -> dict[str, Any]:
@@ -32,7 +33,12 @@ def new_visit(plan: ArrivalPlan, person_id: str, lineage: str | None = None) -> 
         raise HTTPException(422, "Сначала заполните ФИО человека в плане заезда")
     id = str(uuid4())
     visit = ArrivalVisit(
-        id=id, person_id=person_id, lineage_id=lineage or id, status="expected", history=[]
+        id=id,
+        person_id=person_id,
+        lineage_id=lineage or id,
+        status="expected",
+        employee_id=person.get("employee_id"),
+        history=[],
     )
     plan.visits.append(visit)
     return visit
@@ -122,8 +128,13 @@ def move(
         db.add(target)
         target_people: list[dict[str, Any]] = []
     else:
-        if len(active_people(target)) >= 10000:
+        planned = active_people(target)
+        if len(planned) >= 10000:
             raise HTTPException(422, "В целевом заезде уже 10 000 человек")
+        if (employee_id := person.get("employee_id")) and employee_is_planned(
+            target, group_ids(db, employee_id)
+        ):
+            raise HTTPException(409, "Этот сотрудник уже внесён в план выбранного дня")
         returning = next(
             (item for item in target.visits if item.lineage_id == visit.lineage_id), None
         )
@@ -171,6 +182,10 @@ def undo_move(
     if target is None or destination is None or destination.status != "expected":
         raise HTTPException(409, "В новой дате уже выполнено действие. Отменить перенос нельзя.")
     target_person = person_of(target, destination.person_id)
+    if (employee_id := target_person.get("employee_id")) and employee_is_planned(
+        plan, group_ids(db, employee_id)
+    ):
+        raise HTTPException(409, "Этот сотрудник уже внесён в план исходного дня")
     plan.people = [
         deepcopy(target_person) | {"id": person_id} if item["id"] == person_id else item
         for item in effective_people(plan)

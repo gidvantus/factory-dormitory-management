@@ -17,6 +17,7 @@ from app.access import (
 )
 from app.api.organization import Membership
 from app.db import get_db
+from app.hostel_resident_fields import set_occupancy_day
 from app.inflow_actions import InflowAction, prepare_inflow_action
 from app.inflow_entry import copy_entry_to_inflow, entry_form, resident_data
 from app.models.inflow import PersonnelInflow
@@ -275,9 +276,13 @@ def process_inflow(
         custom_values=plan.custom,
         **plan.fields,
     )
+    settlement_date = None
+    if isinstance(target, Resident):
+        settlement_date = plan.source.settlement_date
+        set_occupancy_day(target, settlement_date)
     db.add(target)
     db.flush()
-    record_changed(db, target, user.id)
+    record_changed(db, target, user.id, happened_on=settlement_date)
     if isinstance(target, Resident):
         fulfill_arrival(db, target, user.id)
     plan.source.processed_as = plan.preview.destination

@@ -117,7 +117,8 @@ export function ArrivalDetailsDialog({
               fields={personalFields}
               workflow={workflow ?? {}}
               onAction={onPersonAction}
-              busy={busy || readOnly}
+              busy={busy}
+              readOnly={readOnly}
               full
             />
           ) : (

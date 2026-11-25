@@ -14,12 +14,12 @@ from sqlalchemy.orm import Session
 from app.models.dormitory import Dormitory
 from app.models.hostel import Hostel
 from app.models.resident import Resident
-from app.resident_payments import matching_value, normalized_name
 from app.schemas.resident import UpdateResidentRequest
 from app.schemas.resident_transfer import TransferPreviewResponse, TransferWarning
 from app.schemas.table_column import ColumnResponse
 from app.section_state import require_section_writable
 from app.table_data import ensure_columns, lock_dormitory
+from app.transfer_columns import TransferColumns, matching_value, normalized_name
 
 
 @dataclass
@@ -76,11 +76,14 @@ def prepare_transfer(
         raise HTTPException(404, "Проживающий не найден в исходном общежитии")
     sources = ensure_columns(db, source_id, "residents")
     targets = ensure_columns(db, target_id, "residents")
+    mapping = TransferColumns(db, sources, targets)
     fields: dict[str, Any] = {}
     custom: dict[str, Any] = {}
     matched: list[str] = []
     warnings: list[TransferWarning] = []
     used: set[int] = set()
+    copied: set[int] = set()
+    occupied: set[int] = set()
     for source in sources:
         if source.kind == "action":
             continue
@@ -95,24 +98,13 @@ def prepare_transfer(
                     TransferWarning(column=source.name, reason="Столбец удалён в исходной таблице")
                 )
             continue
-        matches = [
-            col
-            for col in targets
-            if not col.archived and normalized_name(col.name) == normalized_name(source.name)
-        ]
+        matches = mapping.matches(source)
         if not matches:
             warnings.append(
                 TransferWarning(column=source.name, reason="В новом общежитии нет этого столбца")
             )
             continue
-        if (
-            len(matches) != 1
-            or sum(
-                not col.archived and normalized_name(col.name) == normalized_name(source.name)
-                for col in sources
-            )
-            != 1
-        ):
+        if mapping.ambiguous(source, matches):
             warnings.append(
                 TransferWarning(column=source.name, reason="Совпадение названий неоднозначно")
             )
@@ -135,6 +127,9 @@ def prepare_transfer(
             elif value is not None:
                 custom[str(target.id)] = value
             used.add(target.id)
+            copied.add(source.id)
+            if value is not None:
+                occupied.add(target.id)
             matched.append(source.name)
         except HTTPException as caught:
             warnings.append(TransferWarning(column=source.name, reason=str(caught.detail)))
@@ -182,6 +177,7 @@ def prepare_transfer(
         "targets": [ColumnResponse.model_validate(col).model_dump() for col in targets],
         "fields": fields,
         "custom": custom,
+        "column_mappings": mapping.stored,
         "warnings": [warning.model_dump() for warning in warnings],
     }
     token = hashlib.sha256(
@@ -197,5 +193,8 @@ def prepare_transfer(
             warnings=warnings,
             empty_columns=empty,
             preview_token=token,
+            column_choices=mapping.choices(
+                resident, copied=copied, occupied=occupied, schema=UpdateResidentRequest
+            ),
         ),
     )

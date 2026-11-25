@@ -81,6 +81,7 @@ class ListCriteria:
     filter: str = "all"
     dormitory: int | None = None
     days: int = 5
+    period: tuple[str, str] | None = None
     query: str = ""
     scope: tuple[int, ...] = ()
     column_filters: tuple[ColumnRule, ...] = ()
@@ -323,10 +324,16 @@ def block_criteria(
     else:
         filter = "ending"
     scope = block["scope"] or (saved or {}).get("scope") or []
+    saved_period = (saved or {}).get("period")
     criteria = ListCriteria(
         filter=filter,
         dormitory=dormitory if dormitory is not None else (saved or {}).get("dormitory"),
         days=(saved or {}).get("days") or block["days"],
+        period=(
+            (saved_period["from"], saved_period["to"])
+            if saved_period and saved_period.get("from") and saved_period.get("to")
+            else None
+        ),
         query=(saved or {}).get("query") or "",
         scope=tuple(scope),
         column_filters=tuple(
