@@ -93,6 +93,7 @@ docker compose up -d --build
 | `GET` | `/api/solutions` | `200 [{"id", "code", "name", "description", "amount", "currency", "position", "is_visible", "price_label", "created_at", "updated_at"}]` — **все** строки каталога решений, включая `is_visible = false`, порядок `position, id`; пагинации нет. Периода оплаты в ответе нет: у решения нет своего срока, право действует по тарифу организации (#195), а `price_label` читается «500 ₽ разово» |
 | `PATCH` | `/api/solutions/{id}` | `200` — та же строка целиком, с пересчитанным `price_label`. Тело: только присланные поля из `name`, `description` (`null` — описания нет), `amount` (строка `"500.00"`), `currency` (три заглавные латинские буквы), `position` (целое ≥ 0), `is_visible`. Поля `code` в теле нет, и `period` тоже нет: присланное отсекает `422` |
 | `DELETE` | `/api/solutions/{id}` | `204` без тела: `is_visible = false`, строка **не удаляется** (на неё ссылаются `invoices.solution_id` и `organization_solutions`); повторный вызов — тоже `204` |
+| `GET` | `/api/journal?kind=&date_from=&date_to=&limit=&cursor=` | `200 {"items": [{"id", "created_at", "organization_id", "organization_name", "actor_id", "actor_name", "method", "path", "action", "action_title", "kind", "status", "duration_ms", "ip", "user_agent", "request_id", "path_params", "request_body", "changes"}], "next_cursor": string\|null, "total": int\|null}`; под сессией кабинета, наверх — `GET /api/platform/journal` основного API с `X-Operator-Token`. Параметры, которых клиент не передал, наверх не уходят: период по умолчанию (7 дней по Москве), правила `422` и курсор решает основной API. `kind` — `security`\|`data`\|`noise`; `limit` 1..200 (по умолчанию 50); `total` — за период по всей ленте, у страниц по курсору `null`. Строки без организации (`organization_id = null`) — «Платформа», `organization_name = null`. Отказы `422` (период, курсор, вид), `502` и `503` — тексты основного API дословно |
 
 Сессия — httpOnly cookie `operator_session`, в JS токена нет.
 
@@ -222,6 +223,9 @@ docker compose up -d --build
 - `/tariffs` — прайс платформы: список, правка полей и снятие с продажи;
 - `/solutions` — каталог решений магазина улучшений: список, правка полей,
   порядок витрины и снятие с продажи;
+- `/journal` — журнал действий всех организаций: лента за период (по умолчанию
+  7 дней по Москве), фильтр по виду, «Показать ещё» по курсору; пункт навигации
+  «Журнал» стоит после «Прав доступа», перед «Реквизитами» (#255);
 - `/company` — реквизиты поставщика и строка про НДС: форма из одиннадцати полей;
 - остальные адреса редиректят на `/`.
 
@@ -341,6 +345,7 @@ docker compose up -d --build
 | карточка | `operator-organization-card`, `operator-organization-name`, `operator-organization-inn`, `operator-organization-kpp`, `operator-organization-ogrn`, `operator-organization-address`, `operator-organization-edit`, `operator-organization-save`, `operator-organization-cancel`, `operator-organization-error`, `operator-organization-back` (ссылка «К списку») |
 | тарифы | `operator-nav-tariffs` (пункт навигации), `operator-tariffs` (таблица), `operator-tariffs-count` (счётчик в заголовке), `operator-tariffs-loading`, `operator-tariffs-empty`, `operator-tariffs-error`, `operator-tariff-row` (на каждой строке), `operator-tariff-name`, `operator-tariff-description`, `operator-tariff-price`, `operator-tariff-period`, `operator-tariff-members`, `operator-tariff-state`, `operator-tariff-edit`, `operator-tariff-name-input`, `operator-tariff-description-input`, `operator-tariff-amount-input`, `operator-tariff-period-input`, `operator-tariff-members-input`, `operator-tariff-save`, `operator-tariff-cancel`, `operator-tariff-delete`, `operator-tariff-delete-confirm`, `operator-tariff-delete-decline`, `operator-tariff-publish`, `operator-tariff-error` |
 | решения | `operator-nav-solutions` (пункт навигации), `operator-solutions` (таблица), `operator-solutions-count` (счётчик в заголовке), `operator-solutions-loading`, `operator-solutions-empty`, `operator-solutions-error` (отказ загрузки, рядом `operator-solutions-retry`), `operator-solution-row` (на каждой строке), `operator-solution-position`, `operator-solution-name`, `operator-solution-code`, `operator-solution-description`, `operator-solution-price`, `operator-solution-state`, `operator-solution-created`, `operator-solution-updated`, `operator-solution-edit`, `operator-solution-delete`, `operator-solution-delete-confirm`, `operator-solution-delete-decline`, `operator-solution-publish`, `operator-solution-name-input`, `operator-solution-description-input`, `operator-solution-amount-input`, `operator-solution-currency-input`, `operator-solution-position-input`, `operator-solution-visible-input`, `operator-solution-save`, `operator-solution-cancel`, `operator-solution-error` (отказ правки, удаления и публикации) |
+| журнал (#255) | `operator-nav-journal` (пункт навигации), `operator-journal` (раздел), `operator-journal-from`, `operator-journal-to`, `operator-journal-kind`, `operator-journal-apply`, `operator-journal-count` (подвал «За этот период — N записей»), `operator-journal-loading`, `operator-journal-empty`, `operator-journal-error` (отказ `422` и `502`/`503`), `operator-journal-retry`, `operator-journal-row` (на каждой строке), `operator-journal-when`, `operator-journal-company`, `operator-journal-actor`, `operator-journal-action`, `operator-journal-kind-cell`, `operator-journal-status`, `operator-journal-detail` (раскрытие записи), `operator-journal-json`, `operator-journal-more`, `operator-journal-more-error` (отказ догрузки) |
 | реквизиты поставщика | `operator-nav-company` (пункт навигации), `operator-company` (форма), `operator-company-name`, `operator-company-inn`, `operator-company-kpp`, `operator-company-ogrn`, `operator-company-address`, `operator-company-bank-name`, `operator-company-bank-bic`, `operator-company-account`, `operator-company-corr-account`, `operator-company-signatory`, `operator-company-vat-note`, `operator-company-save`, `operator-company-saved`, `operator-company-error`, `operator-company-retry` |
 
 В режиме правки те же `operator-organization-name/-inn/-kpp/-ogrn/-address`
@@ -423,6 +428,9 @@ npm run test       # vitest run
 
 ## Чего здесь нет
 
+- Фильтра по компании и поиска в журнале (#255): индекса по `organization_id`
+  нет, а лишняя миграция в эту задачу не входит. Выгрузки в файл, автообновления
+  и сортировки по заголовку тоже нет.
 - Создания организаций, удаления и архива: в API нет `DELETE`-семантики, а
   организация без владельца невидима никому.
 - Поиска и фильтров по списку сверх постраничной выдачи; поиска по ИНН в DaData

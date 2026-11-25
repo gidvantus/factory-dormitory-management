@@ -21,6 +21,7 @@ export function OperatorNav(): JSX.Element {
   const onTariffs = pathname === '/tariffs' || pathname.startsWith('/tariffs/');
   const onSolutions = pathname === '/solutions' || pathname.startsWith('/solutions/');
   const onInvoices = pathname === '/invoices' || pathname.startsWith('/invoices/');
+  const onJournal = pathname === '/journal' || pathname.startsWith('/journal/');
   const onCompany = pathname === '/company' || pathname.startsWith('/company/');
   const onAccessRights = pathname === '/access-rights' || pathname.startsWith('/access-rights/');
   const onOrganizations = pathname === '/' || pathname.startsWith('/organizations/');
@@ -74,6 +75,14 @@ export function OperatorNav(): JSX.Element {
         data-testid="operator-nav-access-rights"
       >
         Права доступа
+      </Link>
+      <Link
+        className="nav__link"
+        to="/journal"
+        aria-current={onJournal ? 'page' : undefined}
+        data-testid="operator-nav-journal"
+      >
+        Журнал
       </Link>
       <Link
         className="nav__link"
