@@ -572,17 +572,24 @@ it('по таймеру перезапрашивает только рамку, 
     await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
     await screen.findByRole('table');
     await waitFor(() => expect(pageRequests()).toHaveLength(1));
+    // Счётчики при пустом поиске выключены: их числа приходят со сводкой рамки
+    // (`sameAsSummary`). Вводим поиск и ждём паузу в наборе, чтобы под тиком были
+    // живые запросы `per_page: 1`, а не пустой список (Ф1).
+    await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Сотрудник 2');
+    await waitFor(() => expect(screen.getByText('1–6 из 6')).toBeInTheDocument());
+    await waitFor(() => expect(counterFilters().length).toBeGreaterThan(0));
     const frames = vi.mocked(personnelApi.workspace).mock.calls.length;
     const pages = pageRequests().length;
     // Счётчики — те же запросы `employees` из одной записи; тик не должен их добавлять (Ф1).
     const counters = counterFilters().length;
+    expect(counters).toBeGreaterThan(0);
     await act(async () => {
       vi.advanceTimersByTime(FRAME_REFRESH_MS);
     });
     await waitFor(() =>
       expect(vi.mocked(personnelApi.workspace).mock.calls.length).toBe(frames + 1),
     );
-    // Тик несёт рамку `employees=none` и не тянет страницу карточек.
+    // Тик несёт рамку `employees=none` и не тянет ни страницу карточек, ни счётчики.
     expect(vi.mocked(personnelApi.workspace).mock.calls.at(-1)?.[1]).toEqual({
       employees: 'none',
       dormitory: null,
@@ -590,7 +597,7 @@ it('по таймеру перезапрашивает только рамку, 
     });
     expect(pageRequests()).toHaveLength(pages);
     expect(counterFilters()).toHaveLength(counters);
-    expect(screen.getByText('1–20 из 25')).toBeInTheDocument();
+    expect(screen.getByText('1–6 из 6')).toBeInTheDocument();
   } finally {
     vi.useRealTimers();
   }

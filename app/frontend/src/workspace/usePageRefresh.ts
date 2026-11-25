@@ -10,7 +10,6 @@ export type PageRefreshOptions = {
    * Персонал выключает его и тикает отдельной ревизией рамки (#251).
    */
   timer?: boolean;
-  intervalMs?: number;
 };
 
 /**
@@ -21,10 +20,7 @@ export type PageRefreshOptions = {
  * стоила полной сборки карточек — шесть запросов там, где клиент сделал три. У него
  * тикает только `useFrameRefresh`.
  */
-export function usePageRefresh({
-  timer = true,
-  intervalMs = FRAME_REFRESH_MS,
-}: PageRefreshOptions = {}): number {
+export function usePageRefresh({ timer = true }: PageRefreshOptions = {}): number {
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const refresh = (): void => {
@@ -32,13 +28,13 @@ export function usePageRefresh({
     };
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refresh);
-    const interval = timer ? window.setInterval(refresh, intervalMs) : undefined;
+    const interval = timer ? window.setInterval(refresh, FRAME_REFRESH_MS) : undefined;
     return () => {
       window.removeEventListener('focus', refresh);
       document.removeEventListener('visibilitychange', refresh);
       if (interval !== undefined) window.clearInterval(interval);
     };
-  }, [timer, intervalMs]);
+  }, [timer]);
   return revision;
 }
 
