@@ -11,13 +11,14 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.models.base import Base
 
@@ -26,17 +27,42 @@ def new_id() -> str:
     return str(uuid4())
 
 
+def normalized_name(value: str | None) -> str:
+    """ФИО в форме сравнения: регистр, ё и повторные пробелы не различаются.
+
+    Ту же форму считает `app.personnel_page.normalize`, поэтому `sort_name` —
+    это ключ порядка страницы персонала (#251): сортировка идёт по нему в SQL,
+    а не в Python поверх всех карточек.
+    """
+    return " ".join((value or "").lower().replace("ё", "е").split())
+
+
 class Employee(Base):
     __tablename__ = "employees"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     full_name: Mapped[str | None] = mapped_column(String(255))
     personnel_number: Mapped[str | None] = mapped_column(String(40))
     phone: Mapped[str | None] = mapped_column(String(30))
+    # Ключ порядка списка людей (#251): нормализованное ФИО, заполняется при
+    # каждой записи ФИО. Индекс повторяет порядок страницы — `(sort_name, id)`.
+    sort_name: Mapped[str] = mapped_column(String(255), default="", server_default="")
     identity_status: Mapped[str] = mapped_column(
         String(16), default="pending", server_default="pending"
     )
     merged_into_id: Mapped[str | None] = mapped_column(ForeignKey("employees.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (Index("ix_employees_sort_name", "sort_name", "id"),)
+
+    @validates("full_name")
+    def _keep_sort_name(self, _key: str, value: str | None) -> str | None:
+        """`sort_name` не расходится с ФИО ни на одной записи — включая тесты.
+
+        Проверка стоит на модели, а не в местах создания карточки: карточку
+        заводят и `record_changed`, и `choose_identity`, и миграции данных, и
+        забыть одно из мест было бы регрессией порядка списка.
+        """
+        self.sort_name = normalized_name(value)
+        return value
 
 
 class EmployeeAlias(Base):
