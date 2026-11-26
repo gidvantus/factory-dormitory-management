@@ -147,7 +147,14 @@ export function PersonnelWithBuilder(): JSX.Element {
   }, []);
   const loadData = useCallback(async (): Promise<void> => {
     if (dataRequest.current) return dataRequest.current;
-    const task = Promise.all([personnelApi.cards(), personnelBuilderApi.sources()])
+    // Уже скачанный реестр не тянем повторно при каждом возвращении на свою
+    // подвкладку: эффект ниже идёт на каждое `activeCustom` из `false` в `true`.
+    const task = Promise.all([
+      loadedEmployees.current.length
+        ? Promise.resolve({ employees: loadedEmployees.current })
+        : personnelApi.cards(),
+      personnelBuilderApi.sources(),
+    ])
       .then(([people, sources]) => {
         if (!mounted.current) return;
         loadedEmployees.current = people.employees;
