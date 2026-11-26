@@ -5,6 +5,7 @@ import type {
   WidgetConfig,
 } from '../../api/dashboardBlocks';
 import { EditorSection } from '../../components/EditorSection';
+import { tableColors } from '../../components/workingTableModel';
 import styles from './WidgetDialog.module.css';
 import { normalizeMetric, SUMMARY_AGGREGATES } from './summaryModel';
 
@@ -38,6 +39,27 @@ export function SummaryReportFields({
   for (const metric of summary.metrics)
     if (!options.has(normalizeMetric(metric.name)))
       options.set(normalizeMetric(metric.name), metric);
+  const selectedKeys = new Set(summary.metrics.map((metric) => normalizeMetric(metric.name)));
+  const orderedKeys = [
+    ...selectedKeys,
+    ...[...options.keys()].filter((key) => !selectedKeys.has(key)),
+  ];
+
+  function updateMetric(index: number, changes: Partial<SummaryMetric>): void {
+    update({
+      metrics: summary.metrics.map((metric, i) =>
+        i === index ? { ...metric, ...changes } : metric,
+      ),
+    });
+  }
+
+  function moveMetric(index: number, direction: -1 | 1): void {
+    const nextIndex = index + direction;
+    const metrics = [...summary.metrics];
+    [metrics[index], metrics[nextIndex]] = [metrics[nextIndex], metrics[index]];
+    update({ metrics });
+  }
+
   return (
     <>
       <EditorSection
@@ -118,63 +140,113 @@ export function SummaryReportFields({
       </EditorSection>
       <EditorSection
         title="Показатели общего отчёта"
-        description="Одинаковые названия представлены один раз. Для каждого показателя выберите способ расчёта."
+        description="Показатели с одинаковыми названиями объединены."
       >
         {!options.size && <p>В выбранных общежитиях пока нет строк общего отчёта.</p>}
-        {[...options.entries()].map(([key, option]) => {
-          const selected = summary.metrics.find((metric) => normalizeMetric(metric.name) === key);
+        {summary.metrics.length > 1 && (
+          <p className={styles.hint}>Порядок выбранных показателей можно изменить стрелками.</p>
+        )}
+        {orderedKeys.map((key, index) => {
+          const option = options.get(key)!;
+          const selected = selectedKeys.has(key) ? summary.metrics[index] : undefined;
           return (
             <div className={styles.sourceCard} key={key}>
-              <label className={styles.check}>
-                <input
-                  type="checkbox"
-                  checked={!!selected}
-                  onChange={(event) =>
-                    update({
-                      metrics: event.target.checked
-                        ? [
-                            ...summary.metrics,
-                            {
-                              ...option,
-                              sources: option.sources.filter(
-                                (source, index, all) =>
-                                  all.findIndex(
-                                    (item) => item.dormitory_id === source.dormitory_id,
-                                  ) === index,
-                              ),
-                            },
-                          ]
-                        : summary.metrics.filter((metric) => normalizeMetric(metric.name) !== key),
-                    })
-                  }
-                />
-                {option.name}
-              </label>
-              {selected && (
-                <label className={styles.field}>
-                  Расчёт — {selected.name}
-                  <select
-                    value={selected.aggregate}
+              <div className={styles.summaryMetricHeader}>
+                <label className={styles.check}>
+                  <input
+                    type="checkbox"
+                    checked={!!selected}
                     onChange={(event) =>
                       update({
-                        metrics: summary.metrics.map((metric) =>
-                          metric === selected
-                            ? {
-                                ...metric,
-                                aggregate: event.target.value as SummaryMetric['aggregate'],
-                              }
-                            : metric,
-                        ),
+                        metrics: event.target.checked
+                          ? [
+                              ...summary.metrics,
+                              {
+                                ...option,
+                                sources: option.sources.filter(
+                                  (source, index, all) =>
+                                    all.findIndex(
+                                      (item) => item.dormitory_id === source.dormitory_id,
+                                    ) === index,
+                                ),
+                              },
+                            ]
+                          : summary.metrics.filter(
+                              (metric) => normalizeMetric(metric.name) !== key,
+                            ),
                       })
                     }
-                  >
-                    {Object.entries(SUMMARY_AGGREGATES).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+                  />
+                  {selected?.name ?? option.name}
                 </label>
+                {selected && summary.metrics.length > 1 && (
+                  <div className={styles.summaryMetricOrder}>
+                    <button
+                      type="button"
+                      className="btn btn--outline btn--compact"
+                      aria-label={`Поднять «${selected.name}»`}
+                      title="На строку выше"
+                      disabled={index === 0}
+                      onClick={() => moveMetric(index, -1)}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--outline btn--compact"
+                      aria-label={`Опустить «${selected.name}»`}
+                      title="На строку ниже"
+                      disabled={index === summary.metrics.length - 1}
+                      onClick={() => moveMetric(index, 1)}
+                    >
+                      ↓
+                    </button>
+                  </div>
+                )}
+              </div>
+              {selected && (
+                <div className={`${styles.grid} ${styles.summaryMetricFields}`}>
+                  <label className={styles.field}>
+                    Расчёт — {selected.name}
+                    <select
+                      value={selected.aggregate}
+                      onChange={(event) =>
+                        updateMetric(index, {
+                          aggregate: event.target.value as SummaryMetric['aggregate'],
+                        })
+                      }
+                    >
+                      {Object.entries(SUMMARY_AGGREGATES).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className={styles.field}>
+                    Цвет строки — {selected.name}
+                    <select
+                      value={selected.color ?? ''}
+                      style={
+                        selected.color
+                          ? { backgroundColor: `var(--table-fill-${selected.color})` }
+                          : undefined
+                      }
+                      onChange={(event) =>
+                        updateMetric(index, {
+                          color: (event.target.value || null) as SummaryMetric['color'],
+                        })
+                      }
+                    >
+                      <option value="">Без цвета</option>
+                      {tableColors.map(({ id, label }) => (
+                        <option key={id} value={id}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               )}
             </div>
           );

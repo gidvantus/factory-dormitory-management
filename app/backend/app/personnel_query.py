@@ -570,11 +570,14 @@ def block_previews(
         # с фильтром того блока, который спросил первым, поэтому `found.roots()`
         # без аргумента отдал бы набор чужого фильтра — «Заканчивается вахта»
         # показывал бы всех проживающих (#251).
-        people = (
-            []
-            if missing
-            else [root for root in ordered[order_key] if root in found.roots(criteria.filter)]
-        )
+        #
+        # Набор считается один раз на блок, а не на каждый его корень: `roots()`
+        # копирует весь отбор (до 4 874 строк) и пересекает его с условиями, и в
+        # списке `[... for root in ordered if root in found.roots(...)]` этот
+        # вызов повторялся для каждой строки — 14 625 копий на рамку, 2,9 с в
+        # профиле (#261).
+        chosen = frozenset() if missing else found.roots(criteria.filter)
+        people = [root for root in ordered[order_key] if root in chosen]
         page_ids = people[:limit]
         pages.append(page_ids)
         for root in page_ids:

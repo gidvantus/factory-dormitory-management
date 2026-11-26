@@ -26,6 +26,7 @@ const column = (
 const form: InflowEntryForm = {
   schema_token: 'a'.repeat(64),
   month: '2026-10-01',
+  identity_columns: { full_name: 1, phone: 2 },
   hostels: [{ id: 6, name: 'Корпус 1' }],
   columns: [
     column(1, 'Имя сотрудника', 'text', 'full_name'),
@@ -107,6 +108,41 @@ it('показывает действующие поля и отправляет
         '9': 'shop',
       },
     }),
+  );
+});
+
+it('вводит ФИО один раз, когда для него используется пользовательский столбец', async () => {
+  vi.spyOn(api, 'inflowEntryForm').mockResolvedValue({
+    ...form,
+    identity_columns: { full_name: 10 },
+    columns: [column(10, 'ФИО', 'text'), column(11, 'Телефон', 'number')],
+  });
+  const check = vi.spyOn(personnelApi, 'check').mockResolvedValue({
+    check_token: 'b'.repeat(64),
+    candidates: [],
+  });
+  const create = vi.spyOn(api, 'createInflowEntry').mockResolvedValue(result);
+  renderDialog();
+  const user = userEvent.setup();
+  const dialog = within(await screen.findByTestId('personnel-identity'));
+  expect(dialog.getAllByLabelText(/^ФИО/)).toHaveLength(1);
+  await user.type(dialog.getByLabelText('ФИО'), 'Иванов Иван');
+  await user.type(dialog.getByLabelText('Телефон (карточка сотрудника)'), '+79001234567');
+  const save = dialog.getByRole('button', { name: 'Создать новую карточку' });
+  await waitFor(() => expect(save).toBeEnabled());
+  expect(check).toHaveBeenLastCalledWith(
+    { full_name: 'Иванов Иван', phone: '+79001234567', personnel_number: null },
+    expect.any(AbortSignal),
+  );
+  await user.click(save);
+  await waitFor(() =>
+    expect(create).toHaveBeenCalledWith(
+      '7',
+      expect.objectContaining({
+        identity: expect.objectContaining({ full_name: 'Иванов Иван' }),
+        values: { '10': 'Иванов Иван', '11': null },
+      }),
+    ),
   );
 });
 

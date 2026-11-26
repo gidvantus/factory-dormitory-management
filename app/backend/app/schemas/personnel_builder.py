@@ -51,6 +51,7 @@ class Link(StrictModel):
 class Rule(StrictModel):
     mode: Literal["manual", "formula", "link"] = "manual"
     expression: str = Field(default="=", max_length=1000)
+    displayPercent: bool = False
     refs: dict[str, Identifier] = Field(default_factory=dict, max_length=100)
     link: Link | None = None
 

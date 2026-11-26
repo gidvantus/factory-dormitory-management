@@ -769,6 +769,7 @@ export class Sandbox {
         name: row.name,
         position: row.position,
         formula: row.formula,
+        display_percent: row.display_percent,
         linked: !!row.link,
       })),
     };

@@ -12,7 +12,7 @@ from app.models.resident import Resident
 from app.schemas.payment import PaymentKind, UpdatePaymentRequest
 from app.schemas.transfer_columns import TransferColumnChoice
 from app.table_data import ensure_columns, record_value
-from app.transfer_columns import TransferColumns, matching_value, normalized_name
+from app.transfer_columns import TransferColumns, matching_value
 
 
 def copy_payment_values(
@@ -27,28 +27,15 @@ def copy_payment_values(
     skipped: list[str] = []
     copied_sources: set[int] = set()
     occupied: set[int] = set()
-    for target in targets:
-        if target.archived or target.kind not in ("text", "number", "date", "checkbox", "select"):
+    for source in sources:
+        if source.archived or source.kind not in ("text", "number", "date", "checkbox", "select"):
             continue
-        matches = [
-            source
-            for source in sources
-            if not source.archived
-            and source.kind == target.kind
-            and (
-                mapping.reserved.get(target.id) == source.id
-                or (
-                    target.id not in mapping.reserved
-                    and source.id not in mapping.explicit
-                    and normalized_name(source.name) == normalized_name(target.name)
-                )
-            )
-        ]
-        if len(matches) != 1:
+        if record_value(resident, source) in (None, ""):
             continue
-        source = matches[0]
-        if record_value(resident, source) is None:
+        matches = mapping.matches(source)
+        if not matches or mapping.ambiguous(source, matches) or source.kind != matches[0].kind:
             continue
+        target = matches[0]
         try:
             value = matching_value(source, target, resident)
             if value is None:

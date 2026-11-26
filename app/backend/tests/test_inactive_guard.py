@@ -64,6 +64,10 @@ EXEMPT_PATHS = frozenset(
         "/api/platform/invoices/{invoice_id}",
         "/api/platform/invoices/{invoice_id}/file",
         "/api/platform/invoices/{invoice_id}/act-file",
+        # Журнал действий всех организаций - ещё одна ручка того же контура: читает
+        # ленту по сервисному токену `X-Operator-Token`, cookie и guard кабинета
+        # клиента к ней неприменимы (клиентский `/api/journal` остаётся под guard).
+        "/api/platform/journal",
         # Тарифы платформы — четвёртый раздел того же контура: весь прайс,
         # правка полей и снятие с продажи. Авторизация тоже заголовком
         # `X-Operator-Token`, поэтому cookie и guard кабинета клиента к ним

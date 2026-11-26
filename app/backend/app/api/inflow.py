@@ -176,6 +176,15 @@ def create_entry(
         payload.identity,
         [item.id for item in scoped_dormitories(db, membership.organization_id)],
     )
+    identity_values = {
+        field: getattr(payload.identity, field) or getattr(employee, field)
+        for field in IDENTITY_FIELDS
+    }
+    for field, column_id in form.identity_columns.items():
+        key = str(column_id)
+        if key in custom and custom[key] is None and identity_values[field] is not None:
+            custom[key] = identity_values[field]
+            saved[key]["value"] = custom[key]
     # Из выбранной карточки можно подставить известные данные в оставленные пустыми поля.
     for column in columns:
         identity_field = column.builtin_key
@@ -185,9 +194,7 @@ def create_entry(
             and identity_field in IDENTITY_FIELDS
             and not fields.get(identity_field)
         ):
-            fields[identity_field] = getattr(payload.identity, identity_field) or getattr(
-                employee, identity_field
-            )
+            fields[identity_field] = identity_values[identity_field]
     try:
         resident_fields = UpdateResidentRequest.model_validate(fields)
     except ValidationError as exc:
@@ -201,10 +208,10 @@ def create_entry(
     inflow_columns = ensure_columns(db, dormitory_id, "inflow")
     inflow_fields, inflow_custom = copy_entry_to_inflow(resident, columns, inflow_columns)
     for field in ("full_name", "personnel_number"):
-        if any(not col.archived and col.builtin_key == field for col in inflow_columns):
-            inflow_fields.setdefault(
-                field, getattr(payload.identity, field) or getattr(employee, field)
-            )
+        if not inflow_fields.get(field) and any(
+            not col.archived and col.builtin_key == field for col in inflow_columns
+        ):
+            inflow_fields[field] = identity_values[field]
     row = PersonnelInflow(
         dormitory_id=dormitory_id,
         employee_id=employee.id,

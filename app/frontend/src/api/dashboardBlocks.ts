@@ -1,4 +1,5 @@
 import type { CellValue, PlaceMetric, TableColumn, TableKey } from './client';
+import type { TableColor } from '../components/workingTableModel';
 
 export interface WidgetFilter {
   column_id: number;
@@ -21,6 +22,7 @@ export type WidgetSource =
 export interface SummaryMetric {
   name: string;
   aggregate: 'sum' | 'average' | 'last';
+  color?: TableColor | null;
   sources: Extract<WidgetSource, { kind: 'report' }>[];
 }
 export interface SummaryConfig {

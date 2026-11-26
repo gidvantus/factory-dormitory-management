@@ -7,6 +7,10 @@ from sqlalchemy.orm import Session
 from app.models.dormitory import Dormitory
 from app.models.table_view import TableView
 
+TableColor = Literal[
+    "mint", "sage", "sky", "blue", "lilac", "lavender", "butter", "sand", "peach", "rose"
+]
+
 
 class TableColors(TypedDict, total=False):
     row_colors: dict[str, str]

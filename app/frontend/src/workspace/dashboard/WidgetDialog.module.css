@@ -100,6 +100,21 @@
 .sourceCard details .grid {
   margin-top: 14px;
 }
+.summaryMetricHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 700;
+}
+.summaryMetricOrder {
+  display: flex;
+  gap: 4px;
+}
+.summaryMetricFields {
+  margin-top: 8px;
+}
 .error {
   color: var(--color-danger);
   font-size: 12px;

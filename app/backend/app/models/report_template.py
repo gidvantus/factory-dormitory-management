@@ -11,6 +11,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
     text,
 )
@@ -58,6 +59,7 @@ class ReportTemplateRow(Base):
     metric_key: Mapped[ReportMetric | None] = mapped_column(String(20), nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     formula: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_percent: Mapped[bool] = mapped_column(server_default=false())
     link_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     __table_args__ = (UniqueConstraint("template_id", "name", name="uq_report_template_rows_name"),)

@@ -18,6 +18,7 @@ export type LinkRule = {
 export type CalculationRule = {
   mode: 'manual' | 'formula' | 'link';
   expression: string;
+  displayPercent?: boolean;
   refs: Record<string, string>;
   link: LinkRule | null;
 };
@@ -47,4 +48,8 @@ export const operations: Record<LinkOperation, string> = {
 };
 export function manualRule(): CalculationRule {
   return { mode: 'manual', expression: '=', refs: {}, link: null };
+}
+
+export function showsPercent(rule?: CalculationRule): boolean {
+  return rule?.mode === 'formula' && rule.displayPercent === true;
 }

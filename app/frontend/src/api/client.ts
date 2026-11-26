@@ -544,7 +544,13 @@ export interface ReportTemplate {
 }
 
 export interface ReportTemplateDetail extends ReportTemplate {
-  rows: { name: string; position: number; formula: string | null; linked?: boolean }[];
+  rows: {
+    name: string;
+    position: number;
+    formula: string | null;
+    display_percent?: boolean;
+    linked?: boolean;
+  }[];
 }
 
 export interface ReportRow {
@@ -555,6 +561,7 @@ export interface ReportRow {
   metric_block_name?: string | null;
   position: number;
   formula: string | null;
+  display_percent?: boolean;
   values: Record<string, string>;
   errors: Record<string, string>;
 }
@@ -582,6 +589,7 @@ export interface HostelRow {
   key: string;
   name: string;
   formula: string | null;
+  display_percent?: boolean;
   link: HostelLink | null;
   archived: boolean;
 }
@@ -735,6 +743,7 @@ export type InflowField = keyof Omit<
 export type InflowAction = 'settle' | 'outflow';
 export interface InflowEntryForm {
   columns: TableColumn[];
+  identity_columns?: Partial<Record<'full_name' | 'phone', number>>;
   hostels: { id: number; name: string }[];
   month: string;
   schema_token: string;
@@ -2065,10 +2074,17 @@ export const api = {
     residentId: number,
     kind: PaymentKind,
     checkColumns = true,
+    previewOnly = false,
   ): Promise<ResidentPaymentResult | PaymentColumnsRequired> {
     return request(
       `/dormitories/${encodeURIComponent(id)}/residents/${residentId}/payments/${kind}`,
-      { method: 'POST', body: JSON.stringify({ check_columns: checkColumns }) },
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          check_columns: checkColumns,
+          ...(previewOnly && { preview_only: true }),
+        }),
+      },
     );
   },
 
@@ -2424,10 +2440,11 @@ export const api = {
     name: string,
     formula: string | null,
     link?: ReportLink | null,
+    displayPercent?: boolean,
   ): Promise<ReportRow> {
     return request<ReportRow>(`/dormitories/${encodeURIComponent(id)}/report/rows`, {
       method: 'POST',
-      body: JSON.stringify({ name, formula, ...(link !== undefined ? { link } : {}) }),
+      body: JSON.stringify({ name, formula, link, display_percent: displayPercent }),
     });
   },
 
@@ -2437,10 +2454,11 @@ export const api = {
     name: string,
     formula: string | null,
     link?: ReportLink | null,
+    displayPercent?: boolean,
   ): Promise<ReportRow> {
     return request<ReportRow>(`/dormitories/${encodeURIComponent(id)}/report/rows/${rowId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ name, formula, ...(link !== undefined ? { link } : {}) }),
+      body: JSON.stringify({ name, formula, link, display_percent: displayPercent }),
     });
   },
 

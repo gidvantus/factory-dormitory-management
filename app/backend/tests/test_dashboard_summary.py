@@ -107,6 +107,51 @@ def test_summary_no_partial_totals_and_full_31_or_32_dates(
         assert result["rows"][0]["daily"][1]["value"] is None
 
 
+def test_summary_persists_metric_order_and_independent_colors(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session)
+    dorm, outflow = setup_report(db_session, "Северное", "Итого Отток", ["3"])
+    resident_count = ReportRow(
+        dormitory_id=dorm, name="Итого Проживает", position=21, formula="=12"
+    )
+    db_session.add(resident_count)
+    db_session.commit()
+    config = payload(dorm, outflow)
+    metrics = config["summary"]["metrics"]
+    metrics[0]["name"] = "Итого Отток"
+    metrics.append(
+        {
+            "name": "Итого Проживает",
+            "aggregate": "sum",
+            "sources": [{"kind": "report", "dormitory_id": dorm, "row_id": resident_count.id}],
+        }
+    )
+    created = client.post("/api/dashboard/blocks", json={"revision": 0, "config": config})
+    assert created.status_code == 201, created.text
+    block = created.json()["blocks"][0]
+    assert all(metric["color"] is None for metric in block["config"]["summary"]["metrics"])
+
+    metrics.reverse()
+    metrics[0]["color"] = "mint"
+    metrics[1]["color"] = "rose"
+    url = f"/api/dashboard/blocks/{block['id']}"
+    updated = client.put(url, json={"revision": 1, "config": config})
+    assert updated.status_code == 200, updated.text
+    loaded = client.get("/api/dashboard/layout").json()["blocks"][0]["config"]["summary"]
+    assert loaded["metrics"] == metrics
+
+    dashboard = client.get("/api/dashboard?from=2026-10-01&to=2026-10-01")
+    assert dashboard.status_code == 200, dashboard.text
+    rows = dashboard.json()["widgets"][0]["summary"]["rows"]
+    assert [(row["metric"], row["value"]) for row in rows] == [
+        ("Итого Проживает", 12),
+        ("Итого Отток", 3),
+    ]
+    metrics[0]["color"] = "unknown"
+    assert client.put(url, json={"revision": 2, "config": config}).status_code == 422
+
+
 def test_summary_foreign_dormitory_is_rejected(client: TestClient, db_session: Session) -> None:
     owner = sign_in(client, db_session)
     dorm, row = setup_report(db_session, "Чужое", "Выход", ["2", "4"])

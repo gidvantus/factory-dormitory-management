@@ -1,4 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -48,6 +49,70 @@ const data = (employees: Employee[]): PersonnelData => ({
 });
 const criteria = { filter: 'current' as const, dormitory: null, scope: [], days: 5, query: '' };
 afterEach(() => vi.restoreAllMocks());
+
+it('показывает даты и примечания выселений и открывает карточку по ID', async () => {
+  const user = userEvent.setup();
+  const employee = { ...person('evicted'), full_name: 'Сидоров Сергей' };
+  const payload = data([employee]);
+  payload.dormitories = [{ id: 1, name: 'Северное', client_name: 'Клиент', is_archived: false }];
+  vi.spyOn(session, 'useSession').mockReturnValue({
+    status: 'authenticated',
+    user: null,
+    setUser: vi.fn(),
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  });
+  mockPersonnelServer(payload);
+  const finished = vi.spyOn(personnelApi, 'finishedShifts').mockResolvedValue({
+    rows: [
+      {
+        id: 15,
+        employee_id: employee.id,
+        full_name: employee.full_name,
+        dormitory_id: 1,
+        departure_date: '2026-10-20',
+        notes: 'Пропуск сдан',
+      },
+    ],
+    page: 1,
+    total: 1,
+  });
+  const profile = vi.spyOn(personnelApi, 'profile').mockResolvedValue({
+    employee,
+    dormitories: payload.dormitories,
+    detail: { employee_id: employee.id, events: [], notes: [], merges: [] },
+  });
+  render(
+    <MemoryRouter initialEntries={['/cabinet/personnel?view=list']}>
+      <Personnel />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole('button', { name: 'Закончили вахту' }));
+  const table = await screen.findByRole('table', { name: 'Закончили вахту' });
+  expect(within(table).getByRole('columnheader', { name: 'Дата выселения' })).toBeInTheDocument();
+  expect(
+    within(table)
+      .getByText(/20 окт/)
+      .closest('time'),
+  ).toHaveAttribute('datetime', '2026-10-20');
+  expect(within(table).getByText('Пропуск сдан')).toBeInTheDocument();
+  expect(finished).toHaveBeenLastCalledWith(
+    { period: { from: '2026-10-01', to: '2026-10-31' }, dormitory: null, query: '', page: 1 },
+    expect.any(AbortSignal),
+  );
+  await user.selectOptions(screen.getByLabelText('Общежитие на странице'), '1');
+  expect(finished).toHaveBeenLastCalledWith(
+    expect.objectContaining({ dormitory: 1 }),
+    expect.any(AbortSignal),
+  );
+  await user.click(
+    within(await screen.findByRole('table', { name: 'Закончили вахту' })).getByRole('button', {
+      name: 'Сидоров Сергей',
+    }),
+  );
+  expect(await screen.findByRole('heading', { name: 'Сидоров Сергей' })).toBeInTheDocument();
+  expect(profile).toHaveBeenCalledWith({ employeeId: employee.id }, expect.any(AbortSignal));
+});
 
 it('оставляет три фильтра, поиск и карточку без массовых действий со списком', async () => {
   const user = userEvent.setup();
@@ -99,6 +164,7 @@ it('оставляет три фильтра, поиск и карточку б�
   await user.click(workspacePeriod.getByRole('button', { name: 'Применить' }));
   await waitFor(() => expect(endingSummary).toHaveTextContent('1'));
   await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+  expect(screen.queryByRole('button', { name: 'Все сотрудники' })).not.toBeInTheDocument();
   const employeePeriod = within(screen.getByRole('form', { name: 'Период персонала' }));
   expect(employeePeriod.getByLabelText('От')).toHaveValue('2026-10-15');
   expect(employeePeriod.getByLabelText('До')).toHaveValue('2026-10-15');
@@ -118,11 +184,11 @@ it('оставляет три фильтра, поиск и карточку б�
     expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/Добавить в мои сотрудники/)).not.toBeInTheDocument();
   const table = screen.getByRole('table');
-  await user.click(within(table).getByRole('checkbox', { name: 'Выбрать всех на странице: 4' }));
-  expect(screen.getByText('Выбрано: 4')).toBeInTheDocument();
+  await user.click(within(table).getByRole('checkbox', { name: 'Выбрать всех на странице: 3' }));
+  expect(screen.getByText('Выбрано: 3')).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Снять выбор' }));
   expect(within(table).queryAllByRole('checkbox', { checked: true })).toHaveLength(0);
-  expect(within(table).getAllByRole('row')).toHaveLength(5);
+  expect(within(table).getAllByRole('row')).toHaveLength(4);
   await user.click(screen.getByRole('button', { name: 'Проживают' }));
   expect(within(table).getAllByRole('row')).toHaveLength(4);
   await user.click(screen.getByRole('button', { name: 'Заканчивается вахта' }));
@@ -131,7 +197,7 @@ it('оставляет три фильтра, поиск и карточку б�
   expect(employeePeriod.getByLabelText('От')).toHaveValue('2026-10-01');
   expect(employeePeriod.getByLabelText('До')).toHaveValue('2026-10-31');
   expect(within(table).getAllByRole('row')).toHaveLength(4);
-  await user.click(screen.getByRole('button', { name: 'Все сотрудники' }));
+  await user.click(screen.getByRole('button', { name: 'Проживают' }));
   await user.type(screen.getByRole('textbox', { name: 'Поиск сотрудника' }), 'Иванов');
   // Поиск применяется после паузы в наборе: запрос уходит не на каждую букву (#247).
   await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(2));
@@ -181,6 +247,9 @@ it('фильтрует по двум статусам, собирает выбр
     { ...person('waiting', [waiting]), full_name: 'Петров Пётр' },
     { ...person('away'), full_name: 'Сидоров Сергей' },
   ]);
+  payload.preferences.lists = [
+    { ...criteria, filter: 'all', id: 'legacy-all', name: 'Общий список' },
+  ];
   payload.dormitories = [{ id: 1, name: 'Северное', client_name: 'Клиент', is_archived: false }];
   payload.source_columns = [
     {
@@ -216,6 +285,7 @@ it('фильтрует по двум статусам, собирает выбр
     </MemoryRouter>,
   );
   await user.click(await screen.findByRole('tab', { name: /Сотрудники/ }));
+  await user.click(screen.getByRole('button', { name: 'Общий список' }));
   const table = screen.getByRole('table');
   await user.click(
     within(table).getByRole('checkbox', { name: 'Выбрать сотрудника Сидоров Сергей' }),
@@ -256,8 +326,11 @@ it('фильтрует по двум статусам, собирает выбр
   await user.click(within(saving).getByRole('button', { name: 'Сохранить список' }));
   await waitFor(() => expect(save).toHaveBeenCalled());
   await waitFor(() => expect(screen.queryByTestId('personnel-save-list')).not.toBeInTheDocument());
-  expect(save.mock.calls[0][0].lists[0].column_filters).toHaveLength(2);
-  expect(save.mock.calls[0][0].lists[0].period).toEqual({ from: '2026-10-01', to: '2026-10-31' });
+  expect(save.mock.calls[0][0].lists.at(-1)?.column_filters).toHaveLength(2);
+  expect(save.mock.calls[0][0].lists.at(-1)?.period).toEqual({
+    from: '2026-10-01',
+    to: '2026-10-31',
+  });
   await user.click(screen.getByRole('button', { name: 'Сбросить условия' }));
   await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(4));
   await user.click(screen.getByRole('button', { name: /^Допущенные/ }));
@@ -315,10 +388,7 @@ it('открывает простой план из источника отчё�
 
 it('загружает список страницами с сервера и не просит полный набор карточек', async () => {
   const user = userEvent.setup();
-  const employees = Array.from({ length: 25 }, (_, index) => ({
-    ...person(`id-${index}`),
-    full_name: `Сотрудник ${String(index + 1).padStart(2, '0')}`,
-  }));
+  const employees = people(25);
   const payload = data(employees);
   vi.spyOn(session, 'useSession').mockReturnValue({
     status: 'authenticated',
@@ -359,9 +429,71 @@ it('загружает список страницами с сервера и н
   );
 });
 
+it('на одно открытие раздела запрашивает рамку ровно один раз (#261)', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-25T12:00:00'));
+  try {
+    vi.spyOn(session, 'useSession').mockReturnValue({
+      status: 'authenticated',
+      user: null,
+      setUser: vi.fn(),
+      refresh: vi.fn(),
+      logout: vi.fn(),
+    });
+    // `today` сервера совпадает с местным месяцем: даты диапазона не меняются.
+    mockPersonnelServer({ ...data(people(3)), today: '2026-11-25' });
+    render(
+      <MemoryRouter>
+        <Personnel />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('tab', { name: /Сотрудники/ });
+    // Ответ сервера меняет `today`, а вместе с ним месяц: диапазон пересчитан, но
+    // даты те же — второй запрос с теми же параметрами не нужен.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(vi.mocked(personnelApi.workspace)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(personnelApi.workspace).mock.calls[0][1]).toMatchObject({
+      employees: 'none',
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('не теряет рамку при повторном запуске эффекта в StrictMode (#261)', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-25T12:00:00'));
+  try {
+    vi.spyOn(session, 'useSession').mockReturnValue({
+      status: 'authenticated',
+      user: null,
+      setUser: vi.fn(),
+      refresh: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockPersonnelServer({ ...data(people(3)), today: '2026-11-25' });
+    render(
+      <StrictMode>
+        <MemoryRouter>
+          <Personnel />
+        </MemoryRouter>
+      </StrictMode>,
+    );
+    // В dev StrictMode отменяет первый ответ. Ключ, запомненный до отправки,
+    // запрещал второй запуск эффекта и оставлял экран загрузки до минутного тика.
+    expect(await screen.findByRole('tab', { name: /Сотрудники/ })).toBeInTheDocument();
+    for (const [, options] of vi.mocked(personnelApi.workspace).mock.calls)
+      expect(options).toMatchObject({ employees: 'none' });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it('проходит сценарий поверхности, ни разу не запросив полный набор карточек (#251)', async () => {
   const user = userEvent.setup();
-  // Двое проживают и кончают вахту в окне: блок «Заканчивается вахта» обязан
+  // Двое заканчивают вахту в окне: блок «Заканчивается вахта» обязан
   // отрисоваться из `block_previews`, ведь массива `employees` в рамке нет.
   const employees = people(25).map((employee, index) =>
     index < 2
@@ -425,7 +557,7 @@ it('проходит сценарий поверхности, ни разу не
 
 const people = (count: number): Employee[] =>
   Array.from({ length: count }, (_, index) => ({
-    ...person(`id-${index}`),
+    ...person(`id-${index}`, [source(1, 'residents', '2026-09-30')]),
     full_name: `Сотрудник ${String(index + 1).padStart(2, '0')}`,
   }));
 
@@ -567,7 +699,7 @@ it('после сохранения перезапрашивает рамку о
   expect(screen.queryByText(/Не удалось обновить данные/)).not.toBeInTheDocument();
   expect(screen.getByRole('heading', { name: /Персонал/ })).toHaveTextContent('2');
   expect(
-    screen.getByRole('button', { name: 'Убрать сохранённый список «Все сотрудники»' }),
+    screen.getByRole('button', { name: 'Убрать сохранённый список «Проживают»' }),
   ).toBeInTheDocument();
 });
 

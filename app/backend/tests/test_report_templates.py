@@ -1,6 +1,9 @@
 """Снимки структуры отчёта не копируют значения и не связаны с источником."""
 
+from io import BytesIO
+
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 
 from app.report_defaults import REQUIRED_REPORT_ROW_NAMES
@@ -120,6 +123,44 @@ def test_template_validation_and_missing_reference(client: TestClient, db_sessio
         == 404
     )
     assert [item["name"] for item in client.get("/api/dormitories").json()] == ["Пустое"]
+
+
+def test_percent_format_survives_templates_and_keeps_formula_values_numeric(
+    client: TestClient, db_session: Session
+) -> None:
+    sign_in(client, db_session, email=TEMPLATES_EMAIL)
+    source_id = create_dormitory(client, "Исходное")
+    report = f"/api/dormitories/{source_id}/report"
+    period = "?from=2026-10-01&to=2026-10-01"
+    percent = client.post(
+        f"{report}/rows", json={"name": "Доля", "formula": "=3/4", "display_percent": True}
+    )
+    assert percent.status_code == 201, percent.text
+    assert percent.json()["display_percent"] is True
+    dependent = client.post(f"{report}/rows", json={"name": "Проверка", "formula": "=[Доля]*4"})
+    assert dependent.status_code == 201, dependent.text
+    template = client.post(
+        "/api/report-templates", json={"name": "С процентами", "dormitory_id": source_id}
+    ).json()
+    target_id = create_dormitory(client, "Новое", template["id"])
+    base = f"/api/dormitories/{target_id}"
+    rows = {row["name"]: row for row in client.get(base + "/report" + period).json()["rows"]}
+    assert rows["Доля"]["display_percent"] is True
+    assert rows["Доля"]["values"] == {"2026-10-01": "0.75"}
+    assert rows["Проверка"]["values"] == {"2026-10-01": "3"}
+
+    exported = client.get(base + "/data-transfer/report/export" + period)
+    assert exported.status_code == 200, exported.text
+    sheet = load_workbook(BytesIO(exported.content)).active
+    assert sheet is not None
+    cell = next(cells[1] for cells in sheet.iter_rows() if cells[0].value == "Доля")
+    assert cell.value == 0.75 and cell.number_format == "0.00%"
+
+    changed = client.patch(
+        f"{base}/report/rows/{rows['Доля']['id']}", json={"display_percent": False}
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["display_percent"] is False
 
 
 def test_template_preserves_required_formula_without_duplicate(

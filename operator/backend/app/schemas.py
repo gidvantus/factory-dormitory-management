@@ -510,3 +510,42 @@ class UpdateSubscriptionRequest(ForwardedBody):
     """
 
     paid_until: Any = None
+
+
+# --- Журнал действий всех организаций ------------------------------------
+# Зеркало ответа `GET /api/platform/journal` основного API. Вид действия - `str`,
+# а не `Literal`: новый вид на стороне основного API не должен ронять кабинет 500.
+# Тела записи (`request_body`, `changes`) кабинет не разбирает: они уже очищены
+# при записи и уходят в JSON-блок как есть.
+
+
+class JournalEntry(BaseModel):
+    """Строка журнала всех организаций. `organization_id = null` - платформенный контур."""
+
+    id: int
+    created_at: datetime
+    organization_id: int | None
+    organization_name: str | None
+    actor_id: int | None
+    actor_name: str | None
+    method: str
+    path: str
+    action: str
+    action_title: str
+    kind: str
+    status: int | None
+    duration_ms: int | None
+    ip: str | None
+    user_agent: str | None
+    request_id: str | None
+    path_params: dict[str, Any] | None
+    request_body: Any | None
+    changes: list[dict[str, Any]] | None
+
+
+class JournalPage(BaseModel):
+    """Страница журнала: строки, курсор следующей страницы и `total` за период."""
+
+    items: list[JournalEntry]
+    next_cursor: str | None
+    total: int | None

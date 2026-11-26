@@ -18,39 +18,55 @@ export function ResidentEntryFields({
   onChange: (key: string, value: CellValue) => void;
   onIdentity: (key: keyof IdentityFields, value: string | null) => void;
 }): JSX.Element {
+  const columns = form.columns.filter((column) => {
+    const field = identityKey(column, form.identity_columns);
+    if (!field || field === 'personnel_number') return true;
+    const assigned = form.identity_columns?.[field];
+    return assigned === undefined || assigned === column.id;
+  });
   return (
     <>
       <p className={s.hint}>
         Заполните известные данные для заселения. Неизвестные сведения можно оставить пустыми.
       </p>
       <div className={s.grid}>
-        {!form.columns.some((column) => identityKey(column.builtin_key)) &&
-          identityKeys
-            .filter((key) => key !== 'personnel_number')
-            .map((key) => (
+        {identityKeys
+          .filter(
+            (key) =>
+              key !== 'personnel_number' &&
+              !columns.some((column) => identityKey(column, form.identity_columns) === key),
+          )
+          .map((key) => {
+            const label = key === 'full_name' ? 'ФИО' : 'Телефон';
+            const duplicateLabel = columns.some(
+              (column) => column.name.trim().toLowerCase() === label.toLowerCase(),
+            );
+            return (
               <label className={s.field} key={key}>
-                {key === 'full_name' ? 'ФИО' : 'Телефон'}
+                {duplicateLabel ? `${label} (карточка сотрудника)` : label}
                 <input
+                  type={key === 'phone' ? 'tel' : 'text'}
                   value={identity[key] ?? ''}
                   disabled={disabled}
                   maxLength={key === 'full_name' ? 255 : 30}
                   onChange={(event) => onIdentity(key, event.target.value)}
                 />
               </label>
-            ))}
-        {form.columns.map((column) => {
-          const field = identityKey(column.builtin_key);
+            );
+          })}
+        {columns.map((column) => {
+          const field = identityKey(column, form.identity_columns);
           const value = field ? identity[field] : values[String(column.id)];
           const change = (next: CellValue) => {
-            onChange(String(column.id), next);
             if (field) onIdentity(field, next === null ? null : String(next));
+            else onChange(String(column.id), next);
           };
           const maxLength =
-            column.builtin_key === 'full_name'
+            field === 'full_name'
               ? 255
-              : column.builtin_key === 'phone'
+              : field === 'phone'
                 ? 30
-                : column.builtin_key === 'personnel_number'
+                : field === 'personnel_number'
                   ? 40
                   : 5000;
           return (
@@ -114,7 +130,7 @@ export function ResidentEntryFields({
                       ? 'date'
                       : column.kind === 'number'
                         ? 'number'
-                        : column.builtin_key === 'phone'
+                        : field === 'phone'
                           ? 'tel'
                           : 'text'
                   }

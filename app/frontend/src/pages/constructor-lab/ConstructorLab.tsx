@@ -21,7 +21,7 @@ type Zone = 'name' | 'content' | 'view';
 const number = (value: number): string =>
   Number.isFinite(value)
     ? new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(value)
-    : 'Ошибка';
+    : '—';
 
 function Glyph({ name }: { name: string }): JSX.Element {
   const paths: Record<string, ReactNode> = {
@@ -876,7 +876,7 @@ export function Output({ builder, draft }: { builder: Builder; draft: Draft }): 
                 <tr className={s.totalRow}>
                   <th scope="row">{String(v.name || 'Новая строка')}</th>
                   {result.values.map((value, index) => (
-                    <td key={index}>
+                    <td key={index} title={Number.isFinite(value) ? undefined : 'Деление на ноль'}>
                       {v.mode === 'Вручную по дням' ? (
                         <input
                           type="number"

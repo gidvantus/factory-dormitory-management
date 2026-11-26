@@ -1,4 +1,6 @@
 import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
+import { FormulaResultFormat } from '../../components/FormulaResultFormat';
+import { formatPercent } from '../../components/formatPercent';
 import { WorkingTable } from '../../components/WorkingTable';
 import { ungroupClipboardNumber } from '../../components/tablePaste';
 import type { TablePasteCell } from '../../components/tablePaste';
@@ -219,6 +221,7 @@ export function RowDialog({
   );
   const [link, setLink] = useState<ReportLink | null>(row?.link ?? initialLink);
   const [formula, setFormula] = useState(row?.formula ?? (required ? '=0' : '='));
+  const [displayPercent, setDisplayPercent] = useState(row?.display_percent ?? false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -227,7 +230,14 @@ export function RowDialog({
     return () => onBusyChange?.(false);
   }, [saving, deleting, onBusyChange]);
   const [error, setError] = useState('');
-  useEditorPreview('report-row', { rowId: row?.id ?? null, name, mode, formula, link });
+  useEditorPreview('report-row', {
+    rowId: row?.id ?? null,
+    name,
+    mode,
+    formula,
+    link,
+    displayPercent,
+  });
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -242,6 +252,7 @@ export function RowDialog({
     }
     setSaving(true);
     setError('');
+    const percent = mode === 'formula' && displayPercent;
     try {
       if (row) {
         await api.updateReportRow(
@@ -250,6 +261,7 @@ export function RowDialog({
           name,
           mode === 'formula' ? formula : null,
           mode === 'link' ? link : row.link ? null : undefined,
+          percent !== (row.display_percent ?? false) ? percent : undefined,
         );
       } else {
         await api.createReportRow(
@@ -257,6 +269,7 @@ export function RowDialog({
           name,
           mode === 'formula' ? formula : null,
           mode === 'link' ? link : undefined,
+          percent || undefined,
         );
       }
       onChanged();
@@ -450,6 +463,12 @@ export function RowDialog({
                 placeholder="=([Проживает М]+[Проживает Ж])+[Прибыло]-[Выбыло]"
               />
             </label>
+            <FormulaResultFormat
+              className={styles.field}
+              percent={displayPercent}
+              onChange={setDisplayPercent}
+              disabled={saving || deleting}
+            />
             {organized && (
               <div className={styles.references} aria-label="Действия формулы">
                 {['+', '-', '*', '/', '(', ')'].map((operator) => (
@@ -933,10 +952,10 @@ export function ReportTable({ dormitoryId, range }: Props): JSX.Element {
                             }
                           >
                             {row.errors[day]
-                              ? row.link
-                                ? 'Проверьте связь'
-                                : 'Ошибка'
-                              : (row.values[day] ?? '—')}
+                              ? '—'
+                              : row.formula && row.display_percent && row.values[day] != null
+                                ? formatPercent(row.values[day])
+                                : (row.values[day] ?? '—')}
                           </output>
                         ) : (
                           <ReportCellInput

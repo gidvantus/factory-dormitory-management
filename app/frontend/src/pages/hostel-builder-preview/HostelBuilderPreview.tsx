@@ -104,7 +104,7 @@ function HostelTable({
                             title={cell.error}
                             aria-label={cell.error}
                           >
-                            Ошибка
+                            —
                           </span>
                         ) : cell?.value == null ? (
                           <span className={styles.missing}>—</span>

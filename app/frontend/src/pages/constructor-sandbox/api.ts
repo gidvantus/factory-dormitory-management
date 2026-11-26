@@ -648,6 +648,7 @@ export function installSandboxApis(store: Sandbox): () => void {
             name: entry.name,
             position: entry.position,
             formula: entry.formula,
+            display_percent: entry.display_percent,
             link: entry.linked ? mappedLink(original, dorm, row?.link ?? null) : null,
             values: {},
             errors: {},
@@ -680,12 +681,13 @@ export function installSandboxApis(store: Sandbox): () => void {
             .map((option) => ({ value: option.id!, label: option.label })) ?? [],
       };
     },
-    createReportRow: ([id, name, formula, link]) => {
+    createReportRow: ([id, name, formula, link, displayPercent]) => {
       const dorm = store.dorm(String(id));
       const row: ReportRow = {
         id: store.id(),
         name: String(name).trim(),
         formula: formula ? String(formula).trim() : null,
+        display_percent: Boolean(formula && displayPercent),
         link: (link as ReportLink | null) ?? null,
         position: dorm.rows.length,
         values: {},
@@ -697,7 +699,7 @@ export function installSandboxApis(store: Sandbox): () => void {
       store.changed();
       return row;
     },
-    updateReportRow: ([id, rowId, name, formula, link]) => {
+    updateReportRow: ([id, rowId, name, formula, link, displayPercent]) => {
       const dorm = store.dorm(String(id));
       const row = dorm.rows.find((item) => item.id === rowId) ?? fail('Строка не найдена', 404);
       if (requiredNames.has(row.name) && (name !== row.name || !formula))
@@ -708,6 +710,7 @@ export function installSandboxApis(store: Sandbox): () => void {
               ...item,
               name: String(name).trim(),
               formula: formula ? String(formula).trim() : null,
+              display_percent: Boolean(formula && (displayPercent ?? item.display_percent)),
               link: link === undefined ? item.link : (link as ReportLink | null),
               values: formula || link ? {} : item.values,
             }
@@ -929,6 +932,7 @@ export function installSandboxApis(store: Sandbox): () => void {
         pages: Math.max(1, Math.ceil(found.length / per)),
       };
     },
+    finishedShifts: () => ({ rows: [], total: 0, page: 1 }),
     preferences: ([input]) => {
       store.personnel.preferences = copy(input as typeof store.personnel.preferences);
       store.personnel.preferences.revision++;

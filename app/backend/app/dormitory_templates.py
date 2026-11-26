@@ -118,6 +118,7 @@ def take_snapshot(db: Session, dormitory_id: int) -> dict[str, Any]:
                 "name": row.name,
                 "position": row.position,
                 "formula": row.formula,
+                "display_percent": row.display_percent,
                 "metric_key": row.metric_key,
                 "link": deepcopy(row.link),
             }

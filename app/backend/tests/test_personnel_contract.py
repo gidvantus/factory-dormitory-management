@@ -125,6 +125,7 @@ def test_workspace_and_page_contain_only_json_types(
     json_native(workspace(client))
     json_native(client.get(PAGE).json())
     json_native(client.get(API, params={"employees": "none"}).json())
+    json_native(client.get(API + "/cards").json())
     # Даты в ответе — ровно `YYYY-MM-DD`, как у прежнего энкодера FastAPI.
     data = workspace(client)
     assert data["today"] == str(today())

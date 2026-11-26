@@ -154,6 +154,15 @@ export type EmployeePage = {
   per_page: number;
   pages: number;
 };
+export type FinishedShift = {
+  id: number;
+  employee_id: string;
+  full_name: string | null;
+  dormitory_id: number;
+  departure_date: string;
+  notes: string | null;
+};
+export type FinishedShiftPage = { rows: FinishedShift[]; total: number; page: number };
 /** Условия страницы: те же правила, что раньше считались в браузере по всему списку. */
 export type EmployeeListQuery = {
   filter: Filter;
@@ -305,6 +314,32 @@ export const personnelApi = {
     const search = params.toString();
     return request(`/personnel${search ? `?${search}` : ''}`, { signal });
   },
+  /**
+   * Все карточки сотрудников для конструктора подвкладок (#261). Конструктор
+   * считает формулы по всему реестру, поэтому ему нужен каждый человек, но не
+   * остальная поверхность: она приходит из `workspace({ employees: 'none' })`.
+   */
+  cards: (signal?: AbortSignal): Promise<{ employees: Employee[] }> =>
+    request('/personnel/cards', { signal }),
+  /**
+   * Корень карточки, к которой привязана строка-источник (#261). Нужен, когда
+   * сохранение ячейки создало карточку, не вернув её `id`: полный реестр за этим
+   * не запрашивается.
+   */
+  employeeBySource: (
+    dormitoryId: number,
+    tableKey: SourceTable,
+    rowId: number,
+    signal?: AbortSignal,
+  ): Promise<{ employee_id: string }> =>
+    request(
+      `/personnel/employees/by-source?${new URLSearchParams({
+        dormitory_id: String(dormitoryId),
+        table_key: tableKey,
+        row_id: String(rowId),
+      })}`,
+      { signal },
+    ),
   /** Страница сотрудников с серверной фильтрацией и сортировкой (#247). */
   employees: (query: EmployeeListQuery, signal?: AbortSignal): Promise<EmployeePage> => {
     const params = new URLSearchParams({
@@ -321,6 +356,15 @@ export const personnelApi = {
     if (query.column_filters?.length)
       params.set('column_filters', JSON.stringify(query.column_filters));
     return request(`/personnel/employees?${params}`, { signal });
+  },
+  finishedShifts: (
+    filters: { period: DateRange; dormitory: number | null; query: string; page: number },
+    signal?: AbortSignal,
+  ): Promise<FinishedShiftPage> => {
+    const params = new URLSearchParams({ ...filters.period, page: String(filters.page) });
+    if (filters.dormitory !== null) params.set('dormitory', String(filters.dormitory));
+    if (filters.query.trim()) params.set('query', filters.query.trim());
+    return request(`/personnel/finished-shifts?${params}`, { signal });
   },
   detail: (id: string, signal?: AbortSignal): Promise<EmployeeDetail> =>
     request(`/personnel/employees/${encodeURIComponent(id)}`, { signal }),
