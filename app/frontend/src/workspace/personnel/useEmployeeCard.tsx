@@ -52,16 +52,16 @@ export function useEmployeeCard({
       await waitForDormitoryWrites(dormitoryId);
       let id = linkedId;
       if (!id) {
-        // Saving a bound custom cell can create a card without returning its ID.
-        const data = await personnelApi.workspace();
-        id = data.employees.find((employee) =>
-          employee.sources.some(
-            (record) =>
-              record.dormitory_id === Number(dormitoryId) &&
-              record.table_key === tableKey &&
-              record.row_id === rowId,
-          ),
-        )?.id;
+        // Saving a bound custom cell can create a card without returning its ID:
+        // ask the server for the card of this exact source row (#261).
+        const found = await personnelApi
+          .employeeBySource(Number(dormitoryId), tableKey, rowId)
+          .catch((caught) => {
+            // Строка без карточки — обычный путь «связать с сотрудником», а не ошибка.
+            if (caught instanceof ApiError && caught.status === 404) return null;
+            throw caught;
+          });
+        id = found?.employee_id;
         if (id) linked(id);
       }
       setPanel(id ? 'profile' : 'identity');

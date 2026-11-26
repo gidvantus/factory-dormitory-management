@@ -29,7 +29,7 @@ from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from app import sql_diagnostics
+from app import personnel_query, sql_diagnostics
 from app.api.personnel import get_workspace
 from app.models.custom_tab import CustomTab, CustomTabEntry
 from app.models.dormitory import Dormitory
@@ -37,7 +37,7 @@ from app.models.hostel import Hostel
 from app.models.inflow import PersonnelInflow
 from app.models.organization import OrganizationMember
 from app.models.outflow import PersonnelOutflow
-from app.models.personnel import Employee, PersonnelBinding
+from app.models.personnel import Employee, EmployeeEvent, PersonnelBinding, PersonnelPreferences
 from app.models.resident import Resident
 from app.models.table_column import ArchiveEntry
 from app.personnel import (
@@ -310,6 +310,126 @@ def test_workspace_member_ids_lists_every_card_of_the_group(
     }
     # Карточка источника в ответ не попадает: группа отдаётся одной записью.
     assert [item["id"] for item in data["employees"]] == [target.id]
+
+
+def test_block_previews_intersects_the_selection_once_per_block(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Порядок блока пересекается с набором один раз, а не на каждый корень (#261).
+
+    Прежний список `[root for root in ordered if root in found.roots(...)]` вызывал
+    `Candidates.roots()` для каждой строки отбора: тот копировал весь `base` и
+    пересекал его с фильтром. На рамке с четырьмя блоками это дало 14 625 копий и
+    2,9 с в профиле. Здесь вызывается счётчик: число вызовов не зависит от того,
+    сколько людей в отборе.
+    """
+    user = sign_in(client, db_session)
+    dormitory_id = create_dormitory(client)
+    employees = [Employee(full_name=f"Сотрудник {index:02d}") for index in range(50)]
+    db_session.add_all(employees)
+    db_session.flush()
+    db_session.add_all(
+        [
+            Resident(
+                dormitory_id=dormitory_id,
+                employee_id=employee.id,
+                full_name=employee.full_name,
+            )
+            for employee in employees
+        ]
+    )
+    db_session.commit()
+
+    calls: list[str | None] = []
+    original = personnel_query.Candidates.roots
+
+    def counting(self: personnel_query.Candidates, filter: str | None = None) -> set[str]:
+        calls.append(filter)
+        return original(self, filter)
+
+    monkeypatch.setattr(personnel_query.Candidates, "roots", counting)
+
+    frame = workspace(
+        db_session, user, [dormitory_id], include_employees=False, include_previews=True
+    )
+
+    assert len(frame["block_previews"]) == 4
+    # Три блока по людям (план заездов отбор не спрашивает) и три числа сводки.
+    assert len(calls) == 6, calls
+
+
+def test_limited_cards_keep_history_of_merged_members(
+    client: TestClient, db_session: Session
+) -> None:
+    """Сужение журнала по группе не теряет событие присоединённого участника (#261).
+
+    Карточка входит в отбор только через `employee_events`: строк-источников у неё
+    нет. Событие принадлежит участнику слияния, поэтому запрос только по корням
+    отобрал бы её из `base`, но не смог бы собрать ни на странице, ни в превью.
+    """
+    user = sign_in(client, db_session)
+    dormitory_id = create_dormitory(client)
+    target = Employee(full_name="Семёнов Иван Иванович", identity_status="confirmed")
+    member = Employee(full_name="Семёнов И. И.", identity_status="pending")
+    db_session.add_all([target, member])
+    db_session.flush()
+    member.merged_into_id = target.id
+    db_session.add(
+        EmployeeEvent(
+            employee_id=member.id,
+            dormitory_id=dormitory_id,
+            kind="merge",
+            title="Карточки объединены",
+            happened_on=date(2026, 1, 5),
+        )
+    )
+    db_session.add(
+        PersonnelPreferences(
+            user_id=user.id,
+            settings={
+                "blocks": [
+                    {
+                        "id": "history",
+                        "kind": "saved",
+                        "title": "С историей",
+                        "scope": [],
+                        "days": 5,
+                        "limit": 4,
+                        "wide": False,
+                        "saved_list_id": "all",
+                    }
+                ],
+                "lists": [
+                    {
+                        "id": "all",
+                        "name": "Все с историей",
+                        "filter": "all",
+                        "dormitory": None,
+                        "days": 5,
+                        "query": "",
+                        "scope": [],
+                        "column_filters": [],
+                    }
+                ],
+            },
+        )
+    )
+    db_session.commit()
+
+    page = client.get("/api/personnel/employees").json()
+    assert page["total"] == 1
+    [card] = page["items"]
+    assert card["id"] == target.id
+    assert card["member_ids"] == sorted([target.id, member.id])
+    assert card["sources"] == []
+    assert card["history_dormitory_ids"] == [dormitory_id]
+
+    frame = client.get("/api/personnel", params={"employees": "none"}).json()
+    [preview] = frame["block_previews"]
+    assert preview["count"] == page["total"] == 1
+    assert [item["id"] for item in preview["items"]] == [target.id]
+    assert preview["items"][0]["sources"] == []
+    assert preview["items"][0]["history_dormitory_ids"] == [dormitory_id]
 
 
 def test_workspace_reads_the_dormitory_directory_once(

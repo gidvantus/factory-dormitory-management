@@ -46,6 +46,7 @@ from app.personnel import (
     check_identity,
     choose_identity,
     dormitory_list,
+    employee_cards,
     employee_detail,
     employee_in_scope,
     event,
@@ -284,6 +285,62 @@ def list_finished_shifts(
         else dormitory_scope(db, membership)
     )
     return finished_shifts(db, ids, start, end, PageRequest(page=page, q=query))
+
+
+@router.get("/cards", response_model=dict[str, Any])
+def all_cards(_user: SubscribedUser, membership: Membership, db: DbSession) -> Response:
+    """Все карточки сотрудников организации — для конструктора подвкладок.
+
+    Конструктор считает формулы и связи по всему реестру, поэтому ему нужен каждый
+    человек. Отдельная ручка отдаёт только карточки: рамку поверхности, планы и
+    настройки конструктор уже получает из `GET /api/personnel?employees=none`
+    (#261). Полный ответ той ручки больше не запрашивается.
+    """
+    context = workspace_context(db, dormitory_scope(db, membership))
+    return json_response({"employees": employee_cards(db, context)})
+
+
+@router.get("/employees/by-source")
+def employee_by_source(
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+    dormitory_id: Annotated[int, Query(ge=1)],
+    table_key: Annotated[TableKey, Query()],
+    row_id: Annotated[int, Query(ge=1)],
+) -> dict[str, str]:
+    """Корень карточки, к которой привязана строка-источник (#261).
+
+    Нужен ячейке таблицы: сохранение может создать карточку, не вернув её `id`, и
+    тогда клиенту нужен точечный ответ по (общежитие, таблица, строка), а не весь
+    реестр сотрудников.
+    """
+    own_dormitory(db, dormitory_id, membership)
+    models: dict[str, type[Row]] = {
+        "residents": Resident,
+        "inflow": PersonnelInflow,
+        "outflow": PersonnelOutflow,
+        "archive": ArchiveEntry,
+    }
+    if table_key.startswith("custom_"):
+        custom = db.scalar(select(CustomTabEntry).where(CustomTabEntry.id == row_id))
+        if custom is None or table_key != f"custom_{custom.tab_id}":
+            raise HTTPException(404, "Запись не найдена")
+        row: Row = custom
+    else:
+        model = models.get(table_key)
+        if model is None:
+            raise HTTPException(404, "Запись не найдена")
+        found = cast(Row | None, db.scalar(select(model).where(model.id == row_id)))
+        if found is None:
+            raise HTTPException(404, "Запись не найдена")
+        row = found
+    if row.dormitory_id != dormitory_id:
+        raise HTTPException(404, "Запись не найдена")
+    if not row.employee_id:
+        raise HTTPException(404, "Запись не связана с карточкой сотрудника")
+    employee = employee_in_scope(db, row.employee_id, dormitory_scope(db, membership))
+    return {"employee_id": employee.id}
 
 
 @router.post("/export")

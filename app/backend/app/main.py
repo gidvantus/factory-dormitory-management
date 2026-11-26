@@ -42,6 +42,7 @@ from app.api import (
     platform_access_rights,
     platform_company,
     platform_invoices,
+    platform_journal,
     platform_organizations,
     platform_solutions,
     platform_subscription,
@@ -388,6 +389,9 @@ def create_app() -> FastAPI:
     # `X-Operator-Token` и та же зависимость на роутере. Именно здесь оператор
     # вносит оплату: в кабинете клиента кнопки «Оплатить» нет намеренно (#120).
     application.include_router(platform_invoices.router, prefix=API_PREFIX)
+    # Журнал действий всех организаций - сервисный токен, как у соседних platform_*:
+    # читает ту же ленту, что и клиентский журнал, без условия по организации.
+    application.include_router(platform_journal.router, prefix=API_PREFIX)
     # Тарифы платформы — четвёртый раздел того же контура: весь прайс, правка
     # полей и снятие с продажи. Тот же заголовок `X-Operator-Token` и та же
     # зависимость на роутере.

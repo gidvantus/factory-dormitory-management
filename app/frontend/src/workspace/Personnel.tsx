@@ -117,7 +117,16 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
     () => (today ? currentMonth(new Date(dateNumber(today))) : currentMonth()),
     [today],
   );
-  const period = selectedPeriod ?? monthPeriod;
+  /**
+   * Тот же диапазон, но с устойчивой ссылкой: `monthPeriod` пересчитывается,
+   * когда из рамки приходит `today`, и новый объект с теми же датами дёргал
+   * эффект рамки вторым запросом на одно открытие (#261).
+   */
+  const fallbackPeriod = useMemo(
+    () => ({ from: monthPeriod.from, to: monthPeriod.to }),
+    [monthPeriod.from, monthPeriod.to],
+  );
+  const period = selectedPeriod ?? fallbackPeriod;
   /**
    * Сервер списка и сводки работает в днях (`days`), а панель показывает диапазон
    * дат. Дни считаются из выбранного диапазона, как и раньше при фильтрации в
