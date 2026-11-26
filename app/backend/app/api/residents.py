@@ -206,8 +206,13 @@ def register_payment(
     require_section_writable(db, dormitory_id, kind)
     lock_dormitory(db, dormitory_id)
     resident = get_resident(db, dormitory_id, resident_id)
+    preview_only = bool(payload and payload.preview_only)
     fields, custom, copied, skipped, choices = copy_payment_values(
-        db, dormitory_id, resident, kind, check_columns=bool(payload and payload.check_columns)
+        db,
+        dormitory_id,
+        resident,
+        kind,
+        check_columns=preview_only or bool(payload and payload.check_columns),
     )
     existing = existing_payment(db, dormitory_id, resident_id, kind, fields)
     if existing is not None:
@@ -219,7 +224,7 @@ def register_payment(
             copied_columns=[],
             skipped_columns=[],
         )
-    if choices:
+    if choices or preview_only:
         response.status_code = status.HTTP_200_OK
         db.commit()
         return PaymentColumnsRequired(column_choices=choices, can_continue=bool(copied))

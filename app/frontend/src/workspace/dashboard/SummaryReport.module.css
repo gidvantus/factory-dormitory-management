@@ -76,6 +76,10 @@
   background: var(--color-bg-alt);
   font-weight: bold;
 }
+.table tbody > tr[data-table-color] > :not(.groupLabel),
+.table tbody > tr[data-table-color] > .groupLabel[rowspan='1'] {
+  background-color: var(--summary-row-fill);
+}
 .mobile {
   display: none;
 }
@@ -89,6 +93,11 @@
 }
 .mobileMetric + .mobileMetric {
   margin-block-start: var(--gap-12);
+}
+.mobileMetric[data-table-color] {
+  padding: var(--gap-8);
+  border-radius: var(--radius-4xs);
+  background-color: var(--summary-row-fill);
 }
 .mobileMetric > strong {
   font-size: var(--text-sm);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../../api/client';
 import type { HostelRow, HostelSettings as Settings } from '../../api/client';
+import { FormulaResultFormat } from '../../components/FormulaResultFormat';
 import { useUnsavedChanges } from '../../components/useUnsavedChanges';
 import { ReportLinkEditor } from './ReportLinkEditor';
 import reportStyles from './ReportTable.module.css';
@@ -119,7 +120,7 @@ function HostelEditor({
   function changeMode(next: 'manual' | 'formula' | 'link'): void {
     setLinkModes({ ...linkModes, [selected]: next === 'link' });
     clearPending();
-    patchRow({ formula: next === 'formula' ? '=' : null, link: null });
+    patchRow({ formula: next === 'formula' ? '=' : null, display_percent: false, link: null });
   }
 
   function move(offset: number): void {
@@ -350,6 +351,11 @@ function HostelEditor({
                         onChange={(event) => patchRow({ formula: event.target.value })}
                       />
                     </label>
+                    <FormulaResultFormat
+                      className={styles.hostelField}
+                      percent={row.display_percent ?? false}
+                      onChange={(display_percent) => patchRow({ display_percent })}
+                    />
                     <div className={styles.hostelActions} aria-label="Строки для подстановки">
                       {listed
                         .filter((item) => item !== row && item.name.trim())

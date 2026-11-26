@@ -128,12 +128,9 @@ describe('Рабочий конструктор организации', () => {
       columns: { row: { pay: { value: null, error: 'Источник недоступен в организации' } } },
     });
     open();
-    await screen.findByRole('table', { name: 'Рабочая таблица' });
-    await waitFor(() =>
-      expect(screen.getByRole('table', { name: 'Рабочая таблица' })).toHaveTextContent(
-        'Ошибка: Источник недоступен в организации',
-      ),
-    );
+    const table = await screen.findByRole('table', { name: 'Рабочая таблица' });
+    const failedCell = await within(table).findByTitle('Источник недоступен в организации');
+    expect(failedCell).toHaveTextContent(/^—$/);
     expect(personnelBuilderApi.evaluate).toHaveBeenCalledWith(
       expect.objectContaining({
         state: expect.objectContaining({

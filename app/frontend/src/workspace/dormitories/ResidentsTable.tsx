@@ -149,16 +149,21 @@ function ResidentRow({
     }
   }
 
-  async function registerPayment(kind: PaymentKind, checkColumns = true): Promise<void> {
+  async function registerPayment(
+    kind: PaymentKind,
+    mode: 'check' | 'preview' | 'confirm' = 'check',
+  ): Promise<void> {
     if (registrationInFlight.current) return;
     registrationInFlight.current = true;
     setRegistering(kind);
     setPaymentNotice(null);
     try {
       await waitForRowSaves(resident.id);
-      const result = await (checkColumns
-        ? api.registerResidentPayment(dormitoryId, resident.id, kind)
-        : api.registerResidentPayment(dormitoryId, resident.id, kind, false));
+      const result = await (mode === 'preview'
+        ? api.registerResidentPayment(dormitoryId, resident.id, kind, true, true)
+        : mode === 'confirm'
+          ? api.registerResidentPayment(dormitoryId, resident.id, kind, false)
+          : api.registerResidentPayment(dormitoryId, resident.id, kind));
       if ('column_choices' in result) {
         setPaymentColumns({ kind, ...result });
         return;
@@ -237,23 +242,7 @@ function ResidentRow({
                     choices={paymentColumns.column_choices}
                     disabled={registering !== null}
                     onBusy={setMappingBusy}
-                    onSaved={(mappings) => {
-                      const selected = new Set(Object.values(mappings));
-                      setPaymentColumns(
-                        (current) =>
-                          current && {
-                            ...current,
-                            can_continue: true,
-                            column_choices: current.column_choices
-                              .filter(({ source }) => !(source.id in mappings))
-                              .map((choice) => ({
-                                ...choice,
-                                targets: choice.targets.filter(({ id }) => !selected.has(id)),
-                              }))
-                              .filter(({ targets }) => targets.length > 0),
-                          },
-                      );
-                    }}
+                    onSaved={() => void registerPayment(kind, 'preview')}
                   />
                 )}
                 {paymentNotice?.error && <p role="alert">{paymentNotice.message}</p>}
@@ -271,7 +260,10 @@ function ResidentRow({
                     className="btn btn--primary btn--compact"
                     disabled={mappingBusy || registering !== null || !paymentColumns.can_continue}
                     onClick={() =>
-                      void registerPayment(kind, paymentColumns.column_choices.length === 0)
+                      void registerPayment(
+                        kind,
+                        paymentColumns.column_choices.length ? 'confirm' : 'check',
+                      )
                     }
                   >
                     {paymentColumns.column_choices.length

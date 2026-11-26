@@ -18,7 +18,7 @@ export function TransferColumnFields({
   disabled: boolean;
   settings?: boolean;
   onBusy: (busy: boolean) => void;
-  onSaved: (mappings: Record<number, number | null>) => void;
+  onSaved: () => void;
 }): JSX.Element {
   const [draft, setDraft] = useState<Record<number, number | null>>({});
   const [saving, setSaving] = useState(false);
@@ -31,7 +31,7 @@ export function TransferColumnFields({
     try {
       await api.saveTransferColumns(dormitoryId, route, draft);
       setDraft({});
-      onSaved(draft);
+      onSaved();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Не удалось сохранить соответствия.');
     } finally {

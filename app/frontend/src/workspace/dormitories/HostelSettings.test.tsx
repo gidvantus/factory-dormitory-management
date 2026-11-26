@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
+import type { HostelRow } from '../../api/client';
 import { mockFetch } from '../../test/mockFetch';
 import { renderApp } from '../../test/renderApp';
 import { ReportLinkEditor } from './ReportLinkEditor';
@@ -60,12 +61,12 @@ it('выбирает пол и пользовательский вариант �
 });
 
 it('открывает редактор хостелов в настройках и обновляет рабочую таблицу после сохранения', async () => {
-  const initial = [
+  const initial: HostelRow[] = [
     { key: 'paid_m', name: 'Оплачено мест М', formula: null, link: null, archived: false },
     {
       key: 'free_m',
       name: 'Свободных мест М',
-      formula: '=[Оплачено мест М]-2',
+      formula: '=[Оплачено мест М]/0',
       link: null,
       archived: false,
     },
@@ -98,6 +99,7 @@ it('открывает редактор хостелов в настройках
     }
     if (url.includes('/hostels?')) {
       const day = new URL(url, 'http://localhost').searchParams.get('from')!;
+      const corrected = rows.find((row) => row.key === 'free_m')?.formula === '=3/4';
       return {
         status: 200,
         body: {
@@ -110,7 +112,11 @@ it('открывает редактор хостелов в настройках
                   id: 10,
                   name: 'Корпус',
                   rows,
-                  values: { paid_m: { [day]: 8 }, free_m: { [day]: 6 } },
+                  values: {
+                    paid_m: { [day]: 8 },
+                    free_m: corrected ? { [day]: 0.75 } : {},
+                  },
+                  errors: corrected ? {} : { free_m: { [day]: 'Деление на ноль' } },
                 },
               ],
             },
@@ -144,19 +150,26 @@ it('открывает редактор хостелов в настройках
   renderApp('/cabinet/dormitories/7/places');
   const user = userEvent.setup();
   expect(await screen.findByRole('rowheader', { name: /Свободных мест М/ })).toHaveTextContent('ƒ');
+  expect(screen.getByTitle('Деление на ноль')).toHaveTextContent(/^—$/);
   await user.click(screen.getByRole('button', { name: 'Настроить' }));
   const dialog = within(await screen.findByRole('dialog', { name: 'Настройки общежития' }));
   await user.click(await dialog.findByRole('button', { name: 'Хостел Корпус Настроить строки' }));
   await user.clear(dialog.getByLabelText('Название строки'));
   await user.type(dialog.getByLabelText('Название строки'), 'Оплачено');
   await user.click(dialog.getByRole('button', { name: /Свободных мест М/ }));
-  expect(dialog.getByRole('textbox', { name: 'Формула' })).toHaveValue('=[Оплачено]-2');
+  const formula = dialog.getByRole('textbox', { name: 'Формула' });
+  expect(formula).toHaveValue('=[Оплачено]/0');
+  await user.clear(formula);
+  await user.type(formula, '=3/4');
+  await user.selectOptions(dialog.getByLabelText('Формат результата'), 'percent');
   await user.click(dialog.getByRole('button', { name: 'Сохранить хостел' }));
   await waitFor(() =>
     expect(writes).toHaveBeenCalledWith(expect.objectContaining({ version: 0, rows })),
   );
+  expect(rows[1]).toEqual(expect.objectContaining({ formula: '=3/4', display_percent: true }));
   await user.click(dialog.getByRole('button', { name: 'Закрыть' }));
   expect(await screen.findByRole('rowheader', { name: 'Оплачено' })).toBeInTheDocument();
+  expect(await screen.findByText('75 %')).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: '+ Добавить хостел' }));
   const create = within(await screen.findByRole('dialog', { name: 'Настройки общежития' }));
   expect(await create.findByLabelText('Название хостела')).toHaveValue('');

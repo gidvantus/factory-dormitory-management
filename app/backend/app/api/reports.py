@@ -90,6 +90,7 @@ def row_response(row: ReportRow) -> ReportRowResponse:
         metric_key=row.metric_key,
         position=row.position,
         formula=row.formula,
+        display_percent=row.display_percent,
         link=row.link,
         values={},
         errors={},
@@ -284,6 +285,7 @@ def create_row(
         dormitory_id=dormitory_id,
         name=payload.name,
         formula=payload.formula,
+        display_percent=bool(payload.formula) and payload.display_percent,
         link=link.model_dump() if link else None,
         position=max((item.position for item in rows), default=0) + 1,
     )
@@ -348,6 +350,8 @@ def update_row(
         item.formula = replacements[item.id]
     row.name = new_name
     row.link = link
+    if row.formula is None or "display_percent" in payload.model_fields_set:
+        row.display_percent = bool(row.formula) and payload.display_percent
     try:
         db.commit()
     except IntegrityError as exc:

@@ -73,6 +73,11 @@ class ExchangeColumn:
     day: date | None = None
 
 
+@dataclass(frozen=True)
+class PercentCell:
+    value: Decimal
+
+
 @dataclass
 class ExchangeTable:
     db: Session
@@ -189,7 +194,8 @@ def prepare_table(
         table.schema["hostels"] = [{"id": hostel.id, "name": hostel.name} for hostel in hostels]
         if any(rows != list(DEFAULT_ROWS) for rows in layouts.values()):
             table.schema["layouts"] = {
-                key: [row.model_dump() for row in rows] for key, rows in layouts.items()
+                key: [row.model_dump(exclude={"display_percent"}) for row in rows]
+                for key, rows in layouts.items()
             }
     else:
         columns = [
@@ -318,13 +324,20 @@ def export_rows(
 
         assert start and end
         report = read_report(dorm.id, user, db, start, end, dorm)
-        return [
-            [
-                row.name,
-                *[row.errors.get(day.isoformat(), row.values.get(day.isoformat())) for day in days],
-            ]
-            for row in report.rows
-        ]
+        report_values: list[list[Any]] = []
+        for report_row in report.rows:
+            cells: list[Any] = [report_row.name]
+            for day in days:
+                date_key = day.isoformat()
+                value = report_row.values.get(date_key)
+                if date_key in report_row.errors:
+                    cells.append(report_row.errors[date_key])
+                elif report_row.formula and report_row.display_percent and value is not None:
+                    cells.append(PercentCell(Decimal(value)))
+                else:
+                    cells.append(value)
+            report_values.append(cells)
+        return report_values
     if key == "places":
         assert start and end
         hostels = [
@@ -336,15 +349,26 @@ def export_rows(
         ]
         calculated = read_place_days(db, hostels, start, end)
 
-        def cell(hostel_id: int, day: date, key: str) -> int | float | str | None:
+        def cell(
+            hostel_id: int, day: date, key: str, percent: bool
+        ) -> int | float | str | PercentCell | None:
             entry = calculated[hostel_id, day]
             if key in entry.values:
+                if percent:
+                    return PercentCell(entry.values[key])
                 value = display_number(entry.values[key])
                 return float(value) if isinstance(value, str) else value
             return entry.errors.get(key)
 
         return [
-            [hostel.name, row.name, *[cell(hostel.id, day, row.key) for day in days]]
+            [
+                hostel.name,
+                row.name,
+                *[
+                    cell(hostel.id, day, row.key, bool(row.formula) and row.display_percent)
+                    for day in days
+                ],
+            ]
             for hostel in hostels
             for row in rows_for(hostel, start)
             if not row.archived
@@ -364,6 +388,9 @@ def export_rows(
 
 
 def write_cell(sheet: Any, row: int, column: int, value: Any) -> None:
+    if isinstance(value, PercentCell):
+        sheet.cell(row, column, value.value).number_format = "0.00%"
+        return
     cell = sheet.cell(row, column, value)
     # Любой пользовательский текст, включая =..., остаётся текстом Excel.
     if isinstance(value, str):

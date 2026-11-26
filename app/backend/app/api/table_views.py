@@ -1,7 +1,7 @@
 """Общее оформление таблиц и личный масштаб."""
 
 from datetime import date
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -26,22 +26,20 @@ from app.table_data import (
     lock_dormitory,
     require_writable_table,
 )
+from app.table_views import TableColor
 
 # Роутер закрыт `SubscribedUser`, поэтому 403 объявляется один раз для всех маршрутов.
 router = APIRouter(tags=["table-views"], responses={**SUBSCRIBED_USER_RESPONSES})
 DbSession = Annotated[Session, Depends(get_db)]
 ViewKey = Annotated[str, Path(min_length=1, max_length=120, pattern=r"^[\w.-]+$")]
-Color = Literal[
-    "mint", "sage", "sky", "blue", "lilac", "lavender", "butter", "sand", "peach", "rose"
-]
 
 
 class ViewState(BaseModel):
     model_config = ConfigDict(extra="forbid")
     rows: list[str] = Field(default_factory=list, max_length=20000)
     columns: list[str] = Field(default_factory=list, max_length=1000)
-    row_colors: dict[str, Color] = Field(default_factory=dict, max_length=20000)
-    column_colors: dict[str, Color] = Field(default_factory=dict, max_length=1000)
+    row_colors: dict[str, TableColor] = Field(default_factory=dict, max_length=20000)
+    column_colors: dict[str, TableColor] = Field(default_factory=dict, max_length=1000)
 
     @model_validator(mode="after")
     def valid_keys(self) -> "ViewState":

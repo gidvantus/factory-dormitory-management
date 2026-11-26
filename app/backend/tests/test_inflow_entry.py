@@ -181,6 +181,58 @@ def test_form_uses_current_columns_order_names_and_active_hostels(
     assert [hostel["name"] for hostel in definition["hostels"]] == ["Корпус 1"]
 
 
+def test_custom_name_field_populates_inflow_and_accepts_updated_name_at_settlement(
+    client: TestClient, db_session: Session
+) -> None:
+    dorm, _hostel = setup(client, db_session)
+    base = f"/api/dormitories/{dorm}"
+    residents = f"{base}/tables/residents/columns"
+    builtin = next(col for col in client.get(residents).json() if col["builtin_key"] == "full_name")
+    assert client.delete(f"{residents}/{builtin['id']}").status_code == 204
+    name_column = column(client, dorm, "residents", "ФИО", "text")
+    spare = column(client, dorm, "residents", "Имя в пропуске", "text")
+    definition = form(client, dorm)
+    assert definition["identity_columns"]["full_name"] == name_column["id"]
+
+    name = "Иванов Иван"
+    data = payload(client, definition, {"full_name": name})
+    # Старый клиент мог отправить ФИО только для карточки, оставив ячейку пустой.
+    assert data["values"][str(name_column["id"])] is None
+    result = client.post(f"{base}/inflow/entries", json=data)
+    assert result.status_code == 201, result.text
+    row = result.json()
+    assert row["full_name"] == name
+    db_session.expire_all()
+    stored = db_session.get(PersonnelInflow, row["id"])
+    assert stored and stored.resident_values["columns"][str(name_column["id"])]["value"] == name
+    employee = db_session.get(Employee, row["employee_id"])
+    assert employee and employee.full_name == name
+
+    renamed = "Фамилия Имя Отчество"
+    renamed_column = client.patch(
+        f"{residents}/{name_column['id']}", json={"name": renamed, "kind": "text"}
+    )
+    assert renamed_column.status_code == 200, renamed_column.text
+    updated_name = "Иванов Иван Иванович"
+    updated_row = client.patch(f"{base}/inflow/{row['id']}", json={"full_name": updated_name})
+    assert updated_row.status_code == 200, updated_row.text
+    preview = client.post(f"{base}/inflow/{row['id']}/settle/preview")
+    assert preview.status_code == 200, preview.text
+    choice = next(
+        choice for choice in preview.json()["column_choices"] if choice["source"]["name"] == "ФИО"
+    )
+    assert {"id": name_column["id"], "name": renamed} in choice["targets"]
+    assert {"id": spare["id"], "name": spare["name"]} in choice["targets"]
+    saved_mapping = client.put(
+        f"{base}/settings/transfer-columns?source=inflow&target=residents",
+        json={"mappings": {str(choice["source"]["id"]): name_column["id"]}},
+    )
+    assert saved_mapping.status_code == 204, saved_mapping.text
+    processed = settle(client, dorm, row["id"])
+    resident = db_session.get(Resident, processed["row_id"])
+    assert resident and resident.custom_values[str(name_column["id"])] == updated_name
+
+
 def test_schema_change_during_entry_creates_nothing(
     client: TestClient, db_session: Session
 ) -> None:

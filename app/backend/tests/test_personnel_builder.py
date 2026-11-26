@@ -64,10 +64,13 @@ def test_storage_revision_and_canonical_empty_start(
     assert client.get(BASE).status_code == 401
     sign_in(client, db_session)
     assert client.get(BASE).json() == {"revision": 0, "state": state()}
-    payload = {"revision": 0, "state": payroll()}
+    data = payroll()
+    data["tabs"][0]["columns"][2]["rule"]["displayPercent"] = True
+    payload = {"revision": 0, "state": data}
     saved = client.put(BASE, json=payload)
     assert saved.status_code == 200, saved.text
     assert saved.json()["revision"] == 1
+    assert saved.json()["state"]["tabs"][0]["columns"][2]["rule"]["displayPercent"] is True
     assert client.get(BASE).json() == saved.json()
     conflict = client.put(BASE, json=payload)
     assert conflict.status_code == 409

@@ -85,6 +85,7 @@ def read_template(
                 name=row.name,
                 position=row.position,
                 formula=row.formula,
+                display_percent=row.display_percent,
                 linked=row.link_snapshot is not None,
             )
             for row in rows
@@ -139,6 +140,7 @@ def create_template(
                 metric_key=row.metric_key,
                 position=index,
                 formula=row.formula,
+                display_percent=row.display_percent,
                 link_snapshot=snapshot_link(db, row),
             )
             for index, row in enumerate(rows, start=1)

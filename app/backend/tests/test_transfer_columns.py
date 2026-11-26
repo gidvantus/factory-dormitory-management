@@ -2,11 +2,15 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.outflow import PersonnelOutflow
+from app.models.payment import PaymentEntry
 from app.models.resident import Resident
+from app.models.table_column import TableColumn
 from tests.conftest import sign_in
+from tests.test_inflow_actions import column
 from tests.test_reports import create_dormitory
 
 
@@ -85,6 +89,10 @@ def test_saved_mapping_copies_renamed_name(
     )
 
     if payment:
+        latest = client.post(movement, json={"preview_only": True})
+        assert latest.status_code == 200, latest.text
+        assert latest.json() == {"column_choices": [], "can_continue": True}
+        assert db_session.scalar(select(PaymentEntry.id)) is None
         written = client.post(movement, json={"check_columns": True})
         assert written.status_code == 201, written.text
         assert written.json()["payment"]["full_name"] == name
@@ -112,3 +120,43 @@ def test_saved_mapping_copies_renamed_name(
     assert client.put(mapping_url, json={"mappings": {str(source_id): None}}).status_code == 204
     cleared = client.get(mapping_url).json()
     assert next(item for item in cleared if item["source"]["id"] == source_id)["target_id"] is None
+
+
+@pytest.mark.parametrize("target", ["advance", "settlement"])
+def test_payment_asks_for_a_choice_when_two_targets_match(
+    client: TestClient, db_session: Session, target: str
+) -> None:
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    base = f"/api/dormitories/{dorm}"
+    source = column(client, dorm, "residents", "Личный комментарий", "text")
+    preferred = column(client, dorm, target, "Личный комментарий", "text")
+    duplicate = column(client, dorm, target, "Комментарий прежней версии", "text")
+    legacy_column = db_session.get(TableColumn, duplicate["id"])
+    assert legacy_column is not None
+    legacy_column.name = "Личный  комментарий"
+    db_session.commit()
+
+    row_id = client.post(f"{base}/residents").json()["id"]
+    value = "Передать в бухгалтерию"
+    saved_value = client.put(
+        f"{base}/tables/residents/rows/{row_id}/cells/{source['id']}", json={"value": value}
+    )
+    assert saved_value.status_code == 200, saved_value.text
+
+    action = f"{base}/residents/{row_id}/payments/{target}"
+    preview = client.post(action, json={"check_columns": True})
+    assert preview.status_code == 200, preview.text
+    assert not preview.json()["can_continue"]
+    choice = next(
+        item for item in preview.json()["column_choices"] if item["source"]["id"] == source["id"]
+    )
+    assert {preferred["id"], duplicate["id"]} <= {item["id"] for item in choice["targets"]}
+    saved_mapping = client.put(
+        f"{base}/settings/transfer-columns?source=residents&target={target}",
+        json={"mappings": {str(source["id"]): preferred["id"]}},
+    )
+    assert saved_mapping.status_code == 204, saved_mapping.text
+    result = client.post(action, json={"check_columns": True})
+    assert result.status_code == 201, result.text
+    assert result.json()["payment"]["custom_values"] == {str(preferred["id"]): value}

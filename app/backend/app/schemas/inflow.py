@@ -76,6 +76,7 @@ class InflowActionResponse(BaseModel):
 
 class InflowEntryForm(BaseModel):
     columns: list[ColumnResponse]
+    identity_columns: dict[str, int]
     hostels: list[HostelOption]
     month: date
     schema_token: str

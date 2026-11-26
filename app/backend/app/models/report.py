@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -32,6 +33,7 @@ class ReportRow(Base):
     metric_key: Mapped[ReportMetric | None] = mapped_column(String(20), nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     formula: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_percent: Mapped[bool] = mapped_column(server_default=false())
     link: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

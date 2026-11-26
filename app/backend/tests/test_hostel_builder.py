@@ -1,7 +1,9 @@
 from datetime import date
+from io import BytesIO
 
 import pytest
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -141,6 +143,7 @@ def test_excel_uses_custom_manual_rows_and_exports_calculated_values(
     month = "2025-11-01"
     manual = "r_" + "1" * 20
     derived = "r_" + "2" * 20
+    share = "r_" + "3" * 20
     base = dorm + "/hostels"
     response = client.post(
         base,
@@ -150,6 +153,7 @@ def test_excel_uses_custom_manual_rows_and_exports_calculated_values(
             "rows": [
                 {"key": manual, "name": "Лимит"},
                 {"key": derived, "name": "Остаток", "formula": "=[Лимит]-5"},
+                {"key": share, "name": "Доля остатка", "formula": "=[Остаток]/[Лимит]"},
             ],
         },
     )
@@ -163,6 +167,13 @@ def test_excel_uses_custom_manual_rows_and_exports_calculated_values(
         ["Корпус", "Лимит"]
     ]
     content = filled(client, path, [["Корпус", "Лимит", 8]], query)
+    rows = client.get(f"{base}/settings?month={month}").json()["hostels"][0]["rows"]
+    rows[-1]["display_percent"] = True
+    changed = client.put(
+        f"{base}/{hostel}/settings",
+        json={"month": month, "name": "Корпус", "rows": rows, "version": 0},
+    )
+    assert changed.status_code == 204, changed.text
     result = upload(client, path, content, query)
     assert result.status_code == 200, result.text
     assert upload(client, path, content, query).status_code == 422
@@ -171,7 +182,13 @@ def test_excel_uses_custom_manual_rows_and_exports_calculated_values(
     )
     exported = client.get(path + "/export" + query)
     assert exported.status_code == 200, exported.text
-    assert workbook_rows(exported.content)[1:] == [["Корпус", "Лимит", 8], ["Корпус", "Остаток", 3]]
+    assert workbook_rows(exported.content)[1:] == [
+        ["Корпус", "Лимит", 8],
+        ["Корпус", "Остаток", 3],
+        ["Корпус", "Доля остатка", 0.375],
+    ]
+    sheet = load_workbook(BytesIO(exported.content)).active
+    assert sheet is not None and sheet["C4"].number_format == "0.00%"
 
 
 def test_snapshot_uses_configured_gender_and_custom_options(

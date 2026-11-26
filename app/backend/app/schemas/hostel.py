@@ -43,6 +43,7 @@ class HostelRow(BaseModel):
     key: RowKey = Field(pattern=r"^(?:[a-z_]{1,24}|r_[0-9a-f]{20})$")
     name: str = Field(min_length=1, max_length=120, pattern=r"^[^\[\]\x00\r\n]+$")
     formula: str | None = Field(default=None, min_length=1, max_length=1000)
+    display_percent: bool = False
     link: (
         ResidentsOccupancyLink | HostelReportLink | HostelTableLink | ArrivalPlanReportLink | None
     ) = None

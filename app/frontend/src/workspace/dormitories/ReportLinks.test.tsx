@@ -251,7 +251,7 @@ it('позволяет изменить старый фильтр конкрет
   );
 });
 
-it('отличает ошибку связи от нулевого количества', async () => {
+it('показывает прочерк при ошибке формулы или связи и сохраняет причину в подсказке', async () => {
   mockFetch(() => ({
     status: 200,
     body: {
@@ -262,16 +262,22 @@ it('отличает ошибку связи от нулевого количе�
           position: 4,
           formula: null,
           link: { table_key: 'outflow', column_id: 12, value: 'escaped', date_column_id: null },
-          values: {},
+          values: { '2026-10-09': '0' },
           errors: { '2026-10-08': 'Проверьте связь: столбец удалён' },
+        },
+        {
+          id: 6,
+          name: 'Доля',
+          position: 5,
+          formula: '=1/[Сбежал]',
+          values: {},
+          errors: { '2026-10-09': 'Деление на ноль' },
         },
       ],
     },
   }));
-  render(<ReportTable dormitoryId="7" range={{ from: '2026-10-08', to: '2026-10-08' }} />);
-  expect(await screen.findByText('Проверьте связь', { selector: 'output' })).toHaveAttribute(
-    'title',
-    'Проверьте связь: столбец удалён',
-  );
-  expect(screen.queryByText('0', { selector: 'output' })).not.toBeInTheDocument();
+  render(<ReportTable dormitoryId="7" range={{ from: '2026-10-08', to: '2026-10-09' }} />);
+  expect(await screen.findByTitle('Проверьте связь: столбец удалён')).toHaveTextContent(/^—$/);
+  expect(screen.getByTitle('Деление на ноль')).toHaveTextContent(/^—$/);
+  expect(screen.getByText('0', { selector: 'output' })).toBeInTheDocument();
 });

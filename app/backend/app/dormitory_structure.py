@@ -255,6 +255,7 @@ def initialize_structure(
             "color_id": row.position,
             "name": row.name,
             "formula": row.formula,
+            "display_percent": row.display_percent,
             "snapshot": row.link_snapshot,
             "metric_key": row.metric_key,
         }
@@ -269,6 +270,7 @@ def initialize_structure(
                 "color_id": row.id,
                 "name": row.name,
                 "formula": row.formula,
+                "display_percent": row.display_percent,
                 "snapshot": snapshot_link(db, row),
                 "metric_key": row.metric_key,
             }
@@ -296,6 +298,7 @@ def initialize_structure(
             metric_key=definition["metric_key"],
             position=position,
             formula=definition["formula"],
+            display_percent=definition.get("display_percent", False),
             link=restore_rule(definition["snapshot"], definition["name"])
             if definition["snapshot"]
             else None,

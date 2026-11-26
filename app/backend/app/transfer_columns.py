@@ -82,19 +82,23 @@ class TransferColumns:
     def matches(self, source: TableColumn) -> list[TableColumn]:
         if assigned := self.explicit.get(source.id):
             return [assigned]
-        return [
+        named = [
             col
             for col in self.targets
             if not col.archived
             and col.id not in self.reserved
             and normalized_name(col.name) == normalized_name(source.name)
         ]
+        return [col for col in named if col.kind == source.kind] or named
 
     def ambiguous(self, source: TableColumn, matches: list[TableColumn]) -> bool:
         return source.id not in self.explicit and (
             len(matches) != 1
             or sum(
-                not col.archived and normalized_name(col.name) == normalized_name(source.name)
+                not col.archived
+                and col.kind == source.kind
+                and col.id not in self.explicit
+                and normalized_name(col.name) == normalized_name(source.name)
                 for col in self.sources
             )
             != 1

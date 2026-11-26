@@ -1,4 +1,5 @@
 import type { EditorSnapshot } from '../../components/EditorSurface';
+import { formatPercent } from '../../components/formatPercent';
 import type { ColumnInput, ReportLink, ReportRow, TableKey } from '../../api/client';
 import type { Block } from '../../api/personnel';
 import type { WidgetConfig } from '../../api/dashboardBlocks';
@@ -186,9 +187,18 @@ export function LivePreview({
               {report.rows.map((row) => (
                 <tr key={row.id}>
                   <th scope="row">{row.name}</th>
-                  {days.map((day) => (
-                    <td key={day}>{row.errors[day] ?? row.values[day] ?? '—'}</td>
-                  ))}
+                  {days.map((day) => {
+                    const value = row.values[day];
+                    return (
+                      <td key={day} title={row.errors[day]}>
+                        {row.errors[day]
+                          ? '—'
+                          : row.formula && row.display_percent && value != null
+                            ? formatPercent(value)
+                            : (value ?? '—')}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -198,7 +208,13 @@ export function LivePreview({
     );
   }
   if (snapshot?.kind === 'report-row') {
-    const draft = value as { name: string; mode: string; formula: string; link: ReportLink | null };
+    const draft = value as {
+      name: string;
+      mode: string;
+      formula: string;
+      displayPercent?: boolean;
+      link: ReportLink | null;
+    };
     const rows = store.dorm(dorm).rows;
     const target: ReportRow = {
       ...(rows.find((row) => row.id === rowId) ?? {
@@ -209,6 +225,7 @@ export function LivePreview({
       }),
       name: draft.name || 'Новая строка',
       formula: draft.mode === 'formula' ? draft.formula : null,
+      display_percent: draft.displayPercent,
       link: draft.mode === 'link' ? draft.link : null,
     };
     const selected = rows.some((row) => row.id === target.id)
@@ -245,11 +262,22 @@ export function LivePreview({
                   <th scope="row">{row.name}</th>
                   {days.map((date) => {
                     try {
-                      return <td key={date}>{formatted(rowValue(row, date))}</td>;
+                      const value = rowValue(row, date);
+                      return (
+                        <td key={date}>
+                          {row.formula && row.display_percent
+                            ? formatPercent(value)
+                            : formatted(value)}
+                        </td>
+                      );
                     } catch (error) {
                       return (
-                        <td className={s.error} key={date}>
-                          {error instanceof Error ? error.message : 'Ошибка'}
+                        <td
+                          className={s.error}
+                          key={date}
+                          title={error instanceof Error ? error.message : 'Ошибка расчёта'}
+                        >
+                          —
                         </td>
                       );
                     }
@@ -264,7 +292,7 @@ export function LivePreview({
             ? 'Строка заполняется вручную за каждую дату в общем отчёте.'
             : draft.mode === 'link'
               ? 'Каждая подходящая запись даёт 1. Распределение по датам задано в связи.'
-              : 'Все действия и скобки рассчитываются для каждой даты. Ошибки показаны рядом с результатом.'}
+              : 'Все действия и скобки рассчитываются для каждой даты. Причина ошибки доступна при наведении на прочерк.'}
         </p>
       </>
     );

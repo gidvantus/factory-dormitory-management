@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.report_defaults import ReportMetric
 from app.schemas.table_column import ColumnResponse, PlaceMetric, TableKey
+from app.table_views import TableColor
 
 
 class StrictModel(BaseModel):
@@ -56,6 +57,7 @@ WidgetSource = Annotated[
 class SummaryMetric(StrictModel):
     name: str = Field(min_length=1, max_length=200)
     aggregate: Literal["sum", "average", "last"] = "sum"
+    color: TableColor | None = None
     sources: list[ReportWidgetSource] = Field(default_factory=list, max_length=1000)
 
 

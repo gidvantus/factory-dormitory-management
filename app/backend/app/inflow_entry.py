@@ -13,6 +13,7 @@ from app.models.inflow import PersonnelInflow
 from app.models.resident import Resident
 from app.models.table_column import TableColumn
 from app.personnel import digest
+from app.resident_identity import compatible, entry_fields
 from app.schemas.inflow import InflowEntryForm, UpdateInflowRequest
 from app.schemas.resident import HostelOption, UpdateResidentRequest
 from app.schemas.table_column import ColumnResponse
@@ -25,6 +26,22 @@ def entry_form(db: Session, dormitory_id: int, month: date) -> InflowEntryForm:
         raise HTTPException(422, "Укажите первый день месяца")
     source = ensure_columns(db, dormitory_id, "inflow")
     target = ensure_columns(db, dormitory_id, "residents")
+    configured = entry_fields(db, dormitory_id, target)
+    identity_columns = {}
+    for role, names in (
+        ("full_name", {"фио", "фамилия имя отчество"}),
+        ("phone", {"телефон", "номер телефона"}),
+    ):
+        candidates = [column for column in target if compatible(column, role)]
+        chosen = next((col for col in candidates if col.id == configured.get(role)), None)
+        if chosen is None:
+            chosen = next((col for col in candidates if col.builtin_key == role), None)
+        if chosen is None:
+            named = [col for col in candidates if normalized_name(col.name) in names]
+            if len(named) == 1 and named[0].id not in configured.values():
+                chosen = named[0]
+        if chosen is not None:
+            identity_columns[role] = chosen.id
     hostels = [
         HostelOption(id=item.id, name=item.name)
         for item in db.scalars(
@@ -43,6 +60,7 @@ def entry_form(db: Session, dormitory_id: int, month: date) -> InflowEntryForm:
             "month": month,
             "inflow": [ColumnResponse.model_validate(col).model_dump() for col in source],
             "residents": [ColumnResponse.model_validate(col).model_dump() for col in target],
+            "identity_columns": identity_columns,
             "hostels": [hostel.model_dump() for hostel in hostels],
         }
     )
@@ -52,6 +70,7 @@ def entry_form(db: Session, dormitory_id: int, month: date) -> InflowEntryForm:
             for col in target
             if not col.archived and col.kind != "action"
         ],
+        identity_columns=identity_columns,
         hostels=hostels,
         month=month,
         schema_token=token,

@@ -33,11 +33,17 @@ describe('Настройки и живой результат внутри ок�
       target: { value: '=([Проживает М]+[Проживает Ж])*2+[Прибыло]-[Выбыло]' },
     });
     await waitFor(() => expect(within(result).getByText('217')).toBeInTheDocument());
+    fireEvent.change(within(dialog).getByLabelText('Формула'), {
+      target: { value: '=3/4' },
+    });
+    await user.selectOptions(within(dialog).getByLabelText('Формат результата'), 'percent');
+    expect(within(result).getAllByText('75 %')).toHaveLength(3);
     await user.click(within(dialog).getByRole('button', { name: 'Сохранить' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(await screen.findByText('✓ Строка отчёта сохранена.')).toBeInTheDocument();
+    expect((await screen.findAllByText('75 %')).length).toBeGreaterThan(0);
   });
-  it('показывает ошибку расчёта в результате и позволяет исправить выражение', async () => {
+  it('показывает причину ошибки в подсказке и пересчитывает результат после исправления', async () => {
     open();
     const dialog = await screen.findByRole('dialog', { name: 'Настроить строку' });
     const formula = within(dialog).getByLabelText('Формула');
@@ -45,7 +51,8 @@ describe('Настройки и живой результат внутри ок�
       name: 'Живой результат конструктора',
     });
     fireEvent.change(formula, { target: { value: '=1/0' } });
-    await waitFor(() => expect(result).toHaveTextContent(/Деление на ноль/));
+    const failedCells = await within(result).findAllByTitle('Деление на ноль');
+    failedCells.forEach((cell) => expect(cell).toHaveTextContent(/^—$/));
     fireEvent.change(formula, { target: { value: '=([Проживает М]+[Проживает Ж])/2' } });
     await waitFor(() => expect(within(result).getByText('54')).toBeInTheDocument());
   });
