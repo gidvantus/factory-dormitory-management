@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { personnelApi } from '../../api/personnel';
-import type { PersonnelData } from '../../api/personnel';
+import type { Employee, PersonnelData } from '../../api/personnel';
 import { ApiError } from '../../api/client';
 import { personnelBuilderApi, serverState } from '../../api/personnelBuilder';
 import type { BuilderCatalog } from '../../api/personnelBuilder';
@@ -130,27 +130,28 @@ export function PersonnelWithBuilder(): JSX.Element {
 
   /**
    * Страница персонала присылает рамку без карточек (#247). Конструктору вкладок
-   * карточки нужны для расчётов, поэтому он дочитывает полный список сам, а из
-   * рамки берёт всё остальное.
+   * карточки нужны для расчётов, поэтому он дочитывает их отдельной ручкой, а из
+   * рамки берёт всё остальное (#261).
    */
-  const receiveData = useCallback(
-    (value: PersonnelData) =>
-      setData((previous) =>
-        previous && previous.employees.length && !value.employees.length
-          ? { ...value, employees: previous.employees }
-          : value,
-      ),
-    [],
-  );
+  const loadedEmployees = useRef<Employee[]>([]);
+  const receiveData = useCallback((value: PersonnelData) => {
+    if (value.employees.length) {
+      loadedEmployees.current = value.employees;
+      setData(value);
+      return;
+    }
+    setData((previous) => {
+      const employees = previous?.employees.length ? previous.employees : loadedEmployees.current;
+      return employees.length ? { ...value, employees } : value;
+    });
+  }, []);
   const loadData = useCallback(async (): Promise<void> => {
     if (dataRequest.current) return dataRequest.current;
-    const task = Promise.all([
-      data?.employees.length ? Promise.resolve(data) : personnelApi.workspace(),
-      personnelBuilderApi.sources(),
-    ])
+    const task = Promise.all([personnelApi.cards(), personnelBuilderApi.sources()])
       .then(([people, sources]) => {
         if (!mounted.current) return;
-        setData(people);
+        loadedEmployees.current = people.employees;
+        setData((previous) => (previous ? { ...previous, employees: people.employees } : previous));
         if (sources) {
           setCatalog(sources);
         }
@@ -160,7 +161,7 @@ export function PersonnelWithBuilder(): JSX.Element {
       });
     dataRequest.current = task;
     return task;
-  }, [data]);
+  }, []);
   const activeCustom = state.tabs.some(
     (tab) => !tab.builtin && tab.id === (params.get('tab') ?? state.defaultTab),
   );

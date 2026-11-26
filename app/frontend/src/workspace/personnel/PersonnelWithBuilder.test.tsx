@@ -59,6 +59,7 @@ beforeEach(() => {
     },
   );
   vi.spyOn(personnelApi, 'workspace').mockResolvedValue(seedData());
+  vi.spyOn(personnelApi, 'cards').mockResolvedValue({ employees: seedData().employees });
   vi.spyOn(personnelBuilderApi, 'read').mockResolvedValue(saved());
   vi.spyOn(personnelBuilderApi, 'sources').mockResolvedValue({ sources: [], templates: [] });
   vi.spyOn(personnelBuilderApi, 'save').mockImplementation(async (document) => ({

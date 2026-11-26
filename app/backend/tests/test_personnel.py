@@ -126,6 +126,31 @@ def test_profile_returns_one_scoped_card_by_id_or_exact_name(
     assert client.post(lookup, json={"full_name": "Семёнов"}).status_code == 404
 
 
+def test_all_cards_and_employee_by_source_avoid_the_full_workspace(
+    client: TestClient, db_session: Session
+) -> None:
+    """Конструктор и ячейка таблицы не тянут полный ответ поверхности (#261)."""
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    created = create(client, dorm)
+    cards = client.get(f"{API}/cards")
+    assert cards.status_code == 200, cards.text
+    body = cards.json()
+    assert set(body) == {"employees"}
+    [card] = body["employees"]
+    assert card["id"] == created["employee_id"]
+    assert card["sources"][0]["row_id"] == created["row_id"]
+
+    route = f"{API}/employees/by-source"
+    params = {"dormitory_id": dorm, "table_key": "residents", "row_id": created["row_id"]}
+    response = client.get(route, params=params)
+    assert response.status_code == 200, response.text
+    assert response.json() == {"employee_id": created["employee_id"]}
+    assert client.get(route, params={**params, "row_id": 999999}).status_code == 404
+    other = create_dormitory(client, "Другое общежитие")
+    assert client.get(route, params={**params, "dormitory_id": other}).status_code == 404
+
+
 def test_tasks_are_removed_and_employee_notes_remain(
     client: TestClient, db_session: Session
 ) -> None:
