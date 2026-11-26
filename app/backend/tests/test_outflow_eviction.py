@@ -1,6 +1,6 @@
 """Выселение из оттока: связанные данные, история и защита повторного действия."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -19,6 +19,7 @@ from app.models.payment import PaymentEntry
 from app.models.personnel import Employee, EmployeeEvent
 from app.models.resident import Resident
 from tests.conftest import sign_in
+from tests.test_inflow_actions import column
 from tests.test_reports import create_dormitory
 
 
@@ -105,6 +106,64 @@ def test_eviction_removes_related_rows_only_and_keeps_history_and_terminal_statu
     assert client.patch(base, json={"evicted_at": None}).status_code == 422
     listed = client.get(f"/api/dormitories/{dorm}/outflow?from=2026-10-01&to=2026-10-31").json()
     assert listed[0]["evicted_at"] == result["evicted_at"]
+
+
+def test_finished_shifts_show_confirmed_evictions_in_period_and_keep_notes(
+    client: TestClient, db_session: Session
+) -> None:
+    dorm, _resident, row_id = prepare(client, db_session)
+    path = "/api/personnel/finished-shifts"
+    period = "?from=2026-10-01&to=2026-10-21"
+    assert client.get(path + period).json() == {"rows": [], "total": 0, "page": 1}
+    row = db_session.get(PersonnelOutflow, row_id)
+    assert row is not None and row.employee_id is not None
+    employee_id = row.employee_id
+    extra_note = column(client, dorm, "outflow", "Примечания", "text")
+    row.notes = "Возвращается в декабре"
+    row.custom_values = {str(extra_note["id"]): "Пропуск сдан"}
+    db_session.commit()
+    confirmed = client.post(
+        f"/api/dormitories/{dorm}/outflow/{row_id}/evict",
+        json={"preview_token": token(client, dorm, row_id)},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    no_date = PersonnelOutflow(
+        dormitory_id=dorm,
+        employee_id=employee_id,
+        evicted_at=datetime(2026, 10, 20, 22, tzinfo=UTC),
+    )
+    db_session.add(no_date)
+    db_session.commit()
+
+    result = client.get(path + period + f"&dormitory={dorm}&query=иванов")
+    assert result.status_code == 200, result.text
+    assert result.json() == {
+        "rows": [
+            {
+                "id": no_date.id,
+                "employee_id": employee_id,
+                "full_name": "Иванов Иван",
+                "dormitory_id": dorm,
+                "departure_date": "2026-10-21",
+                "notes": None,
+            },
+            {
+                "id": row_id,
+                "employee_id": employee_id,
+                "full_name": "Иванов Иван",
+                "dormitory_id": dorm,
+                "departure_date": "2026-10-14",
+                "notes": "Возвращается в декабре\nПропуск сдан",
+            },
+        ],
+        "total": 2,
+        "page": 1,
+    }
+    assert client.get(path + "?from=2026-10-20&to=2026-10-20").json()["total"] == 0
+    assert client.get(f"/api/personnel/employees/{employee_id}/profile").status_code == 200
+    sign_in(client, db_session, email="foreign-finished-shifts@example.com")
+    assert client.get(path + period).json()["total"] == 0
+    assert client.get(path + period + f"&dormitory={dorm}").status_code == 404
 
 
 @pytest.mark.parametrize("change", ["resident", "payment", "outflow"])

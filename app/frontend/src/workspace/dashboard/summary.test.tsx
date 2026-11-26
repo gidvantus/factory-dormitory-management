@@ -61,15 +61,34 @@ it('показывает клиента одной ячейкой и назва�
   const data = result(31);
   const row = data.summary!.rows[0];
   data.summary!.rows.push({ ...row, metric: 'Проживает', row_name: 'Живут сегодня' });
-  render(<SummaryReport config={config} result={data} />);
+  const colored: WidgetConfig = {
+    ...config,
+    summary: {
+      ...config.summary!,
+      metrics: [
+        ...config.summary!.metrics,
+        { name: 'Проживает', aggregate: 'sum', sources: [], color: 'mint' },
+      ],
+    },
+  };
+  const { rerender } = render(<SummaryReport config={colored} result={data} />);
   const table = within(screen.getByRole('table'));
   const rows = table.getAllByRole('row');
   expect(within(rows[1]).getByText(row.label).closest('th')).toHaveAttribute('rowspan', '2');
   expect(within(rows[1]).getByRole('rowheader', { name: 'Выход' })).toBeInTheDocument();
   expect(within(rows[2]).getByRole('rowheader', { name: 'Живут сегодня' })).toBeInTheDocument();
   expect(table.getAllByText(row.label)).toHaveLength(1);
+  expect(rows[1]).not.toHaveAttribute('data-table-color');
+  expect(rows[2]).toHaveAttribute('data-table-color', 'mint');
+  expect(rows[2]).toHaveStyle('--summary-row-fill: var(--table-fill-mint)');
+  expect(screen.getAllByText('Живут сегодня')[1].parentElement).toHaveAttribute(
+    'data-table-color',
+    'mint',
+  );
+  rerender(<SummaryReport config={config} result={data} />);
+  expect(rows[2]).not.toHaveAttribute('data-table-color');
 });
-it('конструктор объединяет названия и сохраняет способ расчёта и выбранные общежития', async () => {
+it('конструктор сохраняет порядок, цвет и способ расчёта выбранных показателей', async () => {
   vi.spyOn(api, 'dashboardSources').mockResolvedValue(
     [1, 2].map((id) => ({
       id,
@@ -82,7 +101,10 @@ it('конструктор объединяет названия и сохран
           kind: 'report',
           columns: [],
           hostels: [],
-          rows: [{ id: id * 10, name: id === 1 ? 'Выход' : '  ВЫХОД  ' }],
+          rows: [
+            { id: id * 10, name: id === 1 ? 'Выход' : '  ВЫХОД  ' },
+            { id: id * 10 + 1, name: 'Итого Проживает' },
+          ],
         },
       ],
     })),
@@ -103,6 +125,17 @@ it('конструктор объединяет названия и сохран
   expect(await screen.findAllByRole('checkbox', { name: 'Выход' })).toHaveLength(1);
   await user.click(screen.getByRole('checkbox', { name: 'Выход' }));
   await user.selectOptions(screen.getByLabelText('Расчёт — Выход'), 'average');
+  await user.click(screen.getByRole('checkbox', { name: 'Итого Проживает' }));
+  await user.selectOptions(screen.getByLabelText('Цвет строки — Итого Проживает'), 'mint');
+  await user.selectOptions(screen.getByLabelText('Цвет строки — Выход'), 'rose');
+  await user.selectOptions(screen.getByLabelText('Цвет строки — Выход'), '');
+  await user.click(screen.getByRole('button', { name: 'Поднять «Итого Проживает»' }));
+  expect(screen.getByRole('button', { name: 'Поднять «Итого Проживает»' })).toBeDisabled();
+  expect(screen.getByLabelText('Цвет строки — Итого Проживает')).toHaveValue('mint');
+  expect(screen.getAllByRole('checkbox', { name: /^(Выход|Итого Проживает)$/ })).toEqual([
+    screen.getByRole('checkbox', { name: 'Итого Проживает' }),
+    screen.getByRole('checkbox', { name: 'Выход' }),
+  ]);
   await user.selectOptions(screen.getByLabelText('Подписи общежитий'), 'client');
   await user.click(screen.getByRole('button', { name: 'Добавить блок' }));
   expect(save).toHaveBeenCalledWith(
@@ -114,8 +147,18 @@ it('конструктор объединяет названия и сохран
         label: 'client',
         metrics: [
           {
+            name: 'Итого Проживает',
+            aggregate: 'sum',
+            color: 'mint',
+            sources: [
+              { kind: 'report', dormitory_id: 1, row_id: 11 },
+              { kind: 'report', dormitory_id: 2, row_id: 21 },
+            ],
+          },
+          {
             name: 'Выход',
             aggregate: 'average',
+            color: null,
             sources: [
               { kind: 'report', dormitory_id: 1, row_id: 10 },
               { kind: 'report', dormitory_id: 2, row_id: 20 },

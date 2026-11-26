@@ -19,6 +19,7 @@ import { useFrameRefresh, usePageRefresh } from './usePageRefresh';
 import { ArrivalPlanningBoard } from './personnel/ArrivalPlanningBoard';
 import { ArrivalPlanningPage } from './personnel/ArrivalPlanningPage';
 import { PersonnelEmployeeFocus } from './personnel/PersonnelEmployeeFocus';
+import { FinishedShifts } from './personnel/FinishedShifts';
 import { BlockDialog, SaveListDialog } from './personnel/Dialogs';
 import type { Mutate } from './personnel/Forms';
 import { PersonnelProfile } from './personnel/PersonnelProfile';
@@ -132,7 +133,9 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
    * браузере: одна и та же граница у «завершают вахту» и у блоков.
    */
   const days = Math.min(365, Math.max(1, dayDiff(period.from, period.to)));
-  const [filter, setFilter] = useState<Filter>('all');
+  const [listMode, setFilter] = useState<Filter | 'finished'>('current');
+  const finished = listMode === 'finished';
+  const filter = listMode === 'finished' ? 'current' : listMode;
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<number[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -202,7 +205,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
    * Страница сотрудников приходит с сервера (#247): условия, сортировка и
    * разбиение на страницы считаются там, браузер рисует только полученные карточки.
    */
-  const list = useEmployeeList(criteria, page, view === 'list', revision);
+  const list = useEmployeeList(criteria, page, view === 'list' && !finished, revision);
   /**
    * Сводка поверхности приходит в рамке полем `counts` (#247): раньше три числа
    * считались в браузере по всему массиву, а без массива стоили бы трёх запросов
@@ -219,7 +222,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
   const listCounts = useEmployeeCounts(
     criteria,
     otherFilters,
-    view === 'list' && !sameAsSummary,
+    view === 'list' && !finished && !sameAsSummary,
     revision,
   );
   /**
@@ -244,7 +247,7 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
   }, [data]);
   useEffect(() => {
     setPage(0);
-  }, [filter, debouncedQuery, dormitory, period, scope, debouncedColumnFilters]);
+  }, [listMode, debouncedQuery, dormitory, period, scope, debouncedColumnFilters]);
   const modalOpen = !!selectedId || !!blockEditor || savingList || selectedList !== null;
   useEffect(() => {
     if (!modalOpen) return;
@@ -444,9 +447,11 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
                 <h2>Сотрудники</h2>
                 <p>Люди, проживание и вахты — всё под рукой.</p>
                 <div className={f.stats}>
-                  <span>
-                    <b>{total}</b> В списке
-                  </span>
+                  {!finished && (
+                    <span>
+                      <b>{total}</b> В списке
+                    </span>
+                  )}
                   <span>
                     <i aria-hidden="true" />
                     <b>{listSummary('current')}</b> Проживает
@@ -649,19 +654,23 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
                     </button>
                   </span>
                 ))}
-                <button
-                  disabled={busy || data.preferences.lists.length >= 50}
-                  onClick={() => setSavingList(true)}
-                >
-                  + Сохранить текущий список
-                </button>
+                {!finished && (
+                  <button
+                    disabled={busy || data.preferences.lists.length >= 50}
+                    onClick={() => setSavingList(true)}
+                  >
+                    + Сохранить текущий список
+                  </button>
+                )}
               </div>
               <div className={s.toolbar}>
                 <div>
-                  <h2>
-                    {names[filter]} · {total}
-                  </h2>
-                  <p className={s.hint}>Карточка связывает вахты и перемещения одного человека.</p>
+                  <h2>{finished ? 'Закончили вахту' : `${names[filter]} · ${total}`}</h2>
+                  <p className={s.hint}>
+                    {finished
+                      ? 'Подтверждённые выселения за выбранный период.'
+                      : 'Карточка связывает вахты и перемещения одного человека.'}
+                  </p>
                 </div>
                 <input
                   aria-label="Поиск сотрудника"
@@ -671,92 +680,108 @@ function PersonnelDirectory({ extension }: { extension?: PersonnelPageExtension 
                 />
               </div>
               <div className={s.chips}>
-                {Object.entries(names).map(([id, label]) => (
-                  <button
-                    key={id}
-                    aria-pressed={filter === id}
-                    onClick={() => setFilter(id as Filter)}
-                  >
-                    {label}
+                {(['current', 'ending', 'finished'] as const).map((id) => (
+                  <button key={id} aria-pressed={listMode === id} onClick={() => setFilter(id)}>
+                    {id === 'finished' ? 'Закончили вахту' : names[id]}
                   </button>
                 ))}
               </div>
-              {scope.length > 0 && (
-                <p className={s.hint}>
-                  Общежития списка: {scope.map((id) => dormName(data, id)).join(' · ')}{' '}
-                  <button className={s.linkButton} onClick={() => setScope([])}>
-                    Сбросить ограничение
-                  </button>
-                </p>
+              {finished ? (
+                <FinishedShifts
+                  key={JSON.stringify([dormitory, period.from, period.to, debouncedQuery])}
+                  data={data}
+                  dormitory={dormitory}
+                  period={period}
+                  query={debouncedQuery}
+                  revision={revision}
+                />
+              ) : (
+                <>
+                  {scope.length > 0 && (
+                    <p className={s.hint}>
+                      Общежития списка: {scope.map((id) => dormName(data, id)).join(' · ')}{' '}
+                      <button className={s.linkButton} onClick={() => setScope([])}>
+                        Сбросить ограничение
+                      </button>
+                    </p>
+                  )}
+                  <EmployeeListFilters
+                    data={data}
+                    criteria={shownCriteria}
+                    fields={listFields}
+                    onChange={setColumnFilters}
+                  />
+                  <div className={s.bulk}>
+                    <strong>
+                      {selectedRows.length ? `Выбрано: ${selectedRows.length}` : `Список: ${total}`}
+                    </strong>
+                    <button
+                      type="button"
+                      className={s.primary}
+                      disabled={!selectedRows.length}
+                      onClick={() => setSelectedList(selectedRows.map((person) => person.id))}
+                    >
+                      Список выбранных{selectedRows.length ? ` (${selectedRows.length})` : ''}
+                    </button>
+                    {selectedRows.length > 0 && (
+                      <button onClick={() => setSelected([])}>Снять выбор</button>
+                    )}
+                    {selectedRows.length > 0 && (
+                      <span className={listStyles.selectionHint}>
+                        В текущей выборке: {selectedInRows.length} из {selectedRows.length}{' '}
+                        выбранных. Выбор сохраняется при смене фильтров.
+                      </span>
+                    )}
+                  </div>
+                  {view === 'list' && list.loading && !list.result && (
+                    <p role="status" className={s.hint}>
+                      Загружаем сотрудников…
+                    </p>
+                  )}
+                  {view === 'list' && list.error && (
+                    <p role="alert" className={s.error}>
+                      {list.error}{' '}
+                      <button type="button" onClick={list.reload}>
+                        Повторить
+                      </button>
+                    </p>
+                  )}
+                  {view === 'list' &&
+                    !list.loading &&
+                    !list.error &&
+                    list.result &&
+                    total === 0 && (
+                      <p className={s.empty} data-testid="personnel-list-empty">
+                        По этим условиям сотрудников нет. Измените фильтры или строку поиска.
+                      </p>
+                    )}
+                  <PersonnelEmployeeFocus
+                    people={visible}
+                    rows={rows}
+                    selected={selected}
+                    onSelection={setSelected}
+                    data={data}
+                    criteria={criteria}
+                    fields={extraFields}
+                    onPerson={onPerson}
+                  />
+                  <div className={s.pagination} data-testid="personnel-pagination">
+                    <span>
+                      {total ? shownPage * PAGE_SIZE + 1 : 0}–
+                      {Math.min(total, (shownPage + 1) * PAGE_SIZE)} из {total}
+                    </span>
+                    <button disabled={shownPage === 0} onClick={() => setPage(shownPage - 1)}>
+                      Назад
+                    </button>
+                    <button
+                      disabled={shownPage >= pages - 1}
+                      onClick={() => setPage(shownPage + 1)}
+                    >
+                      Далее
+                    </button>
+                  </div>
+                </>
               )}
-              <EmployeeListFilters
-                data={data}
-                criteria={shownCriteria}
-                fields={listFields}
-                onChange={setColumnFilters}
-              />
-              <div className={s.bulk}>
-                <strong>
-                  {selectedRows.length ? `Выбрано: ${selectedRows.length}` : `Список: ${total}`}
-                </strong>
-                <button
-                  type="button"
-                  className={s.primary}
-                  disabled={!selectedRows.length}
-                  onClick={() => setSelectedList(selectedRows.map((person) => person.id))}
-                >
-                  Список выбранных{selectedRows.length ? ` (${selectedRows.length})` : ''}
-                </button>
-                {selectedRows.length > 0 && (
-                  <button onClick={() => setSelected([])}>Снять выбор</button>
-                )}
-                {selectedRows.length > 0 && (
-                  <span className={listStyles.selectionHint}>
-                    В текущей выборке: {selectedInRows.length} из {selectedRows.length} выбранных.
-                    Выбор сохраняется при смене фильтров.
-                  </span>
-                )}
-              </div>
-              {view === 'list' && list.loading && !list.result && (
-                <p role="status" className={s.hint}>
-                  Загружаем сотрудников…
-                </p>
-              )}
-              {view === 'list' && list.error && (
-                <p role="alert" className={s.error}>
-                  {list.error}{' '}
-                  <button type="button" onClick={list.reload}>
-                    Повторить
-                  </button>
-                </p>
-              )}
-              {view === 'list' && !list.loading && !list.error && list.result && total === 0 && (
-                <p className={s.empty} data-testid="personnel-list-empty">
-                  По этим условиям сотрудников нет. Измените фильтры или строку поиска.
-                </p>
-              )}
-              <PersonnelEmployeeFocus
-                people={visible}
-                rows={rows}
-                selected={selected}
-                onSelection={setSelected}
-                data={data}
-                criteria={criteria}
-                fields={extraFields}
-                onPerson={onPerson}
-              />
-              <div className={s.pagination} data-testid="personnel-pagination">
-                <span>
-                  {total ? shownPage * PAGE_SIZE + 1 : 0}–
-                  {Math.min(total, (shownPage + 1) * PAGE_SIZE)} из {total}
-                </span>
-                <button disabled={shownPage === 0} onClick={() => setPage(shownPage - 1)}>
-                  Назад
-                </button>
-                <button disabled={shownPage >= pages - 1} onClick={() => setPage(shownPage + 1)}>
-                  Далее
-                </button>
-              </div>
             </section>
           )}
           <div className={s.footer}>

@@ -117,6 +117,18 @@
   width: var(--control-h-sm);
   padding-right: 0;
 }
+.finishedTable th:first-child,
+.finishedTable td:first-child {
+  width: auto;
+  padding-right: var(--gap-12);
+}
+.finishedTable time {
+  white-space: nowrap;
+}
+.finishedNotes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .employeeTable tbody tr:last-child td {
   border-bottom: 0;
 }

@@ -157,6 +157,15 @@ class BindingInput(StrictModel):
 ListFilter = Literal["all", "current", "ending"]
 
 
+class FinishedShift(BaseModel):
+    id: int
+    employee_id: str
+    full_name: str | None
+    dormitory_id: int
+    departure_date: CalendarDate
+    notes: str | None
+
+
 class EmployeeColumnFilter(StrictModel):
     field: str = Field(min_length=1, max_length=255)
     operator: Literal["contains", "equals", "empty", "filled", "from", "to"]

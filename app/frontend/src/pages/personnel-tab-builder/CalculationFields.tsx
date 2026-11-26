@@ -1,9 +1,11 @@
 import { useContext, useLayoutEffect, useRef, useState } from 'react';
 import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
+import { FormulaResultFormat } from '../../components/FormulaResultFormat';
+import { formatPercent } from '../../components/formatPercent';
 import type { PersonnelData } from '../../api/personnel';
 import type { PersonnelTab } from './model';
 import type { CalculationRule, CellResult, LinkRule, ReferenceTarget } from './calculationTypes';
-import { operations } from './calculationTypes';
+import { operations, showsPercent } from './calculationTypes';
 import { bindFormula, calculationSources, displayFormula } from './calculations';
 import { personName } from '../../workspace/personnel/helpers';
 import s from './Tabs.module.css';
@@ -126,6 +128,10 @@ export function CalculationFields({
               }
             />
           </label>
+          <FormulaResultFormat
+            percent={showsPercent(rule)}
+            onChange={(displayPercent) => onChange({ ...rule, displayPercent })}
+          />
           <div className={s.buttons} aria-label="Вставить действие">
             {['+', '−', '×', '÷', '(', ')'].map((symbol, index) => (
               <button
@@ -489,7 +495,13 @@ export function CalculationFields({
               role={preview.error ? 'alert' : 'status'}
               className={preview.error ? s.error : s.result}
             >
-              {preview.error ?? `Результат: ${String(preview.value ?? 'пусто')}`}
+              {preview.error ??
+                `Результат: ${
+                  showsPercent(rule) &&
+                  (typeof preview.value === 'number' || typeof preview.value === 'string')
+                    ? formatPercent(preview.value)
+                    : String(preview.value ?? 'пусто')
+                }`}
             </output>
           )}
         </div>

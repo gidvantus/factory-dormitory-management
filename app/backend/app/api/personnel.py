@@ -21,6 +21,7 @@ from app.api.organization import Membership
 from app.arrival_settings import settings_response
 from app.db import get_db
 from app.employee_profile import load_profile
+from app.finished_shifts import finished_shifts
 from app.models.custom_tab import CustomTabEntry
 from app.models.dormitory import Dormitory
 from app.models.inflow import PersonnelInflow
@@ -76,6 +77,7 @@ from app.schemas.personnel import (
     EmployeePage,
     EmployeeProfileLookup,
     EmployeeUpdate,
+    FinishedShift,
     IdentityFields,
     ListFilter,
     NoteInput,
@@ -99,6 +101,7 @@ from app.table_data import (
     require_writable_table,
     validate_resident_gender,
 )
+from app.table_pagination import PageRequest, TablePage
 
 router = APIRouter(prefix="/personnel", tags=["personnel"], responses=EXCHANGE_USER_RESPONSES)
 DbSession = Annotated[Session, Depends(get_db)]
@@ -262,6 +265,26 @@ def employees_page(
     # `json` Pydantic молча превратил бы их в строки, и правило «не JSON-тип в
     # теле — ошибка данных» действовало бы только на одном маршруте из двух.
     return json_response(result.model_dump())
+
+
+@router.get("/finished-shifts", response_model=TablePage[FinishedShift])
+def list_finished_shifts(
+    _user: SubscribedUser,
+    membership: Membership,
+    db: DbSession,
+    start: Annotated[date, Query(alias="from")],
+    end: Annotated[date, Query(alias="to")],
+    dormitory: Annotated[int | None, Query(ge=1)] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    query: Annotated[str, Query(max_length=255)] = "",
+) -> TablePage[FinishedShift]:
+    period_bounds(start, end)
+    ids = (
+        [own_dormitory(db, dormitory, membership).id]
+        if dormitory is not None
+        else dormitory_scope(db, membership)
+    )
+    return finished_shifts(db, ids, start, end, PageRequest(page=page, q=query))
 
 
 @router.get("/cards", response_model=dict[str, Any])

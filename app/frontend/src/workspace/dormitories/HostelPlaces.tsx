@@ -1,6 +1,7 @@
 import { WorkingTable } from '../../components/WorkingTable';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUnsavedChanges } from '../../components/useUnsavedChanges';
+import { formatPercent } from '../../components/formatPercent';
 import type { FormEvent } from 'react';
 
 import { api, ApiError } from '../../api/client';
@@ -557,9 +558,15 @@ export function HostelPlaces({
                               label: row.name,
                               editable: !row.formula && !row.link,
                               formula: row.formula,
+                              displayPercent: row.display_percent,
                               link: row.link,
                             }))
-                        : rows.map((row) => ({ ...row, formula: row.formula ?? null, link: null }))
+                        : rows.map((row) => ({
+                            ...row,
+                            formula: row.formula ?? null,
+                            displayPercent: false,
+                            link: null,
+                          }))
                       ).map((row) => (
                         <tr key={row.field} className={row.editable ? undefined : styles.totalRow}>
                           <th scope="row">
@@ -598,7 +605,11 @@ export function HostelPlaces({
                                       (row.link ? 'Значение из другой таблицы' : undefined)
                                     }
                                   >
-                                    {error ? 'Ошибка' : (value ?? '—')}
+                                    {error
+                                      ? '—'
+                                      : row.formula && row.displayPercent && value != null
+                                        ? formatPercent(value)
+                                        : (value ?? '—')}
                                   </output>
                                 )}
                               </td>

@@ -49,6 +49,7 @@ class ResidentPaymentResponse(BaseModel):
 class RegisterPaymentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     check_columns: bool = True
+    preview_only: bool = False
 
 
 class PaymentColumnsRequired(BaseModel):

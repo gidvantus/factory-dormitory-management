@@ -4,6 +4,7 @@ import { WorkingTable } from '../../components/WorkingTable';
 import { useContext, useState } from 'react';
 import type { PersonnelData } from '../../api/personnel';
 import { Modal, ModalCancelButton } from '../../components/Modal';
+import { formatPercent } from '../../components/formatPercent';
 import { addDays, dateLabel, personName } from '../../workspace/personnel/helpers';
 import { RecordEditor } from './RecordEditor';
 import { downloadCsv } from './csv';
@@ -12,19 +13,20 @@ import type { Column, PersonnelTab, RecordRow } from './model';
 import s from './Tabs.module.css';
 import { dependents, displayFormula, isComputed, referenceTargets, rowTitle } from './calculations';
 import type { CellResult } from './calculationTypes';
+import { showsPercent } from './calculationTypes';
 import { RowCalculationDialog } from './RowCalculationDialog';
 import { useCalculationEngine } from './useCalculationEngine';
 import { useBuilderDraft } from './useBuilderDraft';
 
-function sum(values: string[]): string {
+const numberFormat = new Intl.NumberFormat('ru', { maximumFractionDigits: 6 });
+
+function sum(values: string[], percent: boolean): string {
   const numbers = values
     .filter((value) => /^[+-]?\d+(?:[.,]\d+)?$/.test(value.trim()))
     .map((value) => Number(value.replace(',', '.')));
-  return numbers.length
-    ? new Intl.NumberFormat('ru', { maximumFractionDigits: 6 }).format(
-        numbers.reduce((total, value) => total + value, 0),
-      )
-    : '—';
+  if (!numbers.length) return '—';
+  const total = numbers.reduce((sum, value) => sum + value, 0);
+  return percent ? formatPercent(total) : numberFormat.format(total);
 }
 
 export function TableContent({
@@ -66,26 +68,42 @@ export function TableContent({
   const engine = useCalculationEngine(tab, tabs, data, {
     range: options.period_mode === 'none' ? null : period,
   });
-  const text = (result: CellResult): string =>
-    result.pending
-      ? '…'
-      : result.error
-        ? `Ошибка: ${result.error}`
-        : typeof result.value === 'number'
-          ? new Intl.NumberFormat('ru', { maximumFractionDigits: 6 }).format(result.value)
-          : String(result.value ?? '');
-  const dayText = (row: RecordRow, day: string): string => text(engine.day(tab, row, day));
-  const dayTotal = (items: RecordRow[], days: string[]): string => {
-    const values = items.flatMap((row) => days.map((day) => engine.day(tab, row, day)));
-    if (values.some((value) => value.pending)) return '…';
-    return values.some((value) => value.error)
-      ? 'Ошибка расчёта'
-      : sum(values.map((value) => String(value.value ?? '')));
+  const text = (result: CellResult, percent = false, errorDetails = false): string => {
+    if (result.pending) return '…';
+    if (result.error) return errorDetails ? `Ошибка: ${result.error}` : '—';
+    if (percent && (typeof result.value === 'number' || typeof result.value === 'string'))
+      return formatPercent(result.value);
+    return typeof result.value === 'number'
+      ? numberFormat.format(result.value)
+      : String(result.value ?? '');
   };
-  const label = (row: RecordRow, column: Column): string => {
+  const dayText = (row: RecordRow, day: string, errorDetails = false): string =>
+    text(engine.day(tab, row, day), showsPercent(row.rule), errorDetails);
+  const dayTotal = (
+    items: RecordRow[],
+    days: string[],
+    percent = false,
+  ): { text: string; error?: string } => {
+    const values = items.flatMap((row) => days.map((day) => engine.day(tab, row, day)));
+    if (values.some((value) => value.pending)) return { text: '…' };
+    const errors = new Set(values.flatMap(({ error }) => (error ? [error] : [])));
+    return errors.size
+      ? { text: 'Ошибка расчёта', error: [...errors].join('\n') }
+      : {
+          text: sum(
+            values.map(({ value }) => String(value ?? '')),
+            percent,
+          ),
+        };
+  };
+  const renderDayTotal = (items: RecordRow[], days: string[], percent = false): JSX.Element => {
+    const total = dayTotal(items, days, percent);
+    return <span title={total.error}>{total.error ? '—' : total.text}</span>;
+  };
+  const label = (row: RecordRow, column: Column, errorDetails = false): string => {
     if (calendar && column.id === columns[0]?.id && row.name) return row.name;
     const result = engine.column(tab, row, column.id);
-    if (result.error || result.pending) return text(result);
+    if (result.error || result.pending) return text(result, false, errorDetails);
     return column.kind === 'employee'
       ? personName(
           data.employees.find(
@@ -99,7 +117,7 @@ export function TableContent({
           : 'Нет'
         : column.kind === 'date'
           ? dateLabel(String(result.value ?? ''), true)
-          : text(result);
+          : text(result, showsPercent(column.rule));
   };
   const inPeriod = tab.rows.filter(
     (row) =>
@@ -114,7 +132,7 @@ export function TableContent({
       !tab.actions.search ||
       !query ||
       allColumns.some((column) =>
-        label(row, column).toLocaleLowerCase('ru').includes(query.toLocaleLowerCase('ru')),
+        label(row, column, true).toLocaleLowerCase('ru').includes(query.toLocaleLowerCase('ru')),
       ),
   );
   const rowName = (row: RecordRow): string => rowTitle(tab, row, data);
@@ -269,9 +287,12 @@ export function TableContent({
                       : []),
                   ],
                   rows.map((row) => [
-                    ...columns.map((column) => label(row, column)),
+                    ...columns.map((column) => label(row, column, true)),
                     ...(calendar
-                      ? [...dates.map((day) => dayText(row, day)), dayTotal([row], dates)]
+                      ? [
+                          ...dates.map((day) => dayText(row, day, true)),
+                          dayTotal([row], dates, showsPercent(row.rule)).text,
+                        ]
                       : []),
                   ]),
                 )
@@ -429,9 +450,10 @@ export function TableContent({
                     ) : isComputed(column.rule) ? (
                       <span
                         title={
-                          column.rule?.mode === 'formula'
+                          engine.column(tab, row, column.id).error ??
+                          (column.rule?.mode === 'formula'
                             ? displayFormula(column.rule, referenceTargets(tab, 'column', data))
-                            : 'Результат связи с источником'
+                            : 'Результат связи с источником')
                         }
                       >
                         {label(row, column) || '—'}
@@ -507,7 +529,7 @@ export function TableContent({
                 ))}
                 {calendar && (
                   <td>
-                    <strong>{dayTotal([row], dates)}</strong>
+                    <strong>{renderDayTotal([row], dates, showsPercent(row.rule))}</strong>
                   </td>
                 )}
                 <td>
@@ -588,9 +610,9 @@ export function TableContent({
                   <th key={column.id}>{!index ? 'Итого за день' : ''}</th>
                 ))}
                 {dates.map((day) => (
-                  <td key={day}>{dayTotal(totalRows, [day])}</td>
+                  <td key={day}>{renderDayTotal(totalRows, [day])}</td>
                 ))}
-                <td>{dayTotal(totalRows, dates)}</td>
+                <td>{renderDayTotal(totalRows, dates)}</td>
                 <td />
               </tr>
             </tfoot>

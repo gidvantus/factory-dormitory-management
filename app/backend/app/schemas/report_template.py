@@ -32,6 +32,7 @@ class ReportTemplateRowResponse(BaseModel):
     name: str
     position: int
     formula: str | None
+    display_percent: bool = False
 
 
 class ReportTemplateDetailResponse(ReportTemplateResponse):

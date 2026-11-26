@@ -360,6 +360,7 @@ describe('Проживающие', () => {
           },
         ],
       })
+      .mockResolvedValueOnce({ can_continue: true, column_choices: [] })
       .mockResolvedValue(paymentResult());
     const save = vi.spyOn(api, 'saveTransferColumns').mockResolvedValue(undefined);
     const user = userEvent.setup();
@@ -374,9 +375,11 @@ describe('Проживающие', () => {
     );
     await user.click(dialog.getByRole('button', { name: 'Сохранить соответствия' }));
     expect(save).toHaveBeenCalledWith('7', { source: 'residents', target: 'advance' }, { 10: 20 });
+    expect(registration).toHaveBeenNthCalledWith(2, '7', 3, 'advance', true, true);
+    expect(row.queryByRole('status')).not.toBeInTheDocument();
     await user.click(await dialog.findByRole('button', { name: 'Записать' }));
     expect(await row.findByRole('status')).toHaveTextContent('Записан на аванс.');
-    expect(registration).toHaveBeenCalledTimes(2);
+    expect(registration).toHaveBeenCalledTimes(3);
   });
 
   it('дожидается сохранения ФИО перед записью и блокирует повторное нажатие во время запроса', async () => {

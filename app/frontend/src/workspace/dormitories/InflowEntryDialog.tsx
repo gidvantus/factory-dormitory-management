@@ -44,7 +44,7 @@ export function InflowEntryDialog({
     if (!form) throw new Error('Форма ещё загружается');
     const cells = Object.fromEntries(
       form.columns.map((column) => {
-        const field = identityKey(column.builtin_key);
+        const field = identityKey(column, form.identity_columns);
         return [
           String(column.id),
           field

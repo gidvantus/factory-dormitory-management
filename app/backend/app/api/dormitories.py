@@ -143,6 +143,7 @@ def create_dormitory(
             name=row.name,
             metric_key=row.metric_key,
             formula=(row.formula or DEFAULT_REPORT_FORMULA) if row.metric_key else row.formula,
+            display_percent=row.display_percent,
             position=next_position,
             link=restore_link(db, dormitory.id, row.link_snapshot, mapped_columns, mapped_sources)
             if not row.metric_key

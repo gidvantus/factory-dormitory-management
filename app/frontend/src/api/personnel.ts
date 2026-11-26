@@ -154,6 +154,15 @@ export type EmployeePage = {
   per_page: number;
   pages: number;
 };
+export type FinishedShift = {
+  id: number;
+  employee_id: string;
+  full_name: string | null;
+  dormitory_id: number;
+  departure_date: string;
+  notes: string | null;
+};
+export type FinishedShiftPage = { rows: FinishedShift[]; total: number; page: number };
 /** Условия страницы: те же правила, что раньше считались в браузере по всему списку. */
 export type EmployeeListQuery = {
   filter: Filter;
@@ -347,6 +356,15 @@ export const personnelApi = {
     if (query.column_filters?.length)
       params.set('column_filters', JSON.stringify(query.column_filters));
     return request(`/personnel/employees?${params}`, { signal });
+  },
+  finishedShifts: (
+    filters: { period: DateRange; dormitory: number | null; query: string; page: number },
+    signal?: AbortSignal,
+  ): Promise<FinishedShiftPage> => {
+    const params = new URLSearchParams({ ...filters.period, page: String(filters.page) });
+    if (filters.dormitory !== null) params.set('dormitory', String(filters.dormitory));
+    if (filters.query.trim()) params.set('query', filters.query.trim());
+    return request(`/personnel/finished-shifts?${params}`, { signal });
   },
   detail: (id: string, signal?: AbortSignal): Promise<EmployeeDetail> =>
     request(`/personnel/employees/${encodeURIComponent(id)}`, { signal }),

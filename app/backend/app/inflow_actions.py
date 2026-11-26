@@ -61,11 +61,8 @@ def prepare_inflow_action(
         column.id for column in targets if column.builtin_key in fields or str(column.id) in custom
     }
     copied: set[int] = set()
-    occupied = {
-        col.id
-        for col in targets
-        if (col.builtin_key and fields.get(col.builtin_key) is not None) or str(col.id) in custom
-    }
+    # Значение из формы заселения можно заменить выбранным значением из притока.
+    occupied: set[int] = set()
     title = "Проживающие" if action == "settle" else "Отток"
     schema = UpdateResidentRequest if action == "settle" else UpdateOutflowRequest
     for source in sources:
@@ -85,7 +82,10 @@ def prepare_inflow_action(
         target = matches[0]
         try:
             value = matching_value(source, target, row)
-            if target.id in mapping.reserved and value is None and target.id in occupied:
+            current = (
+                fields.get(target.builtin_key) if target.builtin_key else custom.get(str(target.id))
+            )
+            if target.id in mapping.reserved and value is None and current not in (None, ""):
                 continue
             if target.builtin_key:
                 validated = schema.model_validate({target.builtin_key: value})

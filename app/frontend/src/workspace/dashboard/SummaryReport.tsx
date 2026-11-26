@@ -23,6 +23,16 @@ export function SummaryReport({
   const daily = config.summary?.view === 'daily';
   const scroll = daily && data.dates.length > 31;
   const showMetrics = data.rows.some((row) => row.metric !== data.rows[0].metric);
+  const colors = new Map(config.summary?.metrics.map(({ name, color }) => [name, color]));
+  const rowColor = (metric: string) => {
+    const color = colors.get(metric);
+    return color
+      ? {
+          'data-table-color': color,
+          style: { '--summary-row-fill': `var(--table-fill-${color})` } as CSSProperties,
+        }
+      : {};
+  };
   const groups = new Map<number, typeof data.rows>();
   for (const row of data.rows) {
     const group = groups.get(row.dormitory_id);
@@ -72,7 +82,7 @@ export function SummaryReport({
           {Array.from(groups, ([id, rows]) => (
             <tbody key={id}>
               {rows.map((row, index) => (
-                <tr key={row.metric}>
+                <tr key={row.metric} {...rowColor(row.metric)}>
                   {index === 0 && (
                     <th
                       scope={showMetrics ? 'rowgroup' : 'row'}
@@ -104,7 +114,7 @@ export function SummaryReport({
             <section className={styles.mobileRow} key={id}>
               <strong>{rows[0].label}</strong>
               {rows.map((row) => (
-                <div key={row.metric} className={styles.mobileMetric}>
+                <div key={row.metric} className={styles.mobileMetric} {...rowColor(row.metric)}>
                   {showMetrics && <strong>{row.row_name ?? row.metric}</strong>}
                   <dl className={styles.days}>
                     {row.daily.map((cell) => (

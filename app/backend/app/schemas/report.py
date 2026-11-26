@@ -25,6 +25,7 @@ class CreateReportRowRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     formula: str | None = Field(default=None, max_length=1000)
+    display_percent: bool = False
 
     @field_validator("name")
     @classmethod
@@ -44,6 +45,7 @@ class UpdateReportRowRequest(BaseModel):
 
     name: str | None = Field(default=None, max_length=120)
     formula: str | None = Field(default=None, max_length=1000)
+    display_percent: bool = False
 
     @field_validator("name")
     @classmethod
@@ -95,6 +97,7 @@ class ReportRowResponse(BaseModel):
     metric_block_name: str | None = None
     position: int
     formula: str | None
+    display_percent: bool = False
     values: dict[str, str]
     errors: dict[str, str]
 

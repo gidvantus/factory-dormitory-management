@@ -146,6 +146,26 @@ describe('Настройка формул и связей в окнах', () => 
     expect(screen.getByRole('alert')).toHaveTextContent('Отклонение');
     expect(rows('План и факт')).toHaveLength(4);
   });
+  it('показывает проценты и сохраняет причину ошибки в подсказках ячейки и итога', async () => {
+    const user = userEvent.setup();
+    open('demo-daily');
+    await user.click(screen.getByRole('button', { name: '+ Добавить расчётную строку' }));
+    fireEvent.change(screen.getByLabelText('Название строки'), { target: { value: 'Доля' } });
+    await user.selectOptions(screen.getByLabelText('Получение значения'), 'formula');
+    fireEvent.change(screen.getByLabelText('Формула'), { target: { value: '=27/([Факт]*4)' } });
+    await user.selectOptions(screen.getByLabelText('Формат результата'), 'percent');
+    await user.click(screen.getByRole('button', { name: 'Проверить расчёт' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Результат: 75 %');
+    await user.click(screen.getByRole('button', { name: 'Сохранить строку' }));
+    expect(screen.getByLabelText('Доля, 2026-11-02')).toHaveTextContent('75 %');
+    fireEvent.change(screen.getByLabelText('Факт, 2026-11-02'), { target: { value: '0' } });
+    const failedCell = screen.getByLabelText('Доля, 2026-11-02');
+    expect(failedCell).toHaveTextContent(/^—$/);
+    expect(failedCell).toHaveAttribute('title', 'Деление на ноль');
+    const cells = failedCell.closest('tr')!.cells;
+    const total = within(cells[cells.length - 2]).getByTitle('Деление на ноль');
+    expect(total).toHaveTextContent(/^—$/);
+  });
   it('создаёт расчётную строку со связью, агрегацией и фильтром в том же окне', async () => {
     const user = userEvent.setup();
     open('demo-daily');
