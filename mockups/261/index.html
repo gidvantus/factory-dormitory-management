@@ -1,0 +1,1953 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Макет #261 — Персонал: ожидание рамки и обновление</title>
+    <style>
+      /* Токены взяты из app/frontend/src/index.css и workspace/personnel/*.module.css.
+         Ни одного нового цвета и радиуса: макет должен совпасть с продуктом без переверстки. */
+      :root {
+        --cream-50: #fffdf9;
+        --cream-100: #fbf6ec;
+        --cream-200: #f4ebdc;
+        --cream-300: #e8dcc7;
+        --crm: #27313d;
+        --ink-700: #3f4c5c;
+        --muted: #5c6a78;
+        --muted-2: #6a756f;
+        --mint-100: #dceee4;
+        --mint-600: #2f7d62;
+        --mint-700: #26654f;
+        --peach-100: #fbe0d2;
+        --clay-600: #c4623c;
+        --clay-700: #97431f;
+        --butter-100: #fcefc7;
+        --butter-700: #7a5c0d;
+        --sky-100: #dce9f7;
+        --sky-200: #b7d3ec;
+        --blue-600: #34679e;
+        --lilac-100: #e6e1f5;
+        --violet-600: #5b4b9e;
+        --danger: #a43c32;
+        --danger-bg: #fff1eb;
+        --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        --font-body: 'Nunito Sans', 'Nunito', 'Segoe UI', system-ui, sans-serif;
+        --r-3xs: 8px;
+        --r-4xs: 9px;
+        --r-sm: 12px;
+        --r-md: 18px;
+        --r-pill: 999px;
+        --g2: 2px;
+        --g4: 4px;
+        --g6: 6px;
+        --g8: 8px;
+        --g10: 10px;
+        --g12: 12px;
+        --g14: 14px;
+        --g16: 16px;
+        --g20: 20px;
+        --g24: 24px;
+        --shadow-sm: 0 1px 2px rgba(39, 49, 61, 0.05);
+        --shadow-md: 0 10px 24px -14px rgba(39, 49, 61, 0.22);
+        --focus: var(--blue-600);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+      body {
+        margin: 0;
+        background: var(--cream-100);
+        color: var(--crm);
+        font: 14px/1.55 var(--font-body);
+      }
+
+      /* --- обвязка артефакта: не часть продукта --------------------------------- */
+      .doc {
+        max-width: 1140px;
+        margin: 0 auto;
+        padding: 32px 24px 8px;
+      }
+      .doc-kicker {
+        margin: 0 0 6px;
+        font: 800 11px var(--font-display);
+        letter-spacing: 1.6px;
+        text-transform: uppercase;
+        color: var(--mint-600);
+      }
+      .doc h1 {
+        margin: 0 0 10px;
+        font: 900 30px/1.15 var(--font-display);
+        letter-spacing: -0.6px;
+      }
+      .doc-lead {
+        margin: 0;
+        max-width: 72ch;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .doc-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 18px;
+        margin: 14px 0 0;
+        padding: 0;
+        list-style: none;
+        color: var(--muted-2);
+        font-size: 12px;
+      }
+      .doc-meta b {
+        color: var(--crm);
+        font-weight: 700;
+      }
+      main {
+        max-width: 1140px;
+        margin: 0 auto;
+        padding: 8px 24px 56px;
+      }
+      .shot + .shot {
+        margin-top: 34px;
+      }
+      .shot-cap {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin: 0 0 10px;
+        font: 800 15px/1.3 var(--font-display);
+      }
+      .shot-cap span {
+        color: var(--mint-600);
+        font-variant-numeric: tabular-nums;
+      }
+      .shot-note {
+        margin: 10px 0 0;
+        max-width: 84ch;
+        color: var(--muted-2);
+        font-size: 12px;
+      }
+      .app {
+        border: 1px solid var(--cream-300);
+        border-radius: var(--r-md);
+        background: var(--cream-50);
+        padding: 26px 28px 24px;
+      }
+      /* --- /обвязка ------------------------------------------------------------ */
+
+      /* --- раздел «Персонал»: как в Personnel.tsx + PersonnelWorkspace ------- */
+      .head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--g20);
+        margin-bottom: var(--g24);
+      }
+      .eyebrow {
+        font: 800 11px var(--font-body);
+        letter-spacing: 1.6px;
+        color: var(--mint-600);
+      }
+      .head h1 {
+        margin: 6px 0;
+        font: 900 36px/1.25 var(--font-display);
+        letter-spacing: -0.7px;
+      }
+      .head h1 small {
+        display: inline-block;
+        vertical-align: middle;
+        padding: 5px 8px;
+        border-radius: 7px;
+        background: var(--mint-100);
+        color: var(--mint-700);
+        font: 700 13px var(--font-body);
+        font-variant-numeric: tabular-nums;
+      }
+      .head-sub {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .head-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: var(--g10);
+        flex: none;
+      }
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--g8);
+        min-height: 18px;
+        color: var(--muted-2);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .status i {
+        width: 6px;
+        height: 6px;
+        border-radius: var(--r-pill);
+        background: var(--mint-600);
+        flex: none;
+      }
+      .status--busy i {
+        background: var(--blue-600);
+        animation: dot 1.4s ease-in-out infinite;
+      }
+      .status--fail {
+        color: var(--danger);
+      }
+      .status--fail i {
+        background: var(--danger);
+      }
+      .status button {
+        border: 0;
+        background: none;
+        padding: 0;
+        color: var(--danger);
+        font: 700 12px var(--font-body);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        cursor: pointer;
+      }
+      @keyframes dot {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.25;
+        }
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--g8);
+        min-height: 39px;
+        padding: 8px 15px;
+        border: 2px solid transparent;
+        border-radius: var(--r-4xs);
+        background: none;
+        font: 800 13px/1.25 var(--font-display);
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .btn svg {
+        width: 16px;
+        height: 16px;
+      }
+      .btn--primary {
+        background: var(--mint-600);
+        color: #fff;
+        box-shadow: var(--shadow-md);
+      }
+      .btn--outline {
+        border-color: var(--cream-300);
+        color: var(--crm);
+      }
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--g4) var(--g24);
+        border-bottom: 1px solid var(--cream-200);
+        margin-bottom: 22px;
+      }
+      .tabs button {
+        padding: 13px 3px;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        background: none;
+        color: var(--muted);
+        font: 400 13px var(--font-body);
+        cursor: pointer;
+      }
+      .tabs button[aria-selected='true'] {
+        color: var(--mint-700);
+        border-bottom-color: var(--mint-600);
+        font-weight: 800;
+      }
+      .tabs b {
+        margin-left: 5px;
+        padding: 2px 6px;
+        border-radius: 5px;
+        background: var(--mint-100);
+        color: var(--mint-700);
+        font: 700 11px var(--font-body);
+        font-variant-numeric: tabular-nums;
+      }
+      .tabs button[aria-selected='true'] b {
+        background: var(--mint-100);
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: var(--g12);
+        margin-block: var(--g20);
+      }
+      .fields {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: var(--g12);
+      }
+      .field {
+        display: flex;
+        align-items: center;
+        gap: var(--g8);
+        color: var(--muted-2);
+        font-size: 12px;
+      }
+      .field select,
+      .field .period {
+        border: 1px solid var(--cream-300);
+        border-radius: var(--r-3xs);
+        background: #fff;
+        color: var(--crm);
+        font: 400 13px var(--font-body);
+      }
+      .field select {
+        padding: 8px 10px;
+      }
+      .field--wait,
+      .field--wait select,
+      .field--wait .period,
+      .field--wait input {
+        opacity: 0.55;
+      }
+      .field .period {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+      }
+      .field .period i {
+        color: var(--muted);
+        font-style: normal;
+      }
+      .period input {
+        width: 106px;
+        border: 0;
+        background: none;
+        color: var(--crm);
+        font: 400 13px var(--font-body);
+      }
+
+      .metrics {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: var(--g20);
+        margin-block: var(--g20) var(--g24);
+        font-size: 13px;
+      }
+      .metrics button {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--g8);
+        border: 0;
+        background: none;
+        padding: 0;
+        color: var(--muted);
+        font: 400 13px var(--font-body);
+        text-align: left;
+        cursor: pointer;
+      }
+      .metrics strong {
+        color: var(--crm);
+        font: 900 17px var(--font-display);
+        font-variant-numeric: tabular-nums;
+      }
+      .metrics i.dot {
+        width: 8px;
+        height: 8px;
+        border-radius: var(--r-pill);
+        background: var(--mint-600);
+      }
+      .metrics svg {
+        width: 16px;
+        height: 16px;
+        color: var(--butter-700);
+      }
+      .block-count {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--g20);
+        align-items: stretch;
+      }
+      .card {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        border: 1px solid var(--cream-300);
+        border-radius: var(--r-sm);
+        background: #fff;
+        box-shadow: var(--shadow-sm);
+        overflow: hidden;
+      }
+      .card-intro {
+        padding: var(--g20);
+      }
+      .card-head {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--g10);
+      }
+      .card-head > div {
+        flex: 1;
+        min-width: 0;
+      }
+      .type-icon {
+        display: grid;
+        place-items: center;
+        flex: none;
+        width: 32px;
+        height: 32px;
+        border-radius: var(--r-3xs);
+        background: var(--cream-100);
+        color: var(--muted);
+      }
+      .type-icon svg {
+        width: 20px;
+        height: 20px;
+      }
+      .card-head h2 {
+        margin: 0;
+        font: 800 16px/1.25 var(--font-display);
+      }
+      .card-head p {
+        margin: var(--g4) 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .icon-btn {
+        display: grid;
+        place-items: center;
+        flex: none;
+        width: 32px;
+        height: 32px;
+        padding: var(--g6);
+        border: 0;
+        background: none;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .icon-btn svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .visual {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: var(--g16);
+        margin-top: var(--g16);
+        padding: var(--g16);
+        min-height: 124px;
+        border-radius: var(--r-sm);
+        background: var(--cream-100);
+      }
+      .metric-big {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--g4);
+        border: 0;
+        background: none;
+        padding: 0;
+        text-align: left;
+        color: var(--crm);
+        cursor: pointer;
+      }
+      .metric-big strong {
+        font: 900 32px/1.1 var(--font-display);
+        letter-spacing: -0.04em;
+        font-variant-numeric: tabular-nums;
+      }
+      .metric-big span {
+        color: var(--ink-700);
+        font-size: 13px;
+      }
+      .ring-wrap {
+        flex: none;
+        text-align: center;
+      }
+      .ring-wrap svg {
+        width: 96px;
+        height: 96px;
+      }
+      .ring-wrap svg text {
+        font: 900 20px var(--font-display);
+        fill: var(--crm);
+      }
+      .ring-wrap > span,
+      .chart-people > span {
+        display: block;
+        margin-top: var(--g4);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .chart-people {
+        flex: 0 1 200px;
+        min-width: 0;
+        text-align: center;
+      }
+      .portraits {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding-block: var(--g12);
+      }
+      .portraits svg {
+        width: 48px;
+        height: 48px;
+        border: 2px solid #fff;
+        border-radius: var(--r-pill);
+        background: var(--cream-50);
+      }
+      .portraits svg + svg {
+        margin-left: calc(-1 * var(--g16));
+      }
+      .portraits svg:nth-child(2) {
+        transform: translateY(calc(-1 * var(--g10)));
+        position: relative;
+        z-index: 1;
+      }
+      .chart-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--g8);
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+      }
+      .chart-empty svg {
+        width: 24px;
+        height: 24px;
+        opacity: 0.6;
+      }
+
+      .card-body {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        padding: 0 var(--g20);
+      }
+      .rows {
+        display: grid;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .rows li {
+        border-bottom: 1px solid var(--cream-200);
+        min-width: 0;
+      }
+      .rows li:last-child {
+        border-bottom: 0;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: var(--g10);
+        width: 100%;
+        padding-block: var(--g14);
+        border: 0;
+        background: none;
+        color: var(--crm);
+        text-align: left;
+        cursor: pointer;
+      }
+      .initials {
+        display: grid;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        border-radius: var(--r-pill);
+        font: 800 13px var(--font-body);
+      }
+      .initials[data-tone='0'] {
+        background: var(--mint-100);
+        color: var(--mint-700);
+      }
+      .initials[data-tone='1'] {
+        background: var(--sky-100);
+        color: var(--blue-600);
+      }
+      .initials[data-tone='2'] {
+        background: var(--peach-100);
+        color: var(--clay-700);
+      }
+      .dorm-icon {
+        display: grid;
+        place-items: center;
+        width: 32px;
+        height: 32px;
+        border-radius: var(--r-3xs);
+      }
+      .dorm-icon svg {
+        width: 20px;
+        height: 20px;
+      }
+      .dorm-icon[data-tone='0'] {
+        background: var(--mint-100);
+        color: var(--mint-700);
+      }
+      .dorm-icon[data-tone='1'] {
+        background: var(--sky-100);
+        color: var(--blue-600);
+      }
+      .dorm-icon[data-tone='2'] {
+        background: var(--peach-100);
+        color: var(--clay-700);
+      }
+      .dorm-icon[data-tone='3'] {
+        background: var(--lilac-100);
+        color: var(--violet-600);
+      }
+      .dorm-icon[data-tone='4'] {
+        background: var(--butter-100);
+        color: var(--butter-700);
+      }
+      .row-copy {
+        display: flex;
+        flex-direction: column;
+        gap: var(--g2);
+        min-width: 0;
+      }
+      .row-copy strong {
+        font: 800 13px/1.25 var(--font-body);
+      }
+      .row-copy > span {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.25;
+      }
+      .row-value {
+        color: var(--crm);
+        font: 800 13px var(--font-body);
+        text-align: right;
+        white-space: nowrap;
+      }
+      .track {
+        display: block;
+        height: 6px;
+        margin-top: var(--g6);
+        border-radius: var(--r-pill);
+        background: var(--cream-100);
+        overflow: hidden;
+      }
+      .track i {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--mint-600);
+      }
+      .track i[data-tone='1'] {
+        background: var(--blue-600);
+      }
+      .track i[data-tone='2'] {
+        background: var(--clay-600);
+      }
+      .track i[data-tone='3'] {
+        background: var(--violet-600);
+      }
+      .track i[data-tone='4'] {
+        background: var(--butter-700);
+      }
+      .row--contacts {
+        grid-template-columns: auto minmax(0, 1fr);
+      }
+      .row--contacts .row-value {
+        grid-column: 2;
+        margin-top: calc(-1 * var(--g6));
+        color: var(--ink-700);
+        font-weight: 600;
+        text-align: left;
+        white-space: normal;
+      }
+      .empty-block {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--g8);
+        min-height: 144px;
+        padding: var(--g20);
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+      }
+      .empty-block svg {
+        width: 24px;
+        height: 24px;
+        opacity: 0.6;
+      }
+      .empty-block strong {
+        color: var(--crm);
+        font-size: 13px;
+      }
+      .empty-block p {
+        margin: 0;
+      }
+      .foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: var(--g8);
+        margin-top: auto;
+        padding-block: var(--g12);
+        border-top: 1px solid var(--cream-200);
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .foot small {
+        display: block;
+        font-size: inherit;
+      }
+      .list-link {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--g6);
+        padding-block: var(--g4);
+        border: 0;
+        background: none;
+        color: var(--mint-700);
+        font: 800 13px var(--font-body);
+        text-decoration: none;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .list-link svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .add-card {
+        display: flex;
+        align-items: center;
+        gap: var(--g12);
+        width: 100%;
+        min-height: 78px;
+        margin-top: var(--g20);
+        padding: var(--g16) var(--g20);
+        border: 1px dashed var(--cream-300);
+        border-radius: var(--r-4xs);
+        background: none;
+        color: var(--crm);
+        text-align: left;
+        cursor: pointer;
+      }
+      .add-card svg {
+        width: 20px;
+        height: 20px;
+        flex: none;
+        color: var(--muted);
+      }
+      .add-card span {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--g6) var(--g12);
+      }
+      .add-card strong {
+        font: 800 13px var(--font-display);
+      }
+      .add-card small {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .section-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: var(--g8);
+        margin-top: var(--g20);
+        padding-top: var(--g12);
+        border-top: 1px solid var(--cream-200);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      /* --- скелет: язык продукта (Journal.module.css: .skeleton) -------------- */
+      .sk {
+        display: block;
+        height: 12px;
+        border-radius: 6px;
+        background: var(--cream-200);
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+      .sk--tile {
+        width: 32px;
+        height: 32px;
+        border-radius: var(--r-3xs);
+      }
+      .sk--line {
+        width: 132px;
+      }
+      .sk--line-sm {
+        width: 84px;
+        height: 10px;
+      }
+      .sk--num {
+        width: 84px;
+        height: 30px;
+        border-radius: var(--r-3xs);
+      }
+      .sk--ring {
+        width: 96px;
+        height: 96px;
+        border-radius: var(--r-pill);
+      }
+      .sk--circle {
+        width: 32px;
+        height: 32px;
+        border-radius: var(--r-pill);
+      }
+      .sk--row {
+        flex: 1;
+        min-width: 0;
+      }
+      .sk--w40 {
+        width: 40%;
+      }
+      .sk--w60 {
+        width: 60%;
+      }
+      .sk-row {
+        display: flex;
+        align-items: center;
+        gap: var(--g10);
+        padding-block: var(--g14);
+        border-bottom: 1px solid var(--cream-200);
+      }
+      .sk-row:last-child {
+        border-bottom: 0;
+      }
+      .sk-col {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: var(--g6);
+        min-width: 0;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.45;
+        }
+      }
+
+      /* --- состояния в сетке --------------------------------------------------- */
+      .alert {
+        display: grid;
+        gap: var(--g8);
+        padding: var(--g16) var(--g20);
+        border: 1px solid var(--danger-bg);
+        border-radius: var(--r-4xs);
+        background: var(--danger-bg);
+        color: var(--danger);
+      }
+      .alert h2 {
+        margin: 0;
+        font: 800 16px/1.3 var(--font-display);
+      }
+      .alert p {
+        margin: 0;
+        color: #7c3a2c;
+        font-size: 13px;
+        max-width: 66ch;
+      }
+      .alert-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: var(--g12);
+        margin-bottom: var(--g20);
+        padding: var(--g12) var(--g16);
+        border-radius: var(--r-4xs);
+        background: var(--danger-bg);
+        color: var(--danger);
+        font-size: 13px;
+      }
+      .alert-line p {
+        margin: 0;
+      }
+      .alert-line button {
+        border: 0;
+        background: none;
+        padding: 0;
+        color: var(--danger);
+        font: 800 13px var(--font-body);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .notice {
+        margin: 0 0 var(--g20);
+        padding: 11px var(--g14);
+        border-radius: var(--r-4xs);
+        background: #eef4e9;
+        color: #4a684b;
+        font-size: 13px;
+      }
+      .notice a {
+        color: #3f5f40;
+      }
+      .alert-state {
+        grid-column: 1 / -1;
+        min-height: 220px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        gap: var(--g10);
+        padding: var(--g24);
+        border-color: #f2d3c6;
+        background: var(--danger-bg);
+      }
+      .alert-state h2 {
+        margin: 0;
+        color: var(--danger);
+        font: 800 16px/1.3 var(--font-display);
+      }
+      .alert-state p {
+        margin: 0;
+        max-width: 64ch;
+        color: #7c3a2c;
+        font-size: 13px;
+      }
+      .alert-state .btn {
+        margin-top: var(--g6);
+      }
+
+      /* --- полоса образцов состояний ------------------------------------------ */
+      .specimens {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--g20);
+        margin-top: 12px;
+      }
+      .spec {
+        display: flex;
+        flex-direction: column;
+        gap: var(--g12);
+        padding: var(--g20);
+        border: 1px solid var(--cream-300);
+        border-radius: var(--r-sm);
+        background: var(--cream-50);
+      }
+      .spec h3 {
+        margin: 0;
+        font: 800 13px var(--font-display);
+      }
+      .spec p {
+        margin: 0;
+        color: var(--muted-2);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .spec-code {
+        font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
+        font-size: 11px;
+        color: var(--muted-2);
+      }
+      .spec-stack {
+        display: grid;
+        gap: var(--g10);
+        padding: var(--g12);
+        border: 1px solid var(--cream-200);
+        border-radius: var(--r-4xs);
+        background: #fff;
+      }
+
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .sk,
+        .status--busy i {
+          animation: none;
+        }
+      }
+      @media (max-width: 860px) {
+        .specimens {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      @media (max-width: 760px) {
+        .grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      @media (max-width: 560px) {
+        .doc {
+          padding: 22px 14px 6px;
+        }
+        main {
+          padding: 6px 14px 40px;
+        }
+        .doc h1 {
+          font-size: 24px;
+        }
+        .app {
+          padding: 18px 16px 16px;
+          border-radius: var(--r-sm);
+        }
+        .head {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: var(--g12);
+        }
+        .head h1 {
+          font-size: 28px;
+        }
+        .head-actions {
+          align-items: flex-start;
+          width: 100%;
+        }
+        .head-actions .btn {
+          width: 100%;
+        }
+        .status {
+          white-space: normal;
+        }
+        .toolbar {
+          align-items: flex-start;
+        }
+        .fields {
+          width: 100%;
+          flex-direction: column;
+          align-items: stretch;
+          gap: var(--g10);
+        }
+        .field {
+          flex-direction: column;
+          align-items: stretch;
+          gap: var(--g4);
+          width: 100%;
+        }
+        .field select,
+        .field .period {
+          width: 100%;
+        }
+        .field select {
+          padding: 9px 10px;
+        }
+        .period input {
+          width: auto;
+          flex: 1 1 0;
+          min-width: 0;
+        }
+        .tabs {
+          flex-wrap: nowrap;
+          gap: var(--g18);
+          overflow-x: auto;
+          scrollbar-width: none;
+          margin-inline: -16px;
+          padding-inline: 16px;
+        }
+        .tabs::-webkit-scrollbar {
+          display: none;
+        }
+        .tabs button {
+          flex: none;
+          white-space: nowrap;
+        }
+        .metrics {
+          gap: var(--g12);
+        }
+        .block-count {
+          margin-left: 0;
+        }
+        .card-intro {
+          padding: var(--g16);
+        }
+        .card-body {
+          padding: 0 var(--g16);
+        }
+        .visual {
+          gap: var(--g12);
+          padding: var(--g12);
+        }
+        .ring-wrap svg {
+          width: 80px;
+          height: 80px;
+        }
+        .metric-big strong {
+          font-size: 28px;
+        }
+        .chart-people {
+          flex: 1 1 120px;
+        }
+        .add-card small {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="doc">
+      <p class="doc-kicker">Макет постановки · #261</p>
+      <h1>Персонал: что видно, пока рамка в пути</h1>
+      <p class="doc-lead">
+        Задача убирает две секундные вещи — 4-секундный этап <code>block_previews</code> и второй
+        запрос рамки на одно открытие. Изменение видимое: раздел перестаёт быть десятисекундной
+        пустой страницей, но у него появляется новое требование к состоянию «в пути» — рамка ждёт
+        один запрос, а поверхность обновляется тихо и не стирает уже показанные числа.
+      </p>
+      <ul class="doc-meta">
+        <li>Экраны: <b>4 кадра + 3 образца состояний</b></li>
+        <li>Ширины: <b>1440 и 375</b></li>
+        <li>Токены: <b>index.css</b>, <b>Personnel*.module.css</b> — без новых цветов и радиусов</li>
+        <li>Данные: <b>4 874 / 131 / 0</b>, период <b>01–30 нояб. 2026</b></li>
+      </ul>
+    </header>
+
+    <main>
+      <!-- Кадр 1 ------------------------------------------------------------------>
+      <section class="shot">
+        <p class="shot-cap"><span>01</span> Первое открытие: рамка в пути</p>
+        <div class="app">
+          <div class="head">
+            <div>
+              <span class="eyebrow">ЛЮДИ И ИХ ИСТОРИЯ</span>
+              <h1>Персонал</h1>
+              <p class="head-sub">Проживание, вахты и контакты — в одном месте.</p>
+            </div>
+            <div class="head-actions">
+              <p class="status status--busy">
+                <i aria-hidden="true"></i>Загружаем персонал…
+              </p>
+              <button class="btn btn--primary" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                Добавить блок
+              </button>
+            </div>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="Раздел персонала">
+            <button role="tab" aria-selected="true">Рабочая поверхность</button>
+            <button role="tab" aria-selected="false">Сотрудники</button>
+            <button role="tab" aria-selected="false">План заездов</button>
+          </div>
+
+          <div class="toolbar">
+            <div class="fields">
+              <label class="field field--wait">Общежитие <select disabled><option>Все общежития</option></select></label>
+              <label class="field field--wait"
+                >Период персонала
+                <span class="period"
+                  ><input value="01 нояб. 2026" disabled /><i>—</i
+                  ><input value="30 нояб. 2026" disabled
+                /></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="metrics">
+            <button disabled><i class="dot" aria-hidden="true"></i><strong>—</strong> Проживают сейчас</button>
+            <button disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 6v6l4 2" /></svg>
+              <strong>—</strong> Окончания вахт за период
+            </button>
+            <span class="block-count">— / 20 блоков</span>
+          </div>
+
+          <div class="grid" aria-hidden="true">
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="sk sk--tile"></span>
+                  <div class="sk-col">
+                    <span class="sk sk--line"></span>
+                    <span class="sk sk--line-sm"></span>
+                  </div>
+                </div>
+                <div class="visual">
+                  <div class="sk-col">
+                    <span class="sk sk--num"></span>
+                    <span class="sk sk--line-sm"></span>
+                  </div>
+                  <span class="sk sk--ring"></span>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+              </div>
+            </article>
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="sk sk--tile"></span>
+                  <div class="sk-col">
+                    <span class="sk sk--line"></span>
+                    <span class="sk sk--line-sm"></span>
+                  </div>
+                </div>
+                <div class="visual">
+                  <div class="sk-col">
+                    <span class="sk sk--num"></span>
+                    <span class="sk sk--line-sm"></span>
+                  </div>
+                  <span class="sk sk--ring"></span>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+              </div>
+            </article>
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="sk sk--tile"></span>
+                  <div class="sk-col">
+                    <span class="sk sk--line"></span>
+                    <span class="sk sk--line-sm"></span>
+                  </div>
+                </div>
+                <div class="visual">
+                  <div class="sk-col">
+                    <span class="sk sk--num"></span>
+                    <span class="sk sk--line-sm"></span>
+                  </div>
+                  <span class="sk sk--ring"></span>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+              </div>
+            </article>
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="sk sk--tile"></span>
+                  <div class="sk-col">
+                    <span class="sk sk--line"></span>
+                    <span class="sk sk--line-sm"></span>
+                  </div>
+                </div>
+                <div class="visual">
+                  <div class="sk-col">
+                    <span class="sk sk--num"></span>
+                    <span class="sk sk--line-sm"></span>
+                  </div>
+                  <span class="sk sk--ring"></span>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+                <div class="sk-row"><span class="sk sk--circle"></span><span class="sk sk-col"><span class="sk sk--w60"></span><span class="sk sk--w40"></span></span></div>
+              </div>
+            </article>
+          </div>
+        </div>
+        <p class="shot-note">
+          Каркас (заголовок, вкладки, фильтры, метрики) стоит на месте с первого кадра, а плейсхолдеры
+          блоков повторяют размеры настоящей карточки: заголовок 32 px, сводка 124 px, четыре строки.
+          Когда данные приходят, ничего не сдвигается. Статус — одна строка в шапке, не центрированный
+          спиннер по центру пустого экрана.
+        </p>
+      </section>
+
+      <!-- Кадр 2 ------------------------------------------------------------------>
+      <section class="shot">
+        <p class="shot-cap"><span>02</span> Загружено: поверхность на четырёх блоках</p>
+        <div class="app">
+          <div class="head">
+            <div>
+              <span class="eyebrow">ЛЮДИ И ИХ ИСТОРИЯ</span>
+              <h1>Персонал <small>4 874</small></h1>
+              <p class="head-sub">Проживание, вахты и контакты — в одном месте.</p>
+            </div>
+            <div class="head-actions">
+              <p class="status"><i aria-hidden="true"></i>обновлено в 12:47</p>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                <button class="btn btn--outline">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6M9 15v6" /></svg>
+                  Настроить поверхность
+                </button>
+                <button class="btn btn--primary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                  Добавить блок
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="Раздел персонала">
+            <button role="tab" aria-selected="true">Рабочая поверхность</button>
+            <button role="tab" aria-selected="false">Сотрудники <b>4 874</b></button>
+            <button role="tab" aria-selected="false">План заездов</button>
+          </div>
+
+          <div class="toolbar">
+            <div class="fields">
+              <label class="field">Общежитие <select><option>Все общежития</option><option>Общежитие №1 «Северное»</option><option>Общежитие №2 «Заводское»</option></select></label>
+              <label class="field"
+                >Период персонала
+                <span class="period"><input value="01 нояб. 2026" /><i>—</i><input value="30 нояб. 2026" /></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="metrics">
+            <button><i class="dot" aria-hidden="true"></i><strong>131</strong> Проживают сейчас</button>
+            <button>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 6v6l4 2" /></svg>
+              <strong>0</strong> Окончания вахт за период
+            </button>
+            <span class="block-count">4 / 20 блоков</span>
+          </div>
+
+          <div class="grid">
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="type-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="3" /><path d="M8 3v4m8-4v4M4 10h16m-12 4h2m4 0h2m-8 3h2" /></svg>
+                  </span>
+                  <div>
+                    <h2>План заездов</h2>
+                    <p>Все общежития · 7 дн.</p>
+                  </div>
+                  <button class="icon-btn" aria-label="Настроить блок «План заездов»">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6M9 15v6" /></svg>
+                  </button>
+                </div>
+                <div class="visual">
+                  <button class="metric-big"><strong>0</strong><span>человек ожидается</span></button>
+                  <div class="chart-empty">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="3" /><path d="M8 3v4m8-4v4M4 10h16m-12 4h2m4 0h2m-8 3h2" /></svg>
+                    <span>Пока нет данных</span>
+                  </div>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="empty-block">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="3" /><path d="M8 3v4m8-4v4M4 10h16m-12 4h2m4 0h2m-8 3h2" /></svg>
+                  <strong>Пока нет заездов</strong>
+                  <p>На выбранный период планов нет.</p>
+                </div>
+                <div class="foot">
+                  <span>Все записи в блоке</span>
+                  <button class="list-link">Открыть план заездов <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6" /></svg></button>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="type-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg>
+                  </span>
+                  <div>
+                    <h2>Проживающий персонал</h2>
+                    <p>Все общежития</p>
+                  </div>
+                  <button class="icon-btn" aria-label="Настроить блок «Проживающий персонал»">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6M9 15v6" /></svg>
+                  </button>
+                </div>
+                <div class="visual">
+                  <button class="metric-big"><strong>131</strong><span>проживают сейчас</span></button>
+                  <div class="ring-wrap">
+                    <svg viewBox="0 0 100 100" role="img" aria-label="Размещения по общежитиям: Общежитие №1 — 68; Общежитие №2 — 41; Общежитие №3 — 19; Общежитие №4 — 5">
+                      <circle cx="50" cy="50" r="38" fill="none" stroke="#2f7d62" stroke-width="12" pathLength="100" stroke-dasharray="50.13 49.87" stroke-dashoffset="0" transform="rotate(-90 50 50)" />
+                      <circle cx="50" cy="50" r="38" fill="none" stroke="#34679e" stroke-width="12" pathLength="100" stroke-dasharray="29.83 70.17" stroke-dashoffset="-51.13" transform="rotate(-90 50 50)" />
+                      <circle cx="50" cy="50" r="38" fill="none" stroke="#c4623c" stroke-width="12" pathLength="100" stroke-dasharray="13.29 86.71" stroke-dashoffset="-81.96" transform="rotate(-90 50 50)" />
+                      <circle cx="50" cy="50" r="38" fill="none" stroke="#5b4b9e" stroke-width="12" pathLength="100" stroke-dasharray="2.76 97.24" stroke-dashoffset="-96.25" transform="rotate(-90 50 50)" />
+                      <text x="50" y="54" text-anchor="middle">133</text>
+                    </svg>
+                    <span>Размещений</span>
+                  </div>
+                </div>
+              </div>
+              <div class="card-body">
+                <ul class="rows">
+                  <li>
+                    <button class="row">
+                      <span class="dorm-icon" data-tone="0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg></span>
+                      <span class="row-copy"><strong>Общежитие №1 «Северное»</strong><span>Проживают сейчас</span><span class="track"><i data-tone="0" style="width: 100%"></i></span></span>
+                      <span class="row-value">68</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button class="row">
+                      <span class="dorm-icon" data-tone="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg></span>
+                      <span class="row-copy"><strong>Общежитие №2 «Заводское»</strong><span>Проживают сейчас</span><span class="track"><i data-tone="1" style="width: 60%"></i></span></span>
+                      <span class="row-value">41</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button class="row">
+                      <span class="dorm-icon" data-tone="2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg></span>
+                      <span class="row-copy"><strong>Общежитие №3 «Восточное»</strong><span>Проживают сейчас</span><span class="track"><i data-tone="2" style="width: 28%"></i></span></span>
+                      <span class="row-value">19</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button class="row">
+                      <span class="dorm-icon" data-tone="3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg></span>
+                      <span class="row-copy"><strong>Общежитие №4 «Южное»</strong><span>Проживают сейчас · архив</span><span class="track"><i data-tone="3" style="width: 8%"></i></span></span>
+                      <span class="row-value">5</span>
+                    </button>
+                  </li>
+                </ul>
+                <div class="foot">
+                  <span>Показано 4 из 4<small>Человек может проживать в нескольких общежитиях.</small></span>
+                  <button class="list-link">Открыть список <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6" /></svg></button>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="type-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 6v6l4 2" /></svg>
+                  </span>
+                  <div>
+                    <h2>Заканчивается вахта</h2>
+                    <p>Все общежития · 5 дн.</p>
+                  </div>
+                  <button class="icon-btn" aria-label="Настроить блок «Заканчивается вахта»">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6M9 15v6" /></svg>
+                  </button>
+                </div>
+                <div class="visual">
+                  <button class="metric-big"><strong>0</strong><span>завершают вахту</span></button>
+                  <div class="chart-empty">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 6v6l4 2" /></svg>
+                    <span>Пока нет данных</span>
+                  </div>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="empty-block">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 6v6l4 2" /></svg>
+                  <strong>Нет сотрудников в выборке</strong>
+                  <p>По выбранным условиям сотрудников нет.</p>
+                </div>
+                <div class="foot">
+                  <span>Все записи в блоке</span>
+                  <button class="list-link">Открыть список <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6" /></svg></button>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="type-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3H4a1 1 0 0 0-1 1c0 9.4 7.6 17 17 17a1 1 0 0 0 1-1v-3l-5-2-2 2a14 14 0 0 1-7-7l2-2-2-5Z" /><path d="M15 3a6 6 0 0 1 6 6m-6-2a2 2 0 0 1 2 2" /></svg>
+                  </span>
+                  <div>
+                    <h2>Контакты сотрудников</h2>
+                    <p>Все общежития</p>
+                  </div>
+                  <button class="icon-btn" aria-label="Настроить блок «Контакты сотрудников»">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6M9 15v6" /></svg>
+                  </button>
+                </div>
+                <div class="visual">
+                  <button class="metric-big"><strong>131</strong><span>сотрудников в списке</span></button>
+                  <div class="chart-people">
+                    <div class="portraits" aria-hidden="true">
+                      <svg viewBox="0 0 200 200"><g fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M88 104 H112 V160 H88 Z" fill="#FBE3CE"/><circle cx="66" cy="78" r="6.5" fill="#FBE3CE"/><circle cx="134" cy="78" r="6.5" fill="#FBE3CE"/><ellipse cx="100" cy="78" rx="34" ry="38" fill="#FBE3CE"/><path d="M66 60 C63 65 63 69 65 72 L72 70 C69 66 69 63 71 59 Z" fill="#27313D"/><path d="M134 60 C137 65 137 69 135 72 L128 70 C131 66 131 63 129 59 Z" fill="#27313D"/><path d="M65 60 C62 36 78 24 100 24 C122 24 138 36 135 60 C120 68 80 68 65 60 Z" fill="#F2D793"/><ellipse cx="100" cy="63" rx="41" ry="7.5" fill="#FCEFC7"/><path d="M84 41 Q90 35 99 34" stroke-width="2.5"/><path d="M113 36 Q120 40 124 47" stroke-width="2.5"/><path d="M80 67 Q86 63 92 67"/><path d="M108 67 Q114 63 120 67"/><circle cx="86" cy="76" r="3.5" fill="#27313D"/><circle cx="114" cy="76" r="3.5" fill="#27313D"/><path d="M96 84 Q100 89 104 84"/><path d="M91 96 Q100 105 109 96"/><path d="M71 93 L68.5 97" stroke-width="2"/><path d="M76 101 L73.5 105" stroke-width="2"/><path d="M83 108 L81 112" stroke-width="2"/><path d="M129 93 L131.5 97" stroke-width="2"/><path d="M124 101 L126.5 105" stroke-width="2"/><path d="M117 108 L119 112" stroke-width="2"/><path d="M46 200 C46 160 66 138 88 138 C90 156 110 156 112 138 C134 138 154 160 154 200 Z" fill="#FBE0D2"/><path d="M80 142 C86 152 114 152 120 142 C126 146 129 154 127 161 C118 176 82 176 73 161 C71 154 74 146 80 142 Z" fill="#F5C0A4"/><path d="M100 176 V 200"/></g></svg>
+                      <svg viewBox="0 0 200 200"><g fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M88 104 H112 V166 H88 Z" fill="#FBE3CE"/><circle cx="66" cy="78" r="6.5" fill="#FBE3CE"/><circle cx="134" cy="78" r="6.5" fill="#FBE3CE"/><ellipse cx="100" cy="78" rx="34" ry="38" fill="#FBE3CE"/><path d="M67 68 C66 44 82 34 100 34 C118 34 134 44 133 68 C131 58 127 52 121 48 C111 56 89 58 79 52 C73 56 68 60 67 68 Z" fill="#27313D"/><path d="M80 67 Q86 63 92 67"/><path d="M108 67 Q114 63 120 67"/><circle cx="86" cy="76" r="3.5" fill="#27313D"/><circle cx="114" cy="76" r="3.5" fill="#27313D"/><path d="M96 84 Q100 89 104 84"/><path d="M87 94 C90 89 96 90 100 93 C104 90 110 89 113 94 C106 98 94 98 87 94 Z" fill="#27313D"/><path d="M92 102 Q100 108 108 102"/><path d="M48 200 C48 162 68 138 88 138 L100 158 L112 138 C132 138 152 162 152 200 Z" fill="#DCE9F7"/><path d="M87 140 L100 158 L80 156 Z" fill="#B7D3EC"/><path d="M113 140 L100 158 L120 156 Z" fill="#B7D3EC"/><rect x="62" y="168" width="20" height="20" rx="3" fill="#B7D3EC"/><path d="M62 174 H82"/></g></svg>
+                      <svg viewBox="0 0 200 200"><g fill="none" stroke="#27313D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M64 74 C58 44 78 32 100 32 C122 32 142 44 136 74 C138 92 137 102 134 108 C131 112 123 111 123 104 C127 94 128 84 127 74 C119 84 81 84 73 74 C72 84 73 94 77 104 C77 111 69 112 66 108 C63 102 62 92 64 74 Z" fill="#27313D"/><path d="M88 104 H112 V176 H88 Z" fill="#FBE3CE"/><circle cx="66" cy="78" r="6.5" fill="#FBE3CE"/><circle cx="134" cy="78" r="6.5" fill="#FBE3CE"/><ellipse cx="100" cy="78" rx="34" ry="38" fill="#FBE3CE"/><path d="M66 72 C64 44 80 34 100 34 C120 34 136 44 134 72 C130 60 125 54 119 50 C110 58 90 60 81 54 C74 58 68 63 66 72 Z" fill="#27313D"/><path d="M80 67 Q86 63 92 67"/><path d="M108 67 Q114 63 120 67"/><circle cx="86" cy="76" r="3.5" fill="#27313D"/><circle cx="114" cy="76" r="3.5" fill="#27313D"/><path d="M96 85 Q100 90 104 85"/><path d="M90 97 Q100 106 110 97"/><path d="M46 200 C46 162 66 138 86 138 L100 172 L114 138 C134 138 154 162 154 200 Z" fill="#DCEEE4"/><path d="M85 140 L100 172 L82 178 L64 154 Z" fill="#A9D6C1"/><path d="M115 140 L100 172 L118 178 L136 154 Z" fill="#A9D6C1"/><circle cx="86" cy="76" r="12.5"/><circle cx="114" cy="76" r="12.5"/><path d="M98.5 72 H101.5"/><path d="M73.5 74 L67 76"/><path d="M126.5 74 L133 76"/><circle cx="65" cy="90" r="3" fill="#F2D793"/><circle cx="135" cy="90" r="3" fill="#F2D793"/></g></svg>
+                    </div>
+                    <span>Контакты команды</span>
+                  </div>
+                </div>
+              </div>
+              <div class="card-body">
+                <ul class="rows">
+                  <li>
+                    <button class="row row--contacts">
+                      <span class="initials" data-tone="0" aria-hidden="true">АН</span>
+                      <span class="row-copy"><strong>Айдар Насыров</strong><span>Общежитие №1 «Северное» · Т/н 0142</span></span>
+                      <span class="row-value">+7 917 240-18-33</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button class="row row--contacts">
+                      <span class="initials" data-tone="1" aria-hidden="true">МС</span>
+                      <span class="row-copy"><strong>Марина Ситникова</strong><span>Общежитие №1 «Северное» · Т/н 0307</span></span>
+                      <span class="row-value">+7 927 115-62-04</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button class="row row--contacts">
+                      <span class="initials" data-tone="2" aria-hidden="true">РХ</span>
+                      <span class="row-copy"><strong>Ринат Хайруллин</strong><span>Общежитие №2 «Заводское» · Т/н 0088</span></span>
+                      <span class="row-value">+7 987 903-45-71</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button class="row row--contacts">
+                      <span class="initials" data-tone="0" aria-hidden="true">ОП</span>
+                      <span class="row-copy"><strong>Ольга Панкратова</strong><span>Общежитие №3 «Восточное» · Т/н 0514</span></span>
+                      <span class="row-value">Телефон не указан</span>
+                    </button>
+                  </li>
+                </ul>
+                <div class="foot">
+                  <span>Показано 4 из 131</span>
+                  <button class="list-link">Открыть список <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6" /></svg></button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <button class="add-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+            <span><strong>Добавить свой блок</strong><small>Список, контакты или отдельное общежитие</small></span>
+          </button>
+
+          <div class="section-foot">
+            <span>Сведения из таблиц общежитий · 26 нояб. 2026</span>
+            <span>Настройки рабочей поверхности сохраняются в аккаунте</span>
+          </div>
+        </div>
+        <p class="shot-note">
+          Опорный кадр: сюда должны попасть плейсхолдеры кадра 01 без сдвига сетки. Числа и порядок
+          блоков — те, что даёт рамка на боевом объёме: 4 874 сотрудника, 131 проживающий, 0
+          окончаний вахт, размещений 133 при 131 человеке (человек может жить в двух общежитиях).
+        </p>
+      </section>
+
+      <!-- Кадр 3 ------------------------------------------------------------------>
+      <section class="shot">
+        <p class="shot-cap"><span>03</span> Обновление: смена периода, возврат фокуса, минутный тик</p>
+        <div class="app">
+          <div class="head">
+            <div>
+              <span class="eyebrow">ЛЮДИ И ИХ ИСТОРИЯ</span>
+              <h1>Персонал <small>4 874</small></h1>
+              <p class="head-sub">Проживание, вахты и контакты — в одном месте.</p>
+            </div>
+            <div class="head-actions">
+              <p class="status status--busy"><i aria-hidden="true"></i>обновляем…</p>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                <button class="btn btn--outline">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6M9 15v6" /></svg>
+                  Настроить поверхность
+                </button>
+                <button class="btn btn--primary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                  Добавить блок
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="Раздел персонала">
+            <button role="tab" aria-selected="true">Рабочая поверхность</button>
+            <button role="tab" aria-selected="false">Сотрудники <b>4 874</b></button>
+            <button role="tab" aria-selected="false">План заездов</button>
+          </div>
+
+          <div class="toolbar">
+            <div class="fields">
+              <label class="field">Общежитие <select><option>Все общежития</option><option>Общежитие №1 «Северное»</option></select></label>
+              <label class="field"
+                >Период персонала
+                <span class="period"><input value="01 нояб. 2026" /><i>—</i><input value="30 нояб. 2026" /></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="metrics">
+            <button><i class="dot" aria-hidden="true"></i><strong>131</strong> Проживают сейчас</button>
+            <button>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 6v6l4 2" /></svg>
+              <strong>0</strong> Окончания вахт за период
+            </button>
+            <span class="block-count">4 / 20 блоков</span>
+          </div>
+
+          <div class="grid">
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="type-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="3" /><path d="M8 3v4m8-4v4M4 10h16m-12 4h2m4 0h2m-8 3h2" /></svg>
+                  </span>
+                  <div>
+                    <h2>План заездов</h2>
+                    <p>Все общежития · 7 дн.</p>
+                  </div>
+                  <button class="icon-btn" aria-label="Настроить блок «План заездов»">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6M9 15v6" /></svg>
+                  </button>
+                </div>
+                <div class="visual">
+                  <button class="metric-big"><strong>0</strong><span>человек ожидается</span></button>
+                  <div class="chart-empty">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="3" /><path d="M8 3v4m8-4v4M4 10h16m-12 4h2m4 0h2m-8 3h2" /></svg>
+                    <span>Пока нет данных</span>
+                  </div>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="empty-block">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="16" rx="3" /><path d="M8 3v4m8-4v4M4 10h16m-12 4h2m4 0h2m-8 3h2" /></svg>
+                  <strong>Пока нет заездов</strong>
+                  <p>На выбранный период планов нет.</p>
+                </div>
+                <div class="foot">
+                  <span>Все записи в блоке</span>
+                  <button class="list-link">Открыть план заездов <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6" /></svg></button>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="type-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg>
+                  </span>
+                  <div>
+                    <h2>Проживающий персонал</h2>
+                    <p>Все общежития</p>
+                  </div>
+                  <button class="icon-btn" aria-label="Настроить блок «Проживающий персонал»">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6M9 15v6" /></svg>
+                  </button>
+                </div>
+                <div class="visual">
+                  <button class="metric-big"><strong>131</strong><span>проживают сейчас</span></button>
+                  <div class="ring-wrap">
+                    <svg viewBox="0 0 100 100" role="img" aria-label="Размещения по общежитиям: Общежитие №1 — 68; Общежитие №2 — 41; Общежитие №3 — 19; Общежитие №4 — 5">
+                      <circle cx="50" cy="50" r="38" fill="none" stroke="#2f7d62" stroke-width="12" pathLength="100" stroke-dasharray="50.13 49.87" stroke-dashoffset="0" transform="rotate(-90 50 50)" />
+                      <circle cx="50" cy="50" r="38" fill="none" stroke="#34679e" stroke-width="12" pathLength="100" stroke-dasharray="29.83 70.17" stroke-dashoffset="-51.13" transform="rotate(-90 50 50)" />
+                      <circle cx="50" cy="50" r="38" fill="none" stroke="#c4623c" stroke-width="12" pathLength="100" stroke-dasharray="13.29 86.71" stroke-dashoffset="-81.96" transform="rotate(-90 50 50)" />
+                      <circle cx="50" cy="50" r="38" fill="none" stroke="#5b4b9e" stroke-width="12" pathLength="100" stroke-dasharray="2.76 97.24" stroke-dashoffset="-96.25" transform="rotate(-90 50 50)" />
+                      <text x="50" y="54" text-anchor="middle">133</text>
+                    </svg>
+                    <span>Размещений</span>
+                  </div>
+                </div>
+              </div>
+              <div class="card-body">
+                <ul class="rows">
+                  <li>
+                    <button class="row">
+                      <span class="dorm-icon" data-tone="0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg></span>
+                      <span class="row-copy"><strong>Общежитие №1 «Северное»</strong><span>Проживают сейчас</span><span class="track"><i data-tone="0" style="width: 100%"></i></span></span>
+                      <span class="row-value">68</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button class="row">
+                      <span class="dorm-icon" data-tone="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg></span>
+                      <span class="row-copy"><strong>Общежитие №2 «Заводское»</strong><span>Проживают сейчас</span><span class="track"><i data-tone="1" style="width: 60%"></i></span></span>
+                      <span class="row-value">41</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button class="row">
+                      <span class="dorm-icon" data-tone="2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg></span>
+                      <span class="row-copy"><strong>Общежитие №3 «Восточное»</strong><span>Проживают сейчас</span><span class="track"><i data-tone="2" style="width: 28%"></i></span></span>
+                      <span class="row-value">19</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button class="row">
+                      <span class="dorm-icon" data-tone="3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg></span>
+                      <span class="row-copy"><strong>Общежитие №4 «Южное»</strong><span>Проживают сейчас · архив</span><span class="track"><i data-tone="3" style="width: 8%"></i></span></span>
+                      <span class="row-value">5</span>
+                    </button>
+                  </li>
+                </ul>
+                <div class="foot">
+                  <span>Показано 4 из 4<small>Человек может проживать в нескольких общежитиях.</small></span>
+                  <button class="list-link">Открыть список <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6" /></svg></button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div class="section-foot">
+            <span>Сведения из таблиц общежитий · 26 нояб. 2026</span>
+            <span>Обновляем данные — показаны результаты запроса в 12:47</span>
+          </div>
+        </div>
+        <p class="shot-note">
+          Единственное отличие от кадра 02 — строка статуса в шапке: точка, «обновляем…». Блоки, числа и
+          сетка остаются как были, скелет не возвращается, ничего не тускнеет. Так выглядят смена
+          периода, смена общежития, возврат фокуса и минутный тик — на каждый из них уходит ровно один
+          запрос.
+        </p>
+      </section>
+
+      <!-- Кадр 4 ------------------------------------------------------------------>
+      <section class="shot">
+        <p class="shot-cap"><span>04</span> Ошибка: рамка не пришла, данных ещё нет</p>
+        <div class="app">
+          <div class="head">
+            <div>
+              <span class="eyebrow">ЛЮДИ И ИХ ИСТОРИЯ</span>
+              <h1>Персонал</h1>
+              <p class="head-sub">Проживание, вахты и контакты — в одном месте.</p>
+            </div>
+            <div class="head-actions">
+              <button class="btn btn--primary" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                Добавить блок
+              </button>
+            </div>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="Раздел персонала">
+            <button role="tab" aria-selected="true">Рабочая поверхность</button>
+            <button role="tab" aria-selected="false">Сотрудники</button>
+            <button role="tab" aria-selected="false">План заездов</button>
+          </div>
+
+          <div class="grid">
+            <div class="card alert-state">
+              <h2>Не удалось загрузить персонал</h2>
+              <p>
+                Сервер не ответил за 30 секунд. Таблицы общежитий при этом не изменились — просто
+                запросите рамку ещё раз.
+              </p>
+              <p>Последняя удачная загрузка: сегодня в 12:44.</p>
+              <button class="btn btn--primary">Повторить</button>
+            </div>
+          </div>
+
+          <div class="section-foot">
+            <span>Сведения из таблиц общежитий · нет данных</span>
+            <span>Повторный запрос уйдёт один раз, второй не запускается</span>
+          </div>
+        </div>
+        <p class="shot-note">
+          Пока рамки нет, показывать нечего, поэтому сетка блоков заменяется одним сообщением в тех же
+          габаритах. Заголовок, вкладки и фильтры остаются: они не зависят от рамки. Кнопка одна —
+          «Повторить»; повторное нажатие во время запроса её блокирует, чтобы не ушёл второй запрос.
+        </p>
+      </section>
+
+      <!-- Кадр 5 ------------------------------------------------------------------>
+      <section class="shot">
+        <p class="shot-cap"><span>05</span> Пусто: в общежитиях ещё нет людей</p>
+        <div class="app">
+          <div class="head">
+            <div>
+              <span class="eyebrow">ЛЮДИ И ИХ ИСТОРИЯ</span>
+              <h1>Персонал <small>0</small></h1>
+              <p class="head-sub">Проживание, вахты и контакты — в одном месте.</p>
+            </div>
+            <div class="head-actions">
+              <p class="status"><i aria-hidden="true"></i>обновлено в 12:47</p>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                <button class="btn btn--outline">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6M9 15v6" /></svg>
+                  Настроить поверхность
+                </button>
+                <button class="btn btn--primary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                  Добавить блок
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="Раздел персонала">
+            <button role="tab" aria-selected="true">Рабочая поверхность</button>
+            <button role="tab" aria-selected="false">Сотрудники <b>0</b></button>
+            <button role="tab" aria-selected="false">План заездов</button>
+          </div>
+
+          <p class="notice">
+            Сначала <a href="#">создайте общежитие</a>, затем добавьте сотрудника в его таблицу.
+          </p>
+
+          <div class="metrics">
+            <button><i class="dot" aria-hidden="true"></i><strong>0</strong> Проживают сейчас</button>
+            <button>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 6v6l4 2" /></svg>
+              <strong>0</strong> Окончания вахт за период
+            </button>
+            <span class="block-count">4 / 20 блоков</span>
+          </div>
+
+          <div class="grid">
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="type-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg>
+                  </span>
+                  <div>
+                    <h2>Проживающий персонал</h2>
+                    <p>Все общежития</p>
+                  </div>
+                </div>
+                <div class="visual">
+                  <button class="metric-big"><strong>0</strong><span>проживают сейчас</span></button>
+                  <div class="chart-empty">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg>
+                    <span>Пока нет данных</span>
+                  </div>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="empty-block">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7M5 9v12h14V9M10 21v-7h4v7M8 10h1m6 0h1" /></svg>
+                  <strong>Нет общежитий в выборке</strong>
+                  <p>По выбранным условиям сотрудников нет.</p>
+                </div>
+                <div class="foot">
+                  <span>Все записи в блоке</span>
+                  <button class="list-link">Открыть список <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6" /></svg></button>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card-intro">
+                <div class="card-head">
+                  <span class="type-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3H4a1 1 0 0 0-1 1c0 9.4 7.6 17 17 17a1 1 0 0 0 1-1v-3l-5-2-2 2a14 14 0 0 1-7-7l2-2-2-5Z" /><path d="M15 3a6 6 0 0 1 6 6m-6-2a2 2 0 0 1 2 2" /></svg>
+                  </span>
+                  <div>
+                    <h2>Контакты сотрудников</h2>
+                    <p>Все общежития</p>
+                  </div>
+                </div>
+                <div class="visual">
+                  <button class="metric-big"><strong>0</strong><span>сотрудников в списке</span></button>
+                  <div class="chart-empty">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3H4a1 1 0 0 0-1 1c0 9.4 7.6 17 17 17a1 1 0 0 0 1-1v-3l-5-2-2 2a14 14 0 0 1-7-7l2-2-2-5Z" /></svg>
+                    <span>Пока нет данных</span>
+                  </div>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="empty-block">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3H4a1 1 0 0 0-1 1c0 9.4 7.6 17 17 17a1 1 0 0 0 1-1v-3l-5-2-2 2a14 14 0 0 1-7-7l2-2-2-5Z" /></svg>
+                  <strong>Нет сотрудников в выборке</strong>
+                  <p>По выбранным условиям сотрудников нет.</p>
+                </div>
+                <div class="foot">
+                  <span>Все записи в блоке</span>
+                  <button class="list-link">Открыть список <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16m-6-6 6 6-6 6" /></svg></button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div class="section-foot">
+            <span>Сведения из таблиц общежитий · 26 нояб. 2026</span>
+            <span>Настройки рабочей поверхности сохраняются в аккаунте</span>
+          </div>
+        </div>
+        <p class="shot-note">
+          Пустой экран — приглашение к действию, а не настроение: подсказка ведёт в общежития, а блоки
+          честно говорят, чего в них нет. Тот же экран появляется, когда рамка пришла с нулём, — макет
+          не придумывает отдельного «нет данных».
+        </p>
+      </section>
+
+      <!-- Образцы состояний ------------------------------------------------------->
+      <section class="shot">
+        <p class="shot-cap"><span>06</span> Образцы: строка статуса и ошибка при уже загруженных данных</p>
+        <div class="specimens">
+          <div class="spec">
+            <h3>Строка статуса, три состояния</h3>
+            <div class="spec-stack">
+              <p class="status"><i aria-hidden="true"></i>обновлено в 12:47</p>
+              <p class="status status--busy"><i aria-hidden="true"></i>обновляем…</p>
+              <p class="status status--fail"><i aria-hidden="true"></i>не удалось обновить · данные от 12:44</p>
+            </div>
+            <p>
+              Живёт в шапке справа от заголовка, над кнопками. Никогда не занимает отдельную строку и не
+              сдвигает вкладки. «Повторить» появляется только в третьем состоянии.
+            </p>
+            <p class="spec-code">.status · .status--busy · .status--fail</p>
+          </div>
+
+          <div class="spec">
+            <h3>Ошибка обновления при живых данных</h3>
+            <div class="spec-stack">
+              <div class="alert-line">
+                <p>Не удалось обновить: сервер не ответил. Показаны данные от 12:44.</p>
+                <button type="button">Повторить</button>
+              </div>
+              <p class="status status--fail"><i aria-hidden="true"></i>не удалось обновить · данные от 12:44</p>
+            </div>
+            <p>
+              Плашка встаёт над сеткой блоков, числа и карточки остаются. Один и тот же текст стоит и в
+              шапке — человек видит его, даже если сетка длинная и плашка ушла за экран.
+            </p>
+            <p class="spec-code">.alert-line + .status--fail</p>
+          </div>
+
+          <div class="spec">
+            <h3>Повтор не плодит запросы</h3>
+            <div class="spec-stack">
+              <button class="btn btn--primary" disabled>Запрашиваем…</button>
+              <button class="btn btn--outline" disabled>Повторить</button>
+            </div>
+            <p>
+              Пока «Повторить» ждёт ответа, кнопка показывает, что запрос уже ушёл, и не принимает второе
+              нажатие. Тот же вид — у смены периода: старые числа на месте, статус говорит «обновляем…».
+            </p>
+            <p class="spec-code">.btn:disabled</p>
+          </div>
+        </div>
+        <p class="shot-note">
+          Главное, что просит тикет от интерфейса: одно открытие — один запрос. Визуально это значит, что
+          у обновления нет собственного «экрана загрузки»: есть статус в шапке, и он же единственный
+          признак того, что запрос идёт.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
