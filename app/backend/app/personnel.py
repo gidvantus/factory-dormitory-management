@@ -896,11 +896,16 @@ def employee_cards(db: Session, context: WorkspaceContext) -> list[dict[str, Any
         # Журнал раньше читался построчно: по строке на каждое событие человека.
         # Здесь из SQL приходят только различные пары «человек — общежитие», а
         # множество людей и их общежития собираются из них (#251).
-        for employee_id, dormitory_id in db.execute(
-            select(EmployeeEvent.employee_id, EmployeeEvent.dormitory_id)
-            .where(EmployeeEvent.dormitory_id.in_(context.dormitory_ids))
-            .distinct()
-        ):
+        events = select(EmployeeEvent.employee_id, EmployeeEvent.dormitory_id).where(
+            EmployeeEvent.dormitory_id.in_(context.dormitory_ids)
+        )
+        if group is not None:
+            # Ограниченный контекст (страница, превью блоков) собирает карточки
+            # только отобранных групп. Читаем журнал по всем их участникам, а не
+            # по одним корням: у присоединённого участника может быть единственное
+            # событие, на котором держится карточка группы (#261).
+            events = events.where(EmployeeEvent.employee_id.in_(group))
+        for employee_id, dormitory_id in db.execute(events.distinct()):
             root = context.roots[employee_id]
             history_ids.add(root)
             if dormitory_id:

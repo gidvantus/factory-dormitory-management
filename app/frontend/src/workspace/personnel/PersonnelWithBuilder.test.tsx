@@ -58,7 +58,9 @@ beforeEach(() => {
       }
     },
   );
-  vi.spyOn(personnelApi, 'workspace').mockResolvedValue(seedData());
+  // Рамка приходит без карточек, как и просит страница (`employees=none`).
+  vi.spyOn(personnelApi, 'workspace').mockResolvedValue({ ...seedData(), employees: [] });
+  vi.spyOn(personnelApi, 'cards').mockResolvedValue({ employees: seedData().employees });
   vi.spyOn(personnelBuilderApi, 'read').mockResolvedValue(saved());
   vi.spyOn(personnelBuilderApi, 'sources').mockResolvedValue({ sources: [], templates: [] });
   vi.spyOn(personnelBuilderApi, 'save').mockImplementation(async (document) => ({
@@ -110,6 +112,9 @@ describe('Рабочий конструктор организации', () => {
     const view = open();
     await screen.findByRole('table', { name: 'Рабочая таблица' });
     await waitFor(() => expect(amount()).toBe('3200'));
+    // Карточки конструктора приходят точечной ручкой, а не полной поверхностью (#261).
+    expect(personnelApi.cards).toHaveBeenCalled();
+    expect(personnelApi.workspace).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('tab', { name: 'Учёт работы' })).not.toBeInTheDocument();
     expect(storage.mock.calls.some(([key]) => key.startsWith('domovoy-personnel'))).toBe(false);
     await editHours('9');
@@ -122,6 +127,16 @@ describe('Рабочий конструктор организации', () => {
       expect(screen.getByText('Изменения конструктора сохранены.')).toBeInTheDocument(),
     );
     view.unmount();
+  });
+  it('не перезапрашивает карточки конструктора при возврате на свою подвкладку', async () => {
+    const user = userEvent.setup();
+    open();
+    await screen.findByRole('table', { name: 'Рабочая таблица' });
+    await waitFor(() => expect(personnelApi.cards).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('tab', { name: 'Рабочая поверхность' }));
+    await user.click(screen.getByRole('tab', { name: 'Рабочая таблица' }));
+    await screen.findByRole('table', { name: 'Рабочая таблица' });
+    await waitFor(() => expect(personnelApi.cards).toHaveBeenCalledTimes(1));
   });
   it('берёт результаты с сервера, включая ошибки, вместо демонстрационного движка', async () => {
     vi.mocked(personnelBuilderApi.evaluate).mockResolvedValue({

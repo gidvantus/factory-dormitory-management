@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.custom_tab import CustomTabEntry
 from app.models.personnel import Employee, EmployeeMerge, EmployeePlan
 from app.models.resident import Resident
 from app.personnel import event, today
@@ -124,6 +125,49 @@ def test_profile_returns_one_scoped_card_by_id_or_exact_name(
     create(client, dorm, fields={**FIELDS, "phone": None, "personnel_number": None})
     assert client.post(lookup, json=name).status_code == 409
     assert client.post(lookup, json={"full_name": "Семёнов"}).status_code == 404
+
+
+def test_all_cards_and_employee_by_source_avoid_the_full_workspace(
+    client: TestClient, db_session: Session
+) -> None:
+    """Конструктор и ячейка таблицы не тянут полный ответ поверхности (#261)."""
+    sign_in(client, db_session)
+    dorm = create_dormitory(client)
+    created = create(client, dorm)
+    cards = client.get(f"{API}/cards")
+    assert cards.status_code == 200, cards.text
+    body = cards.json()
+    assert set(body) == {"employees"}
+    [card] = body["employees"]
+    assert card["id"] == created["employee_id"]
+    assert card["sources"][0]["row_id"] == created["row_id"]
+
+    route = f"{API}/employees/by-source"
+    params = {"dormitory_id": dorm, "table_key": "residents", "row_id": created["row_id"]}
+    response = client.get(route, params=params)
+    assert response.status_code == 200, response.text
+    assert response.json() == {"employee_id": created["employee_id"]}
+    assert client.get(route, params={**params, "row_id": 999999}).status_code == 404
+    other = create_dormitory(client, "Другое общежитие")
+    assert client.get(route, params={**params, "dormitory_id": other}).status_code == 404
+
+    # Ячейка пользовательской вкладки ищет карточку по `custom_<tab_id>`.
+    item = tab(client, dorm)
+    base, _table = create_table(client, dorm, item)
+    custom_row = client.post(base + "/rows").json()
+    entry = db_session.get(CustomTabEntry, custom_row["id"])
+    assert entry is not None
+    entry.employee_id = created["employee_id"]
+    db_session.commit()
+    custom = {"dormitory_id": dorm, "table_key": item["table_key"], "row_id": custom_row["id"]}
+    found = client.get(route, params=custom)
+    assert found.status_code == 200, found.text
+    assert found.json() == {"employee_id": created["employee_id"]}
+    foreign_tab = tab(client, dorm, "Другая")
+    assert (
+        client.get(route, params={**custom, "table_key": foreign_tab["table_key"]}).status_code
+        == 404
+    )
 
 
 def test_tasks_are_removed_and_employee_notes_remain(

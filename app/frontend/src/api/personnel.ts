@@ -305,6 +305,32 @@ export const personnelApi = {
     const search = params.toString();
     return request(`/personnel${search ? `?${search}` : ''}`, { signal });
   },
+  /**
+   * Все карточки сотрудников для конструктора подвкладок (#261). Конструктор
+   * считает формулы по всему реестру, поэтому ему нужен каждый человек, но не
+   * остальная поверхность: она приходит из `workspace({ employees: 'none' })`.
+   */
+  cards: (signal?: AbortSignal): Promise<{ employees: Employee[] }> =>
+    request('/personnel/cards', { signal }),
+  /**
+   * Корень карточки, к которой привязана строка-источник (#261). Нужен, когда
+   * сохранение ячейки создало карточку, не вернув её `id`: полный реестр за этим
+   * не запрашивается.
+   */
+  employeeBySource: (
+    dormitoryId: number,
+    tableKey: SourceTable,
+    rowId: number,
+    signal?: AbortSignal,
+  ): Promise<{ employee_id: string }> =>
+    request(
+      `/personnel/employees/by-source?${new URLSearchParams({
+        dormitory_id: String(dormitoryId),
+        table_key: tableKey,
+        row_id: String(rowId),
+      })}`,
+      { signal },
+    ),
   /** Страница сотрудников с серверной фильтрацией и сортировкой (#247). */
   employees: (query: EmployeeListQuery, signal?: AbortSignal): Promise<EmployeePage> => {
     const params = new URLSearchParams({

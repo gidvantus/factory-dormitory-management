@@ -122,6 +122,7 @@ function fixtures(
     preferences: { revision: 0, blocks: [], lists: [] },
   };
   vi.spyOn(personnelApi, 'workspace').mockResolvedValue(data);
+  vi.spyOn(personnelApi, 'employeeBySource').mockResolvedValue({ employee_id: 'person' });
   vi.spyOn(personnelApi, 'profile').mockResolvedValue({
     employee,
     dormitories: data.dormitories,
@@ -221,6 +222,21 @@ it('находит карточку по исходной строке, если
   await user.click(await screen.findByRole('link', { name: identity.full_name }));
   expect(await screen.findByTestId('personnel-profile')).toBeInTheDocument();
   expect(screen.queryByTestId('personnel-identity')).not.toBeInTheDocument();
+  // Точечный поиск по строке-источнику вместо полного реестра карточек (#261).
+  expect(personnelApi.employeeBySource).toHaveBeenCalledWith(7, 'custom_9', 20);
+  expect(personnelApi.workspace).not.toHaveBeenCalled();
+});
+
+it('предлагает связать строку, если точечный поиск карточки вернул 404', async () => {
+  fixtures('custom_9', { unlinked: true });
+  vi.mocked(personnelApi.employeeBySource).mockRejectedValue(
+    new ApiError(404, 'Запись не связана с карточкой сотрудника'),
+  );
+  renderTable('custom_9');
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('link', { name: identity.full_name }));
+  expect(await screen.findByTestId('personnel-identity')).toBeInTheDocument();
+  expect(personnelApi.workspace).not.toHaveBeenCalled();
 });
 
 it('не теряет черновик имени в пользовательской таблице после ошибки сохранения', async () => {
